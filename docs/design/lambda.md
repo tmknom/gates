@@ -168,7 +168,7 @@ Owner ID、Scope / 権限、Owner 名の照合（手順 3）を Installation の
 - Header と Payload を Base64URL（padding なし）で結合し、署名入力を SHA-256 でハッシュする。
 - AWS KMS `Sign` に `SigningAlgorithm=RSASSA_PKCS1_V1_5_SHA_256`、`MessageType=DIGEST`、計算済みダイジェストを渡す。二重ハッシュをしない。
 - 署名結果を Base64URL で連結し、内部 GitHub App JWT を作成する。
-- Lambda が保持するのは GitHub App の識別子、KMS Key ARN、必要な設定だけであり、秘密鍵の平文は受け取らない。KMS Key の設定は Terraform、鍵素材インポートは独立した運用手順で行い、実行時の責務外とする。
+- Lambda が保持するのは GitHub App の Client ID、KMS Key ARN、必要な設定だけであり、秘密鍵の平文は受け取らない。KMS Key の設定は Terraform、鍵素材インポートは独立した運用手順で行い、実行時の責務外とする。
 
 ### 7.3 GitHub Client
 

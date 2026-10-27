@@ -1,4 +1,4 @@
-# AWS Infrastructure
+# AWS Infrastructure Design
 
 ## 1. Scope and Responsibility
 
@@ -77,7 +77,7 @@ KMS Key の `key_spec` は、RSA_2048 / RSA_3072 / RSA_4096 のうち GitHub App
 - 既存の KMS Key の置換・削除を避けるため `prevent_destroy` を設定する。`prevent_destroy` は鍵の削除・置換を含む Plan をエラーで拒否するが、リソースの設定自体を取り除いた場合の削除は防がない。Plan に鍵削除が現れた場合は適用を中止して確認する。
 - インポートした非対称 KMS Key の鍵素材は別の鍵素材に交換できない。更新時は新しい KMS Key を追加し、Lambda が参照する Key ARN を切り替える。
 
-Terraform への入力には、Key ID / ARN、GitHub App の識別子、Organization 名と不変 Owner ID、GATES 用 Audience などの非秘密値を使用できます。GitHub App の Private Key は一切渡しません。
+Terraform への入力には、Key ID / ARN、GitHub App の Client ID、Organization 名と不変 Owner ID、GATES 用 Audience などの非秘密値を使用できます。GitHub App の Private Key は一切渡しません。
 
 ## 5. Lambda Deployment and Operation
 
@@ -90,7 +90,7 @@ Lambda の設定では次を扱います。
 | ネットワーク | 利用者管理 VPC に接続せず、GitHub API と OIDC JWKS への HTTPS 通信を確保 |
 | タイムアウト・メモリ | JWT 検証と GitHub API / KMS の外部呼び出しに必要な処理時間・メモリを確保 |
 | 同時実行数 | Reserved Concurrency による実行数の上限を設定可能とする |
-| 環境変数 | GitHub App の識別子、Organization 名と不変 Owner ID、GATES 用 Audience、KMS Key ARN などの非秘密設定。実行時の要求からは変更できない |
+| 環境変数 | GitHub App の Client ID、Organization 名と不変 Owner ID、GATES 用 Audience、KMS Key ARN などの非秘密設定。実行時の要求からは変更できない |
 | 監査ログ | ログ保持期間、アクセス権限、相関 ID、非秘密の認証・発行結果 |
 
 ## 6. Traceability
