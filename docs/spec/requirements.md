@@ -104,7 +104,7 @@ Installation が全リポジトリを対象にするか、選択したリポジ�
 | FR-021 | 認証済み Caller（Owner ID と Repository ID）、要求対象、要求権限、結果、相関 ID を資格情報を含めず監査可能にする。 |
 | FR-022 | AWS リソースの設定と変更を Terraform で管理する。秘密鍵素材の取得・変換・インポートは Terraform 管理外とする。 |
 | FR-023 | 新しい鍵への切り替えでは KMS Key の意図しない置換・削除を防ぐ。 |
-| FR-024 | 許可 Organization（不変 Owner ID で指定）、GitHub App、Installation、署名に用いる KMS Key は、GATES 運用者が管理するデプロイ時の設定として固定する。実行時に外部入力から変更できない。 |
+| FR-024 | 許可 Organization（不変 Owner ID で指定）、GitHub App、署名に用いる KMS Key は、GATES 運用者が管理するデプロイ時の設定として固定する。Installation は、固定した GitHub App と許可 Organization から一意に導出する。これらは実行時に外部入力から変更できない。 |
 | FR-025 | GATES の呼び出し口は、AWS IAM で許可された主体だけが呼び出せるものとし、認証なしでインターネットに公開された呼び出し口を設けない。IAM で許可する主体は、FR-005 の不変 Owner ID で特定した許可 Organization の GitHub Actions ワークフローに限る。許可されていない主体の呼び出しは、関数が実行される前に拒否される。 |
 
 ## 6. Quality and Security Requirements
@@ -150,6 +150,6 @@ Installation が全リポジトリを対象にするか、選択したリポジ�
 | AC-21 | 秘密鍵を独立した運用で KMS にインポートし、インポート前のコピーを削除する | Terraform の State / Plan / リポジトリに鍵素材を残さず、KMS 署名が成立する。インポート前のコピーが運用者の手元に残っていない | FR-013, FR-022, FR-023, QR-006 |
 | AC-22 | GitHub Secrets、Actions Runner、Lambda の設定と実行環境を確認 | GitHub App Private Key の平文が、いずれにも存在しない | QR-001 |
 | AC-23 | GATES の認証・発行方式の内部実装を変更 | 利用者のワークフロー定義を変更せずに、AC-15 の条件でトークンを取得できる | QR-005 |
-| AC-24 | 実行時の要求やワークフロー側の入力で、許可 Organization・GitHub App・Installation・KMS Key を指定しようとする | 指定を受け付けず、デプロイ時の設定が使われる | FR-009, FR-024 |
+| AC-24 | 実行時の要求やワークフロー側の入力で、許可 Organization・GitHub App・Installation・KMS Key を指定しようとする | 指定を受け付けず、デプロイ時の設定と、そこから導出した Installation が使われる | FR-009, FR-024 |
 | AC-25 | AWS の認証情報を持たない、または Invoke を許可されていない主体が Lambda を呼び出す | 関数の実行前に拒否される | FR-025 |
 | AC-26 | 呼び出し元を名前だけで特定する形式のトークンを持つワークフローが、IAM ロールの引き受けを試みる | 引き受けが拒否され、Lambda は呼び出されない | FR-005 |
