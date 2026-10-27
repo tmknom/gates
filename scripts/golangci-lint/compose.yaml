@@ -1,0 +1,53 @@
+# golangci-lint を隔離して実行するサービス定義
+#
+# 環境変数は Makefile が設定する。
+#   LINT_MODULE      lint する Go モジュールのディレクトリの絶対パス
+#   LINT_GOMODCACHE  ホストのモジュールキャッシュの絶対パス（go env GOMODCACHE）
+
+name: wisdom-golangci-lint
+
+services:
+  lint:
+    image: docker.io/golangci/golangci-lint:v2.14.0@sha256:ad862ba6b3798cbe0fd9fd7408d498fd74fbd2623a92406b2fd3898faf0bf98f
+    pull_policy: missing
+    user: "65534:65534"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=1g
+    network_mode: none
+    mem_limit: 2g
+    memswap_limit: 2g
+    pids_limit: 256
+    cpus: 2
+    init: true
+    working_dir: /src
+    environment:
+      HOME: /tmp
+      GOCACHE: /tmp/go-build
+      GOLANGCI_LINT_CACHE: /tmp/golangci-lint
+      GOMODCACHE: /gomodcache
+      GOFLAGS: -mod=readonly
+      GOPROXY: "off"
+      GOTOOLCHAIN: local
+      CGO_ENABLED: "0"
+    volumes:
+      - type: bind
+        source: ${LINT_MODULE:?LINT_MODULE is required}
+        target: /src
+        read_only: true
+      - type: bind
+        source: ${LINT_GOMODCACHE:?LINT_GOMODCACHE is required}
+        target: /gomodcache
+        read_only: true
+      - type: bind
+        source: ./.golangci.yml
+        target: /config/.golangci.yml
+        read_only: true
+    command:
+      - golangci-lint
+      - run
+      - --config=/config/.golangci.yml
+      - --timeout=5m
+      - ./...

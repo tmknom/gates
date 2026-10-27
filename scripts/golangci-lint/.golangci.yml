@@ -1,0 +1,174 @@
+version: "2"
+
+# 既定の cfg では設定ファイルのある /config が基準になり、パスが ../src/ で始まるため、go.mod のあるモジュールのルートを基準にする
+run:
+  relative-path-mode: gomod
+
+linters:
+  default: none
+  enable:
+    - bodyclose
+    - contextcheck
+    - depguard
+    - durationcheck
+    - errcheck
+    - errorlint
+    - exhaustive
+    - exptostd
+    - fatcontext
+    - forbidigo
+    - gocheckcompilerdirectives
+    - gochecknoinits
+    - gochecksumtype
+    - gocritic
+    - gosec
+    - govet
+    - ineffassign
+    - iotamixing
+    - makezero
+    - modernize
+    - nilerr
+    - nilnesserr
+    - nilnil
+    - noctx
+    - nolintlint
+    - nosprintfhostport
+    - reassign
+    - revive
+    - rowserrcheck
+    - sloglint
+    - spancheck
+    - sqlclosecheck
+    - staticcheck
+    - testableexamples
+    - unparam
+    - unused
+    - usetesting
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - unparam
+        text: always receives
+      - path: ^main\.go$
+        linters:
+          - forbidigo
+      - path: ^cmd/
+        linters:
+          - forbidigo
+        text: "use of `(time\\.(Now|Since|Until)|os\\.(Getenv|LookupEnv|Environ))`"
+      - path: _test\.go
+        linters:
+          - forbidigo
+        text: "use of `time\\.(Now|Since|Until)`"
+  settings:
+    depguard:
+      rules:
+        archived:
+          list-mode: lax
+          deny:
+            - pkg: gopkg.in/yaml.v3
+              desc: archived; use go.yaml.in/yaml/v3
+        cli-outside-cmd:
+          list-mode: lax
+          files:
+            - "!${base-path}/cmd/**"
+          deny:
+            - pkg: github.com/spf13/cobra
+              desc: only cmd defines commands and flags
+            - pkg: github.com/spf13/pflag
+              desc: only cmd defines commands and flags
+        cmd-from-internal:
+          list-mode: lax
+          files:
+            - "${base-path}/internal/**"
+          deny:
+            - pkg: github.com/tmknom/template-go/cmd
+              desc: internal must not depend on cmd
+        internal-from-main:
+          list-mode: lax
+          files:
+            - "${base-path}/main.go"
+          deny:
+            - pkg: github.com/tmknom/template-go/internal
+              desc: main only calls cmd.Execute
+    exhaustive:
+      default-signifies-exhaustive: true
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: ^os\.(Exit|Args|Stdin|Stdout|Stderr|Getwd)$
+        - pattern: ^log\.(Fatal|Fatalf|Fatalln)$
+        - pattern: ^time\.(Now|Since|Until)$
+        - pattern: ^os\.(Getenv|LookupEnv|Environ)$
+        - pattern: ^slog\.(SetDefault|Default|With|Log|LogAttrs|Debug|Info|Warn|Error|DebugContext|InfoContext|WarnContext|ErrorContext)$
+    gocritic:
+      disable-all: true
+      enabled-checks:
+        - appendAssign
+        - argOrder
+        - badCall
+        - badCond
+        - caseOrder
+        - codegenComment
+        - deprecatedComment
+        - dupArg
+        - dupBranchBody
+        - dupCase
+        - dupSubExpr
+        - exitAfterDefer
+        - flagDeref
+        - flagName
+        - mapKey
+        - offBy1
+        - sloppyLen
+        - sloppyTypeAssert
+    gosec:
+      excludes:
+        - G115
+        - G301
+        - G302
+        - G304
+        - G306
+        - G602
+    govet:
+      disable-all: true
+      enable:
+        - deepequalerrors
+        - inline
+        - nilness
+        - reflectvaluecompare
+        - unusedwrite
+    nolintlint:
+      allow-unused: false
+      require-explanation: true
+      require-specific: true
+    reassign:
+      patterns:
+        - ".*"
+    revive:
+      rules:
+        - name: context-as-argument
+        - name: defer
+          arguments:
+            - - recover
+              - immediate-recover
+        - name: exported
+          arguments:
+            - disable-checks-on-constants
+        - name: forbidden-call-in-wg-go
+        - name: time-date
+        - name: time-equal
+    sloglint:
+      no-mixed-args: false
+    staticcheck:
+      checks:
+        - "SA*"
+        - ST1003
+        - ST1005
+        - ST1018
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  uniq-by-line: false
