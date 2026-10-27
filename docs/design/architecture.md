@@ -39,7 +39,7 @@ Composite Action は AWS 一時認証情報を使用し、AWS Lambda Invoke API 
 
 | コンポーネント | 主な役割 | 主な入出力 |
 |---|---|---|
-| GitHub Actions / Composite Action | 利用者の要求を受け付け、OIDC JWT の取得、AWS 認証、Lambda Invoke、発行結果の受け取りを行う | 対象リポジトリ・権限 → GitHub OIDC JWT、AWS 一時認証情報、Installation Access Token |
+| GitHub Actions / Composite Action | 利用者の要求を受け付け、OIDC JWT の取得、AWS 認証、Lambda Invoke、発行結果の受け取りを行う | 対象リポジトリ・権限・接続情報 → GitHub OIDC JWT、AWS 一時認証情報、Installation Access Token |
 | GitHub OIDC Provider | GitHub Actions の実行文脈を表す OIDC JWT を発行し、検証用の公開鍵情報を提供する | Audience → OIDC JWT、Discovery / JWKS |
 | AWS STS | AWS 向け GitHub OIDC JWT を受け、Lambda 呼び出しに使う AWS 一時認証情報を発行する | OIDC JWT → AWS 一時認証情報 |
 | AWS Lambda / Go アプリケーション | GATES 用 OIDC JWT と要求を受け、Caller の識別、対象と権限の確認、GitHub App Token の発行を行う | Invoke Payload → 発行結果またはエラー |
@@ -53,6 +53,7 @@ Lambda 内の認証・認可・署名処理は [Lambda Design](lambda.md)、Comp
 | 情報 | 生成元 | 主な利用先・目的 |
 |---|---|---|
 | 対象リポジトリと要求権限 | ワークフロー利用者 | Composite Action から Lambda へ渡す発行要求 |
+| 接続情報（IAM Role ARN、Lambda 関数名、AWS リージョン、GATES 用 Audience） | GATES 運用者が GitHub の Organization 単位の Secrets / Variables に用意 | Composite Action が AWS STS、Lambda Invoke、GATES 用 OIDC JWT の取得に使う |
 | AWS 用 GitHub OIDC JWT | GitHub OIDC Provider | AWS STS での一時認証情報の取得。Audience は `sts.amazonaws.com` |
 | AWS 一時認証情報 | AWS STS | Composite Action から Lambda Invoke を認証付きで実行 |
 | GATES 用 GitHub OIDC JWT | GitHub OIDC Provider | Lambda 内で Caller と実行文脈を確認。GATES 用 Audience を使用 |

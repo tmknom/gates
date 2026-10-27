@@ -48,9 +48,9 @@ Installation が全リポジトリを対象にするか、選択したリポジ�
 
 | 主体 | 必要とすること | 責任 |
 |---|---|---|
-| ワークフロー利用者 | 必要なリポジトリと権限を指定するだけでトークンを取得できる | Composite Action を呼び出すワークフローで `permissions: id-token: write` を宣言する。Composite Action に対象リポジトリと権限を渡す。取得したトークンを自身のワークフロー内で適切に扱う。 |
+| ワークフロー利用者 | 必要なリポジトリと権限を指定し、運用者が用意した接続情報を参照するだけでトークンを取得できる | Composite Action を呼び出すワークフローで `permissions: id-token: write` を宣言する。Composite Action に対象リポジトリと権限、および GATES 運用者が提供する接続情報を渡す。取得したトークンを自身のワークフロー内で適切に扱う。 |
 | GitHub App / Organization 管理者 | GATES を通じて読み取られ得るリポジトリを Installation の対象で管理できる | GitHub App の Installation の対象を管理する。 |
-| GATES 運用者 | 秘密鍵・認可・最小権限の発行を少ない構成要素で保守できる | 認証、認可、トークン発行、秘密鍵の保護、監査を担う。GATES の呼び出しに使う IAM ロールを引き受けられる主体の条件（信頼ポリシー）を管理する。Composite Action を提供し、そのインターフェースを維持する。 |
+| GATES 運用者 | 秘密鍵・認可・最小権限の発行を少ない構成要素で保守できる | 認証、認可、トークン発行、秘密鍵の保護、監査を担う。GATES の呼び出しに使う IAM ロールを引き受けられる主体の条件（信頼ポリシー）を管理する。Composite Action を提供し、そのインターフェースを維持する。Composite Action に渡す接続情報（IAM ロール、Lambda 関数、AWS リージョン、GATES 用 Audience）を、ワークフローから参照できるよう GitHub 側に用意する。 |
 
 ## 4. Use Cases
 
@@ -141,7 +141,7 @@ Installation が全リポジトリを対象にするか、選択したリポジ�
 | AC-12 | GitHub API の発行応答が対象・権限（FR-018 の除外対象を除く）の範囲外、不変 Owner ID 不一致、必要な対象一覧の欠落、または不整合 | トークンを返さない | FR-010, FR-018 |
 | AC-13 | OIDC 公開鍵・KMS・GitHub API の取得・通信障害 | Fail Closed。資格情報を露出しない | QR-003 |
 | AC-14 | GitHub App Private Key の更新と GitHub 側の旧鍵失効 | 更新後も署名と発行が成立 | FR-013, FR-017 |
-| AC-15 | 利用者が `id-token: write` を宣言し、Composite Action に対象と権限だけを渡す | 他の手順や設定なしでトークンを取得できる | FR-019 |
+| AC-15 | 利用者が `id-token: write` を宣言し、Composite Action に対象と権限、および運用者が提供する接続情報だけを渡す | 他の手順や設定なしでトークンを取得できる | FR-019 |
 | AC-16 | Composite Action が発行処理のエラーを受け取る | エラー終了し、JWT・トークンをログへ出さない | FR-019, QR-004 |
 | AC-17 | 入力不正、認証失敗、認可拒否、外部 API・KMS 障害をそれぞれ発生させる | 種別ごとに区別したエラーを返す | FR-020 |
 | AC-18 | 発行の成功と、認証後の拒否（認可拒否、発行結果の検証失敗など）をそれぞれ実行する | 監査記録に Caller（Owner ID と Repository ID）、対象、権限、結果、相関 ID が残り、資格情報を含まない | FR-021 |

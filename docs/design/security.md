@@ -1,4 +1,4 @@
-# Security
+# Security Design
 
 ## 1. Security Model
 

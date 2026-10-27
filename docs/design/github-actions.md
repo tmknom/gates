@@ -1,10 +1,10 @@
-# GitHub Actions
+# GitHub Actions Design
 
 ## 1. Responsibility
 
 Composite Action は、GitHub Actions の利用者にトークン取得手段を提供します。AWS 用 GitHub OIDC JWT による一時認証情報の取得、GATES 用 OIDC JWT の取得、Lambda の同期 Invoke、応答の処理と同一ジョブ内の後続ステップへのトークン出力を担当します。発行許可の判定は Lambda 側が行います。
 
-Composite Action は GATES 運用者が提供し、利用者向けの安定した境界とします。利用者に求めるのは、ワークフローでの `permissions: id-token: write` の宣言と、対象リポジトリおよび権限の指定だけです。
+Composite Action は GATES 運用者が提供し、利用者向けの安定した境界とします。利用者に求めるのは、ワークフローでの `permissions: id-token: write` の宣言、対象リポジトリおよび権限の指定、運用者が用意した接続情報の参照だけです。
 
 IAM Role と Lambda の AWS リソース設定は [AWS Infrastructure Design](aws-infrastructure.md) に記述します。Lambda Invoke の Payload、応答、エラーコードは [Lambda Design](lambda.md) を正本とします。
 
@@ -16,8 +16,25 @@ IAM Role と Lambda の AWS リソース設定は [AWS Infrastructure Design](aw
 |---|---|---|
 | `repositories` | はい | カンマ区切りの `owner/repo` リスト |
 | `permissions` | はい | カンマ区切りの `permission:level`。値は `contents:read` |
+| `role-arn` | はい | 引き受ける IAM Role の ARN |
+| `function-name` | はい | 呼び出す Lambda の関数名 |
+| `aws-region` | はい | IAM Role と Lambda を置く AWS リージョン |
+| `audience` | はい | GATES 用 OIDC JWT の Audience |
 
-引き受ける IAM Role ARN、Lambda 関数名、AWS リージョン、GATES 用 Audience は利用者の入力にせず、GATES 運用者が Composite Action の中に固定します。GATES は単一の Organization に対する単一のデプロイであり、利用者が呼び出し先を選ぶ場面はないためです。固定することで、利用者の作業を対象と権限の指定だけにとどめ、呼び出し先の差し替えを Composite Action の更新に一本化できます。`scope` も入力にせず、Lambda Payload に固定値 `repository` を設定します。
+`role-arn`、`function-name`、`aws-region`、`audience` を **接続情報** と呼びます。接続情報は Composite Action の中に固定せず、入力として受け取ります。Composite Action の定義にデプロイ固有の値を持たせないためです。`scope` は入力にせず、Lambda Payload に固定値 `repository` を設定します。
+
+接続情報は GATES 運用者が GitHub の Organization 単位の Secrets と Variables に用意し、ワークフローはそれを参照します。AWS アカウント ID は Secrets に置き、その他の値は Variables に置きます。ワークフローに値を直接書かず参照だけにするのは、Role 名や関数名を変えたときに、Organization の設定の更新だけで済ませ、利用者のワークフロー定義を変えずに済ませるためです（[Requirements](../spec/requirements.md) AC-23）。
+
+| Input | 参照する値の例 |
+|---|---|
+| `role-arn` | `arn:aws:iam::${{ secrets.GATES_AWS_ACCOUNT_ID }}:role/${{ vars.GATES_ROLE_NAME }}` |
+| `function-name` | `${{ vars.GATES_FUNCTION_NAME }}` |
+| `aws-region` | `${{ vars.GATES_AWS_REGION }}` |
+| `audience` | `${{ vars.GATES_AUDIENCE }}` |
+
+`function-name` には ARN ではなく関数名を渡します。関数名は引き受けた IAM Role と同じアカウントの関数として解決されるため、AWS アカウント ID を含めずに済みます。
+
+接続情報を利用者が入力しても、発行範囲は広がりません。IAM Role の引き受けは Trust Policy が不変 Owner ID 入りの `sub` で制限し、引き受けた Role に許可されるのは GATES 用 Lambda の Invoke だけです（[AWS Infrastructure Design](aws-infrastructure.md#31-github-actions-iam-role)）。Audience は Lambda が GATES 用の値との完全一致を検証します（[Lambda Design](lambda.md#71-oidc-validation)）。別の値を渡した要求は、いずれかの境界で失敗します。
 
 | Output | 意味 |
 |---|---|
@@ -40,8 +57,8 @@ with:
 
 ## 3. Processing Flow
 
-1. `aws-actions/configure-aws-credentials` を用い、固定した IAM Role とリージョンで AWS STS の一時認証情報を取得する。
-2. GitHub が OIDC JWT の取得用に提供する環境変数を利用して、GATES 用 Audience の JWT を取得する。
+1. `aws-actions/configure-aws-credentials` を用い、入力の `role-arn` と `aws-region` で AWS STS の一時認証情報を取得する。
+2. GitHub が OIDC JWT の取得用に提供する環境変数を利用して、入力の `audience` を Audience とする JWT を取得する。
 3. `umask 077` を適用し、アクセスを制限した一時ディレクトリ内に、GATES 用 OIDC JWT を含むリクエストファイルと Installation Access Token を受け取るレスポンスファイルを用意する。正常終了・異常終了のいずれでも一時ファイルを削除する後処理を設定する。
 4. リクエスト JSON を作成し、AWS CLI `lambda invoke` を同期実行する。リクエストは `--payload fileb://...` で渡し、レスポンス本文は AWS CLI の必須出力ファイルへ保存する。CLI の標準出力に返る呼び出しメタデータは、トークンを含むレスポンス本文とは区別する。
 5. AWS CLI の終了コード、同期 Invoke の `StatusCode`、`FunctionError` の有無、レスポンス JSON の `ok` を確認する。成功時だけ取得したトークンを GitHub Actions のマスク対象に登録し、トークン、有効期限、対象、実効権限を内部ステップの `GITHUB_OUTPUT` へ書き込む。レスポンスの `repositories` 配列と `permissions` オブジェクトは入力と同じカンマ区切りへ変換する。トークン本体を通常出力しない。
@@ -71,6 +88,10 @@ jobs:
         with:
           repositories: example-org/repo-a,example-org/repo-b
           permissions: contents:read
+          role-arn: arn:aws:iam::${{ secrets.GATES_AWS_ACCOUNT_ID }}:role/${{ vars.GATES_ROLE_NAME }}
+          function-name: ${{ vars.GATES_FUNCTION_NAME }}
+          aws-region: ${{ vars.GATES_AWS_REGION }}
+          audience: ${{ vars.GATES_AUDIENCE }}
 
       - name: Access repository
         env:
