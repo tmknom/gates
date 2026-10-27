@@ -6,29 +6,14 @@
 # Variables: Go
 MODULE := $(shell go list -m)
 DIST_DIR := dist
-VERSION = $(shell \git describe --tags --always --dirty)
-COMMIT = $(shell \git rev-parse --short HEAD)
-LDFLAGS ?= "-X main.version=$(VERSION) -X main.commit=$(COMMIT)"
 # main.go は起動だけのため、カバレッジの計測から外す
 COVER_EXCLUDE := /main\.go:
 
 # Targets: Go
 .PHONY: all
-all: fmt goimports tidy vet test cover build run ## format, tidy, vet, test, cover and build
+all: fmt goimports tidy vet test cover ## format, tidy, vet, test and cover
 	@echo "NEXT STEP: Run 'make vuln' to check known vulnerabilities."
 	@echo "NEXT STEP: Run 'make lint' to run golangci-lint in a container."
-
-.PHONY: build
-build: ## build executable binary
-	go build -ldflags=$(LDFLAGS) -o $(DIST_DIR)/$(REPO_NAME) .
-
-.PHONY: install
-install: ## install executable binary
-	go install -ldflags=$(LDFLAGS) .
-
-.PHONY: run
-run: build ## run command
-	$(DIST_DIR)/$(REPO_NAME) --help
 
 .PHONY: fmt
 fmt: ## format code
@@ -82,7 +67,3 @@ lint-gha: lint/workflow lint/yaml ## Lint workflow files and YAML files
 
 .PHONY: fmt-gha
 fmt-gha: fmt/yaml ## Format YAML files
-
-# Targets: Release
-.PHONY: release
-release: release/run ## Start release process

@@ -53,10 +53,6 @@ linters:
       - path: ^main\.go$
         linters:
           - forbidigo
-      - path: ^cmd/
-        linters:
-          - forbidigo
-        text: "use of `(time\\.(Now|Since|Until)|os\\.(Getenv|LookupEnv|Environ))`"
       - path: _test\.go
         linters:
           - forbidigo
@@ -69,29 +65,6 @@ linters:
           deny:
             - pkg: gopkg.in/yaml.v3
               desc: archived; use go.yaml.in/yaml/v3
-        cli-outside-cmd:
-          list-mode: lax
-          files:
-            - "!${base-path}/cmd/**"
-          deny:
-            - pkg: github.com/spf13/cobra
-              desc: only cmd defines commands and flags
-            - pkg: github.com/spf13/pflag
-              desc: only cmd defines commands and flags
-        cmd-from-internal:
-          list-mode: lax
-          files:
-            - "${base-path}/internal/**"
-          deny:
-            - pkg: github.com/tmknom/template-go/cmd
-              desc: internal must not depend on cmd
-        internal-from-main:
-          list-mode: lax
-          files:
-            - "${base-path}/main.go"
-          deny:
-            - pkg: github.com/tmknom/template-go/internal
-              desc: main only calls cmd.Execute
     exhaustive:
       default-signifies-exhaustive: true
     forbidigo:
