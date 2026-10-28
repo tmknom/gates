@@ -48,7 +48,10 @@ AWS 一時認証情報と GATES 用 OIDC JWT が同じジョブで取得され�
 
 Caller の `repository_id` は監査のための識別に用い、認可条件には含めません。
 
-条件 4 の Scope と Permission Map は、形式が正しければ JWT 検証後に認可条件として判定し、許可外なら認可拒否として扱います。入力検証で先に落とさないのは、`contents:write` のような許可外の要求を、認証済み Caller とともに監査記録に残すためです。
+条件 4 の Scope と Permission Map は、形式が正しければ JWT 検証後に認可条件として判定し、許可外なら認可拒否として扱います。
+入力検証で先に落とさないのは、`contents:write` のような許可外の要求を、認証済み Caller とともに監査記録に残すためです。
+入力検証が入力不正にするのは、欠落や空の Permission Map のように、要求した Scope や権限を読み取れない形に限ります。
+どの形をどちらに分けるかは [Lambda Design](lambda.md#22-validation) に記述します。
 
 これらの条件を確認した後、Installation ID、要求したリポジトリ名、権限を含む `TokenGrant` を生成します。Installation に対象リポジトリが含まれることと、発行結果が Grant に一致することは、GitHub API の応答を受けてから確認します。一部だけで発行することや権限を暗黙に広げることは禁止します。
 
