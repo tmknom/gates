@@ -27,7 +27,7 @@ IAM Role と Lambda の AWS リソース設定は [AWS Infrastructure Design](aw
 | `aws-region` | はい | IAM Role と Lambda を置く AWS リージョン |
 | `audience` | はい | GATES 用 OIDC JWT の Audience |
 
-`role-arn`、`function-name`、`aws-region`、`audience` を **接続情報** と呼びます。接続情報は Composite Action の中に固定せず、入力として受け取ります。Composite Action の定義にデプロイ固有の値を持たせないためです。`scope` は入力にせず、Lambda Payload に固定値 `repository` を設定します。
+`role-arn`、`function-name`、`aws-region`、`audience` を **接続情報** と呼びます。接続情報は Composite Action の中に固定せず、入力として受け取ります。Composite Action の定義にデプロイ固有の値を持たせないためです。`repository_selection` は入力にせず、Lambda Payload に固定値 `selected` を設定します。GATES は対象を明示した要求だけを受け付けるためです。
 
 接続情報は GATES 運用者が GitHub の Secrets と Variables に用意し、ワークフローはそれを参照します。AWS アカウント ID は Secrets に置き、その他の値は Variables に置きます。ワークフローに値を直接書かず参照だけにするのは、Role 名や関数名を変えたときに、Secrets と Variables の更新だけで済ませ、利用者のワークフロー定義を変えずに済ませるためです（[Requirements](../spec/requirements.md) AC-23）。
 
@@ -72,7 +72,7 @@ with:
 2. GitHub が OIDC JWT の取得用に提供する環境変数を利用して、入力の `audience` を Audience とする JWT を取得する。
 3. `umask 077` を適用し、アクセスを制限した一時ディレクトリ内に、GATES 用 OIDC JWT を含むリクエストファイルと Installation Access Token を受け取るレスポンスファイルを用意する。正常終了・異常終了のいずれでも一時ファイルを削除する後処理を設定する。
 4. リクエスト JSON を作成し、AWS CLI `lambda invoke` を同期実行する。リクエストは `--payload fileb://...` で渡し、レスポンス本文は AWS CLI の必須出力ファイルへ保存する。CLI の標準出力に返る呼び出しメタデータは、トークンを含むレスポンス本文とは区別する。
-5. AWS CLI の終了コード、同期 Invoke の `StatusCode`、`FunctionError` の有無、レスポンス JSON の `ok` を確認する。成功時だけ取得したトークンを GitHub Actions のマスク対象に登録し、トークン、有効期限、対象、実効権限を内部ステップの `GITHUB_OUTPUT` へ書き込む。レスポンスの `repositories` 配列と `permissions` オブジェクトは入力と同じカンマ区切りへ変換する。トークン本体を通常出力しない。
+5. AWS CLI の終了コード、同期 Invoke の `StatusCode`、`FunctionError` の有無、レスポンス JSON の `ok` を確認する。成功時だけ取得したトークンを GitHub Actions のマスク対象に登録し、トークン、有効期限、対象、実効権限を内部ステップの `GITHUB_OUTPUT` へ書き込む。応答のトップレベルの `request_id` は資格情報ではないため、成功・失敗のどちらでもログに出力し、利用者が GATES の監査記録と突き合わせられるようにする。`FunctionError` があり応答に `request_id` がない場合は、その旨と Invoke の時刻をログに出力する。運用者はこの時刻と `run_id` で Lambda のログと突き合わせる。レスポンスの `repositories` 配列と `permissions` オブジェクトは入力と同じカンマ区切りへ変換する。トークン本体を通常出力しない。
 6. 後処理で入出力の一時ファイルを削除する。`set -x`、AWS CLI の `--debug`、`--log-type Tail` を利用しない。
 
 Composite Action は入力値を [Lambda Request](lambda.md#2-request) に従って変換し、[Lambda Responses](lambda.md#3-responses) に従って結果を判定します。`ok` が `false` のときはエラーコードを利用者に示してエラー終了し、GATES 用 OIDC JWT、AWS 一時認証情報、発行されたトークンをログへ出しません。一時ファイルの削除は処理後の残留リスクを減らす対策であり、ランナーで動作する信頼できないコードから資格情報を保護するものではありません。

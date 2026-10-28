@@ -19,7 +19,7 @@ Terraform の State / Plan、Git、CI の成果物、Lambda の環境変数に G
 | KMS Key | GitHub App Private Key（RSA）の鍵素材を外部からインポートするための署名鍵のメタデータを管理 | `origin=EXTERNAL`、`key_usage=SIGN_VERIFY`、実鍵長に一致する `key_spec=RSA_*`。インポート処理は Terraform の対象外 |
 | KMS Key Policy | 鍵の管理・利用主体を制限 | 署名権限と鍵管理権限を分離。Lambda 実行 Role に署名権限のみ許可し、鍵の管理権限は運用者の管理主体に残す |
 | KMS Alias（任意） | 運用者が署名鍵を識別するための補助 | Lambda と IAM は明示的な Key ARN を使用する。Alias を追加しても署名鍵は自動切り替えしない |
-| CloudWatch Logs | Lambda の実行結果と監査情報を保管 | 保持期間とアクセス制限を設定。JWT、App JWT、Installation Token、AWS 一時認証情報は記録しない |
+| CloudWatch Logs | Lambda の実行結果と監査情報を保管 | 保持期間とアクセス制限を設定。JWT、App JWT、Installation Access Token、AWS 一時認証情報は記録しない |
 
 GitHub App の作成とインストール対象は GitHub 側で管理し、Terraform は AWS リソースの構成を管理します。
 
