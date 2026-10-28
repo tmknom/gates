@@ -39,10 +39,10 @@ Lambda Invoke には HTTP の `Authorization` ヘッダーに相当するアプ�
 | `repositories` | 必須、重複のない 1 件以上の `owner/repo` の配列。GitHub API の上限は 500 件だが、実効上限は Payload サイズで決まる |
 | `permissions` | 必須、値は **`{"contents":"read"}`**。形式が不正なら入力不正、形式が正しく値が許可条件と異なれば認可拒否 |
 
-- 対象は同一 Organization に属し、GATES で利用する同一の GitHub App Installation に含まれる必要がある。
+- 対象は同一 Owner に属し、GATES で利用する同一の GitHub App Installation に含まれる必要がある。
 - Caller / Owner / Installation ID と GitHub API Host を利用者から指定させない。
 - 複数対象のうち一つでも許可条件を満たさなければ全件を拒否し、部分成功も自動分割もしない。
-- GitHub API に渡す際は `owner/repo` を一度だけ `/` で分割し、Owner が許可 Organization に一致することを確認して、リポジトリ名の部分だけを `repositories` に指定する。要求時の `owner/repo` は応答の `full_name` と照合するため保持する。
+- GitHub API に渡す際は `owner/repo` を一度だけ `/` で分割し、Owner 名が許可 Owner 名に一致することを確認して、リポジトリ名の部分だけを `repositories` に指定する。要求時の `owner/repo` は応答の `full_name` と照合するため保持する。
 - 各リポジトリに同じ Permission Map を適用する。別の権限を必要とする場合は個別に要求する。
 - Lambda が返すトークンの対象は要求したリポジトリのみであり、App にインストール済みのすべてのリポジトリを意味しない。
 
@@ -50,7 +50,7 @@ Lambda Invoke には HTTP の `Authorization` ヘッダーに相当するアプ�
 
 Handler は入力型、未知フィールド、リストの重複、空値、`scope` と Permission Map の形式、サイズを検証します。形式検証は要求が整っているかだけを判定し、要求した Scope と権限が許可条件に一致するかは JWT 検証後に Authorization が判定します。この順序の理由は [Security Design](security.md#31-authorization-rule) に記述します。
 
-各 `owner/repo` は Owner とリポジトリ名の 2 要素に分割し、許可 Organization の Owner 名と照合します。名前の比較と重複判定は大文字小文字を区別せずに行います。入力文字列のリポジトリ名だけから所有権を判断せず、要求元の Organization は検証済み JWT に基づいて決定します。
+各 `owner/repo` は Owner とリポジトリ名の 2 要素に分割し、許可 Owner 名と照合します。名前の比較と重複判定は大文字小文字を区別せずに行います。入力文字列のリポジトリ名だけから所有権を判断せず、要求元の Owner は検証済み JWT に基づいて決定します。
 
 ## 3. Responses
 
@@ -93,7 +93,7 @@ GitHub API の応答が検証条件に適合しない場合は `issuance_verific
 |---|---|
 | `invalid_request` | JSON、必須フィールド、未知フィールド、Scope / Permission Map の形式が不正 |
 | `invalid_identity_token` | GitHub OIDC JWT が不正、期限切れ、必須 Claim の欠落・不整合 |
-| `authorization_denied` | Caller の Owner ID が許可 Organization と不一致、要求した Scope / 権限が許可条件外、または要求リポジトリが許可 Organization / Installation の範囲外 |
+| `authorization_denied` | Caller の Owner ID が許可 Owner と不一致、要求した Scope / 権限が許可条件外、または要求リポジトリが許可 Owner / Installation の範囲外 |
 | `identity_verification_unavailable` | OIDC Discovery / JWKS 等の検証に失敗 |
 | `signing_unavailable` | KMS 署名に失敗 |
 | `token_issuance_failed` | GitHub API との通信、または発行要求が失敗 |
@@ -133,7 +133,7 @@ flowchart LR
 |---|---|---|
 | Caller | `repository_owner_id`、`repository_id`、`ref`、`event_name`、必要な Workflow 情報 | 認証済み JWT からのみ構築。不変 ID が `sub` と整合 |
 | TokenRequest | `repositories[]`、`permissions{}` | 対象と権限を明示。`repository` スコープ、`contents:read` を要求 |
-| Installation | Installation ID、`account.id` | App JWT で取得した許可 Organization の Installation。`account.id` が固定 Owner ID と一致 |
+| Installation | Installation ID、`account.id` | App JWT で取得した許可 Owner の Installation。`account.id` が固定 Owner ID と一致 |
 | TokenGrant | Installation ID、`repositories[]`、`permissions{}` | JWT・Installation・固定許可範囲を確認した発行前の認可結果。対象名と権限を GitHub API に明示 |
 | RepositoryIdentity | ID、Owner ID、完全名 | 発行応答で得た実効対象。Owner と名称を要求に照合し、ID の有効性・一意性を確認する |
 | InstallationToken | トークン、有効期限、対象、実効権限 | GitHub 応答を Grant と照合し、過大・不明な場合は返却禁止 |
@@ -144,8 +144,8 @@ flowchart LR
 
 1. Handler が Payload サイズ、JSON 型、未知フィールド、必須値、Scope と Permission Map の形式を検証し、資格情報をログに残さない。
 2. OIDC Verifier が固定 Issuer / JWKS と GATES 用 Audience で JWT を検証し、`repository_owner_id` と `repository_id` の Claim、および不変 ID 入り `sub` との一致から Caller を確定する。
-3. Authorization が Caller の Owner ID を固定した許可 Owner ID と照合し、Scope が `repository`、Permission Map が `contents:read` のみであることを確認し、要求された各 `owner/repo` の Owner 名を固定 Organization 名と照合する。不一致なら外部呼び出しに進まず拒否する。
-4. Token Issuer が KMS Signer で GitHub App JWT を生成し、GitHub Client で許可 Organization の Installation を取得する。
+3. Authorization が Caller の Owner ID を固定した許可 Owner ID と照合し、Scope が `repository`、Permission Map が `contents:read` のみであることを確認し、要求された各 `owner/repo` の Owner 名を固定した許可 Owner 名と照合する。不一致なら外部呼び出しに進まず拒否する。
+4. Token Issuer が KMS Signer で GitHub App JWT を生成し、GitHub Client で許可 Owner の Installation を取得する。
 5. Authorization が Installation の `account.id` を固定 Owner ID と照合し、Installation ID、要求対象名、固定 Permission から TokenGrant を確定する。
 6. Token Issuer が Grant の各 `owner/repo` から Owner を除いたリポジトリ名の配列と `permissions` を GitHub API に明示してトークンを取得する。GitHub 応答の `full_name` は Grant の元の `owner/repo` と全件照合し、Owner ID、Repository ID の有効性・一意性、実効権限が許可範囲内であることを確認する。必要な一覧・権限の欠落や不一致があれば `issuance_verification_failed` として返却しない。
 7. Handler が必要最小限の成功応答を返す。いずれかに失敗した場合は安全なエラーコードと相関 ID を返し、トークンは返さない。
@@ -172,8 +172,9 @@ Owner ID、Scope / 権限、Owner 名の照合（手順 3）を Installation の
 
 ### 7.3 GitHub Client
 
-- App JWT で `GET /orgs/{org}/installation` を呼び出し、Installation ID と `account.id` を取得する。トークン発行には `POST /app/installations/{installation_id}/access_tokens` を使用する。
-- GATES の要求は `owner/repo` 形式とする。GitHub のトークン発行 API の `repositories` はリポジトリ名だけを受け取るため、許可 Organization に一致する Owner を確認してリポジトリ名の配列へ変換する。変換前の完全名と API 応答の `full_name` を照合する。
+- App JWT で許可 Owner の Installation を取得し、Installation ID と `account.id` を得る。取得に使うエンドポイントは、デプロイ時に固定した Owner の種別で選ぶ。Organization なら `GET /orgs/{org}/installation`、ユーザーアカウントなら `GET /users/{username}/installation` を呼び出す。トークン発行には `POST /app/installations/{installation_id}/access_tokens` を使用する。
+- `GET /repos/{owner}/{repo}/installation` はどちらの種別にも使えるが、採用しない。要求されたリポジトリから Installation を引くことになり、固定した設定から Installation を導出する [Requirements](../spec/requirements.md) FR-024 から外れるためである。
+- GATES の要求は `owner/repo` 形式とする。GitHub のトークン発行 API の `repositories` はリポジトリ名だけを受け取るため、Owner 名が許可 Owner 名に一致することを確認してリポジトリ名の配列へ変換する。変換前の完全名と API 応答の `full_name` を照合する。
 - GitHub API に変換後の `repositories` と `permissions` を必ず指定する。応答照合の期待値と欠落時の扱いは本書の [Responses](#3-responses) を正本とし、実 API で確認する。
 - API Host、API バージョン、HTTP Header は信頼済み設定で固定する。タイムアウト・レスポンスサイズ上限を設け、API エラー本文に含まれる資格情報をログへ転記しない。
 

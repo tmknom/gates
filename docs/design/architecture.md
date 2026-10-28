@@ -4,7 +4,7 @@
 
 GATES（GitHub App Token Exchange System）は、GitHub Actions から指定したリポジトリを読み取るために、短命な GitHub App Installation Access Token を発行するシステムです。利用者は Composite Action を通じてアクセス先リポジトリと `contents:read` 権限を指定します。Lambda は要求を処理し、対象を限定したトークンを GitHub Actions に返します。
 
-システムは GitHub.com の単一 Organization を対象とし、AWS Lambda 上の Go アプリケーション、AWS STS、AWS KMS、および GitHub API によって構成します。GitHub App Private Key を Lambda や Actions Runner に渡さず、署名操作を KMS に委譲します。
+システムは GitHub.com の単一の Owner（Organization またはユーザーアカウント）を対象とし、AWS Lambda 上の Go アプリケーション、AWS STS、AWS KMS、および GitHub API によって構成します。GitHub App Private Key を Lambda や Actions Runner に渡さず、署名操作を KMS に委譲します。
 
 ## 2. System Context
 
@@ -44,7 +44,7 @@ Composite Action は AWS 一時認証情報を使用し、AWS Lambda Invoke API 
 | AWS STS | AWS 向け GitHub OIDC JWT を受け、Lambda 呼び出しに使う AWS 一時認証情報を発行する | OIDC JWT → AWS 一時認証情報 |
 | AWS Lambda / Go アプリケーション | GATES 用 OIDC JWT と要求を受け、Caller の識別、対象と権限の確認、GitHub App Token の発行を行う | Invoke Payload → 発行結果またはエラー |
 | AWS KMS | インポート済み GitHub App Private Key による署名を実行する | 署名対象のダイジェスト → 署名 |
-| GitHub API | GitHub App の Organization Installation を返し、指定した対象・権限で Installation Access Token を発行する | GitHub App JWT、対象・権限 → Installation 情報、Installation Access Token |
+| GitHub API | GitHub App の Owner に対する Installation を返し、指定した対象・権限で Installation Access Token を発行する | GitHub App JWT、対象・権限 → Installation 情報、Installation Access Token |
 
 Lambda 内の認証・認可・署名処理は [Lambda Design](lambda.md)、Composite Action の設計は [GitHub Actions Design](github-actions.md) に記述します。IAM、Lambda、KMS の AWS リソース設定は [AWS Infrastructure Design](aws-infrastructure.md) に記述します。
 
@@ -53,7 +53,7 @@ Lambda 内の認証・認可・署名処理は [Lambda Design](lambda.md)、Comp
 | 情報 | 生成元 | 主な利用先・目的 |
 |---|---|---|
 | 対象リポジトリと要求権限 | ワークフロー利用者 | Composite Action から Lambda へ渡す発行要求 |
-| 接続情報（IAM Role ARN、Lambda 関数名、AWS リージョン、GATES 用 Audience） | GATES 運用者が GitHub の Organization 単位の Secrets / Variables に用意 | Composite Action が AWS STS、Lambda Invoke、GATES 用 OIDC JWT の取得に使う |
+| 接続情報（IAM Role ARN、Lambda 関数名、AWS リージョン、GATES 用 Audience） | GATES 運用者が GitHub の Secrets / Variables に用意（置く単位は [GitHub Actions Design](github-actions.md#21-inputs-and-outputs)） | Composite Action が AWS STS、Lambda Invoke、GATES 用 OIDC JWT の取得に使う |
 | AWS 用 GitHub OIDC JWT | GitHub OIDC Provider | AWS STS での一時認証情報の取得。Audience は `sts.amazonaws.com` |
 | AWS 一時認証情報 | AWS STS | Composite Action から Lambda Invoke を認証付きで実行 |
 | GATES 用 GitHub OIDC JWT | GitHub OIDC Provider | Lambda 内で Caller と実行文脈を確認。GATES 用 Audience を使用 |
@@ -85,7 +85,7 @@ sequenceDiagram
   Note over L: JWT 検証、Caller と要求対象・権限の認可
   L->>K: GitHub App JWT の署名を要求
   K-->>L: 署名
-  L->>G: App JWT で Organization Installation を取得
+  L->>G: App JWT で許可 Owner の Installation を取得
   G-->>L: Installation 情報
   Note over L: Installation の account.id を照合し、発行範囲を確定
   L->>G: App JWT で対象と権限を指定して Token 発行
