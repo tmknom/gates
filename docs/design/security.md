@@ -4,7 +4,7 @@
 
 本システムでは、AWS IAM による Lambda Invoke の入口制御と、Lambda 内で検証した GitHub OIDC JWT に基づくトークン発行認可を分離します。GitHub App Private Key は AWS KMS に置き、Lambda は署名操作を KMS に依頼します。発行する Installation Access Token は、要求されたリポジトリと `contents:read` に限定します。
 
-コンポーネントの全体構成、JWT の生成元、正常系の処理順序は [System Architecture](architecture.md) に記述します。本書は各境界が保証する内容と、認可・資格情報保護・拒否条件を定義します。
+コンポーネントの全体構成、JWT の生成元、正常系の処理順序は [System Architecture](architecture.md) に記述します。本ドキュメントは各境界が保証する内容と、認可・資格情報保護・拒否条件を定義します。
 
 ## 2. Trust Boundaries
 
@@ -40,20 +40,29 @@ AWS 一時認証情報と GATES 用 OIDC JWT が同じジョブで取得され�
 ### 3.1 Authorization Rule
 
 リポジトリへの発行は、次の条件がすべて成立した場合だけ許可します。
+いずれかが成立しなければ、認可拒否（[Lambda Design](lambda.md#32-failure) の `authorization_denied`）として扱います。
 
 1. 検証済み Caller の `repository_owner_id` が許可 Owner の不変 Owner ID と一致する。Owner 名の一致では代用しない。
 2. 要求した各 `owner/repo` の Owner 名が固定された許可 Owner 名と一致する。
-3. GitHub App JWT で取得した許可 Owner の Installation の `account.id` が許可 Owner ID と一致する。
-4. 要求が `repository` スコープであり、Permission Map が **`contents:read` のみ** である。
+3. 要求の `repository_selection` が `selected` であり、App Permissions が **`contents:read` のみ** である。
 
-Caller の `repository_id` は監査のための識別に用い、認可条件には含めません。
+Caller の `repository_id` と実行文脈は監査のための識別に用い、認可条件には含めません。
 
-条件 4 の Scope と Permission Map は、形式が正しければ JWT 検証後に認可条件として判定し、許可外なら認可拒否として扱います。
-入力検証で先に落とさないのは、`contents:write` のような許可外の要求を、認証済み Caller とともに監査記録に残すためです。
-入力検証が入力不正にするのは、欠落や空の Permission Map のように、要求した Scope や権限を読み取れない形に限ります。
+条件 3 の `repository_selection` と App Permissions は、形式が正しければ JWT 検証後に認可条件として判定し、許可外なら認可拒否として扱います。
+形式検証で先に落とさないのは、`contents:write` のような許可外の要求を、認証済み Caller とともに監査記録に残すためです。
+形式検証が入力不正にするのは、欠落や空の App Permissions のように、要求した `repository_selection` や権限を読み取れない形に限ります。
 どの形をどちらに分けるかは [Lambda Design](lambda.md#22-validation) に記述します。
 
-これらの条件を確認した後、Installation ID、要求したリポジトリ名、権限を含む `TokenGrant` を生成します。Installation に対象リポジトリが含まれることと、発行結果が Grant に一致することは、GitHub API の応答を受けてから確認します。一部だけで発行することや権限を暗黙に広げることは禁止します。
+認可条件が成立した後、GitHub App JWT で許可 Owner の Installation を取得し、発行に使えるかを次の条件で確認します。
+
+- Installation の `account.id` が許可 Owner ID と一致する。
+- Installation が停止していない（`suspended_at` が空である）。
+
+どちらかが成立しなければ、`TokenGrant` を生成せず発行しません。
+この拒否は利用者の要求に起因せず、運用者か Owner の管理者が GitHub 側か固定設定を直す必要があるため、認可拒否とは別のエラー（[Lambda Design](lambda.md#32-failure) の `installation_resolution_failed`）として返します。
+停止中の Installation に対する発行 API の応答は公式文書で確認できていないため、GitHub の振る舞いに Fail Closed を預けず、取得した時点で閉じます。
+
+これらの確認の後、Installation ID、要求したリポジトリ名、権限を含む `TokenGrant` を生成します。Installation に対象リポジトリが含まれることと、発行結果が Grant に一致することは、GitHub API の応答を受けてから確認します。一部だけで発行することや権限を暗黙に広げることは禁止します。
 
 ### 3.2 Installation Scope as Authorization Boundary
 
@@ -61,20 +70,29 @@ Caller の `repository_id` は監査のための識別に用い、認可条件�
 
 GitHub App のインストール対象が読み取り可能範囲の上限となります。`Only select repositories` により対象を限定できます。`All repositories` を使用すると、その Owner にインストールされた App の対象リポジトリ全体が読み取り可能範囲に含まれます。インストール対象の変更は認可境界の変更として扱います。
 
-GitHub App は一つの Owner に一度しかインストールできないため、デプロイ時に固定した GitHub App と許可 Owner の組から Installation は一意に決まります。Lambda は Installation ID を設定として持たず、固定した Owner の Installation を GitHub API から取得し、`account.id` の一致で確認します。この導出は [Requirements](../spec/requirements.md) FR-024 に従います。Installation ID を設定値として持たないため、アプリの再インストールで ID が変わっても設定変更は不要であり、実行時の入力から Installation を指定する余地もありません。Owner の名前変更やアプリの再インストールが起きても、固定した不変 Owner ID と異なる Installation へ発行しません。
+GitHub App は一つの Owner に一度しかインストールできないため、デプロイ時に固定した GitHub App と許可 Owner の組から Installation は一意に決まります。
+GitHub の REST API が、Owner を指定して単一の Installation を返すエンドポイント（`GET /orgs/{org}/installation`、`GET /users/{username}/installation`）を提供していることから、この一意性を導いています。
+Lambda は Installation ID を設定として持たず、固定した Owner の Installation を GitHub API から取得し、`account.id` の一致で確認します。この導出は [Requirements](../spec/requirements.md) FR-024 に従います。Installation ID を設定値として持たないため、アプリの再インストールで ID が変わっても設定変更は不要であり、実行時の入力から Installation を指定する余地もありません。Owner の名前変更やアプリの再インストールが起きても、固定した不変 Owner ID と異なる Installation へ発行しません。
 
 Owner の名前変更時に Trust Policy と Lambda の設定を更新するまで発行が止まる扱いは、[AWS Infrastructure Design](aws-infrastructure.md#31-github-actions-iam-role) に記述します。
 
 ### 3.3 Permission Boundary
 
-Lambda が許可する権限は `contents:read` に固定します。要求された Scope や Permission が許可条件と異なる場合は拒否します。GitHub App の権限上限が GATES の許可範囲より広くても、発行するトークンの権限は拡大しません。
+Lambda が許可する権限は `contents:read` に固定します。要求された `repository_selection` や Permission が許可条件と異なる場合は拒否します。GitHub App の権限上限が GATES の許可範囲より広くても、発行するトークンの権限は拡大しません。
 
 ### 3.4 Issuance Result Verification
 
 - GitHub API に発行を要求するときは、認可された `TokenGrant` の `repositories` と `permissions` を必ず指定する。
 - 発行応答の対象リポジトリと実効権限を `TokenGrant` に照合する。Owner ID、Repository ID の有効性・一意性、対象の全件一致を確認し、必要な情報の欠落、対象外のリポジトリ、過大な権限があればトークンを返却しない。この拒否は GitHub API の通信障害とは別のエラーとして返し、監査記録に Caller とともに残す。
+- 照合に失敗した時点で GitHub はトークンを発行済みのため、返却しないだけでなく失効させる。失効はベストエフォートとし、成否を監査記録に残す。
 - 要求にかかわらず GitHub が付与する `metadata:read` だけは、応答に含まれていても許容する。
+- 発行応答の `repository_selection` が `selected` であることを確認する。`all` は Installation の全リポジトリを対象にしたことを意味し、要求外の対象を含むため返却しない。
 - 応答の Repository ID は発行結果の確認・監査に利用し、要求時に事前検証した ID と同一であることを証明するものではない。
+
+対象の全件一致を照合するため、[Requirements](../spec/requirements.md) FR-007 のうち範囲外の対象を含む要求にトークンを返さないことは、GitHub が範囲外の対象を拒否するかどうかに依存しません。
+GitHub が範囲外の対象を黙って除いても、応答の対象が Grant と一致しないことで検出し、トークンを返さずに失効させます。
+GitHub の振る舞いで変わるのは、エラーが `authorization_denied` と `issuance_verification_failed` のどちらになるかと、失効が必要になるかどうかです。
+失効に失敗した場合でも、そのトークンは Lambda の外に出ず、GitHub が定めた有効期限で失効します。
 
 GitHub API の要求・応答形式と具体的な照合条件は [Lambda Design](lambda.md) に記述します。
 
@@ -87,19 +105,21 @@ KMS Key の構成・IAM 権限は Terraform で管理します。GitHub App Priv
 | GitHub App Private Key | KMS インポート前は運用者が別の運用境界で扱う。Lambda と Runner には渡さない。インポート後、インポート前のコピーは運用者の手元から削除する。KMS にインポートした鍵素材は取り出せないため、KMS Key を失った場合は GitHub 側で新しい秘密鍵を発行して切り替える |
 | AWS KMS Key | インポート済みの非対称署名鍵。Lambda 実行 Role に当該キーの `kms:Sign` のみ許可。鍵更新時は新 KMS Key を用意 |
 | GitHub App JWT | KMS 署名で Lambda が短時間生成し、GitHub API 呼び出しにのみ使用。外部返却・ログ出力禁止 |
-| Installation Token | 要求・認可された対象と `contents:read` に限定して Runner へ返す。短命でも窃取リスクは残る |
+| Installation Access Token | 要求・認可された対象と `contents:read` に限定して Runner へ返す。短命でも窃取リスクは残る。照合に失敗したものは返さず、Lambda が失効させる |
 | AWS 一時認証情報・GATES 用 OIDC JWT | Runner で短時間だけ保持し、ログやデバッグ出力に含めない |
 
 署名アルゴリズムと JWT の組み立ては [Lambda Design](lambda.md#72-kms-signing) に記述します。
 
 ## 5. Failure, Audit, and Security Risks
 
-- 入力が不正、または JWT の検証に失敗したら、GitHub API や KMS のトークン発行処理に進まない。対象解決や署名の失敗、発行結果の不一致は Fail Closed とする。
-- 監査ログには相関 ID、時刻、処理結果（成功またはエラーコード）に加え、認証済み Caller の Owner ID と Repository ID、要求対象（`owner/repo`）、要求権限を記録する。認証前の失敗では Caller が確定していないため、未検証の値を認証済み主体として記録しない。秘密鍵、OIDC JWT、GitHub App JWT、Installation Token、AWS 一時認証情報は記録しない。
+- 入力が不正、または認証に失敗したら、GitHub API や KMS のトークン発行処理に進まない。対象解決や署名の失敗、発行結果の不一致は Fail Closed とする。
+- 監査ログには相関 ID、時刻、処理結果（成功またはエラーコード）に加え、認証済み Caller の Owner ID と Repository ID、ワークフロー実行の `run_id` と `run_attempt`、実行文脈、要求対象（`owner/repo`）、要求の `repository_selection`、要求権限、照合に失敗したトークンの失効の成否を記録する。`run_id` と `run_attempt` を残すのは、監査記録から GitHub 上のワークフロー実行にたどり着けるようにするためで、認可には使わない。認証前の失敗では Caller が確定していないため、未検証の値を認証済み主体として記録しない。秘密鍵、OIDC JWT、GitHub App JWT、Installation Access Token、AWS 一時認証情報は記録しない。
+- 実行文脈（`actor`、`event_name`、`ref`、`workflow_ref`、`environment` など）を残すのは、後述の `pull_request_target` の悪用のように、どのイベントと ref でトークンを得たかを調べる場面に備えるためである。GitHub 側の記録は保持期間を過ぎたり削除されたりし得る。実行文脈はベストエフォートで記録し、Claim が欠落していても拒否しない。IAM Role の引き受けと Lambda の呼び出しは AWS 側の記録（CloudTrail など）が担い、GATES の監査ログはそれを補うアプリケーション層の記録と位置づける。
+- 相関 ID は成功応答と失敗応答の両方に、同じ位置で含める。ワークフローのログに残った相関 ID から監査記録へたどれるようにするためである。
 - AWS Invoke の成功と Lambda の業務成功を区別し、Composite Action は `FunctionError` と応答の両方を確認する。
 - Lambda の実行ロールが侵害された場合、KMS `Sign` による不正署名が可能となる。KMS は秘密鍵を抽出不可にするが、署名能力の悪用を防ぐものではない。
 - 許可 Owner 配下のリポジトリであることは、ワークフロー内のコードの信頼性を保証しない。`pull_request_target` などで信頼できない Pull Request のコードを実行すると、正当な JWT と AWS 認証情報を取得できるジョブの権限を悪用され得る。利用者は資格情報を取得するジョブで信頼できないコードを実行しない。
-- JWT、AWS 認証情報、Installation Token の漏えい・再利用を完全には防止しない。許可範囲、期限、権限とインストール対象の限定で影響を抑える。
+- JWT、AWS 認証情報、Installation Access Token の漏えい・再利用を完全には防止しない。許可範囲、期限、権限とインストール対象の限定で影響を抑える。
 
 ## 6. Traceability
 
