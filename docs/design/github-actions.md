@@ -6,6 +6,12 @@ Composite Action は、GitHub Actions の利用者にトークン取得手段を
 
 Composite Action は GATES 運用者が提供し、利用者向けの安定した境界とします。利用者に求めるのは、ワークフローでの `permissions: id-token: write` の宣言、対象リポジトリおよび権限の指定、運用者が用意した接続情報の参照だけです。
 
+Composite Action は、Lambda と同じこのリポジトリの `.github/actions/<ACTION-NAME>/action.yml` に置きます。
+Lambda の入出力契約と Composite Action を同じ PR で変更でき、両者の食い違いを防げるためです。
+Composite Action はデプロイ固有の値を持たないため、公開リポジトリに置いても AWS アカウント ID は公開されません。
+公開リポジトリであることから、許可 Owner のワークフローもこの Composite Action を参照できます。
+`<ACTION-NAME>` は未定です。
+
 IAM Role と Lambda の AWS リソース設定は [AWS Infrastructure Design](aws-infrastructure.md) に記述します。Lambda Invoke の Payload、応答、エラーコードは [Lambda Design](lambda.md) を正本とします。
 
 ## 2. Composite Action Interface
@@ -23,7 +29,12 @@ IAM Role と Lambda の AWS リソース設定は [AWS Infrastructure Design](aw
 
 `role-arn`、`function-name`、`aws-region`、`audience` を **接続情報** と呼びます。接続情報は Composite Action の中に固定せず、入力として受け取ります。Composite Action の定義にデプロイ固有の値を持たせないためです。`scope` は入力にせず、Lambda Payload に固定値 `repository` を設定します。
 
-接続情報は GATES 運用者が GitHub の Organization 単位の Secrets と Variables に用意し、ワークフローはそれを参照します。AWS アカウント ID は Secrets に置き、その他の値は Variables に置きます。ワークフローに値を直接書かず参照だけにするのは、Role 名や関数名を変えたときに、Organization の設定の更新だけで済ませ、利用者のワークフロー定義を変えずに済ませるためです（[Requirements](../spec/requirements.md) AC-23）。
+接続情報は GATES 運用者が GitHub の Secrets と Variables に用意し、ワークフローはそれを参照します。AWS アカウント ID は Secrets に置き、その他の値は Variables に置きます。ワークフローに値を直接書かず参照だけにするのは、Role 名や関数名を変えたときに、Secrets と Variables の更新だけで済ませ、利用者のワークフロー定義を変えずに済ませるためです（[Requirements](../spec/requirements.md) AC-23）。
+
+Secrets と Variables を置く単位は、許可 Owner の種別で決まります。
+Owner が Organization なら Organization 単位に一度だけ登録します。
+ユーザーアカウントには Organization 単位に相当する Secrets と Variables がないため、Composite Action を使う各リポジトリに登録します。
+ワークフローからの参照の書き方は `secrets.*` と `vars.*` で共通なので、どちらの単位でも利用者のワークフロー定義は変わりません。
 
 | Input | 参照する値の例 |
 |---|---|
@@ -70,7 +81,7 @@ Composite Action は入力値を [Lambda Request](lambda.md#2-request) に従っ
 
 ### 4.1 Workflow Example
 
-`example-org/gates-action` は仮の名前であり、`<PINNED_COMMIT>` は実際の固定コミット SHA に置き換えます。アクセス先は Contents 読み取り権限が必要な Private Repository とし、`README.md` が存在する前提です。
+`<ACTION-NAME>` は未定のアクション名、`<PINNED_COMMIT>` は実際の固定コミット SHA に置き換えます。アクセス先は Contents 読み取り権限が必要な Private Repository とし、`README.md` が存在する前提です。
 
 ```yaml
 name: Read another repository
@@ -84,7 +95,7 @@ jobs:
     steps:
       - name: Issue token
         id: gates
-        uses: example-org/gates-action@<PINNED_COMMIT>
+        uses: tmknom/gates/.github/actions/<ACTION-NAME>@<PINNED_COMMIT>
         with:
           repositories: example-org/repo-a,example-org/repo-b
           permissions: contents:read

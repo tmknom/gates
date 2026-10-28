@@ -7,7 +7,7 @@ GATES は、GitHub Actions ワークフローに GitHub App Installation Access 
 GitHub Actions が `GITHUB_TOKEN` だけでは実現できないリポジトリ間の読み取りに対し、短命な GitHub App Installation Access Token を発行します。
 GitHub App Private Key を GitHub Secrets や Actions Runner に置かず、署名を AWS KMS に委譲します。
 
-許可された単一の Organization 配下のワークフローは、GitHub App の **Installation**（GitHub App を Organization にインストールした単位）に含まれるリポジトリに対して `contents:read` のトークンをセルフサービスで要求できます。
+許可された単一の **Owner**（リポジトリを所有する GitHub の Organization またはユーザーアカウント）配下のワークフローは、GitHub App の **Installation**（GitHub App を Owner にインストールした単位）に含まれるリポジトリに対して `contents:read` のトークンをセルフサービスで要求できます。
 対象リポジトリと権限を利用者に明示させ、GitHub App に付与された権限全体の払い出しを防ぎます。
 
 利用者向けの操作は Composite Action に集約し、ワークフローが GATES の認証・発行処理の詳細に依存しない構成とします。
@@ -24,39 +24,39 @@ GitHub App Private Key を GitHub Secrets や Actions Runner に置かず、署�
 
 ### 2.2 Out of Scope
 
-- 複数の Organization の同時サポート
+- 複数の Owner の同時サポート
 - 複数の GitHub App Installation の同時サポート
 - 呼び出し元を名前だけで特定する形式の GitHub OIDC トークンを持つリポジトリのサポート。該当する要求は FR-005 により拒否する。
 - GitHub Enterprise Server など GitHub.com 以外の GitHub への対応
-- GitHub 側の設定と操作（GitHub App の旧 Private Key の失効、Organization の OIDC トークンに不変 Owner ID を含める設定）。GATES はこれらを実施も代行もしない。
+- GitHub 側の設定と操作（GitHub App の旧 Private Key の失効、Owner 配下のリポジトリの OIDC トークンに不変 Owner ID を含める設定）。GATES はこれらを実施も代行もしない。
 - OIDC JWT の有効期限内の再利用の検出。再利用できる期間は、FR-002 の時間条件だけで制限する。
 - 連続した要求に対するレート制限と濫用の検出
 - IAM 層で拒否された呼び出し（FR-025）の監査記録。記録されるかどうかは AWS の仕様に依存し、GATES は保証しない。
 
 ### 2.3 Access Boundary and Accepted Risk
 
-**許可境界**：許可された Organization 内のいずれかのリポジトリにワークフローを追加できる人は、GATES で利用する GitHub App の Installation に含まれるリポジトリの読み取りを要求できます。
+**許可境界**：許可された Owner 配下のいずれかのリポジトリにワークフローを追加できる人は、GATES で利用する GitHub App の Installation に含まれるリポジトリの読み取りを要求できます。
 アクセス元のチームを区別したアクセス先ごとの許可は設けず、Installation の対象によって読み取り可能範囲を制限します。
 
-**受容するリスク**：許可された Organization 内のワークフローが一つでも侵害されると、GitHub App の Installation に含まれるすべてのリポジトリの読み取りに波及します。
+**受容するリスク**：許可された Owner 配下のワークフローが一つでも侵害されると、GitHub App の Installation に含まれるすべてのリポジトリの読み取りに波及します。
 Installation が全リポジトリを対象にするか、選択したリポジトリだけを対象にするかは、GitHub App 側の設定に依存します。
 受容の根拠は、発行する権限が `contents:read` に固定されていて、侵害されても書き込みには波及しないことです。
 対象リポジトリの明示は、設定ミスによる過大な発行を防ぐ手段であり、侵害の影響範囲を狭めるものではありません。
-緩和策は、Organization 管理者が Installation の対象を、GATES で読み取らせたいリポジトリだけに絞ることです。
+緩和策は、Owner の管理者が Installation の対象を、GATES で読み取らせたいリポジトリだけに絞ることです。
 
 ## 3. Stakeholders and Responsibilities
 
 | 主体 | 必要とすること | 責任 |
 |---|---|---|
 | ワークフロー利用者 | 必要なリポジトリと権限を指定し、運用者が用意した接続情報を参照するだけでトークンを取得できる | Composite Action を呼び出すワークフローで `permissions: id-token: write` を宣言する。Composite Action に対象リポジトリと権限、および GATES 運用者が提供する接続情報を渡す。取得したトークンを自身のワークフロー内で適切に扱う。 |
-| GitHub App / Organization 管理者 | GATES を通じて読み取られ得るリポジトリを Installation の対象で管理できる | GitHub App の Installation の対象を管理する。 |
+| GitHub App / Owner の管理者 | GATES を通じて読み取られ得るリポジトリを Installation の対象で管理できる | GitHub App の Installation の対象を管理する。 |
 | GATES 運用者 | 秘密鍵・認可・最小権限の発行を少ない構成要素で保守できる | 認証、認可、トークン発行、秘密鍵の保護、監査を担う。GATES の呼び出しに使う IAM ロールを引き受けられる主体の条件（信頼ポリシー）を管理する。Composite Action を提供し、そのインターフェースを維持する。Composite Action に渡す接続情報（IAM ロール、Lambda 関数、AWS リージョン、GATES 用 Audience）を、ワークフローから参照できるよう GitHub 側に用意する。 |
 
 ## 4. Use Cases
 
 | Use Case | 成立条件 |
 |---|---|
-| Installation に含まれる一つまたは複数のリポジトリを読み取る | 許可された呼び出し元、同一 Organization / Installation、明示された `contents:read` |
+| Installation に含まれる一つまたは複数のリポジトリを読み取る | 許可された呼び出し元、同一 Owner / Installation、明示された `contents:read` |
 | GitHub App Private Key を更新する | 新しい鍵に切り替える。GitHub 側の旧鍵失効は対象外（§2.2） |
 | 認証不正・対象範囲外・過大な要求を拒否する | JWT、リポジトリ、権限の検証が成立しなければトークンを返さない |
 
@@ -66,9 +66,9 @@ Installation が全リポジトリを対象にするか、選択したリポジ�
 
 | ID | Requirement |
 |---|---|
-| FR-001 | 許可された Organization の GitHub Actions ワークフローからの呼び出しだけを受け付ける。 |
+| FR-001 | 許可された Owner の GitHub Actions ワークフローからの呼び出しだけを受け付ける。 |
 | FR-002 | GATES 用 Audience の GitHub OIDC JWT の署名・Issuer・Audience・時間条件・必須 Claim を検証し、不変 Owner ID / Repository ID と実行文脈を識別する。これらで特定される呼び出し元を **Caller** と呼ぶ。Repository ID は監査のための Caller 識別に用い、認可には用いない。 |
-| FR-003 | 許可されない呼び出し元、JWT の欠落・改ざん・期限切れ・Audience 不一致・不正な主体・異なる Organization を拒否する。 |
+| FR-003 | 許可されない呼び出し元、JWT の欠落・改ざん・期限切れ・Audience 不一致・不正な主体・異なる Owner を拒否する。 |
 | FR-004 | 要求者の自己申告を Caller の根拠にしない。 |
 | FR-005 | GATES の呼び出しに使う IAM ロールの引き受けでは、呼び出し元を不変 Owner ID で特定できる GitHub OIDC トークンだけを受け付け、名前だけで特定するトークンを拒否する。 |
 
@@ -76,8 +76,8 @@ Installation が全リポジトリを対象にするか、選択したリポジ�
 
 | ID | Requirement |
 |---|---|
-| FR-006 | 検証済み JWT の不変 Owner ID が、許可 Organization の不変 Owner ID と一致することを確認する。Organization 名の一致では代用しない。 |
-| FR-007 | 要求先の各リポジトリが許可 Organization に属し、GATES で利用する GitHub App の同一 Installation に含まれることを確認する。 |
+| FR-006 | 検証済み JWT の不変 Owner ID が、許可 Owner の不変 Owner ID と一致することを確認する。Owner 名の一致では代用しない。 |
+| FR-007 | 要求先の各リポジトリが許可 Owner に属し、GATES で利用する GitHub App の同一 Installation に含まれることを確認する。 |
 | FR-008 | `contents:read` のみ許可し、その他の権限や、リポジトリ単位以外（Organization 単位など）の対象の要求を拒否する。 |
 | FR-009 | 利用者の入力から Caller、Installation ID、認可の根拠や任意の API Host を指定できないようにする。 |
 | FR-010 | 要求されたリポジトリ名の所有者と、GitHub API が返す実効対象を検証し、要求外のリポジトリへ発行しない。 |
@@ -104,8 +104,8 @@ Installation が全リポジトリを対象にするか、選択したリポジ�
 | FR-021 | 認証済み Caller（Owner ID と Repository ID）、要求対象、要求権限、結果、相関 ID を資格情報を含めず監査可能にする。 |
 | FR-022 | AWS リソースの設定と変更を Terraform で管理する。秘密鍵素材の取得・変換・インポートは Terraform 管理外とする。 |
 | FR-023 | 新しい鍵への切り替えでは KMS Key の意図しない置換・削除を防ぐ。 |
-| FR-024 | 許可 Organization（不変 Owner ID で指定）、GitHub App、署名に用いる KMS Key は、GATES 運用者が管理するデプロイ時の設定として固定する。Installation は、固定した GitHub App と許可 Organization から一意に導出する。これらは実行時に外部入力から変更できない。 |
-| FR-025 | GATES の呼び出し口は、AWS IAM で許可された主体だけが呼び出せるものとし、認証なしでインターネットに公開された呼び出し口を設けない。IAM で許可する主体は、FR-005 の不変 Owner ID で特定した許可 Organization の GitHub Actions ワークフローに限る。許可されていない主体の呼び出しは、関数が実行される前に拒否される。 |
+| FR-024 | 許可 Owner（不変 Owner ID で指定）、GitHub App、署名に用いる KMS Key は、GATES 運用者が管理するデプロイ時の設定として固定する。Installation は、固定した GitHub App と許可 Owner から一意に導出する。これらは実行時に外部入力から変更できない。 |
+| FR-025 | GATES の呼び出し口は、AWS IAM で許可された主体だけが呼び出せるものとし、認証なしでインターネットに公開された呼び出し口を設けない。IAM で許可する主体は、FR-005 の不変 Owner ID で特定した許可 Owner の GitHub Actions ワークフローに限る。許可されていない主体の呼び出しは、関数が実行される前に拒否される。 |
 
 ## 6. Quality and Security Requirements
 
@@ -127,16 +127,16 @@ Installation が全リポジトリを対象にするか、選択したリポジ�
 
 | ID | Condition | Expected result | 検証する要件 |
 |---|---|---|---|
-| AC-01 | 許可された Organization のワークフローが、正当な GATES 用 OIDC JWT で `contents:read` を要求 | 指定対象だけの短命トークンを取得できる。応答に有効期限、対象、実効権限が含まれ、秘密鍵と内部 GitHub App JWT を含まない | FR-002, FR-014, FR-016 |
+| AC-01 | 許可された Owner のワークフローが、正当な GATES 用 OIDC JWT で `contents:read` を要求 | 指定対象だけの短命トークンを取得できる。応答に有効期限、対象、実効権限が含まれ、秘密鍵と内部 GitHub App JWT を含まない | FR-002, FR-014, FR-016 |
 | AC-02 | 未認証、または許可されない呼び出し元からの要求 | 発行処理に入る前に拒否 | FR-001, FR-003 |
 | AC-03 | JWT の欠落、改ざん、期限切れ、Audience 不一致、必須 Claim の欠落 | 発行を拒否 | FR-002, FR-003 |
-| AC-04 | JWT の不変 Owner ID が不一致（Organization 名が一致していても） | 発行を拒否 | FR-003, FR-006 |
+| AC-04 | JWT の不変 Owner ID が不一致（Owner 名が一致していても） | 発行を拒否 | FR-003, FR-006 |
 | AC-05 | Caller・Installation ID・任意の認可設定を Payload で指定 | 入力を受け付けず拒否 | FR-004, FR-009 |
-| AC-06 | Installation の対象外、または他 Organization の Private Repository を要求 | 発行を拒否 | FR-007, FR-010, QR-007 |
+| AC-06 | Installation の対象外、または他の Owner の Private Repository を要求 | 発行を拒否 | FR-007, FR-010, QR-007 |
 | AC-07 | `contents:write`、別の権限、Organization 単位の対象を要求 | 発行を拒否 | FR-008, QR-007 |
 | AC-08 | リポジトリや権限が欠落、空、未知値 | 発行を拒否し、広い既定値を適用しない | FR-012 |
 | AC-09 | 同一 Installation の複数対象を `contents:read` で要求 | 指定した複数対象だけへのトークンを発行 | FR-015 |
-| AC-10 | 複数対象の一部が Installation の対象外、別 Organization、または別 Installation | 全件拒否し、暗黙に分割・縮小しない | FR-007, FR-011 |
+| AC-10 | 複数対象の一部が Installation の対象外、別の Owner、または別 Installation | 全件拒否し、暗黙に分割・縮小しない | FR-007, FR-011 |
 | AC-11 | App の権限上限・Installation の対象が要求より広い | 発行結果は要求した対象と権限だけに限定（FR-018 の除外対象を除く） | FR-014, FR-015, QR-002 |
 | AC-12 | GitHub API の発行応答が対象・権限（FR-018 の除外対象を除く）の範囲外、不変 Owner ID 不一致、必要な対象一覧の欠落、または不整合 | トークンを返さない | FR-010, FR-018 |
 | AC-13 | OIDC 公開鍵・KMS・GitHub API の取得・通信障害 | Fail Closed。資格情報を露出しない | QR-003 |
@@ -150,6 +150,6 @@ Installation が全リポジトリを対象にするか、選択したリポジ�
 | AC-21 | 秘密鍵を独立した運用で KMS にインポートし、インポート前のコピーを削除する | Terraform の State / Plan / リポジトリに鍵素材を残さず、KMS 署名が成立する。インポート前のコピーが運用者の手元に残っていない | FR-013, FR-022, FR-023, QR-006 |
 | AC-22 | GitHub Secrets、Actions Runner、Lambda の設定と実行環境を確認 | GitHub App Private Key の平文が、いずれにも存在しない | QR-001 |
 | AC-23 | GATES の認証・発行方式の内部実装を変更 | 利用者のワークフロー定義を変更せずに、AC-15 の条件でトークンを取得できる | QR-005 |
-| AC-24 | 実行時の要求やワークフロー側の入力で、許可 Organization・GitHub App・Installation・KMS Key を指定しようとする | 指定を受け付けず、デプロイ時の設定と、そこから導出した Installation が使われる | FR-009, FR-024 |
+| AC-24 | 実行時の要求やワークフロー側の入力で、許可 Owner・GitHub App・Installation・KMS Key を指定しようとする | 指定を受け付けず、デプロイ時の設定と、そこから導出した Installation が使われる | FR-009, FR-024 |
 | AC-25 | AWS の認証情報を持たない、または Invoke を許可されていない主体が Lambda を呼び出す | 関数の実行前に拒否される | FR-025 |
 | AC-26 | 呼び出し元を名前だけで特定する形式のトークンを持つワークフローが、IAM ロールの引き受けを試みる | 引き受けが拒否され、Lambda は呼び出されない | FR-005 |

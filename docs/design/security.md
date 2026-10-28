@@ -10,8 +10,8 @@
 
 | 境界 | 保証すること | 保証しないこと |
 |---|---|---|
-| AWS IAM / STS | 許可 Organization の不変 Owner ID を `sub` に含む GitHub OIDC JWT からだけ AWS 一時認証情報を発行し、特定 Lambda の Invoke のみ許可する | ワークフロー・リポジトリ単位のトークン発行認可、資格情報の現在の利用者の特定 |
-| OIDC Verifier | GitHub JWT の真正性、Issuer、Audience、期限、Organization / Repository の不変 ID を検証する | JWT と AWS 一時認証情報が同じジョブで取得されたことの証明、トークン発行権限そのもの |
+| AWS IAM / STS | 許可 Owner の不変 Owner ID を `sub` に含む GitHub OIDC JWT からだけ AWS 一時認証情報を発行し、特定 Lambda の Invoke のみ許可する | ワークフロー・リポジトリ単位のトークン発行認可、資格情報の現在の利用者の特定 |
+| OIDC Verifier | GitHub JWT の真正性、Issuer、Audience、期限、Owner / Repository の不変 ID を検証する | JWT と AWS 一時認証情報が同じジョブで取得されたことの証明、トークン発行権限そのもの |
 | Authorization | 許可 Owner ID、取得した Installation の `account.id`、固定権限、明示された要求を照合する | アクセス先ごとの Caller の同意確認、対象リポジトリが Installation に含まれることの事前確認 |
 | AWS KMS | 非抽出可能な秘密鍵による RSA 署名を実行する | 署名対象 JWT の内容に対する GATES の認可判断 |
 | GitHub API | Installation と App の権限上限に従い短命トークンを発行する | GATES 側のトークン発行認可 |
@@ -21,13 +21,13 @@
 IAM Role の Trust Policy は、GitHub OIDC Provider を信頼先とし、`aud` と `sub` の条件で引き受けを制限します。AWS IAM は `repository_owner_id` のような GitHub 固有の Claim も条件キーとして評価できますが、この Claim は名前だけの旧形式の `sub` を持つトークンにも含まれるため、旧形式の拒否には使えません。そのため不変 Owner ID の制約と旧形式の拒否は、不変 ID 入りの `sub`（`repo:OWNER@OWNER-ID/REPO@REPO-ID:...`）に対するパターン条件として表現します。具体的な条件式は [AWS Infrastructure Design](aws-infrastructure.md#31-github-actions-iam-role) に記述します。
 
 - `aud` を `sts.amazonaws.com` に固定する。
-- `sub` は、許可 Organization の名前と不変 Owner ID の組で始まる不変 ID 入りの形式だけを受け付け、名前だけの旧形式を拒否する。Organization 内での共通利用を前提とし、`ref`、`pull_request`、`environment` などの実行文脈による追加制限は設けない。
+- `sub` は、許可 Owner の名前と不変 Owner ID の組で始まる不変 ID 入りの形式だけを受け付け、名前だけの旧形式を拒否する。Owner 配下での共通利用を前提とし、`ref`、`pull_request`、`environment` などの実行文脈による追加制限は設けない。
 - 引き受けた IAM Role の権限は対象 Lambda への `lambda:InvokeFunction` のみとし、KMS `Sign`、IAM 管理、鍵インポートを許可しない。
-- 許可 Organization のワークフローは共通の一つの IAM Role を引き受ける。
+- 許可 Owner のワークフローは共通の一つの IAM Role を引き受ける。
 
-Organization 側で既存リポジトリの OIDC トークンに不変 ID を含める設定が済んでいることを前提とします。この設定は GitHub 側の操作であり、GATES は実施しません（[Requirements](../spec/requirements.md) §2.2）。設定前のリポジトリは旧形式の `sub` を持つため、IAM Role を引き受けられません。
+Owner 側で既存リポジトリの OIDC トークンに不変 ID を含める設定が済んでいることを前提とします。この設定は GitHub 側の操作であり、GATES は実施しません（[Requirements](../spec/requirements.md) §2.2）。設定前のリポジトリは旧形式の `sub` を持つため、IAM Role を引き受けられません。
 
-IAM は認証情報の由来となる Organization に対する入口制限であるため、IAM 認証情報の窃取・再利用により、元のジョブ以外から Lambda Invoke が行われる可能性は残ります。
+IAM は認証情報の由来となる Owner に対する入口制限であるため、IAM 認証情報の窃取・再利用により、元のジョブ以外から Lambda Invoke が行われる可能性は残ります。
 
 ### 2.2 GATES 用 OIDC JWT
 
@@ -41,9 +41,9 @@ AWS 一時認証情報と GATES 用 OIDC JWT が同じジョブで取得され�
 
 リポジトリへの発行は、次の条件がすべて成立した場合だけ許可します。
 
-1. 検証済み Caller の `repository_owner_id` が許可 Organization の不変 Owner ID と一致する。Organization 名の一致では代用しない。
-2. 要求した各 `owner/repo` の Owner 名が固定された許可 Organization 名と一致する。
-3. GitHub App JWT で取得した Organization Installation の `account.id` が許可 Owner ID と一致する。
+1. 検証済み Caller の `repository_owner_id` が許可 Owner の不変 Owner ID と一致する。Owner 名の一致では代用しない。
+2. 要求した各 `owner/repo` の Owner 名が固定された許可 Owner 名と一致する。
+3. GitHub App JWT で取得した許可 Owner の Installation の `account.id` が許可 Owner ID と一致する。
 4. 要求が `repository` スコープであり、Permission Map が **`contents:read` のみ** である。
 
 Caller の `repository_id` は監査のための識別に用い、認可条件には含めません。
@@ -54,13 +54,13 @@ Caller の `repository_id` は監査のための識別に用い、認可条件�
 
 ### 3.2 Installation Scope as Authorization Boundary
 
-許可された Organization の有効なワークフローは、GATES で利用する GitHub App がインストールされたリポジトリへの `contents:read` トークンを要求できます。アクセス先のチームが GATES を利用するかどうかには依存しません。
+許可された Owner の有効なワークフローは、GATES で利用する GitHub App がインストールされたリポジトリへの `contents:read` トークンを要求できます。アクセス先のチームが GATES を利用するかどうかには依存しません。
 
-GitHub App のインストール対象が読み取り可能範囲の上限となります。`Only select repositories` により対象を限定できます。`All repositories` を使用すると、その Organization にインストールされた App の対象リポジトリ全体が読み取り可能範囲に含まれます。インストール対象の変更は認可境界の変更として扱います。
+GitHub App のインストール対象が読み取り可能範囲の上限となります。`Only select repositories` により対象を限定できます。`All repositories` を使用すると、その Owner にインストールされた App の対象リポジトリ全体が読み取り可能範囲に含まれます。インストール対象の変更は認可境界の変更として扱います。
 
-GitHub App は一つの Organization に一度しかインストールできないため、デプロイ時に固定した GitHub App と許可 Organization の組から Installation は一意に決まります。Lambda は Installation ID を設定として持たず、固定した Organization の Installation を GitHub API から取得し、`account.id` の一致で確認します。この導出は [Requirements](../spec/requirements.md) FR-024 に従います。Installation ID を設定値として持たないため、アプリの再インストールで ID が変わっても設定変更は不要であり、実行時の入力から Installation を指定する余地もありません。Organization の名前変更やアプリの再インストールが起きても、固定した不変 Owner ID と異なる Installation へ発行しません。
+GitHub App は一つの Owner に一度しかインストールできないため、デプロイ時に固定した GitHub App と許可 Owner の組から Installation は一意に決まります。Lambda は Installation ID を設定として持たず、固定した Owner の Installation を GitHub API から取得し、`account.id` の一致で確認します。この導出は [Requirements](../spec/requirements.md) FR-024 に従います。Installation ID を設定値として持たないため、アプリの再インストールで ID が変わっても設定変更は不要であり、実行時の入力から Installation を指定する余地もありません。Owner の名前変更やアプリの再インストールが起きても、固定した不変 Owner ID と異なる Installation へ発行しません。
 
-Organization の名前変更時に Trust Policy と Lambda の設定を更新するまで発行が止まる扱いは、[AWS Infrastructure Design](aws-infrastructure.md#31-github-actions-iam-role) に記述します。
+Owner の名前変更時に Trust Policy と Lambda の設定を更新するまで発行が止まる扱いは、[AWS Infrastructure Design](aws-infrastructure.md#31-github-actions-iam-role) に記述します。
 
 ### 3.3 Permission Boundary
 
@@ -95,7 +95,7 @@ KMS Key の構成・IAM 権限は Terraform で管理します。GitHub App Priv
 - 監査ログには相関 ID、時刻、処理結果（成功またはエラーコード）に加え、認証済み Caller の Owner ID と Repository ID、要求対象（`owner/repo`）、要求権限を記録する。認証前の失敗では Caller が確定していないため、未検証の値を認証済み主体として記録しない。秘密鍵、OIDC JWT、GitHub App JWT、Installation Token、AWS 一時認証情報は記録しない。
 - AWS Invoke の成功と Lambda の業務成功を区別し、Composite Action は `FunctionError` と応答の両方を確認する。
 - Lambda の実行ロールが侵害された場合、KMS `Sign` による不正署名が可能となる。KMS は秘密鍵を抽出不可にするが、署名能力の悪用を防ぐものではない。
-- Organization への所属はワークフロー内のコードの信頼性を保証しない。`pull_request_target` などで信頼できない Pull Request のコードを実行すると、正当な JWT と AWS 認証情報を取得できるジョブの権限を悪用され得る。利用者は資格情報を取得するジョブで信頼できないコードを実行しない。
+- 許可 Owner 配下のリポジトリであることは、ワークフロー内のコードの信頼性を保証しない。`pull_request_target` などで信頼できない Pull Request のコードを実行すると、正当な JWT と AWS 認証情報を取得できるジョブの権限を悪用され得る。利用者は資格情報を取得するジョブで信頼できないコードを実行しない。
 - JWT、AWS 認証情報、Installation Token の漏えい・再利用を完全には防止しない。許可範囲、期限、権限とインストール対象の限定で影響を抑える。
 
 ## 6. Traceability
