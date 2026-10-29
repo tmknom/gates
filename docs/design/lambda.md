@@ -275,7 +275,7 @@ flowchart LR
 | 発行結果 | IssuanceResult | Token Issuer | GitHub API の発行応答。照合前の値 |
 | 実効対象 | RepositoryIdentity | Token Issuer | 発行応答の各リポジトリの ID、`owner.id`、`full_name` |
 | 返却可能な発行結果 | InstallationToken | Token Issuer が作り、Lambda Handler が返す | 照合を通った発行結果だけをこの型にする |
-| 監査記録 | AuditRecord | Lambda Handler | 相関 ID（RequestID）、結果、拒否の理由、Caller、要求対象、要求権限、失効の成否 |
+| 監査記録 | AuditRecord | Lambda Handler | 項目と記録する条件は [Domain Model](domain.md#36-audit-record) に従う |
 
 `TokenGrant` は認可済みの発行範囲を Token Issuer に渡すための値です。複数リポジトリには共通の App Permissions を適用し、対象ごとの違いが必要なら別のトークンを要求します。
 
@@ -292,13 +292,20 @@ Permission は AppPermissions の要素、Allowed Permissions と Implied Permis
 2. OIDC Verifier が固定 Issuer / JWKS と GATES 用 Audience で JWT を認証し、`repository_owner_id` と `repository_id` の Claim、および不変 ID 入り `sub` との一致から Caller を確定する。`run_id`、`run_attempt`、実行文脈は監査のために Caller に添える。
 3. Authorization が Caller の Owner ID を固定した許可 Owner ID と照合し、要求された各 `owner/repo` の Owner 名を固定した許可 Owner 名と照合し、App Permissions が `contents:read` のみであることを確認する。不一致なら外部呼び出しに進まず拒否する。
 4. Token Issuer が KMS Signer で GitHub App JWT を生成し、GitHub Client で許可 Owner の Installation を取得する。取得の失敗は [Failure](#32-failure) の分類に従い、一時的な障害なら `token_issuance_failed`、それ以外なら `installation_resolution_failed` として拒否する。
-5. Authorization が Installation の `account.id` を固定 Owner ID と照合し、`suspended_at` が空であることを確認して、Installation ID、要求対象名、固定 Permission から TokenGrant を確定する。停止している、または `account.id` が一致しなければ `installation_resolution_failed` として拒否し、発行 API を呼ばない。
-6. Token Issuer が Grant の各 `owner/repo` から Owner を除いたリポジトリ名の配列と `permissions` を GitHub API に明示してトークンを取得する。GitHub 応答の `full_name` は Grant の元の `owner/repo` と全件照合し、Owner ID、Repository ID の有効性・一意性、実効権限が許可範囲内であることを照合する。必要な一覧・権限の欠落や不一致があれば、応答のトークンを失効させ、`issuance_verification_failed` として返却しない。
+5. Authorization が Installation の `account.id` を許可 Owner ID と照合し、`suspended_at` が空であることを確認して、Installation ID、要求した完全名、許可権限から TokenGrant を確定する。停止している、または `account.id` が一致しなければ `installation_resolution_failed` として拒否し、発行 API を呼ばない。
+6. Token Issuer が TokenGrant の各 `owner/repo` から Owner を除いたリポジトリ名の配列と `permissions` を GitHub API に明示してトークンを取得する。GitHub 応答の `full_name` は TokenGrant の元の `owner/repo` と全件照合し、Owner ID、Repository ID の有効性・一意性、実効権限が許可範囲内であることを照合する。必要な一覧・権限の欠落や不一致があれば、応答のトークンを失効させ、`issuance_verification_failed` として返却しない。
 7. Handler が必要最小限の成功応答を返す。いずれかに失敗した場合は安全なエラーコードと相関 ID を返し、トークンは返さない。
 
 Owner ID、権限、Owner 名の照合（手順 3）を Installation の取得（手順 4）より先に置くのは、KMS と GitHub API の呼び出しを認可の見込みがある要求だけに限るためです。
 
-認可拒否のエラー文言には満たさなかった条件を書き、Caller、要求、許可 Owner の値を含めません。
+手順 5 の Grant は、手順 3 を通った要求にも認可条件を判定し直し、満たさなければ認可拒否を返します。
+[Domain Model](domain.md#53-invariants) の発行許可の不変条件を、Grant だけで守れるようにするためです。
+認可条件と Installation の有効性の両方を満たさない要求は、手順 3 が手順 4 より先にある順序に合わせて、認可拒否として返します。
+TokenGrant の App Permissions を要求から写さないのは、Grant が判定し直す認可条件で両者が等しいことは確かめていても、写すと、認可の条件を将来変えたときに、要求の値がそのまま発行範囲に流れるためです。
+
+認可拒否と、Installation が発行に使えないことによる拒否のエラー文言には、満たさなかった条件を書き、Caller、要求、許可 Owner、Installation の値を含めません。
+Installation は許可 Owner 名から取得するため、その Installation ID と `account.id` は、許可 Owner 名をいま持つアカウントを示します。
+`account.id` が許可 Owner ID と一致しない場合も同じであり、許可 Owner の値と同じに伏せます。
 文言は監査記録のためのもので、エラー応答には出しません。
 拒否の理由を応答に出すと、許可 Owner の Owner ID や Owner 名を、許可されない呼び出し元が探れるためです。
 値を含めないのは、Caller と要求は監査記録が別の項目として持つため文言に重ねる必要がなく、文言が誤って応答に混ざっても許可 Owner を明かさないためです。
@@ -356,10 +363,7 @@ OIDC Verifier、Token Issuer、KMS Signer、GitHub Client の package は、そ�
 App Permissions の検証と比較を一つの package（`internal/permission`）に閉じる理由も同じです。
 形式検証、事前認可の許可権限との等しさ、発行結果の照合の付随権限を含む範囲の判定が、同じ App Permissions の読み方と比べ方を使います。
 
-Authorization は `internal/authz` に置きます。
-AllowedOwner、Caller、TokenRequest、Installation から発行の可否を判定し、TokenGrant を確定します。
-Caller、AllowedOwner、TokenGrant も `internal/authz` に置きます。
-どれも Authorization の入力か出力です。
+Authorization は `internal/authz` に置き、Authorization の入力と出力の型も、形式検証が作る TokenRequest を除いて同じ package に置きます。
 OIDC Verifier と Token Issuer の package が `internal/authz` を import しても、`internal/authz` は通信を持たないため、副作用が `internal/authz` に入りません。
 
 Caller を作るのは OIDC Verifier とテストだけとし、ほかの package が Caller を組み立てないことをレビューで確かめます。

@@ -156,10 +156,11 @@ GATES 用 OIDC JWT は、Payload から取り出した時点では未検証で�
 |---|---|---|
 | 相関 ID（Request ID、応答の `request_id`） | 常に | 事実：Requirements FR-021 |
 | 時刻、結果（成功またはエラーコード） | 常に | 事実：Security Design §5 |
-| 拒否の理由 | 拒否で終わった場合。満たさなかった条件を示し、資格情報と Caller、要求、許可 Owner の値を含めない | 事実：Security Design §5、Lambda Design §6 |
+| 拒否の理由 | 拒否で終わった場合。満たさなかった条件を示し、資格情報と Caller、要求、許可 Owner、Installation の値を含めない | 事実：Security Design §5、Lambda Design §6 |
 | Caller の Owner ID と Repository ID、`run_id` と `run_attempt` | 認証に成功した後だけ。認証前の失敗では未検証の値を Caller として記録しない | 事実：Security Design §5 |
 | 実行文脈 | 認証に成功した後で、Claim が含まれていたものだけ | 事実：Security Design §5 |
 | 要求対象、要求権限 | 形式検証を通った後 | 事実：Lambda Design §1。時点は推論 |
+| 取得した Installation の Installation ID と `account.id` | Installation の解決に成功した後 | 推論：`account.id` の不一致は運用者か Owner の管理者が直す失敗であり、どのアカウントの Installation が返ったかを、呼び出しを再現せずに確かめるため。監査記録は応答に出ないため、エラー文言で値を伏せる理由は及ばない |
 | 失効の成否 | 照合に失敗し、発行済みのトークンを失効させようとした場合 | 事実：Lambda Design §3.1 |
 
 監査記録の単位は発行処理 1 回です。
@@ -217,7 +218,7 @@ flowchart LR
 | 事前認可 | Authorize | Authorization | Caller、発行要求、許可 Owner | 外部呼び出しに進める、または認可拒否 | 事実：Lambda Design §6 手順 3 |
 | 署名 | Sign | KMS Signer | GitHub App JWT の署名入力、KMS Key ARN | GitHub App JWT | 事実：Requirements FR-013 |
 | Installation の解決 | Resolve Installation | Token Issuer | GitHub App JWT、許可 Owner の名前と種別 | 取得した Installation、または拒否（App JWT の拒否、未インストール、必須項目の欠落、一時的な障害） | 事実：Lambda Design §3.2、§7.3 |
-| 発行許可の確定 | Grant | Authorization | 事前認可の結果、取得した Installation、許可 Owner | 発行許可、または拒否（`account.id` の不一致、停止） | 事実：Lambda Design §6 手順 5 |
+| 発行許可の確定 | Grant | Authorization | Caller、発行要求、許可 Owner、取得した Installation | 発行許可、または拒否（`account.id` の不一致、停止、認可条件の不成立） | 事実：Lambda Design §6、Security Design §3.1 |
 | 発行 | Issue | Token Issuer | 発行許可、GitHub App JWT | 発行結果、または失敗 | 事実：Requirements FR-014、FR-015 |
 | 発行結果の照合 | Verify | Token Issuer | 発行結果、発行許可、許可 Owner | 返却可能な発行結果、または拒否 | 事実：Requirements FR-018 |
 | 失効 | Revoke | Token Issuer | 照合を通らなかった発行結果のトークン | 失効の成否。成否にかかわらず拒否のまま終わる | 事実：Requirements FR-007、FR-018、Lambda Design §3.1 |
@@ -234,7 +235,7 @@ flowchart LR
 | Authorize | `authorization_denied` |
 | Sign | `signing_unavailable` |
 | Resolve Installation | `installation_resolution_failed`（App JWT の拒否、未インストール、必須項目の欠落）。一時的な障害は `token_issuance_failed` |
-| Grant | `installation_resolution_failed`（`account.id` の不一致、停止） |
+| Grant | `installation_resolution_failed`（`account.id` の不一致、停止）。認可条件を満たさなければ `authorization_denied`（Authorize を通った要求では起きないため、[4.2](#42-lifecycle-of-an-issuance) の図には描かない） |
 | Issue | `authorization_denied`（GitHub が対象を受け付けない）。一時的な障害は `token_issuance_failed`、その他の失敗は `installation_resolution_failed` |
 | Verify | `issuance_verification_failed` |
 | Revoke | なし。失効に失敗しても `issuance_verification_failed` のまま終わる |
@@ -332,7 +333,7 @@ stateDiagram-v2
 
 | ルール | 適用対象 | 成立条件 | 例外 | 根拠 |
 |---|---|---|---|---|
-| 認可条件 | 事前認可 | Caller の Owner ID が許可 Owner ID と一致し、要求の各完全名の Owner 名が許可 Owner 名と一致し、App Permissions が許可権限と等しい。満たさなければ `authorization_denied` | なし | 事実：Security Design §3.1 |
+| 認可条件 | 事前認可、発行許可の確定 | Caller の Owner ID が許可 Owner ID と一致し、要求の各完全名の Owner 名が許可 Owner 名と一致し、App Permissions が許可権限と等しい。満たさなければ `authorization_denied` | なし | 事実：Security Design §3.1 |
 | Installation の有効性 | 発行許可の確定 | 取得した Installation の `account.id` が許可 Owner ID と一致し、`suspended_at` が空である。満たさなければ `installation_resolution_failed` | なし | 事実：Security Design §3.1 |
 | 全件成立 | 複数対象の発行要求 | すべての対象が条件を満たすときだけ発行する。一部だけの発行や対象の縮小をしない | なし | 事実：Requirements FR-011 |
 | 明示の要求 | GitHub API への発行要求 | 対象と権限を必ず明示し、省略による全対象・全権限の継承を起こさない | なし | 事実：Requirements FR-015、REST API endpoints for GitHub Apps の省略時の既定 |
@@ -359,7 +360,8 @@ GitHub がどちらの振る舞いをするかで、エラーコードが `autho
 | App Permissions | 作られた時点 | Permission を 1 つ以上持ち、権限名と水準がどれも Lambda Design の権限名と水準の文字種を満たす。許可権限と等しいかは含まず、事前認可が判定する | 事実：Lambda Design §2.2、Security Design §3.1 |
 | 許可 Owner | 固定設定を読んだ時点 | Owner ID が正の整数で、Owner 名が Owner 名の文字種を満たし、種別が二つの値のどちらかである | 事実：Requirements FR-024、Lambda Design §2.2 の名前の文字種。推論：条件を満たさない値を作らない方針（本節冒頭） |
 | Caller | 認証を通った時点 | 検証済みの GATES 用 OIDC JWT だけから作られ、Owner ID と Repository ID が `sub` の不変 ID と一致する。Owner ID、Repository ID、`run_id`、`run_attempt` はどれも正の整数である。いずれかが欠落していれば Caller は確定しない | 事実：Requirements FR-002、FR-004、Lambda Design §7.1。正の整数は推論：GitHub の ID と `run_attempt` は 1 から始まる |
-| 発行許可 | 確定した時点 | [5.2 Rules](#52-rules) の認可条件をすべて満たす。対象は発行要求の対象と同じ集合で、App Permissions は許可権限に等しい。Installation ID は、`account.id` が許可 Owner ID と一致し、停止していない（`suspended_at` が空）Installation のものである | 事実：Security Design §3.1 |
+| Installation | 取得した応答から作った時点 | Installation ID と `account.id` が正の整数である。`account.id` が許可 Owner ID と一致することと停止していないことは含まず、発行許可の確定が [5.2 Rules](#52-rules) の Installation の有効性として判定する | 推論：GitHub の ID は 1 から始まる。一致しない、または停止している Installation も GitHub 上に実在する値であり、作れない値ではなく発行に使えない値であるため |
+| 発行許可 | 確定した時点 | [5.2 Rules](#52-rules) の認可条件をすべて満たす。対象は発行要求の対象と同じ集合で、各完全名の表記と並びも発行要求のままである（GitHub API に渡すリポジトリ名と監査記録の要求対象を、利用者の要求と一致させるため）。App Permissions は許可権限に等しい。Installation ID は、`account.id` が許可 Owner ID と一致し、停止していない（`suspended_at` が空）Installation のものである | 事実：Security Design §3.1 |
 | 返却可能な発行結果 | 照合を通った時点 | トークンが空でなく、有効期限が将来である。実効対象の完全名の集合が発行許可の対象と一致し、件数が同じで、余分・欠落・重複がない。各実効対象の Repository ID が有効で一意であり、`owner.id` が許可 Owner ID と一致する。実効権限が許可権限に付随権限を加えた範囲内で、`contents:read` を含む。`repository_selection` が `selected` である | 事実：Lambda Design §3.1、Requirements FR-018 |
 | 発行処理 | 全体 | 返却可能な発行結果がなければトークンを返さない。照合を通らなかった発行結果のトークンは失効を試みる。固定設定は処理中に変わらない。資格情報をログとエラー本文に出さない | 事実：Requirements QR-003、FR-007、FR-018、FR-024、QR-004 |
 
