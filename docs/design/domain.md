@@ -74,7 +74,7 @@ Installation は、GitHub App と Owner の組に対して高々一つ存在し�
 | 値 | 英語名 | 使われ方 | 根拠 |
 |---|---|---|---|
 | 許可 Owner の不変 Owner ID | Allowed Owner ID | Caller の認可、Installation の `account.id` の照合、発行結果の `owner.id` の照合 | 事実：Requirements FR-006、Security Design §3.1 |
-| 許可 Owner の名前 | Allowed Owner Name | 要求された完全名の Owner 部分の照合、Installation 取得 API のパス | 事実：Lambda Design §6 手順 3、§7.3 |
+| 許可 Owner 名 | Allowed Owner Name | 要求された完全名の Owner 部分の照合、Installation 取得 API のパス | 事実：Lambda Design §6 手順 3、§7.3 |
 | 許可 Owner の種別 | Allowed Owner Type | Installation 取得 API の選択（Organization かユーザーか） | 事実：Lambda Design §7.3 |
 | GitHub App の Client ID | Client ID | GitHub App JWT の `iss` | 事実：Lambda Design §7.2 |
 | 署名鍵の KMS Key ARN | KMS Key ARN | GitHub App JWT の署名 | 事実：Lambda Design §7.2 |
@@ -91,6 +91,7 @@ Client ID、KMS Key ARN、Audience、Issuer、API Host は、認証、署名、I
 |---|---|---|---|---|
 | **発行要求** | Token Request | 値 | 対象（完全名の集合）、対象の選び方（`repository_selection` が `selected`）、App Permissions。利用者が明示する | 事実：Requirements FR-012、Lambda Design §2.1 |
 | **完全名** | Full Name | 値 | `owner/repo` 形式のリポジトリ名。Owner 名とリポジトリ名に分割でき、比較は ASCII の範囲で大文字小文字を区別しない | 事実：Lambda Design §2.2 |
+| **Owner 名** | Owner Name | 値 | 完全名の Owner 部分と許可 Owner 名の二か所に現れる Owner の名前。どちらも同じ文字種の規則に従う。比較は ASCII の範囲で大文字小文字を区別しない | 事実：Lambda Design §2.2 |
 | **Permission** | Permission | 値 | 権限名と水準の組（`contents:read` など） | 事実：Requirements FR-008 |
 | **App Permissions** | App Permissions | 値 | Permission の集合。要求では `{contents:read}` だけが許可される。名前は GitHub REST API の `permissions` オブジェクトのスキーマ名 | 事実：Requirements FR-008、Security Design §3.1、REST API endpoints for GitHub Apps のスキーマ「App Permissions」 |
 | **許可権限** | Allowed Permissions | 値 | GATES が発行を許可する App Permissions。`{contents:read}` に固定 | 事実：Requirements §2.1 |
