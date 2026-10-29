@@ -78,7 +78,7 @@ Installation が全リポジトリを対象にするか、選択したリポジ�
 |---|---|
 | FR-006 | 検証済み JWT の不変 Owner ID が、許可 Owner の不変 Owner ID と一致することを確認する。Owner 名の一致では代用しない。 |
 | FR-007 | 許可 Owner に属し、GATES で利用する GitHub App の同一 Installation に含まれるリポジトリだけに発行する。含まれない対象を一つでも含む要求にはトークンを返さない。発行前に確認するか発行結果で検出するかは設計に委ねる。発行結果で検出した場合は、GitHub が発行したトークンを失効させる。 |
-| FR-008 | `contents:read` のみ許可し、その他の権限を拒否する。対象は選択したリポジトリ（GitHub の `repository_selection` でいう `selected`）に限り、全リポジトリ（`all`）を対象とする要求を拒否する。 |
+| FR-008 | `contents:read` のみ許可し、その他の権限を拒否する。対象は要求で明示したリポジトリ（GitHub の `repository_selection` でいう `selected`）に限り、全リポジトリ（`all`）を対象にする手段を利用者に与えない。 |
 | FR-009 | 利用者の入力から Caller、Installation ID、認可の根拠や任意の API Host を指定できないようにする。 |
 | FR-010 | 要求されたリポジトリ名の所有者と、GitHub API が返す実効対象を検証し、要求外のリポジトリへ発行しない。 |
 | FR-011 | 複数対象の要求は全件が成立する場合のみ許可し、一部成功や要求範囲の自動的な縮小を行わない。 |
@@ -101,7 +101,7 @@ Installation が全リポジトリを対象にするか、選択したリポジ�
 |---|---|
 | FR-019 | Composite Action が AWS の認証情報の取得、認証、トークン取得の手順を利用者から隠蔽する。利用者に求める作業は、責任分界（§3）に定めたものだけとする。 |
 | FR-020 | 入力不正、認証失敗、認可拒否、Installation の導出失敗（GitHub App の認証失敗、未インストール、停止、固定設定との不一致）、発行結果の不整合、外部 API・KMS の一時的な障害を区別したエラーを返す。 |
-| FR-021 | 認証済み Caller（Owner ID と Repository ID、ワークフロー実行の `run_id` と `run_attempt`、実行文脈）、要求対象（`repository_selection` を含む）、要求権限、結果、相関 ID を資格情報を含めず監査可能にする。実行文脈は JWT に含まれる範囲で記録する。相関 ID は成功・失敗のどちらの応答にも含め、呼び出し元が監査記録と突き合わせられるようにする。 |
+| FR-021 | 認証済み Caller（Owner ID と Repository ID、ワークフロー実行の `run_id` と `run_attempt`、実行文脈）、要求対象、要求権限、結果、相関 ID を資格情報を含めず監査可能にする。実行文脈は JWT に含まれる範囲で記録する。相関 ID は成功・失敗のどちらの応答にも含め、呼び出し元が監査記録と突き合わせられるようにする。 |
 | FR-022 | AWS リソースの設定と変更を Terraform で管理する。秘密鍵素材の取得・変換・インポートは Terraform 管理外とする。 |
 | FR-023 | 新しい鍵への切り替えでは KMS Key の意図しない置換・削除を防ぐ。 |
 | FR-024 | 許可 Owner（不変 Owner ID で指定）、GitHub App、署名に用いる KMS Key は、GATES 運用者が管理するデプロイ時の設定として固定する。Installation は、固定した GitHub App と許可 Owner から一意に導出する。これらは実行時に外部入力から変更できない。 |
@@ -133,7 +133,7 @@ Installation が全リポジトリを対象にするか、選択したリポジ�
 | AC-04 | JWT の不変 Owner ID が不一致（Owner 名が一致していても） | 発行を拒否 | FR-003, FR-006 |
 | AC-05 | Caller・Installation ID・任意の認可設定を Payload で指定 | 入力を受け付けず拒否 | FR-004, FR-009 |
 | AC-06 | Installation の対象外、または他の Owner の Private Repository を要求 | 発行を拒否 | FR-007, FR-010, QR-007 |
-| AC-07 | `contents:write`、別の権限、または全リポジトリ（`all`）を対象に要求 | 発行を拒否 | FR-008, QR-007 |
+| AC-07 | `contents:write` か別の権限を要求する、または全リポジトリ（`all`）を対象にする `repository_selection` を要求に含める | 発行を拒否 | FR-008, QR-007 |
 | AC-08 | リポジトリや権限が欠落、空、未知値 | 発行を拒否し、広い既定値を適用しない | FR-012 |
 | AC-09 | 同一 Installation の複数対象を `contents:read` で要求 | 指定した複数対象だけへのトークンを発行 | FR-015 |
 | AC-10 | 複数対象の一部が Installation の対象外、別の Owner、または別 Installation | 全件拒否し、暗黙に分割・縮小しない | FR-007, FR-011 |
@@ -144,7 +144,7 @@ Installation が全リポジトリを対象にするか、選択したリポジ�
 | AC-15 | 利用者が `id-token: write` を宣言し、Composite Action に対象と権限、および運用者が提供する接続情報だけを渡す | 他の手順や設定なしでトークンを取得できる | FR-019 |
 | AC-16 | Composite Action が発行処理のエラーを受け取る | エラー終了し、JWT・トークンをログへ出さない | FR-019, QR-004 |
 | AC-17 | 入力不正、認証失敗、認可拒否、Installation の導出失敗、発行結果の不整合、外部 API・KMS 障害をそれぞれ発生させる | 種別ごとに区別したエラーを返す | FR-020 |
-| AC-18 | 発行の成功と、認証後の拒否（認可拒否、発行結果の照合失敗など）をそれぞれ実行する | 監査記録に Caller（Owner ID、Repository ID、`run_id`、`run_attempt`、JWT に含まれていた実行文脈）、対象（`repository_selection` を含む）、権限、結果、相関 ID が残り、資格情報を含まない。成功応答にも相関 ID が含まれる | FR-016, FR-021 |
+| AC-18 | 発行の成功と、認証後の拒否（認可拒否、発行結果の照合失敗など）をそれぞれ実行する | 監査記録に Caller（Owner ID、Repository ID、`run_id`、`run_attempt`、JWT に含まれていた実行文脈）、対象、権限、結果、相関 ID が残り、資格情報を含まない。成功応答にも相関 ID が含まれる | FR-016, FR-021 |
 | AC-19 | 正常系と異常系を実行する | 発行処理のログとエラー本文に、秘密鍵・OIDC JWT・GitHub App JWT・トークンが含まれない | QR-004 |
 | AC-20 | Terraform で AWS リソースを構築・変更 | Lambda の実行ロールが KMS の署名操作と必要なログ出力だけを許可され、鍵のインポート・置換・削除・管理設定の変更は許可されない。認証なしの呼び出し口が存在しない。意図しない KMS Key 置換・削除がない | FR-022, FR-023, FR-025, QR-006 |
 | AC-21 | 秘密鍵を独立した運用で KMS にインポートし、インポート前のコピーを削除する | Terraform の State / Plan / リポジトリに鍵素材を残さず、KMS 署名が成立する。インポート前のコピーが運用者の手元に残っていない | FR-013, FR-022, FR-023, QR-006 |

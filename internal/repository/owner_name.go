@@ -15,7 +15,7 @@ type OwnerName struct {
 // google.golang.org/protobuf の DoNotCompare で知られた技法である。
 type doNotCompare [0]func()
 
-// ParseOwnerName は、Lambda Design の名前の文字種に従って Owner 名を検証する。
+// ParseOwnerName は、GitHub の Owner 名の文字種に従って検証する。
 func ParseOwnerName(s string) (OwnerName, error) {
 	if s == "" {
 		return OwnerName{}, fmt.Errorf("%w: must not be empty", ErrInvalidOwnerName)

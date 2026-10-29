@@ -15,7 +15,7 @@ type FullName struct {
 	repositoryName string
 }
 
-// ParseFullName は、一度だけ `/` で分割し、Lambda Design の名前の文字種に従って両部分を検証する。
+// ParseFullName は、一度だけ `/` で分割し、GitHub の Owner 名とリポジトリ名の文字種に従って両部分を検証する。
 // `/` の数は数えず、二つ目以降はリポジトリ名の文字種の検証で拒否する。
 func ParseFullName(s string) (FullName, error) {
 	owner, repo, found := strings.Cut(s, "/")

@@ -15,7 +15,7 @@ Lambda は AWS IAM により認証・認可された同期 Invoke を受け付�
 | Response | JSON。呼び出し元は Invoke の `FunctionError` と Lambda 応答の `ok` をそれぞれ確認 |
 | Endpoint | AWS Lambda Invoke API |
 
-Lambda Invoke には HTTP の `Authorization` ヘッダーに相当するアプリケーション層のヘッダーがないため、GATES 用 OIDC JWT は `id_token` フィールドとして Payload に含めます。Payload は資格情報を含むため丸ごとログに記録せず、監査に必要な非秘密のフィールド（要求対象、`repository_selection`、要求権限）だけを記録します。
+Lambda Invoke には HTTP の `Authorization` ヘッダーに相当するアプリケーション層のヘッダーがないため、GATES 用 OIDC JWT は `id_token` フィールドとして Payload に含めます。Payload は資格情報を含むため丸ごとログに記録せず、監査に必要な非秘密のフィールド（要求対象、要求権限）だけを記録します。
 
 本ドキュメントでは、処理の段階を次の語で区別します。
 Payload を GATES が読み取れるかの判定を **形式検証**、GATES 用 OIDC JWT から Caller を確定することを **認証**、GitHub API の発行応答を TokenGrant と突き合わせることを **照合** と呼びます。
@@ -29,7 +29,6 @@ Payload を GATES が読み取れるかの判定を **形式検証**、GATES 用
 {
   "version": 1,
   "id_token": "<GATES_AUDIENCE_GITHUB_OIDC_JWT>",
-  "repository_selection": "selected",
   "repositories": ["example-org/repo-a", "example-org/repo-b"],
   "permissions": {"contents": "read"}
 }
@@ -39,12 +38,12 @@ Payload を GATES が読み取れるかの判定を **形式検証**、GATES 用
 |---|---|
 | `version` | 必須、整数 `1` |
 | `id_token` | 必須、GATES 用 Audience の JWT。Bearer 資格情報として慎重に扱う |
-| `repository_selection` | 必須、値は `selected`。GitHub の Installation と発行応答の `repository_selection` と同じ語彙で、要求が選択したリポジトリに限ることを明示する。`all` を含む他の値は認可拒否 |
 | `repositories` | 必須、重複のない 1 件以上 500 件以下の `owner/repo` の配列。上限は GitHub のトークン発行 API が一度に受け付ける件数（[Generating an installation access token](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app) の「You can list up to 500 repositories」）。16 KiB の Payload には最短の要素で 2,000 件以上が入るため、Payload サイズより先にこの上限に達する |
 | `permissions` | 必須、値は **`{"contents":"read"}`**。形式が不正なら入力不正、形式が正しく値が許可条件と異なれば認可拒否 |
 
 - 対象は同一 Owner に属し、GATES で利用する同一の GitHub App Installation に含まれる必要がある。
 - Caller / Owner / Installation ID と GitHub API Host を利用者から指定させない。
+- 全リポジトリを対象にする項目（GitHub の `repository_selection`）を設けない。対象は `repositories` で明示したリポジトリだけである。`repository_selection` を含む Payload は、未知のフィールドとして入力不正になる。
 - 複数対象のうち一つでも許可条件を満たさなければ全件を拒否し、部分成功も自動分割もしない。
 - GitHub API に渡す際は `owner/repo` を一度だけ `/` で分割し、Owner 名が許可 Owner 名に一致することを確認して、リポジトリ名の部分だけを `repositories` に指定する。要求時の `owner/repo` は応答の `full_name` と照合するため保持する。
 - 各リポジトリに同じ App Permissions を適用する。別の権限を必要とする場合は個別に要求する。
@@ -52,7 +51,6 @@ Payload を GATES が読み取れるかの判定を **形式検証**、GATES 用
 
 ### 2.2 Validation
 
-Handler は入力型、未知フィールド、リストの重複、空値、`repository_selection` と App Permissions の形式、件数、サイズを検証します。
 形式検証は、値を GATES が解釈できるかだけを判定します。
 値が許可条件に合うかは、認証後に Authorization が判定します。
 この順序の理由は [Security Design](security.md#31-authorization-rule) に記述します。
@@ -66,9 +64,8 @@ Handler は入力型、未知フィールド、リストの重複、空値、`re
 |---|---|---|
 | `version` | 欠落、`null`、整数 `1` 以外（`1.0`、`"1"`、`2` を含む） | なし |
 | `id_token` | 欠落、`null`、文字列以外、空文字列 | なし（JWT の検証失敗は `invalid_id_token`） |
-| `repository_selection` | 欠落、`null`、文字列以外、空文字列 | `selected` 以外の文字列（`all` を含む） |
 | `repositories` | 欠落、`null`、配列以外、空配列、文字列以外の要素、[完全名の形式](#名前の文字種と比較規則)に合わない要素、大文字小文字を区別しない重複、500 件超 | Owner 名が許可 Owner 名と異なる要素を含む |
-| `permissions` | 欠落、`null`、オブジェクト以外、空オブジェクト、文字列以外の値、空文字列のキーまたは値 | `{"contents":"read"}` 以外の組（`contents` 以外のキー、`read` 以外の値、`metadata` などのキーの追加） |
+| `permissions` | 欠落、`null`、オブジェクト以外、空オブジェクト、文字列以外の値、[権限名と水準の文字種](#権限名と水準の文字種)に合わないキーまたは値（空文字列を含む） | `{"contents":"read"}` 以外の組（`contents` 以外のキー、`read` 以外の値、`metadata` などのキーの追加） |
 | Payload 全体 | 16 KiB 超、JSON として不正、オブジェクト以外、未知のフィールド、重複したキー、不正な UTF-8、オブジェクトの後に続くデータ | なし |
 
 空の App Permissions を入力不正にするのは、`permissions` が必須であり、[Requirements](../spec/requirements.md) FR-012 が欠落・未知値を広い既定権限に読み替えないと定めているためです。
@@ -84,6 +81,29 @@ Owner 名の不一致を認可拒否にするのは、[Processing Flow](#6-proce
 
 500 件を超える要求を入力不正にするのは、GitHub API に渡すと、その応答が対象を受け付けなかった応答として `authorization_denied` に分類され（[Failure](#32-failure)）、件数の超過が認可拒否として記録されるためです。
 形式検証で止めれば、KMS と GitHub API を呼ばずに済みます。
+
+形式検証のエラー文言には、不正なフィールドの名前（配列の要素なら位置を添える）とその形だけを書き、Payload の断片を含めません。
+未知のフィールドの名前、`permissions` のキー、数値のリテラルも断片に当たります。
+断片には GATES 用 OIDC JWT が入り得るためです。
+
+#### 権限名と水準の文字種
+
+`permissions` のキー（権限名）と値（水準）は、1 文字以上 64 文字以下の ASCII 小文字とアンダースコア（`_`）の文字列に限ります。
+[REST API endpoints for GitHub Apps](https://docs.github.com/en/rest/apps/apps) のスキーマ「App Permissions」では、権限名と水準（`read`、`write`、`admin`）がどれもこの文字種で表されています。
+この文字種に合わない文字列は、GitHub の権限名や水準として読み取れないため、入力不正にします。
+[Security Design](security.md#31-authorization-rule) と [Domain Model](domain.md#52-rules) が入力不正にする「値を読み取れない形」に、この文字列も含まれます。
+
+この規則により、監査記録に入る要求の権限は、改行や制御文字を含まない 64 文字以下の語に限られます。
+ログのエンコーダが値をどうエスケープするかによらず、記録の 1 行を偽装する値や長大な値が入りません。
+値の数には上限を設けず、記録全体の大きさは Payload の 16 KiB の上限で抑えます。
+
+64 文字の上限は GitHub の制約ではなく、最長の権限名（確かめた 2026 年 10 月の時点で 46 文字）に余裕を持たせて GATES が決めた値です。
+許可されるのは `{"contents":"read"}` だけなので、将来 GitHub がこの規則に合わない権限名を加えても、正当な要求は拒否されません。
+その権限名を使う要求の結果が、認可拒否から入力不正に変わるだけです。
+
+発行結果の実効権限も App Permissions として同じ規則で読みます。
+照合は許可権限と付随権限の範囲外の Permission をもともと拒否するため（[Success](#31-success)）、規則に合わない権限名が応答に現れても、トークンを返さないことは変わりません。
+この場合も照合の失敗（`issuance_verification_failed`）として扱い、応答の `token` の取り出しと失効は、`permissions` を読み取れたかどうかに依存させません。
 
 #### 名前の文字種と比較規則
 
@@ -183,7 +203,7 @@ Handler は処理中の panic を回復し、`internal_error` の失敗応答と
 |---|---|
 | `invalid_request` | Payload が [Validation](#22-validation) の入力不正の形に当たる |
 | `invalid_id_token` | GitHub OIDC JWT が不正、期限切れ、必須 Claim の欠落・不整合 |
-| `authorization_denied` | Caller の Owner ID が許可 Owner と不一致、要求した `repository_selection` / 権限が許可条件外、または要求リポジトリが許可 Owner / Installation の範囲外 |
+| `authorization_denied` | Caller の Owner ID が許可 Owner と不一致、要求した権限が許可条件外、または要求リポジトリが許可 Owner / Installation の範囲外 |
 | `identity_verification_unavailable` | OIDC Discovery / JWKS 等の検証に失敗 |
 | `signing_unavailable` | KMS 署名に失敗 |
 | `installation_resolution_failed` | 固定した GitHub App と許可 Owner から、発行に使える Installation を得られない。一時的な障害を除く GitHub API の失敗（App JWT が受け付けられない 401、GitHub App が許可 Owner にインストールされていない 404 など）、Installation の応答に必要な項目がない、Installation が停止している（`suspended_at` が空でない）、`account.id` が許可 Owner ID と一致しない |
@@ -225,7 +245,7 @@ flowchart LR
 |---|---|
 | Lambda Handler | Payload の形式検証、各コンポーネントの呼び出し順序の制御、監査情報の記録、応答形式 |
 | OIDC Verifier | GitHub OIDC JWT の署名・Issuer・Audience・時間・Claim 検証と Caller の確定 |
-| Authorization | Caller、要求（対象、`repository_selection`、権限）、取得済み Installation、固定設定から発行可否を判定し、TokenGrant を確定。ネットワーク通信を行わない |
+| Authorization | Caller、要求（対象、権限）、取得済み Installation、固定設定から発行可否を判定し、TokenGrant を確定。ネットワーク通信を行わない |
 | Token Issuer | KMS Signer による App JWT の作成、GitHub Client を使った Installation の取得とトークン発行、GitHub 応答の TokenGrant への照合、照合に失敗したトークンの失効 |
 | KMS Signer | 固定された非対称 KMS Key とアルゴリズムで署名 |
 | GitHub Client | GitHub API（Installation の取得、トークン発行、トークンの失効）に対する HTTP 通信と応答の復号 |
@@ -243,7 +263,8 @@ flowchart LR
 | Owner 名 | OwnerName | Authorization、Token Issuer が共用 | 完全名の Owner 部分と許可 Owner 名を同じ型で表す。[名前の文字種](#名前の文字種と比較規則)を満たし、比較は ASCII の範囲で大文字小文字を区別しない |
 | 発行要求 | TokenRequest | Lambda Handler が作り、Authorization が読む | Payload から GATES 用 OIDC JWT を除いた部分 |
 | Caller | Caller | OIDC Verifier が作り、Authorization と監査記録が読む | Owner ID と Repository ID で識別し、`run_id`、`run_attempt`、実行文脈（ExecutionContext）を監査のために添える |
-| GATES 用 OIDC JWT（ID Token） | IDToken | OIDC Verifier | go-oidc の `IDToken` 型。Payload の `id_token` から認証して得る |
+| GATES 用 OIDC JWT（ID Token）、未検証 | RawIDToken | Lambda Handler が作り、OIDC Verifier が読む | Payload の `id_token` を認証前に運ぶ。資格情報のため、ログやエラーにどう出力しても値を伏せる。値を取り出すのは OIDC Verifier だけ |
+| GATES 用 OIDC JWT（ID Token）、検証済み | IDToken | OIDC Verifier | go-oidc の `IDToken` 型。RawIDToken を認証して得る |
 | App Permissions | AppPermissions | Lambda Handler、Authorization、Token Issuer が共用 | 要求の `permissions` と応答の `permissions` の両方をこの型で扱う |
 | 固定設定 | Config | Lambda Handler が起動時に読み、各コンポーネントへ渡す | 許可 Owner（AllowedOwner）、Client ID、KMS Key ARN、Audience、Issuer、GitHub API Host。JWKS は Issuer の Discovery から得るため、独立した値を持たない |
 | Installation | Installation | Token Issuer が取得し、Authorization が照合する | Installation ID、`account.id`、`suspended_at` |
@@ -251,7 +272,7 @@ flowchart LR
 | 発行結果 | IssuanceResult | Token Issuer | GitHub API の発行応答。照合前の値 |
 | 実効対象 | RepositoryIdentity | Token Issuer | 発行応答の各リポジトリの ID、`owner.id`、`full_name` |
 | 返却可能な発行結果 | InstallationToken | Token Issuer が作り、Lambda Handler が返す | 照合を通った発行結果だけをこの型にする |
-| 監査記録 | AuditRecord | Lambda Handler | 相関 ID（RequestID）、結果、Caller、要求対象、要求の `repository_selection`、要求権限、失効の成否 |
+| 監査記録 | AuditRecord | Lambda Handler | 相関 ID（RequestID）、結果、Caller、要求対象、要求権限、失効の成否 |
 
 `TokenGrant` は認可済みの発行範囲を Token Issuer に渡すための値です。複数リポジトリには共通の App Permissions を適用し、対象ごとの違いが必要なら別のトークンを要求します。
 
@@ -264,15 +285,15 @@ Permission は AppPermissions の要素、Allowed Permissions と Implied Permis
 
 ## 6. Processing Flow
 
-1. Handler が Payload サイズ、JSON 型、未知フィールド、必須値、対象の件数、`repository_selection` と App Permissions の形式を形式検証し、資格情報をログに残さない。
+1. Handler が Payload を形式検証し（[Validation](#22-validation)）、資格情報をログに残さない。
 2. OIDC Verifier が固定 Issuer / JWKS と GATES 用 Audience で JWT を認証し、`repository_owner_id` と `repository_id` の Claim、および不変 ID 入り `sub` との一致から Caller を確定する。`run_id`、`run_attempt`、実行文脈は監査のために Caller に添える。
-3. Authorization が Caller の Owner ID を固定した許可 Owner ID と照合し、`repository_selection` が `selected`、App Permissions が `contents:read` のみであることを確認し、要求された各 `owner/repo` の Owner 名を固定した許可 Owner 名と照合する。不一致なら外部呼び出しに進まず拒否する。
+3. Authorization が Caller の Owner ID を固定した許可 Owner ID と照合し、App Permissions が `contents:read` のみであることを確認し、要求された各 `owner/repo` の Owner 名を固定した許可 Owner 名と照合する。不一致なら外部呼び出しに進まず拒否する。
 4. Token Issuer が KMS Signer で GitHub App JWT を生成し、GitHub Client で許可 Owner の Installation を取得する。取得の失敗は [Failure](#32-failure) の分類に従い、一時的な障害なら `token_issuance_failed`、それ以外なら `installation_resolution_failed` として拒否する。
 5. Authorization が Installation の `account.id` を固定 Owner ID と照合し、`suspended_at` が空であることを確認して、Installation ID、要求対象名、固定 Permission から TokenGrant を確定する。停止している、または `account.id` が一致しなければ `installation_resolution_failed` として拒否し、発行 API を呼ばない。
 6. Token Issuer が Grant の各 `owner/repo` から Owner を除いたリポジトリ名の配列と `permissions` を GitHub API に明示してトークンを取得する。GitHub 応答の `full_name` は Grant の元の `owner/repo` と全件照合し、Owner ID、Repository ID の有効性・一意性、実効権限が許可範囲内であることを照合する。必要な一覧・権限の欠落や不一致があれば、応答のトークンを失効させ、`issuance_verification_failed` として返却しない。
 7. Handler が必要最小限の成功応答を返す。いずれかに失敗した場合は安全なエラーコードと相関 ID を返し、トークンは返さない。
 
-Owner ID、`repository_selection` / 権限、Owner 名の照合（手順 3）を Installation の取得（手順 4）より先に置くのは、KMS と GitHub API の呼び出しを認可の見込みがある要求だけに限るためです。
+Owner ID、権限、Owner 名の照合（手順 3）を Installation の取得（手順 4）より先に置くのは、KMS と GitHub API の呼び出しを認可の見込みがある要求だけに限るためです。
 
 ## 7. External Integrations
 
@@ -318,24 +339,21 @@ Owner ID、`repository_selection` / 権限、Owner 名の照合（手順 3）を
 
 ### 8.1 Go Packages
 
-入力と認可の処理は、次の package に分けます。
-どれも通信と外部ライブラリを持ちません。
+入力と認可の処理の package は、どれも通信と外部ライブラリを持ちません。
 OIDC Verifier、Token Issuer、KMS Signer、GitHub Client の package は、それぞれを実装するときに加えます。
 
-| Package | 対応する論理コンポーネント | 責務 | 依存先 |
-|---|---|---|---|
-| `internal/repository` | Lambda Handler、Authorization、Token Issuer が共通で使う | FullName の分割と検証、OwnerName の検証、FullName どうしと OwnerName どうしの比較 | なし |
-| `internal/request` | Lambda Handler の形式検証 | Payload の復号と形式検証。GATES 用 OIDC JWT と TokenRequest を分けて返す | `repository` |
-| `internal/authz` | Authorization | AllowedOwner、Caller、TokenRequest、Installation から発行の可否を判定し、TokenGrant を確定する | `repository`、`request` |
-
-`internal/repository` を独立させるのは、要求の重複判定、Owner 名の照合、発行応答の `full_name` の照合が、同じ比較規則を使うためです。
+完全名と Owner 名の比較規則は、一つの package（`internal/repository`）に閉じます。
+要求の重複判定、Owner 名の照合、発行応答の `full_name` の照合が、同じ比較規則を使うためです。
 各 package に比較を書くと、一か所だけが大文字小文字の扱いや分割の規則を違えたときに、照合の結果が食い違います。
+App Permissions の検証と比較を一つの package（`internal/permission`）に閉じる理由も同じです。
+形式検証、事前認可の許可権限との等しさ、発行結果の照合の付随権限を含む範囲の判定が、同じ App Permissions の読み方と比べ方を使います。
 
-Caller と TokenGrant は `internal/authz` に置きます。
+Authorization は `internal/authz` に置きます。
+AllowedOwner、Caller、TokenRequest、Installation から発行の可否を判定し、TokenGrant を確定します。
+Caller と TokenGrant も `internal/authz` に置きます。
 どちらも Authorization の入力か出力であり、Caller は OIDC Verifier が作り、TokenGrant は Token Issuer が読みます。
 OIDC Verifier と Token Issuer の package が `internal/authz` を import しても、`internal/authz` は通信を持たないため、副作用が `internal/authz` に入りません。
 
-この構成と [Domain Model](domain.md) の概念は、実装の前に置いた雛形です。
 実装で概念の過不足や名前のずれが分かったときは、コードと本ドキュメントを同じ変更で直します。
 
 ## 9. Testability

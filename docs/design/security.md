@@ -44,14 +44,17 @@ AWS 一時認証情報と GATES 用 OIDC JWT が同じジョブで取得され�
 
 1. 検証済み Caller の `repository_owner_id` が許可 Owner の不変 Owner ID と一致する。Owner 名の一致では代用しない。
 2. 要求した各 `owner/repo` の Owner 名が固定された許可 Owner 名と一致する。
-3. 要求の `repository_selection` が `selected` であり、App Permissions が **`contents:read` のみ** である。
+3. 要求の App Permissions が **`contents:read` のみ** である。
 
 Caller の `repository_id` と実行文脈は監査のための識別に用い、認可条件には含めません。
 
-条件 3 の `repository_selection` と App Permissions は、形式が正しければ JWT 検証後に認可条件として判定し、許可外なら認可拒否として扱います。
+条件 3 の App Permissions は、形式が正しければ JWT 検証後に認可条件として判定し、許可外なら認可拒否として扱います。
 形式検証で先に落とさないのは、`contents:write` のような許可外の要求を、認証済み Caller とともに監査記録に残すためです。
-形式検証が入力不正にするのは、欠落や空の App Permissions のように、要求した `repository_selection` や権限を読み取れない形に限ります。
+形式検証が入力不正にするのは、欠落や空の App Permissions のように、要求した権限を読み取れない形に限ります。
 どの形をどちらに分けるかは [Lambda Design](lambda.md#22-validation) に記述します。
+
+要求には、全リポジトリを対象にする項目を設けません。
+対象は要求で明示したリポジトリだけであり、`selected` しか許可しない値を利用者に指定させても、許可条件を一つ増やすだけになるためです。
 
 認可条件が成立した後、GitHub App JWT で許可 Owner の Installation を取得し、発行に使えるかを次の条件で確認します。
 
@@ -78,7 +81,7 @@ Owner の名前変更時に Trust Policy と Lambda の設定を更新するま�
 
 ### 3.3 Permission Boundary
 
-Lambda が許可する権限は `contents:read` に固定します。要求された `repository_selection` や Permission が許可条件と異なる場合は拒否します。GitHub App の権限上限が GATES の許可範囲より広くても、発行するトークンの権限は拡大しません。
+Lambda が許可する権限は `contents:read` に固定します。要求された Permission が許可条件と異なる場合は拒否します。GitHub App の権限上限が GATES の許可範囲より広くても、発行するトークンの権限は拡大しません。
 
 ### 3.4 Issuance Result Verification
 
@@ -113,7 +116,7 @@ KMS Key の構成・IAM 権限は Terraform で管理します。GitHub App Priv
 ## 5. Failure, Audit, and Security Risks
 
 - 入力が不正、または認証に失敗したら、GitHub API や KMS のトークン発行処理に進まない。対象解決や署名の失敗、発行結果の不一致は Fail Closed とする。
-- 監査ログには相関 ID、時刻、処理結果（成功またはエラーコード）に加え、認証済み Caller の Owner ID と Repository ID、ワークフロー実行の `run_id` と `run_attempt`、実行文脈、要求対象（`owner/repo`）、要求の `repository_selection`、要求権限、照合に失敗したトークンの失効の成否を記録する。`run_id` と `run_attempt` を残すのは、監査記録から GitHub 上のワークフロー実行にたどり着けるようにするためで、認可には使わない。認証前の失敗では Caller が確定していないため、未検証の値を認証済み主体として記録しない。秘密鍵、OIDC JWT、GitHub App JWT、Installation Access Token、AWS 一時認証情報は記録しない。
+- 監査ログには相関 ID、時刻、処理結果（成功またはエラーコード）に加え、認証済み Caller の Owner ID と Repository ID、ワークフロー実行の `run_id` と `run_attempt`、実行文脈、要求対象（`owner/repo`）、要求権限、照合に失敗したトークンの失効の成否を記録する。`run_id` と `run_attempt` を残すのは、監査記録から GitHub 上のワークフロー実行にたどり着けるようにするためで、認可には使わない。認証前の失敗では Caller が確定していないため、未検証の値を認証済み主体として記録しない。秘密鍵、OIDC JWT、GitHub App JWT、Installation Access Token、AWS 一時認証情報は記録しない。
 - 実行文脈（`actor`、`event_name`、`ref`、`workflow_ref`、`environment` など）を残すのは、後述の `pull_request_target` の悪用のように、どのイベントと ref でトークンを得たかを調べる場面に備えるためである。GitHub 側の記録は保持期間を過ぎたり削除されたりし得る。実行文脈はベストエフォートで記録し、Claim が欠落していても拒否しない。IAM Role の引き受けと Lambda の呼び出しは AWS 側の記録（CloudTrail など）が担い、GATES の監査ログはそれを補うアプリケーション層の記録と位置づける。
 - 相関 ID は成功応答と失敗応答の両方に、同じ位置で含める。ワークフローのログに残った相関 ID から監査記録へたどれるようにするためである。
 - AWS Invoke の成功と Lambda の業務成功を区別し、Composite Action は `FunctionError` と応答の両方を確認する。
