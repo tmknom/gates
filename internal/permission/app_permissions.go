@@ -40,6 +40,12 @@ func NewAppPermissions(levels map[string]string) (AppPermissions, error) {
 	return AppPermissions{levels: maps.Clone(levels)}, nil
 }
 
+// AllowedPermissions は、GATES が発行を許可する App Permissions を返す。
+// Go では struct を定数にできず、公開変数は import 側から差し替えられるため、呼ぶたびに値を作る関数にする。
+func AllowedPermissions() AppPermissions {
+	return AppPermissions{levels: map[string]string{"contents": "read"}}
+}
+
 func wellFormedTerm(s string) bool {
 	if s == "" || len(s) > maxTermLength {
 		return false

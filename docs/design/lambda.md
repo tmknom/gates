@@ -263,6 +263,9 @@ flowchart LR
 | Owner 名 | OwnerName | Authorization、Token Issuer が共用 | 完全名の Owner 部分と許可 Owner 名を同じ型で表す。[名前の文字種](#名前の文字種と比較規則)を満たし、比較は ASCII の範囲で大文字小文字を区別しない |
 | 発行要求 | TokenRequest | Lambda Handler が作り、Authorization が読む | Payload から GATES 用 OIDC JWT を除いた部分 |
 | Caller | Caller | OIDC Verifier が作り、Authorization と監査記録が読む | Owner ID と Repository ID で識別し、`run_id`、`run_attempt`、実行文脈（ExecutionContext）を監査のために添える |
+| 実行文脈 | ExecutionContext | OIDC Verifier が作り、Caller が持ち、監査記録が読む | 認可には使わない |
+| 許可 Owner | AllowedOwner | Lambda Handler が固定設定から作り、Authorization と Token Issuer が読む | 不変 Owner ID、Owner 名（OwnerName）、種別（OwnerType） |
+| 許可 Owner の種別 | OwnerType | Token Issuer が Installation の取得 API の選択に読む | Organization かユーザーアカウントか |
 | GATES 用 OIDC JWT（ID Token）、未検証 | RawIDToken | Lambda Handler が作り、OIDC Verifier が読む | Payload の `id_token` を認証前に運ぶ。資格情報のため、ログやエラーにどう出力しても値を伏せる。値を取り出すのは OIDC Verifier だけ |
 | GATES 用 OIDC JWT（ID Token）、検証済み | IDToken | OIDC Verifier | go-oidc の `IDToken` 型。RawIDToken を認証して得る |
 | App Permissions | AppPermissions | Lambda Handler、Authorization、Token Issuer が共用 | 要求の `permissions` と応答の `permissions` の両方をこの型で扱う |
@@ -272,12 +275,12 @@ flowchart LR
 | 発行結果 | IssuanceResult | Token Issuer | GitHub API の発行応答。照合前の値 |
 | 実効対象 | RepositoryIdentity | Token Issuer | 発行応答の各リポジトリの ID、`owner.id`、`full_name` |
 | 返却可能な発行結果 | InstallationToken | Token Issuer が作り、Lambda Handler が返す | 照合を通った発行結果だけをこの型にする |
-| 監査記録 | AuditRecord | Lambda Handler | 相関 ID（RequestID）、結果、Caller、要求対象、要求権限、失効の成否 |
+| 監査記録 | AuditRecord | Lambda Handler | 相関 ID（RequestID）、結果、拒否の理由、Caller、要求対象、要求権限、失効の成否 |
 
 `TokenGrant` は認可済みの発行範囲を Token Issuer に渡すための値です。複数リポジトリには共通の App Permissions を適用し、対象ごとの違いが必要なら別のトークンを要求します。
 
 表にない概念は、独立した型にしません。
-Permission は AppPermissions の要素、Allowed Permissions と Implied Permissions は AppPermissions 型の定数、Allowed Owner Name は AllowedOwner の `Name` フィールドの OwnerName、Allowed Owner Type は AllowedOwner の `Type` フィールドの値型 OwnerType です。
+Permission は AppPermissions の要素、Allowed Permissions と Implied Permissions は AppPermissions の固定の値、Allowed Owner ID と Allowed Owner Name は AllowedOwner が持つ整数と OwnerName の値です。
 [Domain Model](domain.md#41-operations) の操作名（Validate、Authenticate、Authorize、Sign、Resolve Installation、Grant、Issue、Verify、Revoke、Audit）は、空白を除いた形を各コンポーネントの関数名にします。
 
 [Request](#2-request) の「Repository Request」は Payload の形式の名前であり、TokenRequest は Payload から GATES 用 OIDC JWT を除いた発行要求の概念です。
@@ -287,13 +290,18 @@ Permission は AppPermissions の要素、Allowed Permissions と Implied Permis
 
 1. Handler が Payload を形式検証し（[Validation](#22-validation)）、資格情報をログに残さない。
 2. OIDC Verifier が固定 Issuer / JWKS と GATES 用 Audience で JWT を認証し、`repository_owner_id` と `repository_id` の Claim、および不変 ID 入り `sub` との一致から Caller を確定する。`run_id`、`run_attempt`、実行文脈は監査のために Caller に添える。
-3. Authorization が Caller の Owner ID を固定した許可 Owner ID と照合し、App Permissions が `contents:read` のみであることを確認し、要求された各 `owner/repo` の Owner 名を固定した許可 Owner 名と照合する。不一致なら外部呼び出しに進まず拒否する。
+3. Authorization が Caller の Owner ID を固定した許可 Owner ID と照合し、要求された各 `owner/repo` の Owner 名を固定した許可 Owner 名と照合し、App Permissions が `contents:read` のみであることを確認する。不一致なら外部呼び出しに進まず拒否する。
 4. Token Issuer が KMS Signer で GitHub App JWT を生成し、GitHub Client で許可 Owner の Installation を取得する。取得の失敗は [Failure](#32-failure) の分類に従い、一時的な障害なら `token_issuance_failed`、それ以外なら `installation_resolution_failed` として拒否する。
 5. Authorization が Installation の `account.id` を固定 Owner ID と照合し、`suspended_at` が空であることを確認して、Installation ID、要求対象名、固定 Permission から TokenGrant を確定する。停止している、または `account.id` が一致しなければ `installation_resolution_failed` として拒否し、発行 API を呼ばない。
 6. Token Issuer が Grant の各 `owner/repo` から Owner を除いたリポジトリ名の配列と `permissions` を GitHub API に明示してトークンを取得する。GitHub 応答の `full_name` は Grant の元の `owner/repo` と全件照合し、Owner ID、Repository ID の有効性・一意性、実効権限が許可範囲内であることを照合する。必要な一覧・権限の欠落や不一致があれば、応答のトークンを失効させ、`issuance_verification_failed` として返却しない。
 7. Handler が必要最小限の成功応答を返す。いずれかに失敗した場合は安全なエラーコードと相関 ID を返し、トークンは返さない。
 
 Owner ID、権限、Owner 名の照合（手順 3）を Installation の取得（手順 4）より先に置くのは、KMS と GitHub API の呼び出しを認可の見込みがある要求だけに限るためです。
+
+認可拒否のエラー文言には満たさなかった条件を書き、Caller、要求、許可 Owner の値を含めません。
+文言は監査記録のためのもので、エラー応答には出しません。
+拒否の理由を応答に出すと、許可 Owner の Owner ID や Owner 名を、許可されない呼び出し元が探れるためです。
+値を含めないのは、Caller と要求は監査記録が別の項目として持つため文言に重ねる必要がなく、文言が誤って応答に混ざっても許可 Owner を明かさないためです。
 
 ## 7. External Integrations
 
@@ -350,9 +358,12 @@ App Permissions の検証と比較を一つの package（`internal/permission`�
 
 Authorization は `internal/authz` に置きます。
 AllowedOwner、Caller、TokenRequest、Installation から発行の可否を判定し、TokenGrant を確定します。
-Caller と TokenGrant も `internal/authz` に置きます。
-どちらも Authorization の入力か出力であり、Caller は OIDC Verifier が作り、TokenGrant は Token Issuer が読みます。
+Caller、AllowedOwner、TokenGrant も `internal/authz` に置きます。
+どれも Authorization の入力か出力です。
 OIDC Verifier と Token Issuer の package が `internal/authz` を import しても、`internal/authz` は通信を持たないため、副作用が `internal/authz` に入りません。
+
+Caller を作るのは OIDC Verifier とテストだけとし、ほかの package が Caller を組み立てないことをレビューで確かめます。
+`NewCaller` は公開関数で、呼び出せる package を型で限定できないため、「Caller は検証済みの GATES 用 OIDC JWT だけから作られる」不変条件はこの規則で守ります。
 
 実装で概念の過不足や名前のずれが分かったときは、コードと本ドキュメントを同じ変更で直します。
 

@@ -82,6 +82,9 @@ Installation は、GitHub App と Owner の組に対して高々一つ存在し�
 | Issuer | Issuer | OIDC JWT の `iss` の照合と Discovery / JWKS の取得先。`https://token.actions.githubusercontent.com` に固定。JWKS は Issuer の Discovery から得るため、独立した値を持たない | 事実：Lambda Design §7.1 |
 | GitHub API Host | API Host | Installation の取得、トークンの発行と失効の呼び出し先。GitHub.com の API に固定 | 事実：Requirements FR-009、§2.2、Lambda Design §7.3 |
 
+種別の二つの値は、GitHub の REST API が Installation の `account.type` と `target_type` に使う語（`Organization`、`User`）で表します（事実：REST API endpoints for GitHub Apps）。
+本ドキュメントの「ユーザーアカウント」は `User` を説明する語です。
+
 Authorization が読むのは、固定設定のうち許可 Owner（ID と名前）だけです。
 Client ID、KMS Key ARN、Audience、Issuer、API Host は、認証、署名、Installation の解決、発行を担うコンポーネントが読みます。
 
@@ -108,6 +111,8 @@ Caller の Owner ID は認可に使い、Repository ID、`run_id`、`run_attempt
 `run_id` と `run_attempt` を添えるのは、監査記録から GitHub 上のワークフロー実行にたどり着けるようにするためで、Caller の同一性には含めません（事実：Security Design §5）。
 実行文脈を添えるのは、`pull_request_target` の悪用のように、どのイベントと ref でトークンを得たかが調査に要る場面で、GitHub 側の記録を参照せずに済ませるためです（事実：Security Design §5）。
 実行文脈はベストエフォートの属性であり、欠落していても Caller は確定します。
+実行文脈の値は監査記録に書き写すだけで、GATES は解釈も検証もせず、欠落した Claim は欠落のまま持ちます（推論：認可に使わないため）。
+値が空文字列の Claim は、欠落と同じに扱います（推論：空の値は調査の手がかりにならず、区別する要求がないため）。
 
 発行許可は、Caller、発行要求、許可 Owner、取得した Installation の 4 つがそろい、[5.2 Rules](#52-rules) の認可条件と Installation の有効性をすべて満たしたときにだけ作られます。
 発行許可があって初めて GitHub API へ発行を要求できる、という順序がこの概念の役割です。
@@ -151,6 +156,7 @@ GATES 用 OIDC JWT は、Payload から取り出した時点では未検証で�
 |---|---|---|
 | 相関 ID（Request ID、応答の `request_id`） | 常に | 事実：Requirements FR-021 |
 | 時刻、結果（成功またはエラーコード） | 常に | 事実：Security Design §5 |
+| 拒否の理由 | 拒否で終わった場合。満たさなかった条件を示し、資格情報と Caller、要求、許可 Owner の値を含めない | 事実：Security Design §5、Lambda Design §6 |
 | Caller の Owner ID と Repository ID、`run_id` と `run_attempt` | 認証に成功した後だけ。認証前の失敗では未検証の値を Caller として記録しない | 事実：Security Design §5 |
 | 実行文脈 | 認証に成功した後で、Claim が含まれていたものだけ | 事実：Security Design §5 |
 | 要求対象、要求権限 | 形式検証を通った後 | 事実：Lambda Design §1。時点は推論 |
@@ -351,7 +357,8 @@ GitHub がどちらの振る舞いをするかで、エラーコードが `autho
 |---|---|---|---|
 | 発行要求 | 形式検証を通った時点 | 対象が 1 件以上 500 件以下で、各要素が完全名の形式を満たし、大文字小文字を区別しない重複がない。App Permissions が下の行の条件を満たす | 事実：Lambda Design §2.2 |
 | App Permissions | 作られた時点 | Permission を 1 つ以上持ち、権限名と水準がどれも Lambda Design の権限名と水準の文字種を満たす。許可権限と等しいかは含まず、事前認可が判定する | 事実：Lambda Design §2.2、Security Design §3.1 |
-| Caller | 認証を通った時点 | 検証済みの GATES 用 OIDC JWT だけから作られ、Owner ID と Repository ID が `sub` の不変 ID と一致する | 事実：Requirements FR-002、FR-004、Lambda Design §7.1 |
+| 許可 Owner | 固定設定を読んだ時点 | Owner ID が正の整数で、Owner 名が Owner 名の文字種を満たし、種別が二つの値のどちらかである | 事実：Requirements FR-024、Lambda Design §2.2 の名前の文字種。推論：条件を満たさない値を作らない方針（本節冒頭） |
+| Caller | 認証を通った時点 | 検証済みの GATES 用 OIDC JWT だけから作られ、Owner ID と Repository ID が `sub` の不変 ID と一致する。Owner ID、Repository ID、`run_id`、`run_attempt` はどれも正の整数である。いずれかが欠落していれば Caller は確定しない | 事実：Requirements FR-002、FR-004、Lambda Design §7.1。正の整数は推論：GitHub の ID と `run_attempt` は 1 から始まる |
 | 発行許可 | 確定した時点 | [5.2 Rules](#52-rules) の認可条件をすべて満たす。対象は発行要求の対象と同じ集合で、App Permissions は許可権限に等しい。Installation ID は、`account.id` が許可 Owner ID と一致し、停止していない（`suspended_at` が空）Installation のものである | 事実：Security Design §3.1 |
 | 返却可能な発行結果 | 照合を通った時点 | トークンが空でなく、有効期限が将来である。実効対象の完全名の集合が発行許可の対象と一致し、件数が同じで、余分・欠落・重複がない。各実効対象の Repository ID が有効で一意であり、`owner.id` が許可 Owner ID と一致する。実効権限が許可権限に付随権限を加えた範囲内で、`contents:read` を含む。`repository_selection` が `selected` である | 事実：Lambda Design §3.1、Requirements FR-018 |
 | 発行処理 | 全体 | 返却可能な発行結果がなければトークンを返さない。照合を通らなかった発行結果のトークンは失効を試みる。固定設定は処理中に変わらない。資格情報をログとエラー本文に出さない | 事実：Requirements QR-003、FR-007、FR-018、FR-024、QR-004 |
