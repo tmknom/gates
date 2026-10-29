@@ -27,7 +27,7 @@ IAM Role と Lambda の AWS リソース設定は [AWS Infrastructure Design](aw
 | `aws-region` | はい | IAM Role と Lambda を置く AWS リージョン |
 | `audience` | はい | GATES 用 OIDC JWT の Audience |
 
-`role-arn`、`function-name`、`aws-region`、`audience` を **接続情報** と呼びます。接続情報は Composite Action の中に固定せず、入力として受け取ります。Composite Action の定義にデプロイ固有の値を持たせないためです。`repository_selection` は入力にせず、Lambda Payload に固定値 `selected` を設定します。GATES は対象を明示した要求だけを受け付けるためです。
+`role-arn`、`function-name`、`aws-region`、`audience` を **接続情報** と呼びます。接続情報は Composite Action の中に固定せず、入力として受け取ります。Composite Action の定義にデプロイ固有の値を持たせないためです。全リポジトリを対象にする入力は設けません。GATES は対象を明示した要求だけを受け付けるためです。
 
 接続情報は GATES 運用者が GitHub の Secrets と Variables に用意し、ワークフローはそれを参照します。AWS アカウント ID は Secrets に置き、その他の値は Variables に置きます。ワークフローに値を直接書かず参照だけにするのは、Role 名や関数名を変えたときに、Secrets と Variables の更新だけで済ませ、利用者のワークフロー定義を変えずに済ませるためです（[Requirements](../spec/requirements.md) AC-23）。
 

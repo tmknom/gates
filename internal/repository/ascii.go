@@ -4,7 +4,8 @@ func isASCIIAlphanumeric(c byte) bool {
 	return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9'
 }
 
-// equalFoldASCII は Lambda Design の名前の比較規則に従い、ASCII の大文字小文字だけを同一視する。
+// equalFoldASCII は、ASCII の大文字小文字だけを同一視する。
+// strings.EqualFold は Kelvin 記号（U+212A）と k のように、ASCII 外の文字も ASCII の文字と同一視するため使わない。
 func equalFoldASCII(a, b string) bool {
 	if len(a) != len(b) {
 		return false
