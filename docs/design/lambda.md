@@ -240,6 +240,7 @@ flowchart LR
 | Domain Model の概念 | 実装での名前 | 持つコンポーネント | 補足 |
 |---|---|---|---|
 | 完全名 | FullName | Lambda Handler、Authorization、Token Issuer が共用 | [名前の文字種](#名前の文字種と比較規則)を満たし、比較は ASCII の範囲で大文字小文字を区別しない |
+| Owner 名 | OwnerName | Authorization、Token Issuer が共用 | 完全名の Owner 部分と許可 Owner 名を同じ型で表す。[名前の文字種](#名前の文字種と比較規則)を満たし、比較は ASCII の範囲で大文字小文字を区別しない |
 | 発行要求 | TokenRequest | Lambda Handler が作り、Authorization が読む | Payload から GATES 用 OIDC JWT を除いた部分 |
 | Caller | Caller | OIDC Verifier が作り、Authorization と監査記録が読む | Owner ID と Repository ID で識別し、`run_id`、`run_attempt`、実行文脈（ExecutionContext）を監査のために添える |
 | GATES 用 OIDC JWT（ID Token） | IDToken | OIDC Verifier | go-oidc の `IDToken` 型。Payload の `id_token` から認証して得る |
@@ -255,7 +256,7 @@ flowchart LR
 `TokenGrant` は認可済みの発行範囲を Token Issuer に渡すための値です。複数リポジトリには共通の App Permissions を適用し、対象ごとの違いが必要なら別のトークンを要求します。
 
 表にない概念は、独立した型にしません。
-Permission は AppPermissions の要素、Allowed Permissions と Implied Permissions は AppPermissions 型の定数、Allowed Owner Type は AllowedOwner の `Type` フィールドの値型 OwnerType です。
+Permission は AppPermissions の要素、Allowed Permissions と Implied Permissions は AppPermissions 型の定数、Allowed Owner Name は AllowedOwner の `Name` フィールドの OwnerName、Allowed Owner Type は AllowedOwner の `Type` フィールドの値型 OwnerType です。
 [Domain Model](domain.md#41-operations) の操作名（Validate、Authenticate、Authorize、Sign、Resolve Installation、Grant、Issue、Verify、Revoke、Audit）は、空白を除いた形を各コンポーネントの関数名にします。
 
 [Request](#2-request) の「Repository Request」は Payload の形式の名前であり、TokenRequest は Payload から GATES 用 OIDC JWT を除いた発行要求の概念です。
@@ -323,7 +324,7 @@ OIDC Verifier、Token Issuer、KMS Signer、GitHub Client の package は、そ�
 
 | Package | 対応する論理コンポーネント | 責務 | 依存先 |
 |---|---|---|---|
-| `internal/repository` | Lambda Handler、Authorization、Token Issuer が共通で使う | FullName の分割と検証、Owner 名と FullName の比較 | なし |
+| `internal/repository` | Lambda Handler、Authorization、Token Issuer が共通で使う | FullName の分割と検証、OwnerName の検証、FullName どうしと OwnerName どうしの比較 | なし |
 | `internal/request` | Lambda Handler の形式検証 | Payload の復号と形式検証。GATES 用 OIDC JWT と TokenRequest を分けて返す | `repository` |
 | `internal/authz` | Authorization | AllowedOwner、Caller、TokenRequest、Installation から発行の可否を判定し、TokenGrant を確定する | `repository`、`request` |
 
