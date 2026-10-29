@@ -65,7 +65,7 @@ Caller の `repository_id` と実行文脈は監査のための識別に用い�
 この拒否は利用者の要求に起因せず、運用者か Owner の管理者が GitHub 側か固定設定を直す必要があるため、認可拒否とは別のエラー（[Lambda Design](lambda.md#32-failure) の `installation_resolution_failed`）として返します。
 停止中の Installation に対する発行 API の応答は公式文書で確認できていないため、GitHub の振る舞いに Fail Closed を預けず、取得した時点で閉じます。
 
-これらの確認の後、Installation ID、要求したリポジトリ名、権限を含む `TokenGrant` を生成します。Installation に対象リポジトリが含まれることと、発行結果が Grant に一致することは、GitHub API の応答を受けてから確認します。一部だけで発行することや権限を暗黙に広げることは禁止します。
+これらの確認の後、Installation ID、要求した完全名、許可権限を含む `TokenGrant` を生成します。Installation に対象リポジトリが含まれることと、発行結果が `TokenGrant` に一致することは、GitHub API の応答を受けてから確認します。一部だけで発行することや権限を暗黙に広げることは禁止します。
 
 ### 3.2 Installation Scope as Authorization Boundary
 
@@ -93,7 +93,7 @@ Lambda が許可する権限は `contents:read` に固定します。要求さ�
 - 応答の Repository ID は発行結果の確認・監査に利用し、要求時に事前検証した ID と同一であることを証明するものではない。
 
 対象の全件一致を照合するため、[Requirements](../spec/requirements.md) FR-007 のうち範囲外の対象を含む要求にトークンを返さないことは、GitHub が範囲外の対象を拒否するかどうかに依存しません。
-GitHub が範囲外の対象を黙って除いても、応答の対象が Grant と一致しないことで検出し、トークンを返さずに失効させます。
+GitHub が範囲外の対象を黙って除いても、応答の対象が `TokenGrant` と一致しないことで検出し、トークンを返さずに失効させます。
 GitHub の振る舞いで変わるのは、エラーが `authorization_denied` と `issuance_verification_failed` のどちらになるかと、失効が必要になるかどうかです。
 失効に失敗した場合でも、そのトークンは Lambda の外に出ず、GitHub が定めた有効期限で失効します。
 
@@ -116,7 +116,7 @@ KMS Key の構成・IAM 権限は Terraform で管理します。GitHub App Priv
 ## 5. Failure, Audit, and Security Risks
 
 - 入力が不正、または認証に失敗したら、GitHub API や KMS のトークン発行処理に進まない。対象解決や署名の失敗、発行結果の不一致は Fail Closed とする。
-- 監査ログには相関 ID、時刻、処理結果（成功またはエラーコード）、拒否の理由に加え、認証済み Caller の Owner ID と Repository ID、ワークフロー実行の `run_id` と `run_attempt`、実行文脈、要求対象（`owner/repo`）、要求権限、照合に失敗したトークンの失効の成否を記録する。`run_id` と `run_attempt` を残すのは、監査記録から GitHub 上のワークフロー実行にたどり着けるようにするためで、認可には使わない。認証前の失敗では Caller が確定していないため、未検証の値を認証済み主体として記録しない。秘密鍵、OIDC JWT、GitHub App JWT、Installation Access Token、AWS 一時認証情報は記録しない。
+- 監査ログには相関 ID、時刻、処理結果（成功またはエラーコード）、拒否の理由に加え、認証済み Caller の Owner ID と Repository ID、ワークフロー実行の `run_id` と `run_attempt`、実行文脈、要求対象（`owner/repo`）、要求権限、取得した Installation の Installation ID と `account.id`、照合に失敗したトークンの失効の成否を記録する。`run_id` と `run_attempt` を残すのは、監査記録から GitHub 上のワークフロー実行にたどり着けるようにするためで、認可には使わない。認証前の失敗では Caller が確定していないため、未検証の値を認証済み主体として記録しない。秘密鍵、OIDC JWT、GitHub App JWT、Installation Access Token、AWS 一時認証情報は記録しない。
 - 実行文脈（`actor`、`event_name`、`ref`、`workflow_ref`、`environment` など）を残すのは、後述の `pull_request_target` の悪用のように、どのイベントと ref でトークンを得たかを調べる場面に備えるためである。GitHub 側の記録は保持期間を過ぎたり削除されたりし得る。実行文脈はベストエフォートで記録し、Claim が欠落していても拒否しない。IAM Role の引き受けと Lambda の呼び出しは AWS 側の記録（CloudTrail など）が担い、GATES の監査ログはそれを補うアプリケーション層の記録と位置づける。
 - 相関 ID は成功応答と失敗応答の両方に、同じ位置で含める。ワークフローのログに残った相関 ID から監査記録へたどれるようにするためである。
 - AWS Invoke の成功と Lambda の業務成功を区別し、Composite Action は `FunctionError` と応答の両方を確認する。
