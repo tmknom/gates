@@ -109,6 +109,13 @@ func TestAppPermissions_Equal(t *testing.T) {
 	}
 }
 
+func TestAllowedPermissions(t *testing.T) {
+	want := mustNewAppPermissions(t, map[string]string{"contents": "read"})
+	if !permission.AllowedPermissions().Equal(want) {
+		t.Errorf("AllowedPermissions() is not equal to {contents:read}")
+	}
+}
+
 func mustNewAppPermissions(t *testing.T, levels map[string]string) permission.AppPermissions {
 	t.Helper()
 	p, err := permission.NewAppPermissions(levels)

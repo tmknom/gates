@@ -116,7 +116,7 @@ KMS Key の構成・IAM 権限は Terraform で管理します。GitHub App Priv
 ## 5. Failure, Audit, and Security Risks
 
 - 入力が不正、または認証に失敗したら、GitHub API や KMS のトークン発行処理に進まない。対象解決や署名の失敗、発行結果の不一致は Fail Closed とする。
-- 監査ログには相関 ID、時刻、処理結果（成功またはエラーコード）に加え、認証済み Caller の Owner ID と Repository ID、ワークフロー実行の `run_id` と `run_attempt`、実行文脈、要求対象（`owner/repo`）、要求権限、照合に失敗したトークンの失効の成否を記録する。`run_id` と `run_attempt` を残すのは、監査記録から GitHub 上のワークフロー実行にたどり着けるようにするためで、認可には使わない。認証前の失敗では Caller が確定していないため、未検証の値を認証済み主体として記録しない。秘密鍵、OIDC JWT、GitHub App JWT、Installation Access Token、AWS 一時認証情報は記録しない。
+- 監査ログには相関 ID、時刻、処理結果（成功またはエラーコード）、拒否の理由に加え、認証済み Caller の Owner ID と Repository ID、ワークフロー実行の `run_id` と `run_attempt`、実行文脈、要求対象（`owner/repo`）、要求権限、照合に失敗したトークンの失効の成否を記録する。`run_id` と `run_attempt` を残すのは、監査記録から GitHub 上のワークフロー実行にたどり着けるようにするためで、認可には使わない。認証前の失敗では Caller が確定していないため、未検証の値を認証済み主体として記録しない。秘密鍵、OIDC JWT、GitHub App JWT、Installation Access Token、AWS 一時認証情報は記録しない。
 - 実行文脈（`actor`、`event_name`、`ref`、`workflow_ref`、`environment` など）を残すのは、後述の `pull_request_target` の悪用のように、どのイベントと ref でトークンを得たかを調べる場面に備えるためである。GitHub 側の記録は保持期間を過ぎたり削除されたりし得る。実行文脈はベストエフォートで記録し、Claim が欠落していても拒否しない。IAM Role の引き受けと Lambda の呼び出しは AWS 側の記録（CloudTrail など）が担い、GATES の監査ログはそれを補うアプリケーション層の記録と位置づける。
 - 相関 ID は成功応答と失敗応答の両方に、同じ位置で含める。ワークフローのログに残った相関 ID から監査記録へたどれるようにするためである。
 - AWS Invoke の成功と Lambda の業務成功を区別し、Composite Action は `FunctionError` と応答の両方を確認する。
