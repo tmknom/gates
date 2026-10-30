@@ -27,6 +27,7 @@ Composite Action、AWS IAM、KMS の鍵管理は、発行の判定と語の意�
 概念と GitHub の Claim・フィールドの対応は [Lambda Design](lambda.md#7-external-integrations) に置きます。
 GitHub が定めた値そのものを書くのは、ルールがその値に依存する許可権限と付随権限に限ります。
 GitHub が定める仕様の内容、出典、未確認事項は [GitHub Constraints](../spec/github-constraints.md) を正本とし、本ドキュメントはそれが GATES のルールに及ぼす影響だけを書きます。
+JWT / JWS / JWK / OpenID Connect の標準仕様の規定の整理は [JWT Constraints](../spec/jwt-constraints.md) に置きます。
 
 本ドキュメントの記述は、根拠の種類を次の表記で区別します。
 
@@ -489,6 +490,7 @@ AWS 一時認証情報と GATES 用 OIDC JWT が同じジョブで取得され�
 - [AWS Infrastructure Design](aws-infrastructure.md)
 - [Testing Environment Setup](../contributing/setup-environment.md)
 - [GitHub Constraints](../spec/github-constraints.md)
+- [JWT Constraints](../spec/jwt-constraints.md)
 - [GitHub — REST API endpoints for GitHub Apps](https://docs.github.com/en/rest/apps/apps)
 - [OpenID Connect Discovery 1.0](https://openid.net/specs/openid-connect-discovery-1_0.html)
 - [RFC 7517 — JSON Web Key (JWK)](https://www.rfc-editor.org/rfc/rfc7517)
