@@ -13,7 +13,7 @@ Terraform の State / Plan、Git、CI の成果物、Lambda の環境変数に G
 | 対象 | 構成・責務 | 設計上の制約 |
 |---|---|---|
 | IAM OIDC Provider | `https://token.actions.githubusercontent.com` を AWS STS の信頼先として設定 | 対象 AWS アカウントに既存の Provider がある場合は再利用し、重複作成しない |
-| GitHub Actions IAM Role | 許可 Owner のワークフローに `AssumeRoleWithWebIdentity` を許可 | Trust Policy で Audience と不変 ID 入りの `sub` を制限。Permissions Policy は対象 Lambda の `lambda:InvokeFunction` に限定 |
+| GitHub Actions IAM Role | 許可オーナーのワークフローに `AssumeRoleWithWebIdentity` を許可 | Trust Policy で Audience と不変 ID 入りの `sub` を制限。Permissions Policy は対象 Lambda の `lambda:InvokeFunction` に限定 |
 | Lambda 実行 IAM Role | Go アプリケーションから必要な AWS API を呼び出す | 対象 KMS Key への `kms:Sign` と必要な CloudWatch Logs 操作のみを基本とする。`kms:ImportKeyMaterial` 等の鍵管理操作は付与しない |
 | Lambda Function | JWT 検証、発行認可、KMS 署名依頼、GitHub API 通信 | Go の `provided.al2023` と ZIP 形式で配布し、IAM 認証付き Lambda Invoke API からだけ呼び出す。Function URL、API Gateway などの別の呼び出し口を設けず、他アカウントや匿名主体を許可するリソースベースポリシーを付与しない。利用者管理 VPC には接続しない |
 | KMS Key | GitHub App Private Key（RSA）の鍵素材を外部からインポートするための署名鍵のメタデータを管理 | `origin=EXTERNAL`、`key_usage=SIGN_VERIFY`、実鍵長に一致する `key_spec=RSA_*`。インポート処理は Terraform の対象外 |
@@ -27,7 +27,7 @@ GitHub App の作成とインストール対象は GitHub 側で管理し、Terr
 
 ### 3.1 GitHub Actions IAM Role
 
-Trust Policy は `aud` と `sub` の条件で引き受けを制限します。AWS IAM は `repository_owner_id` などの GitHub 固有 Claim も条件キーとして評価できますが、これらの Claim は名前だけの旧形式の `sub` を持つトークンにも含まれるため、旧形式の拒否には使えません。不変 Owner ID の制約と旧形式の拒否は、不変 ID 入りの `sub` 形式 `repo:OWNER@OWNER-ID/REPO@REPO-ID:<実行文脈>` に対する次のパターンで表現します。
+Trust Policy は `aud` と `sub` の条件で引き受けを制限します。AWS IAM は `repository_owner_id` などの GitHub 固有 Claim も条件キーとして評価できますが、これらの Claim は名前だけの旧形式の `sub` を持つトークンにも含まれるため、旧形式の拒否には使えません。不変 Owner ID の制約と旧形式の拒否は、不変 ID 入りの `sub` 形式 `repo:OWNER@OWNER-ID/REPO@REPO-ID:<ref や environment など>` に対する次のパターンで表現します。
 
 ```json
 {
@@ -40,13 +40,13 @@ Trust Policy は `aud` と `sub` の条件で引き受けを制限します。AW
 }
 ```
 
-パターンの先頭を Owner 名と不変 Owner ID の組 `repo:<OWNER-NAME>@<OWNER-ID>/` に固定するのは、名前だけの旧形式 `repo:<OWNER-NAME>/<REPO>:...` を一致させないためです。GitHub のユーザー名とリポジトリ名には `@` を使えないため、旧形式の `sub` がこの先頭部分に一致することはありません。Owner ID の前を `*` にした `repo:*@<OWNER-ID>/*` のようなパターンは採用しません。`StringLike` の `*` は `/` や `:` を含む任意の文字列に一致するため、他の Owner のワークフローがブランチ名に `@<OWNER-ID>/` を含めるだけで一致してしまうからです。
+パターンの先頭をオーナー名と不変 Owner ID の組 `repo:<OWNER-NAME>@<OWNER-ID>/` に固定するのは、名前だけの旧形式 `repo:<OWNER-NAME>/<REPO>:...` を一致させないためです。GitHub のユーザー名とリポジトリ名には `@` を使えないため、旧形式の `sub` がこの先頭部分に一致することはありません。Owner ID の前を `*` にした `repo:*@<OWNER-ID>/*` のようなパターンは採用しません。`StringLike` の `*` は `/` や `:` を含む任意の文字列に一致するため、他のオーナーのワークフローがブランチ名に `@<OWNER-ID>/` を含めるだけで一致してしまうからです。
 
-Owner 共通の入口として、`REPO@REPO-ID` 以降の実行文脈（`ref`、`pull_request`、`environment` など）は制限しません。Owner 名を条件に含めるため、Owner の名前変更後は Trust Policy の更新まで引き受けが拒否されます。Lambda の環境変数にも Owner 名を持つため、名前変更時は Trust Policy と環境変数を併せて更新します。更新までの拒否は Fail Closed の動作として許容します。
+オーナー共通の入口として、`REPO@REPO-ID` 以降の部分（`ref`、`pull_request`、`environment` など）は制限しません。オーナー名を条件に含めるため、オーナーの名前変更後は Trust Policy の更新まで引き受けが拒否されます。Lambda の環境変数にもオーナー名を持つため、名前変更時は Trust Policy と環境変数を併せて更新します。更新までの拒否は Fail Closed の動作として許容します。
 
-IAM Role の権限は、GATES 用の一つの Lambda を同期 Invoke するための `lambda:InvokeFunction` に限定します。`kms:Sign`、`iam:PassRole`、Lambda の設定変更、鍵のインポート・削除は付与しません。許可された Owner のワークフローは共通 IAM Role を利用します。
+IAM Role の権限は、GATES 用の一つの Lambda を同期 Invoke するための `lambda:InvokeFunction` に限定します。`kms:Sign`、`iam:PassRole`、Lambda の設定変更、鍵のインポート・削除は付与しません。許可されたオーナーのワークフローは共通 IAM Role を利用します。
 
-IAM は Owner 単位の入口制御です。Lambda での Caller 識別は、別途検証した GATES 用 OIDC JWT の Claim によって行います。
+IAM はオーナー単位の入口制御です。Lambda での Caller 識別は、別途検証した GATES 用 OIDC JWT の Claim によって行います。
 
 ### 3.2 Lambda Execution Role
 
@@ -94,7 +94,7 @@ KMS Key の `key_spec` は、RSA_2048 / RSA_3072 / RSA_4096 のうち GitHub App
 - 既存の KMS Key の置換・削除を避けるため `prevent_destroy` を設定する。`prevent_destroy` は鍵の削除・置換を含む Plan をエラーで拒否するが、リソースの設定自体を取り除いた場合の削除は防がない。Plan に鍵削除が現れた場合は適用を中止して確認する。
 - インポートした非対称 KMS Key の鍵素材は別の鍵素材に交換できない。更新時は新しい KMS Key を追加し、Lambda が参照する Key ARN を切り替える。
 
-Terraform への入力には、Key ID / ARN、GitHub App の Client ID、Owner 名と不変 Owner ID、Owner の種別（Organization またはユーザーアカウント）、GATES 用 Audience などの非秘密値を使用できます。GitHub App の Private Key は一切渡しません。
+Terraform への入力には、Key ID / ARN、GitHub App の Client ID、オーナー名と不変 Owner ID、オーナーの種別（Organization またはユーザーアカウント）、GATES 用 Audience などの非秘密値を使用できます。GitHub App の Private Key は一切渡しません。
 
 ## 5. Lambda Deployment and Operation
 
@@ -114,7 +114,7 @@ Lambda の設定では次を扱います。
 | ネットワーク | 利用者管理 VPC に接続せず、GitHub API と OIDC JWKS への HTTPS 通信を確保 |
 | タイムアウト・メモリ | JWT 検証と GitHub API / KMS の外部呼び出しに必要な処理時間・メモリを確保 |
 | 同時実行数 | Reserved Concurrency による実行数の上限を設定可能とする |
-| 環境変数 | GitHub App の Client ID、Owner 名と不変 Owner ID、Owner の種別、GATES 用 Audience、KMS Key ARN などの非秘密設定。実行時の要求からは変更できない |
+| 環境変数 | GitHub App の Client ID、オーナー名と不変 Owner ID、オーナーの種別、GATES 用 Audience、KMS Key ARN などの非秘密設定。実行時の要求からは変更できない |
 | 監査ログ | ログ保持期間、アクセス権限、相関 ID、非秘密の認証・発行結果。保持期間は Terraform の入力で受け取り、既定値を7日とする |
 
 ログの保持期間に求められる長さは、組織の監査方針によって異なります。
@@ -129,7 +129,7 @@ Lambda の設定では次を扱います。
 | FR-013、QR-001、QR-006、AC-20 | `EXTERNAL` origin の非対称署名 KMS Key、Lambda 実行 Role への `kms:Sign` のみの許可、Key Policy による署名権限と管理権限の分離 |
 | FR-017、FR-023、AC-14 | 新 KMS Key の追加による鍵更新、`prevent_destroy` と Plan の確認による置換・削除の防止 |
 | FR-022、QR-006、AC-21 | AWS リソースの Terraform 管理と、鍵素材インポートおよびインポート前コピー削除の分離 |
-| FR-024、AC-24 | 許可 Owner、GitHub App、KMS Key を Terraform 入力と Lambda 環境変数で固定。Installation は固定した GitHub App と不変 Owner ID から一意に導出する（[Security Design](security.md#32-installation-scope-as-authorization-boundary)） |
+| FR-024、AC-24 | 許可オーナー、GitHub App、KMS Key を Terraform 入力と Lambda 環境変数で固定。Installation は固定した GitHub App と不変 Owner ID から一意に導出する（[Security Design](security.md#32-installation-scope-as-authorization-boundary)） |
 | FR-021、QR-004 | CloudWatch Logs の保持期間・アクセス制限と資格情報の非記録 |
 
 受け入れ条件の正本は [Requirements](../spec/requirements.md) です。
