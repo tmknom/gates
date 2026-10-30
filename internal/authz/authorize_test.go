@@ -117,7 +117,7 @@ func mustNewAllowedOwner(t *testing.T, id int64, name string) authz.AllowedOwner
 
 func mustNewCaller(t *testing.T, ownerID int64) authz.Caller {
 	t.Helper()
-	c, err := authz.NewCaller(ownerID, 3003, 4004, 1, authz.ExecutionContext{})
+	c, err := authz.NewCaller(ownerID, 3003, 4004, 1, authz.WorkflowTriggerAttributes{})
 	if err != nil {
 		t.Fatalf("NewCaller returned error: %v", err)
 	}

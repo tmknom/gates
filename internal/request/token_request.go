@@ -11,7 +11,7 @@ import (
 // フィールドを非公開にし、ゼロ値以外は Validate でしか作れないようにする。
 type TokenRequest struct {
 	repositories []repository.FullName
-	permissions  permission.AppPermissions
+	permissions  permission.Permissions
 }
 
 // Repositories は、要求された完全名を要求の順序と表記のまま返す。
@@ -20,7 +20,7 @@ func (r TokenRequest) Repositories() []repository.FullName {
 	return slices.Clone(r.repositories)
 }
 
-// Permissions は、要求された App Permissions を返す。
-func (r TokenRequest) Permissions() permission.AppPermissions {
+// Permissions は、要求された権限を返す。
+func (r TokenRequest) Permissions() permission.Permissions {
 	return r.permissions
 }
