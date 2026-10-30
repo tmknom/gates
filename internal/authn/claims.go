@@ -12,7 +12,7 @@ import (
 // ID の Claim は、JSON の数値を受け付けないよう string で受ける。
 // ワークフロー起動属性は、文字列でない値を欠落として扱うよう jsontext.Value で受ける。
 type claims struct {
-	Sub               string         `json:"sub"`
+	Sub               subject        `json:"sub"`
 	RepositoryOwnerID string         `json:"repository_owner_id"`
 	RepositoryID      string         `json:"repository_id"`
 	RunID             string         `json:"run_id"`

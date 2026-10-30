@@ -21,7 +21,7 @@ const (
 type payload struct {
 	Version      int               `json:"version"`
 	IDToken      string            `json:"id_token"`
-	Repositories []string          `json:"repositories"`
+	Repositories rawFullNames      `json:"repositories"`
 	Permissions  map[string]string `json:"permissions"`
 }
 
@@ -51,7 +51,7 @@ func Validate(b []byte) (RawIDToken, TokenRequest, error) {
 	if p.IDToken == "" {
 		return RawIDToken{}, TokenRequest{}, ErrInvalidIDTokenField
 	}
-	repositories, err := parseRepositories(p.Repositories)
+	repositories, err := p.Repositories.parse()
 	if err != nil {
 		return RawIDToken{}, TokenRequest{}, err
 	}
@@ -98,10 +98,13 @@ func decode(b []byte) (*payload, error) {
 	return nil, fmt.Errorf("%w: payload must be a JSON object", ErrMalformedPayload)
 }
 
-// parseRepositories は、件数、完全名の形式、大文字小文字を区別しない重複を検証する。
+// 解析は復号の時点で行わない。行うと、完全名の形式の誤りが decode の文言に一本化されて repository.ErrInvalidFullName を失い、ほかのフィールドの検証より先に判定される。
+type rawFullNames []string
+
+// parse は、件数、完全名の形式、大文字小文字を区別しない重複を検証する。
 // 重複は FullName.Equal の総当たりで判定し、比較規則の写しを持たない。件数を先に maxRepositories 以下に限るため、総当たりの回数にも上限がある。
 // 不正な要素は最初の 1 件で返す。どの要素で拒否しても入力不正という結果は変わらず、失敗応答も要素を示さないため。
-func parseRepositories(names []string) ([]repository.FullName, error) {
+func (names rawFullNames) parse() ([]repository.FullName, error) {
 	if len(names) == 0 || len(names) > maxRepositories {
 		return nil, fmt.Errorf("%w: must have 1 to %d items", ErrInvalidRepositories, maxRepositories)
 	}

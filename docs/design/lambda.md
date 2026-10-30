@@ -300,6 +300,7 @@ flowchart LR
 
 表にない概念は、独立した型にしません。
 Permission Entry は Permissions の要素、Allowed Permissions と Implied Permissions は Permissions の固定の値、Allowed Owner ID と Allowed Owner Name は AllowedOwner が持つ整数と OwnerName の値です。
+Claim や Payload を復号する入れ物と、復号した値を解析するための非公開の型は、概念に対応しないため表に含めません。
 検証済みの GATES 用 OIDC JWT は、OIDC Verifier が Caller を確定する間だけ存在し、OIDC Verifier の外に出しません。
 [Domain Model](domain.md#41-operations) の操作名（Validate、Authenticate、Authorize、Sign、Resolve Installation、Grant、Issue、Verify、Revoke、Audit）は、空白を除いた形を各コンポーネントの関数名にします。
 
