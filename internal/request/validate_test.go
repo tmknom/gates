@@ -166,10 +166,10 @@ func TestValidate_Invalid(t *testing.T) {
 		{name: "version boolean returns ErrInvalidVersion", payload: payloadWith("version", `true`), want: []error{request.ErrInvalidVersion}},
 
 		// id_token
-		{name: "missing id_token returns ErrInvalidIDToken", payload: payloadWithout("id_token"), want: []error{request.ErrInvalidIDToken}},
-		{name: "null id_token returns ErrInvalidIDToken", payload: payloadWith("id_token", `null`), want: []error{request.ErrInvalidIDToken}},
-		{name: "non-string id_token returns ErrInvalidIDToken", payload: payloadWith("id_token", `5`), want: []error{request.ErrInvalidIDToken}},
-		{name: "empty id_token returns ErrInvalidIDToken", payload: payloadWith("id_token", `""`), want: []error{request.ErrInvalidIDToken}},
+		{name: "missing id_token returns ErrInvalidIDTokenField", payload: payloadWithout("id_token"), want: []error{request.ErrInvalidIDTokenField}},
+		{name: "null id_token returns ErrInvalidIDTokenField", payload: payloadWith("id_token", `null`), want: []error{request.ErrInvalidIDTokenField}},
+		{name: "non-string id_token returns ErrInvalidIDTokenField", payload: payloadWith("id_token", `5`), want: []error{request.ErrInvalidIDTokenField}},
+		{name: "empty id_token returns ErrInvalidIDTokenField", payload: payloadWith("id_token", `""`), want: []error{request.ErrInvalidIDTokenField}},
 
 		// repositories
 		{name: "missing repositories returns ErrInvalidRepositories", payload: payloadWithout("repositories"), want: []error{request.ErrInvalidRepositories}},

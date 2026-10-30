@@ -28,7 +28,7 @@ type payload struct {
 // fieldErrors は、値を期待する型に復号できないときに返す sentinel error を、Payload のフィールド名で引く。
 var fieldErrors = map[string]error{
 	"version":      ErrInvalidVersion,
-	"id_token":     ErrInvalidIDToken,
+	"id_token":     ErrInvalidIDTokenField,
 	"repositories": ErrInvalidRepositories,
 	"permissions":  ErrInvalidPermissions,
 }
@@ -49,7 +49,7 @@ func Validate(b []byte) (RawIDToken, TokenRequest, error) {
 		return RawIDToken{}, TokenRequest{}, ErrInvalidVersion
 	}
 	if p.IDToken == "" {
-		return RawIDToken{}, TokenRequest{}, ErrInvalidIDToken
+		return RawIDToken{}, TokenRequest{}, ErrInvalidIDTokenField
 	}
 	repositories, err := parseRepositories(p.Repositories)
 	if err != nil {

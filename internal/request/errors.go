@@ -10,7 +10,7 @@ var (
 	ErrUnknownField     = errors.New("payload has an unknown field")
 
 	ErrInvalidVersion      = errors.New("version must be the integer 1")
-	ErrInvalidIDToken      = errors.New("id_token must be a non-empty string")
+	ErrInvalidIDTokenField = errors.New("id_token must be a non-empty string")
 	ErrInvalidRepositories = errors.New("invalid repositories")
 	ErrInvalidPermissions  = errors.New("invalid permissions")
 )

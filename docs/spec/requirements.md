@@ -27,6 +27,7 @@ GitHub App Private Key を GitHub Secrets や Actions Runner に置かず、署�
 - 複数のオーナーの同時サポート
 - 複数の GitHub App Installation の同時サポート
 - 呼び出し元を名前だけで特定する形式の GitHub OIDC トークンを持つリポジトリのサポート。該当する要求は FR-005 により拒否する。
+- OIDC トークンの `sub` のカスタマイズにより、実 JWT で確かめた形式から外れるリポジトリのサポート。受け付ける形式は [Lambda Design](../design/lambda.md#71-oidc-validation) に従う。
 - GitHub Enterprise Server など GitHub.com 以外の GitHub への対応
 - GitHub 側の設定と操作（GitHub App の旧 Private Key の失効、オーナー配下のリポジトリの OIDC トークンに不変 Owner ID を含める設定）。GATES はこれらを実施も代行もしない。
 - OIDC JWT の有効期限内の再利用の検出。再利用できる期間は、FR-002 の時間条件だけで制限する。
