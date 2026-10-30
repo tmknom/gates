@@ -22,10 +22,13 @@ import (
 const (
 	testIssuer   = "https://token.actions.githubusercontent.com"
 	testAudience = "gates"
+	testKeyID    = "test-key"
 )
 
 // testNow は validClaims の iat と同じ時刻で、実時間に依存せず時間条件の境界を確かめるために固定する。
 var testNow = time.Unix(1700000000, 0)
+
+func testClock() time.Time { return testNow }
 
 // testKey は、鍵の生成が遅いため 1 回だけ作る。
 var testKey = sync.OnceValue(generateKey)
@@ -40,13 +43,20 @@ func generateKey() *rsa.PrivateKey {
 
 func newTestVerifier() *Verifier {
 	keys := &oidc.StaticKeySet{PublicKeys: []crypto.PublicKey{testKey().Public()}}
-	return NewVerifier(testIssuer, testAudience, keys, func() time.Time { return testNow })
+	return newVerifier(testIssuer, testAudience, keys, testClock)
 }
 
 // signPayload は Claim を JSON のまま受ける。重複したキーのように、map から作れない Payload にも署名するため。
 func signPayload(t *testing.T, algorithm jose.SignatureAlgorithm, key *rsa.PrivateKey, payload []byte) string {
 	t.Helper()
-	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: algorithm, Key: key}, nil)
+	return signWithKeyID(t, algorithm, key, testKeyID, payload)
+}
+
+// signWithKeyID は keyID をヘッダーの kid に書く。keyID が空なら kid のない JWT になる。
+func signWithKeyID(t *testing.T, algorithm jose.SignatureAlgorithm, key *rsa.PrivateKey, keyID string, payload []byte) string {
+	t.Helper()
+	signingKey := jose.SigningKey{Algorithm: algorithm, Key: jose.JSONWebKey{Key: key, KeyID: keyID}}
+	signer, err := jose.NewSigner(signingKey, nil)
 	if err != nil {
 		t.Fatalf("NewSigner returned error: %v", err)
 	}
@@ -86,6 +96,40 @@ func rawIDToken(t *testing.T, token string) request.RawIDToken {
 
 func unixAfter(d time.Duration) int64 {
 	return testNow.Add(d).Unix()
+}
+
+func TestNewVerifier_InvalidConfig(t *testing.T) {
+	tests := []struct {
+		name     string
+		issuer   string
+		audience string
+		want     error
+	}{
+		{"empty issuer returns ErrInvalidIssuer", "", testAudience, ErrInvalidIssuer},
+		{"http issuer returns ErrInvalidIssuer", "http://issuer.example", testAudience, ErrInvalidIssuer},
+		{"issuer without host returns ErrInvalidIssuer", "https://", testAudience, ErrInvalidIssuer},
+		{"issuer with port but no host returns ErrInvalidIssuer", "https://:443", testAudience, ErrInvalidIssuer},
+		{"unparsable issuer returns ErrInvalidIssuer", "https://[", testAudience, ErrInvalidIssuer},
+		{"uppercase scheme returns ErrInvalidIssuer", "HTTPS://issuer.example", testAudience, ErrInvalidIssuer},
+		{"issuer with path returns ErrInvalidIssuer", "https://issuer.example/path", testAudience, ErrInvalidIssuer},
+		{"issuer with user returns ErrInvalidIssuer", "https://user@issuer.example", testAudience, ErrInvalidIssuer},
+		{"issuer with query returns ErrInvalidIssuer", "https://issuer.example?a=b", testAudience, ErrInvalidIssuer},
+		{"issuer with fragment returns ErrInvalidIssuer", "https://issuer.example#a", testAudience, ErrInvalidIssuer},
+		{"issuer with empty query returns ErrInvalidIssuer", "https://issuer.example?", testAudience, ErrInvalidIssuer},
+		{"issuer with empty port returns ErrInvalidIssuer", "https://issuer.example:", testAudience, ErrInvalidIssuer},
+		{"empty audience returns ErrInvalidAudience", testIssuer, "", ErrInvalidAudience},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := NewVerifier(tt.issuer, tt.audience, testClock)
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("NewVerifier error = %v, want %v", err, tt.want)
+			}
+			if got != nil {
+				t.Errorf("NewVerifier = %+v, want nil", got)
+			}
+		})
+	}
 }
 
 func TestVerifierAuthenticate(t *testing.T) {
