@@ -9,7 +9,7 @@ Composite Action は GATES 運用者が提供し、利用者向けの安定し�
 Composite Action は、Lambda と同じこのリポジトリの `.github/actions/<ACTION-NAME>/action.yml` に置きます。
 Lambda の入出力契約と Composite Action を同じ PR で変更でき、両者の食い違いを防げるためです。
 Composite Action はデプロイ固有の値を持たないため、公開リポジトリに置いても AWS アカウント ID は公開されません。
-公開リポジトリであることから、許可 Owner のワークフローもこの Composite Action を参照できます。
+公開リポジトリであることから、許可オーナーのワークフローもこの Composite Action を参照できます。
 `<ACTION-NAME>` は未定です。
 
 IAM Role と Lambda の AWS リソース設定は [AWS Infrastructure Design](aws-infrastructure.md) に記述します。Lambda Invoke の Payload、応答、エラーコードは [Lambda Design](lambda.md) を正本とします。
@@ -31,8 +31,8 @@ IAM Role と Lambda の AWS リソース設定は [AWS Infrastructure Design](aw
 
 接続情報は GATES 運用者が GitHub の Secrets と Variables に用意し、ワークフローはそれを参照します。AWS アカウント ID は Secrets に置き、その他の値は Variables に置きます。ワークフローに値を直接書かず参照だけにするのは、Role 名や関数名を変えたときに、Secrets と Variables の更新だけで済ませ、利用者のワークフロー定義を変えずに済ませるためです（[Requirements](../spec/requirements.md) AC-23）。
 
-Secrets と Variables を置く単位は、許可 Owner の種別で決まります。
-Owner が Organization なら Organization 単位に一度だけ登録します。
+Secrets と Variables を置く単位は、許可オーナーの種別で決まります。
+オーナーが Organization なら Organization 単位に一度だけ登録します。
 ユーザーアカウントには Organization 単位に相当する Secrets と Variables がないため、Composite Action を使う各リポジトリに登録します。
 ワークフローからの参照の書き方は `secrets.*` と `vars.*` で共通なので、どちらの単位でも利用者のワークフロー定義は変わりません。
 
@@ -64,7 +64,7 @@ with:
   permissions: contents:read
 ```
 
-区切りは `,` とします。要素前後の空白は除去し、空要素・重複・無効な形式は拒否します。Permission の値が許可条件を満たすかは Composite Action では判定せず、Lambda の認可に委ねます。認証済み Caller とともに許可外の要求を監査記録に残すためです（[Security Design](security.md#31-authorization-rule)）。Composite Action 内では `repositories` を配列、`permissions` を JSON オブジェクトへ変換します。独自のエスケープ構文は設けません。
+区切りは `,` とします。要素前後の空白は除去し、空要素・重複・無効な形式は拒否します。Permissions の値が許可条件を満たすかは Composite Action では判定せず、Lambda の認可に委ねます。認証済み Caller とともに許可外の要求を監査記録に残すためです（[Security Design](security.md#31-authorization-rule)）。Composite Action 内では `repositories` を配列、`permissions` を JSON オブジェクトへ変換します。独自のエスケープ構文は設けません。
 
 ## 3. Processing Flow
 
