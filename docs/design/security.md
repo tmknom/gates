@@ -33,9 +33,11 @@ IAM は認証情報の由来となるオーナーに対する入口制限であ�
 ### 2.2 GATES 用 OIDC JWT
 
 STS 用 JWT とは別に、GATES 用 Audience の OIDC JWT を取得します。Lambda は固定された GitHub Issuer の Discovery / JWKS を利用し、許容アルゴリズム、署名、Issuer、Audience、有効期限、必須 Claim を検証します。Caller は `repository_owner_id` と `repository_id` の Claim から確定し、`sub` が不変 ID 入りの形式で、含まれる ID がこれらの Claim と一致することも確認します。外部から指定された任意の Issuer / JWKS URL を使用しません。
-GitHub OIDC の Issuer と Claim の仕様は [GitHub Constraints](../spec/github-constraints.md#31-issueraudienceclaim) を参照します。
+GitHub OIDC の Issuer と Claim の仕様は [GitHub Constraints](../spec/github-constraints.md#31-issueraudienceclaim)、JWT の署名、鍵、Claim の標準仕様の規定は [JWT Constraints](../spec/jwt-constraints.md) を参照します。
 署名方式は `RS256` だけを許し、Audience は GATES 用 Audience の 1 要素だけである JWT を受け付けます。
-ほかの受け手にも宛てた JWT を GATES の資格情報にしないためです。
+JWT の `aud` は複数の値を持てますが（[JWT Constraints](../spec/jwt-constraints.md#4-jwt-claims)）、ほかの受け手にも宛てた JWT を GATES の資格情報にしないため、GATES の判断として拒否します。
+検証鍵は固定した Issuer の JWKS からだけ得ます。
+JWT の発行者と署名検証鍵を結び付け（[JWT Constraints](../spec/jwt-constraints.md#6-jwt-security-considerations)）、JWT や要求の内容で鍵の取得先を変えられないようにするためです。
 時間条件、ID の表記、`sub` の形式の規則は [Lambda Design](lambda.md#71-oidc-validation) に記述します。
 
 AWS 一時認証情報と GATES 用 OIDC JWT が同じジョブで取得されたことを、暗号学的に検証しません。AWS IAM による Invoke の許可と、GATES 用 OIDC JWT に基づく発行認可は独立した境界です。トークンの発行可否は GATES 用 OIDC JWT と固定された許可条件から判断し、Composite Action 側の自己申告による照合を認可根拠としません。
@@ -153,6 +155,7 @@ KMS Key の構成・IAM 権限は Terraform で管理します。GitHub App Priv
 ## 7. Sources
 
 - [GitHub Constraints](../spec/github-constraints.md)
+- [JWT Constraints](../spec/jwt-constraints.md)
 - [GitHub — Securely using pull_request_target](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target)
 - [AWS — IAM and AWS STS condition context keys](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_iam-condition-keys.html)
 - [AWS — Lambda Invoke API](https://docs.aws.amazon.com/lambda/latest/api/API_Invoke.html)

@@ -338,15 +338,17 @@ GATES 用 OIDC JWT は、次の規則をすべて満たすときだけ Caller �
 規則は [Domain Model](domain.md#52-rules) の認証条件を Claim の水準で定めたものです。
 Discovery / JWKS の取得に関する項目は、検証に使う鍵の取得の定めで、その失敗は [Failure](#32-failure) の分類に従います。
 Issuer、Claim、不変 ID 入り `sub`、そのカスタマイズの GitHub 側の仕様は [GitHub Constraints](../spec/github-constraints.md#3-github-actions-oidc) を参照します。
+JWT / JWS / JWK / OpenID Connect の標準仕様の規定と適用範囲は [JWT Constraints](../spec/jwt-constraints.md) を参照します。
 次の規則は GATES が決めた受理条件であり、GitHub が生成し得る形式をすべて受け付けることを意味しません。
 本節の「実 JWT で確かめた」は設計時の観測の記録であり、GitHub が保証する仕様ではありません。
+規則と標準仕様の対応、標準仕様との差分、受理条件を定めていない項目は、[標準仕様との対応](#標準仕様との対応)に記述します。
 
 - **署名**：Issuer の Discovery から得た JWKS の鍵で署名を検証する。署名方式は `RS256` だけを許す。実 JWT のヘッダーが `RS256` であることを確かめた。許す方式を Discovery の内容に委ねると、Discovery が変わったときに許す方式が GATES の外で変わるため、GATES が固定する。鍵は JWT のヘッダーの `kid` で選び、`kid` のない JWT は、検証ライブラリが鍵の集合で検証しないため、鍵を取得せずに拒否する。実 JWT に `kid` があることを確かめた
 - **Issuer**：`iss` を `https://token.actions.githubusercontent.com` に固定する。Discovery はこの Issuer から取得し、Discovery が示す Issuer が固定値と異なれば鍵を使わず、[Failure](#32-failure) の分類に従って内部障害にする
 - **Audience**：`aud` が固定設定の GATES 用 Audience の 1 要素だけであること。GATES 用 Audience を含んでいても、ほかの値が並べば拒否する。AWS 用と GATES 用の JWT を別々に取得する設計（[Security Design](security.md#22-gates-用-oidc-jwt)）に合わせ、複数の受け手に宛てた JWT を GATES の資格情報にしないため
-- **時間条件**：`exp` は必須とし、現在時刻が `exp` を過ぎていれば猶予なく拒否する。`iat` は必須とし、現在時刻に許容時計差を足した時刻より後なら拒否する。`nbf` は欠落を許し、あれば `iat` と同じ規則で判定する。許容時計差は 5 分とする。`iat` と `nbf` は、秒数が時刻の表現に収まらないほど大きい数値だと、検証に使うライブラリの時刻への変換が桁あふれして検証を通る。時間 Claim は、数字だけの JSON 文字列でも受理する。これらの見逃しを許すのは、GitHub が署名する Payload に現れる見込みがなく、検出には時間 Claim を別に読む分岐が要るため
+- **時間条件**：`exp` は必須とし、現在時刻が `exp` を過ぎていれば猶予なく拒否する。`iat` は必須とし、現在時刻に許容時計差を足した時刻より後なら拒否する。`nbf` は欠落を許し、あれば `iat` と同じ規則で判定する。許容時計差は 5 分とする。`iat` と `nbf` は、秒数が時刻の表現に収まらないほど大きい数値だと、検証に使うライブラリの時刻への変換が桁あふれして検証を通る。時間 Claim は、数字だけの JSON 文字列でも受理する。NumericDate は JSON の数値であり（[JWT Constraints](../spec/jwt-constraints.md#4-jwt-claims)）、この受理は標準仕様より緩い。これらの見逃しを許すのは、GitHub が署名する Payload に現れる見込みがなく、検出には時間 Claim を別に読む分岐が要るため
 - **ID の Claim の表記**：`repository_owner_id`、`repository_id`、`run_id`、`run_attempt` と `sub` に含まれる ID は、JSON の文字列で、10 進数字だけからなり、先頭が `0` でなく（`0` そのものを含めて拒否する）、符号を持たず、64 ビット符号付き整数に収まる値だけを受け付ける。JSON の数値は受け付けない。実 JWT でこれらの Claim が数字だけの文字列であることを確かめた。表記を一つに限ると、`sub` の ID と Claim の ID を文字列のまま比べても整数として比べても結果が変わらない。数値も受け付けると、GitHub が表記を変えたときに黙って受け入れ、変更に気付けない
-- **Claim の組の復号**：重複したキーと不正な UTF-8 を含む Claim の組は、Caller の確定に読まない Claim の中にあっても拒否する。解釈が JSON の実装ごとに分かれる入力であり、署名などの検証と Caller の確定で Claim の組を別々に読むと、検証した値と Caller にした値が食い違い得るため（[Validation](#22-validation) の重複したキーと同じ方針）。読まない Claim を区別しないのは、GitHub が署名する Payload にこれらの値が現れる見込みがなく、区別のための分岐が要らないため。Claim 名の大文字小文字だけが異なるキーは重複として拒否しない。署名と Issuer、Audience、時間条件の検証に使うライブラリは Claim 名の大文字小文字を区別せずに読み、Caller の確定は区別して読むため、`{"aud":"other","AUD":"gates"}` や、`exp` がなく `EXP` だけを持つ Claim の組は検証を通る。緩むのは Issuer、Audience、時間条件の規則である。この見逃しを許すのは、重複したキーと違って復号の既定では検出できず、検出のための分岐が要る一方で、GitHub が署名する Payload に現れる見込みがないため
+- **Claim の組の復号**：重複したキーと不正な UTF-8 を含む Claim の組は、Caller の確定に読まない Claim の中にあっても拒否する。解釈が JSON の実装ごとに分かれる入力であり、署名などの検証と Caller の確定で Claim の組を別々に読むと、検証した値と Caller にした値が食い違い得るため（[Validation](#22-validation) の重複したキーと同じ方針）。読まない Claim を区別しないのは、GitHub が署名する Payload にこれらの値が現れる見込みがなく、区別のための分岐が要らないため。Claim 名の大文字小文字だけが異なるキーは重複として拒否しない。標準仕様では `aud` と `AUD` は別の Claim 名であり（[JWT Constraints](../spec/jwt-constraints.md#4-jwt-claims)）、次の読み方は標準仕様の比較規則と異なる。署名と Issuer、Audience、時間条件の検証に使うライブラリは Claim 名の大文字小文字を区別せずに読み、Caller の確定は区別して読むため、`{"aud":"other","AUD":"gates"}` や、`exp` がなく `EXP` だけを持つ Claim の組は検証を通る。緩むのは Issuer、Audience、時間条件の規則である。この見逃しを許すのは、重複したキーと違って復号の既定では検出できず、検出のための分岐が要る一方で、GitHub が署名する Payload に現れる見込みがないため
 - **`sub` の解釈**：`repo:` で始まり、続く部分を最初の `/` でオーナー部とリポジトリ部に分け、リポジトリ部は次の `:` までとし、`:` がなければ拒否する。オーナー部とリポジトリ部は、それぞれ名前、`@`、ID の並びで、`@` をちょうど一つ含み、名前と ID のどちらも空でない。オーナー部の ID が `repository_owner_id` と、リポジトリ部の ID が `repository_id` と一致する。名前の部分は照合せず、リポジトリ部の後の `:` 以降は解釈しない。`@` をちょうど一つとするのは、GitHub の公式仕様で `@` がユーザー名にもリポジトリ名にも使えないため（[GitHub Constraints](../spec/github-constraints.md#32-immutable-subject-とカスタマイズ)）で、二つ以上含む `sub` は GitHub の形式に合わない値として拒否する。名前を照合しないのは、認可の根拠が ID にあり、名前は変わり得るため（[Domain Model](domain.md#51-identity-rules)）。`:` 以降を解釈しないのは、`sub` のカスタマイズで変わる部分であり、[Security Design](security.md#21-aws-iam--sts) が後半部分による制限を設けないため
 - `run_id` と `run_attempt` を必須 Claim として読み取り、監査のために Caller に添える。認可には使わない。欠落は Fail Closed の原則に従って拒否する。
 - ワークフロー起動属性として、`actor`、`actor_id`、`event_name`、`ref`、`sha`、`workflow_ref`、`job_workflow_ref`、`environment` の Claim を読み取り、監査のために Caller に添える。認可には使わない。これらは監査記録を詳しくするためのベストエフォートの属性であり、欠落していても拒否せず、欠落したまま記録する。`environment` のように、ジョブの設定によって含まれない Claim があるためである。文字列でない値も欠落として扱う（[Domain Model](domain.md#33-request-and-decision)）。値の形を検証しないため、改行や制御文字を含み得る。監査記録は値をエスケープする構造化形式の項目として出力し、文言に埋め込まない。
@@ -360,7 +362,8 @@ Lambda の時計が GitHub より遅れていると、発行されたばかり�
 Lambda の時計が進んでいても、拒否されるのは失効の直前に届いた JWT だけであり、利用者がワークフローを再実行すれば回復します。
 `iat` を `nbf` と別に検証するのは、GitHub が `nbf` を `iat` の 5 分前に置くため（実 JWT で確認）、`nbf` だけでは発行時刻が未来の JWT を 10 分先まで受け入れるからです。
 許容時計差を 5 分にするのは、RFC 7519 が許容時計差を数分以内にとどめるよう書いており、GitHub が `nbf` を `iat` の 5 分前に置く幅とも同じだからです。
-`exp` と `iat` の欠落を拒否し `nbf` の欠落を許すのは、OpenID Connect Core が ID Token で `exp` と `iat` を必須とし、`nbf` を定めていないためです。
+RFC 7519 では `exp`、`iat`、`nbf` のどれも任意です。
+`exp` と `iat` の欠落を拒否し `nbf` の欠落を許すのは GATES の判断であり、OpenID Connect Core が ID Token で `exp` と `iat` を必須とし、`nbf` を定めていない区別に合わせています。
 JWT の寿命は GitHub が定める `exp`（実 JWT では `iat` の 5 分後）に従い、GATES は独自の上限を設けません。
 再利用できる期間を時間条件だけで制限する方針（[Requirements](../spec/requirements.md) §2.2）に従います。
 
@@ -388,7 +391,59 @@ JWT の寿命は GitHub が定める `exp`（実 JWT では `iat` の 5 分後�
 | Audience の照合 | `aud` | 固定設定の GATES 用 Audience と完全一致 |
 | Issuer の照合 | `iss` | `https://token.actions.githubusercontent.com` に固定 |
 
+#### 標準仕様との対応
+
+GATES は GATES 用 OIDC JWT を OpenID Connect の認証フローを経ずに受け取り、固定した Audience で照合します。
+そのため、登録済みの `client_id` を前提とする ID Token の検証規則は適用せず、JWT 一般の規定と本節の規則で判定します。
+本節の規則と標準仕様の対応は次のとおりです。
+
+| 項目 | 標準仕様 | 本節の規則 |
+|---|---|---|
+| `alg` | JOSE Header で必須。実装が許可する方式を明示する（[§2.1](../spec/jwt-constraints.md#21-構造署名アルゴリズム)） | `RS256` だけを許す |
+| `kid`（JOSE Header） | JWS では任意。OpenID Connect Core に条件付きの規定がある（[§2.2](../spec/jwt-constraints.md#22-鍵の識別と-header-の拡張)） | 必須。欠落は拒否 |
+| `kid`（JWK） | 任意（[§3.1](../spec/jwt-constraints.md#31-鍵の属性)） | `kid` のない鍵は検証に使わない |
+| `iss`、`sub` | JWT 一般では任意（[§4](../spec/jwt-constraints.md#4-jwt-claims)） | 必須。`iss` は固定値、`sub` は不変 ID 入りの形式 |
+| `aud` | JWT 一般では任意。文字列か文字列の配列を使え、受信者が含まれなければ拒否する（[§4](../spec/jwt-constraints.md#4-jwt-claims)） | 必須。GATES 用 Audience の 1 要素だけ |
+| `exp`、`iat` | JWT 一般では任意（[§4](../spec/jwt-constraints.md#4-jwt-claims)） | 必須 |
+| `nbf` | JWT 一般では任意（[§4](../spec/jwt-constraints.md#4-jwt-claims)） | 欠落を許す。あれば判定する |
+| 時計差 | `exp` と `nbf` に数分程度の猶予を設けてよい。`iat` の判定は定めていない（[§4](../spec/jwt-constraints.md#4-jwt-claims)） | `iat` と `nbf` に 5 分。`exp` には設けない |
+| Claim 名の重複 | 拒否するか、最後の同名フィールドだけを採用する（[§4](../spec/jwt-constraints.md#4-jwt-claims)） | 拒否 |
+| Discovery | Provider Metadata に `issuer`、`jwks_uri` のほかにも必須項目がある（[§5](../spec/jwt-constraints.md#5-openid-connect-and-discovery)） | Issuer の値と JWKS の取得先だけを読み、ほかの項目を受理条件にしない |
+
+次の 3 項目で、本節の規則は標準仕様より緩くなっています。
+数字文字列と Claim 名の大文字小文字を受け入れる理由は、上の時間条件と Claim の組の復号の規則に記述しています。
+
+| 項目 | 標準仕様 | 本節の規則 | 影響 |
+|---|---|---|---|
+| 時間 Claim の数字文字列 | NumericDate は JSON の数値 | 受理する | 文字列が表す時刻で時間条件を判定する。GitHub が数字文字列を署名したときに限り現れる |
+| Claim 名の大文字小文字 | エスケープを解いた文字列を完全一致で比較し、`aud` と `AUD` を区別する | Issuer、Audience、時間条件の検証では区別しない | `aud` が別の値でも `AUD` が GATES 用 Audience なら検証を通り、`EXP` だけの JWT は `exp` の必須条件を通る。GitHub がこの形を署名したときに限り現れる |
+| `exp` と等しい現在時刻 | 現在時刻が `exp` より前であること。猶予は許容する | 受理する | `exp` とちょうど等しい瞬間だけ受理し、それ以降は拒否する。受理する期間はほとんど延びない |
+
+時間 Claim の桁あふれ（[時間条件](#71-oidc-validation)の規則）は標準仕様に対応する規定がなく、上の差分とは別の、検証の見逃しです。
+
+#### 受理条件を定めていない項目
+
+次の項目には、本ドキュメントの受理条件がありません。
+標準仕様の規定をそのまま受理条件にすると、GitHub が発行する正当な JWT を拒否し得るため、ここでは規定だけを示します。
+実装の現在の振る舞いを受理条件とみなさず、決めるときに本節の規則へ加えます。
+
+| 項目 | 標準仕様 | 本ドキュメントで決まっていること |
+|---|---|---|
+| `crit` | 列挙された未対応の拡張があれば JWS は無効（[§2.2](../spec/jwt-constraints.md#22-鍵の識別と-header-の拡張)） | なし |
+| `b64` | JWT で `false` を使うことは **MUST NOT**（[§2.2](../spec/jwt-constraints.md#22-鍵の識別と-header-の拡張)） | なし |
+| JOSE Header の名前の重複 | 拒否するか、最後の同名フィールドだけを採用する（[§2.2](../spec/jwt-constraints.md#22-鍵の識別と-header-の拡張)） | なし |
+| `typ` | 任意（[§2.2](../spec/jwt-constraints.md#22-鍵の識別と-header-の拡張)） | なし |
+| `jku`、`jwk`、`x5u`、`x5c`、`x5t`、`x5t#S256`（JOSE Header） | 任意（[§2.2](../spec/jwt-constraints.md#22-鍵の識別と-header-の拡張)） | 取得先と検証鍵には使わない。含む JWT を拒否するか無視するかは定めていない |
+| JWK の `use`、`key_ops` | 任意。併用時は整合が必要。OpenID Connect Discovery に条件付きの規定がある（[§3](../spec/jwt-constraints.md#3-jwk-and-jwk-set)） | なし |
+| JWK の `alg` と JOSE Header の `alg` の整合 | JWK の `alg` は任意。鍵とアルゴリズムの対応を確認する（[§2.1](../spec/jwt-constraints.md#21-構造署名アルゴリズム)、[§3.1](../spec/jwt-constraints.md#31-鍵の属性)） | なし |
+| JWK Set の中の `kid` の重複 | 異なる鍵には異なる値を使うことが **SHOULD**。一意性は保証されない（[§3.1](../spec/jwt-constraints.md#31-鍵の属性)） | なし |
+| RSA 公開鍵の長さ | `RS256` では 2048 bit 以上が **MUST**（[§2.1](../spec/jwt-constraints.md#21-構造署名アルゴリズム)） | なし |
+| NumericDate の小数 | 整数に限定しない（[§4](../spec/jwt-constraints.md#4-jwt-claims)） | なし |
+
 ### 7.2 KMS Signing
+
+JWS の構造、`RS256`、JWT の Claim の標準仕様の規定は [JWT Constraints](../spec/jwt-constraints.md) を参照します。
+GitHub App JWT は OpenID Connect の ID Token ではないため、ID Token の必須 Claim（`sub`、`aud` など）を加えません。
 
 - GitHub App JWT の Header を RS256 とし、Claim は `iss`、`iat`、`exp` を設定する。これらと `exp` の上限 10 分の公式根拠は [GitHub Constraints](../spec/github-constraints.md#42-github-app-jwt) を参照する。`iss` には GitHub App の Client ID を用いる。`iat` は時計差を考慮して現在時刻の 60 秒前とし、`exp` は上限を超えない。
 - Header と Payload を Base64URL（padding なし）で結合し、署名入力を SHA-256 でハッシュする。
@@ -472,6 +527,8 @@ Caller を作るのは `internal/authn` とテストだけとし、ほかの pac
 - Discovery が示す Issuer が固定した Issuer と異なるとき `internal_error` になり、JWT の `iss` が固定値と異なるときは `invalid_id_token` になる
 - Discovery / JWKS の取得が 5xx やタイムアウトのとき `identity_verification_unavailable`、404 や応答サイズの超過のとき `internal_error` になる
 
+[受理条件を定めていない項目](#受理条件を定めていない項目)は、期待結果を決めず、受理条件を決めたときに上の事例へ加えます。
+
 受け入れ条件は [Requirements](../spec/requirements.md) を正本とします。
 
 ## 10. Sources
@@ -482,6 +539,7 @@ Caller を作るのは `internal/authn` とテストだけとし、ほかの pac
 - [AWS — AWS SDK for Go v2](https://docs.aws.amazon.com/sdk-for-go/v2/developer-guide/)
 - [AWS — KMS Sign](https://docs.aws.amazon.com/kms/latest/APIReference/API_Sign.html)
 - [GitHub Constraints](../spec/github-constraints.md)
+- [JWT Constraints](../spec/jwt-constraints.md)
 - [Go — coreos/go-oidc/v3/oidc](https://pkg.go.dev/github.com/coreos/go-oidc/v3/oidc)
 - [OpenID Foundation — OpenID Connect Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html)
 - [IETF — RFC 7519 JSON Web Token](https://www.rfc-editor.org/rfc/rfc7519)
