@@ -155,7 +155,7 @@ GATES の処理には 5 種類の資格情報が現れ、どれも「トーク�
 | **Installation Access Token** | Installation Access Token | GitHub API | 対象リポジトリの読み取り | 現れる。発行結果の中心。返却可能な発行結果（Installation Token）はこれに有効期限・対象・実効権限を添えたもの |
 
 GATES 用 OIDC JWT は、Payload から取り出した時点では未検証であり、認証を通って初めて Caller の根拠になります。
-実装では、未検証の値と検証済みの値を別の名前で区別します（[Lambda Design](lambda.md#5-domain-model)）。
+実装では、未検証の値と検証済みの値を区別します（[Lambda Design](lambda.md#5-domain-model)）。
 
 どの資格情報も、ログとエラー本文に記録しません（事実：Requirements QR-004）。
 資格情報のうち利用者に返すのは Installation Access Token だけです（事実：Requirements FR-016）。
