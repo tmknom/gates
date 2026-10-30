@@ -19,6 +19,7 @@
 ### 2.1 AWS IAM / STS
 
 IAM Role の Trust Policy は、GitHub OIDC Provider を信頼先とし、`aud` と `sub` の条件で引き受けを制限します。AWS IAM は `repository_owner_id` のような GitHub 固有の Claim も条件キーとして評価できますが、この Claim は名前だけの旧形式の `sub` を持つトークンにも含まれるため、旧形式の拒否には使えません。そのため不変 Owner ID の制約と旧形式の拒否は、不変 ID 入りの `sub`（`repo:OWNER@OWNER-ID/REPO@REPO-ID:...`）に対するパターン条件として表現します。具体的な条件式は [AWS Infrastructure Design](aws-infrastructure.md#31-github-actions-iam-role) に記述します。
+不変 ID 入りの `sub` の形式と、それが適用されるリポジトリの条件は GitHub が定める仕様であり、[GitHub Constraints](../spec/github-constraints.md#32-immutable-subject-とカスタマイズ) を参照します。
 
 - `aud` を `sts.amazonaws.com` に固定する。
 - `sub` は、許可オーナーの名前と不変 Owner ID の組で始まる不変 ID 入りの形式だけを受け付け、名前だけの旧形式を拒否する。オーナー配下での共通利用を前提とし、`sub` の後半部分（`ref`、`pull_request`、`environment` など）による追加制限は設けない。
@@ -32,6 +33,7 @@ IAM は認証情報の由来となるオーナーに対する入口制限であ�
 ### 2.2 GATES 用 OIDC JWT
 
 STS 用 JWT とは別に、GATES 用 Audience の OIDC JWT を取得します。Lambda は固定された GitHub Issuer の Discovery / JWKS を利用し、許容アルゴリズム、署名、Issuer、Audience、有効期限、必須 Claim を検証します。Caller は `repository_owner_id` と `repository_id` の Claim から確定し、`sub` が不変 ID 入りの形式で、含まれる ID がこれらの Claim と一致することも確認します。外部から指定された任意の Issuer / JWKS URL を使用しません。
+GitHub OIDC の Issuer と Claim の仕様は [GitHub Constraints](../spec/github-constraints.md#31-issueraudienceclaim) を参照します。
 署名方式は `RS256` だけを許し、Audience は GATES 用 Audience の 1 要素だけである JWT を受け付けます。
 ほかの受け手にも宛てた JWT を GATES の資格情報にしないためです。
 時間条件、ID の表記、`sub` の形式の規則は [Lambda Design](lambda.md#71-oidc-validation) に記述します。
@@ -76,8 +78,18 @@ Caller の `repository_id` とワークフロー起動属性は監査のため�
 
 GitHub App のインストール対象が読み取り可能範囲の上限となります。`Only select repositories` により対象を限定できます。`All repositories` を使用すると、そのオーナーにインストールされた App の対象リポジトリ全体が読み取り可能範囲に含まれます。インストール対象の変更は認可境界の変更として扱います。
 
-GitHub App は一つのオーナーに一度しかインストールできないため、デプロイ時に固定した GitHub App と許可オーナーの組から Installation は一意に決まります。
-GitHub の REST API が、オーナーを指定して単一の Installation を返すエンドポイント（`GET /orgs/{org}/installation`、`GET /users/{username}/installation`）を提供していることから、この一意性を導いています。
+許可オーナーが Organization の場合、この変更は Organization オーナーだけの操作ではありません。
+既定では、リポジトリ管理者が自身の管理するリポジトリをインストール済みの App の対象に追加でき、`installation_repositories:write` を持つ呼び出し元も、そのリポジトリを Installation に追加または削除できます（[GitHub Constraints](../spec/github-constraints.md#5-installation)）。
+追加されたリポジトリは、許可オーナーのすべての有効なワークフローから読み取り可能になります。
+このため、Organization の許可オーナーには、リポジトリ管理者によるインストールを Organization オーナーが制限していることと、`installation_repositories:write` の付与先を管理していることを、運用の前提として求めます。
+GATES はこの設定を実行時に確認しません。
+
+ここでの上限は、Installation Access Token の対象に指定できる範囲を指します。
+「インストール対象の外にある公開リポジトリは読めない」を意味しません。
+GitHub App が公開リポジトリを読み取れることとトークンの対象に指定できることは別であり、選択対象外の公開リポジトリに対するトークンの振る舞いは確定していないためです（[GitHub Constraints](../spec/github-constraints.md#5-installation)）。
+
+GATES は、デプロイ時に固定した GitHub App と許可オーナーの組から Installation が一意に決まるものとして扱います。
+これは、オーナーを指定して単一の Installation を返すエンドポイントがあることからの推論であり、GitHub が一意性を明示的に保証したものとは扱いません（[GitHub Constraints](../spec/github-constraints.md#5-installation)）。
 Lambda は Installation ID を設定として持たず、固定したオーナーの Installation を GitHub API から取得し、`account.id` の一致で確認します。この導出は [Requirements](../spec/requirements.md) FR-024 に従います。Installation ID を設定値として持たないため、アプリの再インストールで ID が変わっても設定変更は不要であり、実行時の入力から Installation を指定する余地もありません。オーナーの名前変更やアプリの再インストールが起きても、固定した不変 Owner ID と異なる Installation へ発行しません。
 
 オーナーの名前変更時に Trust Policy と Lambda の設定を更新するまで発行が止まる扱いは、[AWS Infrastructure Design](aws-infrastructure.md#31-github-actions-iam-role) に記述します。
@@ -91,7 +103,7 @@ Lambda が許可する権限は `contents:read` に固定します。要求さ�
 - GitHub API に発行を要求するときは、認可された `TokenGrant` の `repositories` と `permissions` を必ず指定する。
 - 発行応答の対象リポジトリと実効権限を `TokenGrant` に照合する。Owner ID、Repository ID の有効性・一意性、対象の全件一致を確認し、必要な情報の欠落、対象外のリポジトリ、過大な権限があればトークンを返却しない。この拒否は GitHub API の通信障害とは別のエラーとして返し、監査記録に Caller とともに残す。
 - 照合に失敗した時点で GitHub はトークンを発行済みのため、返却しないだけでなく失効させる。失効はベストエフォートとし、成否を監査記録に残す。
-- 要求にかかわらず GitHub が付与する `metadata:read` だけは、応答に含まれていても許容する。
+- 要求にかかわらず GitHub が付与する `metadata:read` だけは、応答に含まれていても許容する。付与の条件は未確認であり（[GitHub Constraints](../spec/github-constraints.md#62-発行応答permission)）、含まれなくても拒否しない。
 - 発行応答の `repository_selection` が `selected` であることを確認する。`all` は Installation の全リポジトリを対象にしたことを意味し、要求外の対象を含むため返却しない。
 - 応答の Repository ID は発行結果の確認・監査に利用し、要求時に事前検証した ID と同一であることを証明するものではない。
 
@@ -140,10 +152,8 @@ KMS Key の構成・IAM 権限は Terraform で管理します。GitHub App Priv
 
 ## 7. Sources
 
-- [GitHub — OpenID Connect reference](https://docs.github.com/en/actions/reference/security/oidc)
+- [GitHub Constraints](../spec/github-constraints.md)
 - [GitHub — Securely using pull_request_target](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target)
-- [GitHub — Generating an installation access token](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app)
-- [GitHub — REST API endpoints for GitHub Apps](https://docs.github.com/en/rest/apps/apps)
 - [AWS — IAM and AWS STS condition context keys](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_iam-condition-keys.html)
 - [AWS — Lambda Invoke API](https://docs.aws.amazon.com/lambda/latest/api/API_Invoke.html)
 - [AWS — KMS Sign API](https://docs.aws.amazon.com/kms/latest/APIReference/API_Sign.html)

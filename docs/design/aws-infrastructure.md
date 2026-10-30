@@ -40,7 +40,7 @@ Trust Policy は `aud` と `sub` の条件で引き受けを制限します。AW
 }
 ```
 
-パターンの先頭をオーナー名と不変 Owner ID の組 `repo:<OWNER-NAME>@<OWNER-ID>/` に固定するのは、名前だけの旧形式 `repo:<OWNER-NAME>/<REPO>:...` を一致させないためです。GitHub のユーザー名とリポジトリ名には `@` を使えないため、旧形式の `sub` がこの先頭部分に一致することはありません。Owner ID の前を `*` にした `repo:*@<OWNER-ID>/*` のようなパターンは採用しません。`StringLike` の `*` は `/` や `:` を含む任意の文字列に一致するため、他のオーナーのワークフローがブランチ名に `@<OWNER-ID>/` を含めるだけで一致してしまうからです。
+パターンの先頭をオーナー名と不変 Owner ID の組 `repo:<OWNER-NAME>@<OWNER-ID>/` に固定するのは、名前だけの旧形式 `repo:<OWNER-NAME>/<REPO>:...` を一致させないためです。GitHub のユーザー名とリポジトリ名には `@` を使えないため（`sub` の形式を含めて [GitHub Constraints](../spec/github-constraints.md#32-immutable-subject-とカスタマイズ)）、旧形式の `sub` がこの先頭部分に一致することはありません。Owner ID の前を `*` にした `repo:*@<OWNER-ID>/*` のようなパターンは採用しません。`StringLike` の `*` は `/` や `:` を含む任意の文字列に一致するため、他のオーナーのワークフローがブランチ名に `@<OWNER-ID>/` を含めるだけで一致してしまうからです。
 
 オーナー共通の入口として、`REPO@REPO-ID` 以降の部分（`ref`、`pull_request`、`environment` など）は制限しません。オーナー名を条件に含めるため、オーナーの名前変更後は Trust Policy の更新まで引き受けが拒否されます。Lambda の環境変数にもオーナー名を持つため、名前変更時は Trust Policy と環境変数を併せて更新します。更新までの拒否は Fail Closed の動作として許容します。
 
@@ -83,7 +83,7 @@ IAM と Lambda の管理に同じ Provider を使うので、KMS Key のため�
 `valid_to` も設定に書かず、手動インポートでは鍵素材を無期限（`KEY_MATERIAL_DOES_NOT_EXPIRE`）にします。
 手動インポートで有効期限を付けると、Terraform は `valid_to` の差分を鍵素材の再インポートで解消しようとしますが、鍵素材を設定に持たないため、その更新は成り立ちません。
 
-KMS Key の `key_spec` は、RSA_2048 / RSA_3072 / RSA_4096 のうち GitHub App Private Key の RSA 鍵長と一致する値とします。非対称鍵には KMS の自動ローテーションとオンデマンドローテーションが対応しないため、鍵の更新は新しい KMS Key の作成で行います。
+KMS Key の `key_spec` は、RSA_2048 / RSA_3072 / RSA_4096 のうち GitHub App Private Key の RSA 鍵長と一致する値とします。検証用に取得した Private Key は RSA 2048 bit でしたが、これは運用者が報告した観測値です。GitHub が新規生成する鍵の長さは確定していないため（[GitHub Constraints](../spec/github-constraints.md#41-github-app-の識別と-private-key)）、インポートする鍵ごとに確かめます。非対称鍵には KMS の自動ローテーションとオンデマンドローテーションが対応しないため、鍵の更新は新しい KMS Key の作成で行います。
 
 ### 4.2 Terraform and Key Material Lifecycle
 
@@ -136,7 +136,7 @@ Lambda の設定では次を扱います。
 
 ## 7. Sources
 
-- [GitHub — OpenID Connect reference](https://docs.github.com/en/actions/reference/security/oidc)
+- [GitHub Constraints](../spec/github-constraints.md)
 - [AWS — IAM and AWS STS condition context keys](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_iam-condition-keys.html)
 - [AWS — Creating KMS keys with imported key material](https://docs.aws.amazon.com/kms/latest/developerguide/importing-keys-create-cmk.html)
 - [AWS — Requirements for imported key material](https://docs.aws.amazon.com/kms/latest/developerguide/importing-keys-conceptual.html)

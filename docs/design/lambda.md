@@ -38,7 +38,7 @@ Payload を GATES が読み取れるかの判定を **形式検証**、GATES 用
 |---|---|
 | `version` | 必須、整数 `1` |
 | `id_token` | 必須、GATES 用 Audience の JWT。Bearer 資格情報として慎重に扱う |
-| `repositories` | 必須、重複のない 1 件以上 500 件以下の `owner/repo` の配列。上限は GitHub のトークン発行 API が一度に受け付ける件数（[Generating an installation access token](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app) の「You can list up to 500 repositories」）。16 KiB の Payload には最短の要素で 2,000 件以上が入るため、Payload サイズより先にこの上限に達する |
+| `repositories` | 必須、重複のない 1 件以上 500 件以下の `owner/repo` の配列。上限は GitHub のトークン発行 API が一度に受け付ける件数に合わせる（[GitHub Constraints](../spec/github-constraints.md#61-発行要求と有効期限)）。GATES が設ける 16 KiB の Payload には最短の要素で 2,000 件以上が入るため、Payload サイズより先にこの上限に達する |
 | `permissions` | 必須、値は **`{"contents":"read"}`**。形式が不正なら入力不正、形式が正しく値が許可条件と異なれば認可拒否 |
 
 - 対象は同一オーナーに属し、GATES で利用する同一の GitHub App Installation に含まれる必要がある。
@@ -79,7 +79,7 @@ Payload を GATES が読み取れるかの判定を **形式検証**、GATES 用
 オーナー名の不一致を認可拒否にするのは、[Processing Flow](#6-processing-flow) の手順 3 がオーナー名の照合を Authorization の判定に置いているためです。
 形式検証は、`owner/repo` をオーナー名とリポジトリ名に分割できるかまでを見ます。
 
-500 件を超える要求を入力不正にするのは、GitHub API に渡すと、その応答が対象を受け付けなかった応答として `authorization_denied` に分類され（[Failure](#32-failure)）、件数の超過が認可拒否として記録されるためです。
+500 件を超える要求を入力不正にするのは、GitHub API に渡すと、その応答が対象を受け付けなかった応答として `authorization_denied` に分類され（[Failure](#32-failure)）、件数の超過が認可拒否として記録され得るためです。
 形式検証で止めれば、KMS と GitHub API を呼ばずに済みます。
 
 形式検証のエラー文言には、不正なフィールドの名前（配列の要素なら位置を添える）とその形だけを書き、Payload の断片を含めません。
@@ -89,7 +89,9 @@ Payload を GATES が読み取れるかの判定を **形式検証**、GATES 用
 #### 権限名と水準の文字種
 
 `permissions` のキー（権限名）と値（水準）は、1 文字以上 64 文字以下の ASCII 小文字とアンダースコア（`_`）の文字列に限ります。
-[REST API endpoints for GitHub Apps](https://docs.github.com/en/rest/apps/apps) のスキーマ「App Permissions」では、権限名と水準（`read`、`write`、`admin`）がどれもこの文字種で表されています。
+GitHub の Permissions の表現は [GitHub Constraints](../spec/github-constraints.md#61-発行要求と有効期限) を参照します。
+この文字種は、その表現に合わせて GATES が決めた形式の制限です。
+GitHub が公式に定めた規則ではありません。
 この文字種に合わない文字列は、GitHub の権限名や水準として読み取れないため、入力不正にします。
 [Security Design](security.md#31-authorization-rule) と [Domain Model](domain.md#52-rules) が入力不正にする「値を読み取れない形」に、この文字列も含まれます。
 
@@ -97,7 +99,7 @@ Payload を GATES が読み取れるかの判定を **形式検証**、GATES 用
 ログのエンコーダが値をどうエスケープするかによらず、記録の 1 行を偽装する値や長大な値が入りません。
 値の数には上限を設けず、記録全体の大きさは Payload の 16 KiB の上限で抑えます。
 
-64 文字の上限は GitHub の制約ではなく、最長の権限名（確かめた 2026 年 10 月の時点で 46 文字）に余裕を持たせて GATES が決めた値です。
+64 文字の上限は GitHub 公式の文字数制限ではなく、最長の権限名（46 文字）に余裕を持たせて GATES が決めた値です。
 許可されるのは `{"contents":"read"}` だけなので、将来 GitHub がこの規則に合わない権限名を加えても、正当な要求は拒否されません。
 その権限名を使う要求の結果が、認可拒否から入力不正に変わるだけです。
 
@@ -112,27 +114,24 @@ Payload を GATES が読み取れるかの判定を **形式検証**、GATES 用
 
 | 名前 | 受け付ける文字種と長さ | 根拠 |
 |---|---|---|
-| オーナー名 | 1 文字以上の ASCII 英数字とハイフン | ユーザー名の文字種は公式文書で確認した。ハイフンの位置と長さは緩い側に寄せた（下記） |
-| リポジトリ名 | 1 文字以上 100 文字以下の ASCII 英数字、ハイフン、アンダースコア、ピリオド | 公式文書で確認した。`.` と `..` は緩い側に寄せた（下記） |
+| オーナー名 | 1 文字以上の ASCII 英数字とハイフン | GATES が決めた形式の制限。GitHub の規則としては確定していない（下記） |
+| リポジトリ名 | 1 文字以上 100 文字以下の ASCII 英数字、ハイフン、アンダースコア、ピリオド | GitHub の新規リポジトリ名の制約に合わせる。`.` と `..` は緩い側に寄せた（下記） |
 
-公式文書で確認できたのは次の規則です。
+GitHub 側の名前の文字種と長さ、その根拠と未確認事項は [GitHub Constraints](../spec/github-constraints.md#2-owner-and-repository) を参照します。
 
-- **リポジトリ名**：100 文字以下で、ASCII の英字、数字、`.`、`-`、`_` だけを含む（[Creating a new repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-new-repository)）
-- **ユーザー名**：英数字とハイフンだけを含む（[Username considerations for external authentication](https://docs.github.com/en/enterprise-cloud@latest/admin/managing-iam/iam-configuration-reference/username-considerations-for-external-authentication)）
-
-公式文書で確認できなかった規則は、GitHub が受け付ける名前を拒否しない側に寄せ、形式検証で課しません。
+GitHub の規則として確認できなかった条件は、GitHub が受け付ける名前を拒否しない側に寄せ、形式検証で課しません。
 GATES が GitHub より厳しい規則を持つと、正当な要求が入力不正になり、利用者には原因が分からないためです。
 該当するのは次の規則です。
 
-- **オーナー名のハイフンの位置**：先頭・末尾のハイフンと連続したハイフンの禁止は、上の文書で Enterprise Managed Users が正規化したユーザー名にだけ書かれている
-- **オーナー名の長さ**：39 文字の上限は、上の文書で Enterprise Managed Users のユーザー名にだけ書かれている
-- **リポジトリ名 `.` と `..`**：公式文書に記述がなく、文字種の規則だけでは拒否できない
+- **オーナー名のハイフンの位置**：先頭・末尾のハイフンと連続したハイフンの禁止は、Enterprise Managed Users の命名規則であり、ほかのオーナーに転用しない
+- **オーナー名の長さ**：39 文字の上限も、Enterprise Managed Users の命名規則であり、ほかのオーナーに転用しない
+- **リポジトリ名 `.` と `..`**：GitHub が受け付けるかを確認できておらず、文字種の規則だけでは拒否できない
 
-一方で、オーナー名の文字種にも確認できなかった部分があります。
-ユーザー名の規則の「英数字」が ASCII に限るかを公式文書は明言しておらず、Organization 名に固有の規則を書いた公式文書は見つかりませんでした。
+一方で、オーナー名の文字種も、User と Organization に一様に適用できる GitHub の規則としては確定していません。
 それでもオーナー名に上の文字種を課せるのは、そうしても正当な要求を拒否しないためです。
 許可オーナー名は同じ文字種を満たす値としてデプロイ時に固定するため、この文字種に合わないオーナー名の要求は、形式検証を通してもオーナー名の照合で必ず拒否されます。
 オーナー名の規則を課すかどうかは、結果を入力不正と認可拒否のどちらにするかだけを変えます。
+例外として、Enterprise Managed Users のユーザーアカウントは、ユーザー名にアンダースコアを含むため（[GitHub Constraints](../spec/github-constraints.md#22-名前の制約)）、この文字種を満たさず、許可オーナーに設定できません。
 リポジトリ名の文字種が `/` を含まないため、`a/b/c` は入力不正になり、リポジトリ名 `b/c` が GitHub API の `repositories` に渡ることはありません。
 
 名前の比較と重複判定は、ASCII の範囲で大文字小文字を区別せずに行います。
@@ -164,6 +163,7 @@ GitHub 応答の `repository_selection` は返しません。
 CloudWatch Logs に自動で記録されるため、独自に採番しなくても監査記録と突き合わせられます。
 成功時にも返すのは、呼び出し元がワークフローのログに残し、監査記録と突き合わせられるようにするためです（[Requirements](../spec/requirements.md) FR-021）。
 
+GitHub API の発行応答のスキーマと、各フィールドの存在条件が未確認であることは [GitHub Constraints](../spec/github-constraints.md#62-発行応答permission) を参照します。
 Lambda は GitHub API の発行応答を次の条件で照合し、必要な情報が得られなければトークンを返しません。
 
 - `token` が空でなく、`expires_at` が有効な将来日時であること。
@@ -172,6 +172,7 @@ Lambda は GitHub API の発行応答を次の条件で照合し、必要な情�
 - `permissions.contents` が `read` であり、追加の Permission Entry は `metadata:read` が応答に含まれる場合に限り許容すること。その他の Permission Entry は拒否すること。
 - `repository_selection` が `selected` であること。`all` は要求外の対象を含むため拒否すること。
 
+`metadata:read` を許容するのは GATES の判断であり、GitHub が常に付与することを前提にしません。
 GitHub API の応答が照合条件に適合しない場合は `issuance_verification_failed` として拒否します。
 これは [Domain Model](domain.md#42-failure-kinds) の照合失敗に当たり、一時的な障害と分ける理由もそこに置きます。
 
@@ -212,19 +213,25 @@ Handler は処理中の panic を回復し、`internal_error` の失敗応答と
 | `authorization_denied` | 認可拒否 | Caller の Owner ID が許可オーナーと不一致、要求した権限が許可条件外、または要求リポジトリが許可オーナー / Installation の範囲外 |
 | `identity_verification_unavailable` | 一時的な障害 | OIDC Discovery / JWKS の取得が一時的に失敗した。通信の失敗、タイムアウト、5xx、403 / 429 で、再試行で解消し得る |
 | `signing_unavailable` | 一時的な障害 | KMS 署名に失敗 |
-| `installation_resolution_failed` | Installation 利用不可 | 固定した GitHub App と許可オーナーから、発行に使える Installation を得られない。一時的な障害を除く GitHub API の失敗（App JWT が受け付けられない 401、GitHub App が許可オーナーにインストールされていない 404 など）、Installation の応答に必要な項目がない、Installation が停止している（`suspended_at` が空でない）、`account.id` が許可オーナーの Owner ID と一致しない |
+| `installation_resolution_failed` | Installation 利用不可 | 固定した GitHub App と許可オーナーから、発行に使える Installation を得られない。一時的な障害を除く GitHub API の失敗（App JWT が受け付けられない 401、GitHub App が許可オーナーにインストールされていないときに想定する 404 など）、Installation の応答に必要な項目がない、Installation が停止している（`suspended_at` が空でない）、`account.id` が許可オーナーの Owner ID と一致しない |
 | `token_issuance_failed` | 一時的な障害 | GitHub API の一時的な障害。通信の失敗、タイムアウト、5xx、レート制限による 403 / 429 で、Installation の取得と発行要求の両方を含む。再試行で解消し得る |
 | `issuance_verification_failed` | 照合失敗 | GitHub API の発行応答が [Success](#31-success) の照合条件に適合しない。発行済みのトークンは失効させる |
 | `internal_error` | 内部障害 | 想定外の内部障害。Handler の panic のようにどの段階にも属さない失敗と、Discovery / JWKS の取得のうち再試行で解消しない失敗を含む |
 
 GitHub API の失敗は、HTTP 応答から次のように分類します。
 通信の失敗、タイムアウト、5xx、レート制限による 403 / 429 は `token_issuance_failed` にします。
-要求した対象を GitHub が受け付けなかった応答（Installation の範囲外や存在しないリポジトリによる 422 など）は `authorization_denied` にします。
+発行要求の 422 は `authorization_denied` にします。
 それ以外の失敗は `installation_resolution_failed` にします。
 Client ID の誤り、KMS Key と GitHub に登録した Private Key の不一致、Installation の削除や停止が、ここに入ります。
 発行要求で起きた 401 / 403 / 404 も、直前に同じ App JWT で Installation を取得できているため、要求の間に Installation か App の状態が変わったものとしてこのコードに含めます。
 Installation の応答の形式が想定と異なる場合は `installation_resolution_failed` に、発行応答の形式が想定と異なる場合は `issuance_verification_failed` にします。
-この分類に用いる応答の形式は実 API で確認します。
+
+この分類は GATES のエラー分類であり、GitHub の HTTP ステータスの定義ではありません。
+発行 API の `422` は、GitHub の公開仕様では検証失敗またはスパム判定を指し、Installation の範囲外の要求だけを意味しません（[GitHub Constraints](../spec/github-constraints.md#61-発行要求と有効期限)）。
+Installation の取得に使う Organization と User の API も、公開している応答コードは `200` だけで、未インストールのときの応答は公開されていません（[GitHub Constraints](../spec/github-constraints.md#5-installation)）。
+上の 404 は GATES の想定であり、分類は `200` 以外の応答をレート制限と一時的な障害を除いて `installation_resolution_failed` にすることで成り立ち、特定のステータスには依存しません。
+ステータスと失敗原因の対応は公開されておらず、いつ変わってもおかしくないため、GATES は原因を区別しません。
+分類が実際の原因とずれても、どの分類でもトークンを返さないことは変わらないため、監査記録の理由が厳密でないことを受け入れます。
 
 Discovery と JWKS の取得の失敗は、次のように分類します。
 通信の失敗、タイムアウト、本文の受信途中の切断、5xx、403 / 429 は `identity_verification_unavailable` にします。
@@ -330,6 +337,9 @@ Installation は許可オーナー名から取得するため、その Installat
 GATES 用 OIDC JWT は、次の規則をすべて満たすときだけ Caller の根拠にし、一つでも満たさなければ `invalid_id_token` として拒否します。
 規則は [Domain Model](domain.md#52-rules) の認証条件を Claim の水準で定めたものです。
 Discovery / JWKS の取得に関する項目は、検証に使う鍵の取得の定めで、その失敗は [Failure](#32-failure) の分類に従います。
+Issuer、Claim、不変 ID 入り `sub`、そのカスタマイズの GitHub 側の仕様は [GitHub Constraints](../spec/github-constraints.md#3-github-actions-oidc) を参照します。
+次の規則は GATES が決めた受理条件であり、GitHub が生成し得る形式をすべて受け付けることを意味しません。
+本節の「実 JWT で確かめた」は設計時の観測の記録であり、GitHub が保証する仕様ではありません。
 
 - **署名**：Issuer の Discovery から得た JWKS の鍵で署名を検証する。署名方式は `RS256` だけを許す。実 JWT のヘッダーが `RS256` であることを確かめた。許す方式を Discovery の内容に委ねると、Discovery が変わったときに許す方式が GATES の外で変わるため、GATES が固定する。鍵は JWT のヘッダーの `kid` で選び、`kid` のない JWT は、検証ライブラリが鍵の集合で検証しないため、鍵を取得せずに拒否する。実 JWT に `kid` があることを確かめた
 - **Issuer**：`iss` を `https://token.actions.githubusercontent.com` に固定する。Discovery はこの Issuer から取得し、Discovery が示す Issuer が固定値と異なれば鍵を使わず、[Failure](#32-failure) の分類に従って内部障害にする
@@ -337,7 +347,7 @@ Discovery / JWKS の取得に関する項目は、検証に使う鍵の取得の
 - **時間条件**：`exp` は必須とし、現在時刻が `exp` を過ぎていれば猶予なく拒否する。`iat` は必須とし、現在時刻に許容時計差を足した時刻より後なら拒否する。`nbf` は欠落を許し、あれば `iat` と同じ規則で判定する。許容時計差は 5 分とする。`iat` と `nbf` は、秒数が時刻の表現に収まらないほど大きい数値だと、検証に使うライブラリの時刻への変換が桁あふれして検証を通る。時間 Claim は、数字だけの JSON 文字列でも受理する。これらの見逃しを許すのは、GitHub が署名する Payload に現れる見込みがなく、検出には時間 Claim を別に読む分岐が要るため
 - **ID の Claim の表記**：`repository_owner_id`、`repository_id`、`run_id`、`run_attempt` と `sub` に含まれる ID は、JSON の文字列で、10 進数字だけからなり、先頭が `0` でなく（`0` そのものを含めて拒否する）、符号を持たず、64 ビット符号付き整数に収まる値だけを受け付ける。JSON の数値は受け付けない。実 JWT でこれらの Claim が数字だけの文字列であることを確かめた。表記を一つに限ると、`sub` の ID と Claim の ID を文字列のまま比べても整数として比べても結果が変わらない。数値も受け付けると、GitHub が表記を変えたときに黙って受け入れ、変更に気付けない
 - **Claim の組の復号**：重複したキーと不正な UTF-8 を含む Claim の組は、Caller の確定に読まない Claim の中にあっても拒否する。解釈が JSON の実装ごとに分かれる入力であり、署名などの検証と Caller の確定で Claim の組を別々に読むと、検証した値と Caller にした値が食い違い得るため（[Validation](#22-validation) の重複したキーと同じ方針）。読まない Claim を区別しないのは、GitHub が署名する Payload にこれらの値が現れる見込みがなく、区別のための分岐が要らないため。Claim 名の大文字小文字だけが異なるキーは重複として拒否しない。署名と Issuer、Audience、時間条件の検証に使うライブラリは Claim 名の大文字小文字を区別せずに読み、Caller の確定は区別して読むため、`{"aud":"other","AUD":"gates"}` や、`exp` がなく `EXP` だけを持つ Claim の組は検証を通る。緩むのは Issuer、Audience、時間条件の規則である。この見逃しを許すのは、重複したキーと違って復号の既定では検出できず、検出のための分岐が要る一方で、GitHub が署名する Payload に現れる見込みがないため
-- **`sub` の解釈**：`repo:` で始まり、続く部分を最初の `/` でオーナー部とリポジトリ部に分け、リポジトリ部は次の `:` までとし、`:` がなければ拒否する。オーナー部とリポジトリ部は、それぞれ名前、`@`、ID の並びで、`@` をちょうど一つ含み、名前と ID のどちらも空でない。オーナー部の ID が `repository_owner_id` と、リポジトリ部の ID が `repository_id` と一致する。名前の部分は照合せず、リポジトリ部の後の `:` 以降は解釈しない。`@` をちょうど一つとするのは、公式文書（OIDC reference）が `@` はユーザー名にもリポジトリ名にも現れないと書いているためで、二つ以上含む `sub` は GitHub の形式に合わない値として拒否する。名前を照合しないのは、認可の根拠が ID にあり、名前は変わり得るため（[Domain Model](domain.md#51-identity-rules)）。`:` 以降を解釈しないのは、`sub` のカスタマイズで変わる部分であり、[Security Design](security.md#21-aws-iam--sts) が後半部分による制限を設けないため
+- **`sub` の解釈**：`repo:` で始まり、続く部分を最初の `/` でオーナー部とリポジトリ部に分け、リポジトリ部は次の `:` までとし、`:` がなければ拒否する。オーナー部とリポジトリ部は、それぞれ名前、`@`、ID の並びで、`@` をちょうど一つ含み、名前と ID のどちらも空でない。オーナー部の ID が `repository_owner_id` と、リポジトリ部の ID が `repository_id` と一致する。名前の部分は照合せず、リポジトリ部の後の `:` 以降は解釈しない。`@` をちょうど一つとするのは、GitHub の公式仕様で `@` がユーザー名にもリポジトリ名にも使えないため（[GitHub Constraints](../spec/github-constraints.md#32-immutable-subject-とカスタマイズ)）で、二つ以上含む `sub` は GitHub の形式に合わない値として拒否する。名前を照合しないのは、認可の根拠が ID にあり、名前は変わり得るため（[Domain Model](domain.md#51-identity-rules)）。`:` 以降を解釈しないのは、`sub` のカスタマイズで変わる部分であり、[Security Design](security.md#21-aws-iam--sts) が後半部分による制限を設けないため
 - `run_id` と `run_attempt` を必須 Claim として読み取り、監査のために Caller に添える。認可には使わない。欠落は Fail Closed の原則に従って拒否する。
 - ワークフロー起動属性として、`actor`、`actor_id`、`event_name`、`ref`、`sha`、`workflow_ref`、`job_workflow_ref`、`environment` の Claim を読み取り、監査のために Caller に添える。認可には使わない。これらは監査記録を詳しくするためのベストエフォートの属性であり、欠落していても拒否せず、欠落したまま記録する。`environment` のように、ジョブの設定によって含まれない Claim があるためである。文字列でない値も欠落として扱う（[Domain Model](domain.md#33-request-and-decision)）。値の形を検証しないため、改行や制御文字を含み得る。監査記録は値をエスケープする構造化形式の項目として出力し、文言に埋め込まない。
 - **Discovery / JWKS の取得**：任意の Issuer / JWKS / `jku` を入力から指定させない。Discovery は Lambda の初期化ではなく最初の認証で取得し、成功した内容は実行環境の中で再利用し、失敗した場合は保持せず次の認証で取得し直す。初期化で取得すると、失敗が Lambda の初期化の失敗になり、Handler が `request_id` を含む失敗応答を返せないため（[Failure](#32-failure)）。取得した Discovery は実行環境の中で取り直さない。`kid` があり手元の鍵で検証できない JWT が来たときは JWKS を取得し直し、再取得の頻度に上限を設けない。Lambda を呼び出せるのは IAM を通った許可オーナーのワークフローに限られ、無関係な相手が署名の不正な JWT を大量に送る経路がないため。取得の失敗の分類は [Failure](#32-failure) に従う
@@ -356,8 +366,14 @@ JWT の寿命は GitHub が定める `exp`（実 JWT では `iat` の 5 分後�
 
 `sub` の `:` の有無だけを形式として見るのは、実 JWT で確かめた形式がどれも `:` を持つためです。
 安全のためではなく、ID の照合は `:` の有無によらず成り立ちます。
-公式文書（OIDC reference）の、`repo` だけを含めるカスタマイズの例と、不変 ID はカスタマイズしても常に `repo` の部分に含まれるという注記から、`repo:OWNER@OWNER-ID/REPO@REPO-ID` の形が現れ得ますが、実 JWT では確かめていません。
+`repo` だけを含めるカスタマイズでは `repo:OWNER@OWNER-ID/REPO@REPO-ID` の形が現れ得ますが（[GitHub Constraints](../spec/github-constraints.md#32-immutable-subject-とカスタマイズ)）、実 JWT では確かめていません。
 このカスタマイズをしたリポジトリは、入口制御を通った後に `invalid_id_token` で拒否されることを受け入れます。
+
+`run_attempt` の `0` を拒否するのは、環境変数 `GITHUB_RUN_ATTEMPT` が初回の試行を `1` とするためです。
+ただし OIDC reference はこの Claim を再試行された回数と説明しており、初回に `1` になることは明記されていません（[GitHub Constraints](../spec/github-constraints.md#31-issueraudienceclaim)）。
+実 JWT で確かめたのは数字だけの文字列であることまでで、初回の値は記録していません。
+初回の Claim が `0` なら、最初の試行はすべて `invalid_id_token` で拒否されます。
+トークンを誤って返す方向の失敗ではないため、規則は変えません。
 
 [Domain Model](domain.md) の概念は、GATES 用 OIDC JWT の次の Claim から得ます。
 
@@ -374,7 +390,7 @@ JWT の寿命は GitHub が定める `exp`（実 JWT では `iat` の 5 分後�
 
 ### 7.2 KMS Signing
 
-- GitHub App JWT の Header を RS256 とし、Claim は `iss`、`iat`、`exp` を設定する。`iss` には GitHub App の Client ID を用いる。`iat` は時計差を考慮して現在時刻の 60 秒前とし、`exp` は GitHub の上限である 10 分を超えない。
+- GitHub App JWT の Header を RS256 とし、Claim は `iss`、`iat`、`exp` を設定する。これらと `exp` の上限 10 分の公式根拠は [GitHub Constraints](../spec/github-constraints.md#42-github-app-jwt) を参照する。`iss` には GitHub App の Client ID を用いる。`iat` は時計差を考慮して現在時刻の 60 秒前とし、`exp` は上限を超えない。
 - Header と Payload を Base64URL（padding なし）で結合し、署名入力を SHA-256 でハッシュする。
 - AWS KMS `Sign` に `SigningAlgorithm=RSASSA_PKCS1_V1_5_SHA_256`、`MessageType=DIGEST`、計算済みダイジェストを渡す。二重ハッシュをしない。
 - 署名結果を Base64URL で連結し、内部 GitHub App JWT を作成する。
@@ -382,12 +398,15 @@ JWT の寿命は GitHub が定める `exp`（実 JWT では `iat` の 5 分後�
 
 ### 7.3 GitHub Client
 
+GitHub API の仕様は、Installation の取得を [GitHub Constraints](../spec/github-constraints.md#5-installation)、トークンの発行と失効を [GitHub Constraints](../spec/github-constraints.md#6-installation-access-token) で参照します。
+本節は、GATES がどのエンドポイントをどう使うかを定めます。
+
 - App JWT で許可オーナーの Installation を取得し、Installation ID、`account.id`、`suspended_at` を得る。取得に使うエンドポイントは、デプロイ時に固定したオーナーの種別で選ぶ。Organization なら `GET /orgs/{org}/installation`、ユーザーアカウントなら `GET /users/{username}/installation` を呼び出す。失敗の分類は [Failure](#32-failure) に従う。`suspended_at` は Installation に含めて返し、停止の判定は Authorization が行う（[Processing Flow](#6-processing-flow) の手順 5）。トークン発行には `POST /app/installations/{installation_id}/access_tokens` を使用する。
 - 照合に失敗したトークンの失効には `DELETE /installation/token` を使用する。このエンドポイントは App JWT ではなく、失効させる Installation Access Token 自体で認証する。失効の要求にもタイムアウトを設け、失敗しても再試行せずに監査記録へ残す。
 - `GET /repos/{owner}/{repo}/installation` はどちらの種別にも使えるが、採用しない。要求されたリポジトリから Installation を引くことになり、固定した設定から Installation を導出する [Requirements](../spec/requirements.md) FR-024 から外れるためである。
 - GATES の要求は `owner/repo` 形式とする。GitHub のトークン発行 API の `repositories` はリポジトリ名だけを受け取るため、オーナー名が許可オーナー名に一致することを確認してリポジトリ名の配列へ変換する。変換前の完全名と API 応答の `full_name` を照合する。
-- GitHub API に変換後の `repositories` と `permissions` を必ず指定する。応答照合の期待値と欠落時の扱いは本ドキュメントの [Responses](#3-responses) を正本とし、実 API で確認する。
-- API Host、API バージョン、HTTP Header は信頼済み設定で固定する。タイムアウト・レスポンスサイズ上限を設け、API エラー本文に含まれる資格情報をログへ転記しない。
+- GitHub API に変換後の `repositories` と `permissions` を必ず指定する。応答照合の期待値と欠落時の扱いは本ドキュメントの [Responses](#3-responses) を正本とする。
+- API Host、API バージョン、HTTP Header は信頼済み設定で固定する。採用する API バージョンの値は未確定で、実装時に決める（[GitHub Constraints](../spec/github-constraints.md#1-scope-and-evidence)）。タイムアウト・レスポンスサイズ上限を設け、API エラー本文に含まれる資格情報をログへ転記しない。
 
 [Domain Model](domain.md) の概念は、GitHub API の応答の次のフィールドから得ます。
 
@@ -462,14 +481,7 @@ Caller を作るのは `internal/authn` とテストだけとし、ほかの pac
 - [AWS — aws-lambda-go](https://github.com/aws/aws-lambda-go)
 - [AWS — AWS SDK for Go v2](https://docs.aws.amazon.com/sdk-for-go/v2/developer-guide/)
 - [AWS — KMS Sign](https://docs.aws.amazon.com/kms/latest/APIReference/API_Sign.html)
-- [GitHub — OIDC reference](https://docs.github.com/en/actions/reference/security/oidc)
-- [GitHub — GitHub App JWT](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-json-web-token-jwt-for-a-github-app)
-- [GitHub — Generating an installation access token](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app)
-- [GitHub — REST API endpoints for GitHub Apps](https://docs.github.com/en/rest/apps/apps)
-- [GitHub — REST API endpoints for GitHub App installations](https://docs.github.com/en/rest/apps/installations)
-- [GitHub — Rate limits for the REST API](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)
-- [GitHub — Creating a new repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-new-repository)
-- [GitHub — Username considerations for external authentication](https://docs.github.com/en/enterprise-cloud@latest/admin/managing-iam/iam-configuration-reference/username-considerations-for-external-authentication)
+- [GitHub Constraints](../spec/github-constraints.md)
 - [Go — coreos/go-oidc/v3/oidc](https://pkg.go.dev/github.com/coreos/go-oidc/v3/oidc)
 - [OpenID Foundation — OpenID Connect Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html)
 - [IETF — RFC 7519 JSON Web Token](https://www.rfc-editor.org/rfc/rfc7519)

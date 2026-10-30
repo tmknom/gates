@@ -105,16 +105,17 @@ Lambda の応答形式は [Lambda Design](lambda.md)、Composite Action の応�
 | 文書 | 主題 |
 |---|---|
 | [Requirements](../spec/requirements.md) | 目的、対象範囲、要求、受け入れ条件 |
+| [GitHub Constraints](../spec/github-constraints.md) | GATES が依存する GitHub の仕様、適用範囲、出典、未確認事項 |
 | [Security Design](security.md) | 信頼境界、認証・認可、資格情報の保護、失敗時の扱い |
 | [AWS Infrastructure Design](aws-infrastructure.md) | IAM、Lambda、KMS、Terraform の AWS リソース構成 |
 | [Lambda Design](lambda.md) | Lambda Invoke の入出力契約、Go のコンポーネント、ドメインモデル、技術選定 |
 | [GitHub Actions Design](github-actions.md) | Composite Action の入出力、処理手順、利用例 |
 
+GitHub が定める仕様は GitHub Constraints に置き、各設計書はそれを参照したうえで GATES の設計判断を定めます。
+
 ## 7. Sources
 
-- [GitHub — OpenID Connect reference](https://docs.github.com/en/actions/reference/security/oidc)
-- [GitHub — Generating a JSON Web Token (JWT) for a GitHub App](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-json-web-token-jwt-for-a-github-app)
-- [GitHub — Generating an installation access token](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app)
+- [GitHub Constraints](../spec/github-constraints.md)
 - [AWS — AssumeRoleWithWebIdentity](https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRoleWithWebIdentity.html)
 - [AWS — Lambda Invoke API](https://docs.aws.amazon.com/lambda/latest/api/API_Invoke.html)
 - [AWS — KMS Sign API](https://docs.aws.amazon.com/kms/latest/APIReference/API_Sign.html)
