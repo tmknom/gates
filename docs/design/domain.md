@@ -242,7 +242,7 @@ flowchart LR
 | 操作 | 失敗の種別 |
 |---|---|
 | Validate | 入力不正 |
-| Authenticate | 認証失敗。JWKS を取得できなければ一時的な障害 |
+| Authenticate | 認証失敗。Discovery / JWKS を一時的に取得できなければ一時的な障害、GitHub OIDC Provider の応答が想定と異なれば内部障害 |
 | Authorize | 認可拒否 |
 | Sign | 一時的な障害 |
 | Resolve Installation | Installation 利用不可（App JWT の拒否、未インストール、必須項目の欠落）。取得時の一時的な障害は一時的な障害 |
@@ -251,7 +251,7 @@ flowchart LR
 | Verify | 照合失敗 |
 | Revoke | なし。失効に失敗しても照合失敗のまま終わる |
 
-どの段階にも属さない想定外の障害は内部障害で終わります。
+どの段階にも属さない想定外の障害も内部障害で終わります。
 
 最後の 2 つの操作は GATES の外で行われますが、発行できる範囲を変えるため、モデルに含めます。
 認可の境界は GATES の設定だけでは決まらず、Installation の対象に依存します。
@@ -269,8 +269,8 @@ flowchart LR
 | **認可拒否** | Authorization Denied | Caller と要求は読み取れたが、認可条件を満たさない。GitHub が要求した対象を受け付けない場合も含む | 利用者が要求の対象か権限を直す。監査記録には、利用者の要求が許可外だったことが残る | 事実：Security Design §3.1、Lambda Design §3.2 |
 | **Installation 利用不可** | Installation Unavailable | 固定した GitHub App と許可オーナーから、発行に使える Installation を得られない。取得の失敗、必須項目の欠落、停止、インストール先 Owner ID の不一致、発行の間に Installation か App の状態が変わった場合 | GATES 運用者かオーナーの管理者が、GitHub 側か固定設定を直す。再試行では解消しない | 事実：Lambda Design §3.2 |
 | **照合失敗** | Verification Failure | GitHub が発行したトークンの発行結果が、発行許可と一致しない | 運用者が設定か GitHub 側の仕様変更を調べる。発行済みのトークンの失効を試みる | 事実：Requirements FR-018、Lambda Design §3.1 |
-| **一時的な障害** | Transient Failure | JWKS の取得、KMS の署名、GitHub API の呼び出しのいずれかが一時的に失敗した。通信の失敗、タイムアウト、サーバー側のエラー、レート制限を指す | 呼び出し元の再試行で解消し得る | 事実：Lambda Design §3.2 |
-| **内部障害** | Internal Failure | どの段階にも属さない想定外の失敗 | 運用者が調べる | 事実：Lambda Design §3.2 |
+| **一時的な障害** | Transient Failure | Discovery / JWKS の取得、KMS の署名、GitHub API の呼び出しのいずれかが一時的に失敗した。通信の失敗、タイムアウト、サーバー側のエラー、レート制限を指す | 呼び出し元の再試行で解消し得る | 事実：Lambda Design §3.2 |
+| **内部障害** | Internal Failure | 想定外の失敗。どの段階にも属さない失敗と、GitHub OIDC Provider の応答が想定と異なる失敗（Discovery が示す Issuer が固定した Issuer と異なる、応答を解釈できない、応答が上限より大きい、再試行では解消しない失敗の応答が返る）を含む | 運用者が調べる。再試行では解消しない | 事実：Lambda Design §3.2 |
 
 Installation 利用不可を認可拒否と分けるのは、利用者の要求に起因しない失敗だからです。
 認可拒否に含めると、監査記録では利用者の要求が許可外だったように見えます。
@@ -281,9 +281,13 @@ Installation 利用不可と照合失敗は、どちらも設定ミスや GitHub
 Installation の応答が想定と異なれば、トークンが存在しないため Installation 利用不可に、発行結果が想定と異なれば、失効させるべきトークンが存在するため照合失敗に分類します。
 照合失敗を一時的な障害と分けるのも、発行結果の不整合が再試行で解消する障害ではなく、監視対象だからです。
 
-一時的な障害は、失敗した依存先が JWKS、KMS、GitHub API のどれであっても一つの種別にまとめます。
+一時的な障害は、失敗した依存先が Discovery / JWKS、KMS、GitHub API のどれであっても一つの種別にまとめます。
 どれが失敗しても、直す主体は変わらず、次に起きることも再試行で変わらないためです。
 依存先の区別は調査のための情報であり、応答契約のエラーコードで表します。
+
+GitHub OIDC Provider の応答が想定と異なる失敗を一時的な障害と分けるのは、再試行では解消せず、一時的な障害にすると利用者に無駄な再実行を促すためです。
+新しい種別を設けず内部障害に含めるのは、内部障害と比べて、直す主体（運用者）も、監査記録に残るもの（失敗した段階までに確定した値）も、失効の義務（発行前のため、なし）も変わらないためです。
+原因は監査記録の拒否の理由で区別します。
 
 失敗の種別を応答でどう表すかは、[Lambda Design](lambda.md#32-failure) のエラーコードが定めます。
 種別とエラーコードは一時的な障害を除いて一対一に対応し、一時的な障害だけは失敗した依存先ごとにエラーコードを分けます。
@@ -310,12 +314,14 @@ stateDiagram-v2
   state "Installation 利用不可" as rej_installation
   state "照合失敗" as rej_verify
   state "一時的な障害" as rej_transient
+  state "内部障害" as rej_internal
   [*] --> received
   received --> validated : 形式検証
   received --> rej_request : 入力不正
   validated --> authenticated : 認証（Caller 確定）
   validated --> rej_auth : JWT 不正
-  validated --> rej_transient : JWKS 取得不能
+  validated --> rej_transient : Discovery / JWKS の一時的な取得不能
+  validated --> rej_internal : GitHub OIDC Provider の応答が想定と異なる
   authenticated --> preauthorized : 事前認可
   authenticated --> rej_authz : Owner ID、オーナー名、権限の不一致
   preauthorized --> signed : 署名
@@ -333,6 +339,8 @@ stateDiagram-v2
   issued --> rej_verify : 発行許可との不一致（トークンを失効）
   returnable --> [*]
 ```
+
+内部障害への遷移は認証の段階のものだけを描き、どの段階でも起き得る想定外の失敗は描きません。
 
 照合失敗だけは、GitHub がトークンを発行した後の拒否です。
 そのため、この状態に至るときはトークンの失効を試みます（事実：Lambda Design §3.1）。
@@ -368,6 +376,7 @@ stateDiagram-v2
 
 | ルール | 適用対象 | 成立条件 | 例外 | 根拠 |
 |---|---|---|---|---|
+| 認証条件 | 認証 | GATES 用 OIDC JWT が、Issuer の公開する鍵で GATES が許可した署名方式により署名され、Issuer が固定設定の Issuer と一致し、Audience が GATES 用 Audience の一つだけであり、現在時刻が失効時刻を過ぎておらず、有効期間の開始と発行時刻が現在時刻に許容時計差（[Lambda Design](lambda.md#71-oidc-validation)）を足した時刻より後でなく、発行時刻、失効時刻、Caller の確定に要る属性がそろい、[5.1 Identity Rules](#51-identity-rules) の ID の整合を満たす。一つでも満たさなければ認証失敗 | 有効期間の開始は欠落を許す | 事実：Requirements FR-002、FR-003、Lambda Design §7.1、Security Design §2.2 |
 | 認可条件 | 事前認可、発行許可の確定 | Caller の Owner ID が許可オーナーの Owner ID と一致し、要求の各完全名のオーナー名が許可オーナー名と一致し、Permissions が許可権限と等しい。満たさなければ認可拒否 | なし | 事実：Security Design §3.1 |
 | Installation の有効性 | 発行許可の確定 | 取得した Installation のインストール先 Owner ID が許可オーナーの Owner ID と一致し、停止していない。満たさなければ Installation 利用不可 | なし | 事実：Security Design §3.1 |
 | 全件成立 | 複数対象の発行要求 | すべての対象が条件を満たすときだけ発行する。一部だけの発行や対象の縮小をしない | なし | 事実：Requirements FR-011 |
@@ -394,7 +403,7 @@ GitHub がどちらの振る舞いをするかで、失敗の種別が認可拒�
 | 発行要求 | 形式検証を通った時点 | 対象が 1 件以上 500 件以下で、各要素が完全名の形式を満たし、大文字小文字を区別しない重複がない。Permissions が下の行の条件を満たす | 事実：Lambda Design §2.2 |
 | Permissions | 作られた時点 | Permission Entry を 1 つ以上持ち、権限名と水準がどれも Lambda Design の権限名と水準の文字種を満たす。許可権限と等しいかは含まず、事前認可が判定する | 事実：Lambda Design §2.2、Security Design §3.1 |
 | 許可オーナー | 固定設定を読んだ時点 | Owner ID が正の整数で、オーナー名がオーナー名の文字種を満たし、種別が二つの値のどちらかである | 事実：Requirements FR-024、Lambda Design §2.2 の名前の文字種。推論：条件を満たさない値を作らない方針（本節冒頭） |
-| Caller | 認証を通った時点 | 検証済みの GATES 用 OIDC JWT だけから作られ、Owner ID と Repository ID が [5.1 Identity Rules](#51-identity-rules) の ID の整合を満たす。Owner ID、Repository ID、ワークフロー実行 ID、試行番号はどれも正の整数である。いずれかが欠落していれば Caller は確定しない | 事実：Requirements FR-002、FR-004、Lambda Design §7.1。正の整数は推論：GitHub の ID と試行番号は 1 から始まる |
+| Caller | 認証を通った時点 | [5.2 Rules](#52-rules) の認証条件を満たした GATES 用 OIDC JWT だけから作られ、Owner ID と Repository ID が [5.1 Identity Rules](#51-identity-rules) の ID の整合を満たす。Owner ID、Repository ID、ワークフロー実行 ID、試行番号はどれも正の整数である。いずれかが欠落していれば Caller は確定しない | 事実：Requirements FR-002、FR-004、Lambda Design §7.1。正の整数は推論：GitHub の ID と試行番号は 1 から始まる |
 | Installation | 取得した応答から作った時点 | Installation ID とインストール先 Owner ID が正の整数である。インストール先 Owner ID が許可オーナーの Owner ID と一致することと停止していないことは含まず、発行許可の確定が [5.2 Rules](#52-rules) の Installation の有効性として判定する | 推論：GitHub の ID は 1 から始まる。一致しない、または停止している Installation も GitHub 上に実在する値であり、作れない値ではなく発行に使えない値であるため |
 | 発行許可 | 確定した時点 | [5.2 Rules](#52-rules) の認可条件をすべて満たす。対象は発行要求の対象と同じ集合で、各完全名の表記と並びも発行要求のままである（GitHub API に渡すリポジトリ名と監査記録の要求対象を、利用者の要求と一致させるため）。Permissions は許可権限に等しい。Installation ID は、インストール先 Owner ID が許可オーナーの Owner ID と一致し、停止していない Installation のものである | 事実：Security Design §3.1 |
 | 返却可能な発行結果 | 照合を通った時点 | トークンが空でなく、有効期限が将来である。実効対象の完全名の集合が発行許可の対象と一致し、件数が同じで、余分・欠落・重複がない。各実効対象の Repository ID が有効で一意であり、所有オーナーの Owner ID が許可オーナーの Owner ID と一致する。実効権限が許可権限に付随権限を加えた範囲内で、`contents:read` を含む。対象の選び方が、選択したリポジトリに限られている | 事実：Lambda Design §3.1、Requirements FR-018 |
