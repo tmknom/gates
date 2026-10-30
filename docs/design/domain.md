@@ -62,6 +62,8 @@ GATES が所有する概念は、発行要求、Caller、発行許可、発行�
 | **GitHub App** | GitHub App | Client ID | 権限の上限（GitHub 側で設定）、Private Key（25 個まで持てる） | 事実：Requirements §2.1、Lambda Design §7.2、Managing private keys for GitHub Apps |
 | **Installation** | Installation | Installation ID | インストール先 Owner ID、対象の選び方、付与された権限、停止状態 | 事実：REST API endpoints for GitHub Apps の Installation の応答 |
 | **ワークフロー実行** | Workflow Run | ワークフロー実行 ID と試行番号 | 実行元のリポジトリとオーナー、起動のイベントと ref など。GATES 用 OIDC JWT の主体は実行元とワークフロー起動属性の一部を表し、実行そのものは識別しない | 事実：OIDC reference |
+| **Issuer の公開鍵** | JWKS | 鍵の識別子 | Issuer が GATES 用 OIDC JWT の署名の検証のために公開する鍵の集合。ローテーションで入れ替わる。GATES は Discovery から取得先を知り、取得して実行環境の中で保持する | 事実：Lambda Design §7.1、RFC 7517。語は候補 |
+| **Discovery** | Discovery | Issuer | Issuer が公開する設定。GATES はそこから Issuer の値と公開鍵の取得先だけを読む。成功した内容は実行環境の中で再利用し、失敗した内容は保持しない | 事実：Lambda Design §7.1、OpenID Connect Discovery |
 
 オーナーとリポジトリは、どちらも不変 ID と名前の二つの表現を持ちます。
 名前は変わり得るため、認可の同一性は不変 ID で判断し、名前は要求の照合と GitHub API の呼び出しに使う表現と位置づけます（事実：Requirements FR-006、FR-002）。
@@ -226,7 +228,7 @@ flowchart LR
 |---|---|---|---|---|---|
 | トークンを要求する | （Composite Action の責務） | ワークフロー利用者 | 対象、権限、接続情報 | Composite Action が発行処理を起動する | 事実：Requirements §3、FR-019 |
 | 形式検証 | Validate | Lambda Handler | Invoke Payload | 発行要求と未検証の GATES 用 OIDC JWT を取り出す、または入力不正 | 事実：Lambda Design §2.2 |
-| 認証 | Authenticate | OIDC Verifier | 未検証の GATES 用 OIDC JWT、固定設定 | Caller を確定する、または拒否 | 事実：Requirements FR-002 |
+| 認証 | Authenticate | OIDC Verifier | 未検証の GATES 用 OIDC JWT、固定設定、Issuer の公開鍵 | Caller を確定する、または拒否 | 事実：Requirements FR-002 |
 | 事前認可 | Authorize | Authorization | Caller、発行要求、許可オーナー | 外部呼び出しに進める、または認可拒否 | 事実：Lambda Design §6 手順 3 |
 | 署名 | Sign | KMS Signer | GitHub App JWT の署名入力、KMS Key ARN | GitHub App JWT | 事実：Requirements FR-013 |
 | Installation の解決 | Resolve Installation | Token Issuer | GitHub App JWT、許可オーナーの名前と種別 | 取得した Installation、または拒否（App JWT の拒否、未インストール、必須項目の欠落、一時的な障害） | 事実：Lambda Design §3.2、§7.3 |
@@ -271,7 +273,7 @@ flowchart LR
 | **Installation 利用不可** | Installation Unavailable | 固定した GitHub App と許可オーナーから、発行に使える Installation を得られない。取得の失敗、必須項目の欠落、停止、インストール先 Owner ID の不一致、発行の間に Installation か App の状態が変わった場合 | GATES 運用者かオーナーの管理者が、GitHub 側か固定設定を直す。再試行では解消しない | 事実：Lambda Design §3.2 |
 | **照合失敗** | Verification Failure | GitHub が発行したトークンの発行結果が、発行許可と一致しない | 運用者が設定か GitHub 側の仕様変更を調べる。発行済みのトークンの失効を試みる | 事実：Requirements FR-018、Lambda Design §3.1 |
 | **一時的な障害** | Transient Failure | Discovery / JWKS の取得、KMS の署名、GitHub API の呼び出しのいずれかが一時的に失敗した。通信の失敗、タイムアウト、サーバー側のエラー、レート制限を指す | 呼び出し元の再試行で解消し得る | 事実：Lambda Design §3.2 |
-| **内部障害** | Internal Failure | 想定外の失敗。どの段階にも属さない失敗と、GitHub OIDC Provider の応答が想定と異なる失敗（Discovery が示す Issuer が固定した Issuer と異なる、応答を解釈できない、応答が上限より大きい、再試行では解消しない失敗の応答が返る）を含む | 運用者が調べる。再試行では解消しない | 事実：Lambda Design §3.2 |
+| **内部障害** | Internal Failure | 想定外の失敗。どの段階にも属さない失敗と、GitHub OIDC Provider の応答が想定と異なる失敗（Discovery が示す Issuer が固定した Issuer と異なる、公開鍵の取得先が Issuer と異なるホストかポートを指す、応答を解釈できない、使える公開鍵が一つもない、応答が上限より大きい、再試行では解消しない失敗の応答が返る）を含む | 運用者が調べる。再試行では解消しない | 事実：Lambda Design §3.2 |
 
 Installation 利用不可を認可拒否と分けるのは、利用者の要求に起因しない失敗だからです。
 認可拒否に含めると、監査記録では利用者の要求が許可外だったように見えます。
@@ -362,6 +364,8 @@ stateDiagram-v2
 | Installation の停止 | 取得した Installation が停止状態のため、発行許可を作らず Installation 利用不可で閉じる。GitHub の発行 API を呼ばない | 事実：Security Design §3.1、Lambda Design §6 手順 5 |
 | GitHub 側での旧 Private Key の失効 | 新しい KMS Key に切り替え済みなら影響しない | 事実：Requirements AC-14 |
 | OIDC JWT の主体のカスタマイズ | 実 JWT で確かめた形式から外れると、入口制御の拒否か認証失敗で発行が止まる | 推論：Lambda Design §7.1、AWS Infrastructure Design §3.1 の主体の条件から。実環境では未確認 |
+| Issuer の公開鍵のローテーション | 保持している公開鍵で検証できない JWT が来ると取得し直すため、設定変更なしに新しい鍵で検証する | 事実：Lambda Design §7.1 |
+| 公開鍵の取得先の変更 | 保持した Discovery は取り直さないため、古い取得先が使えなくなると、実行環境が入れ替わるまで一時的な障害か内部障害で止まる | 推論：Lambda Design §7.1 の Discovery の再利用から |
 
 ## 5. Rules and Invariants
 
@@ -405,6 +409,9 @@ GitHub がどちらの振る舞いをするかで、失敗の種別が認可拒�
 | 発行要求 | 形式検証を通った時点 | 対象が 1 件以上 500 件以下で、各要素が完全名の形式を満たし、大文字小文字を区別しない重複がない。Permissions が下の行の条件を満たす | 事実：Lambda Design §2.2 |
 | Permissions | 作られた時点 | Permission Entry を 1 つ以上持ち、権限名と水準がどれも Lambda Design の権限名と水準の文字種を満たす。許可権限と等しいかは含まず、事前認可が判定する | 事実：Lambda Design §2.2、Security Design §3.1 |
 | 許可オーナー | 固定設定を読んだ時点 | Owner ID が正の整数で、オーナー名がオーナー名の文字種を満たし、種別が二つの値のどちらかである | 事実：Requirements FR-024、Lambda Design §2.2 の名前の文字種。推論：条件を満たさない値を作らない方針（本節冒頭） |
+| 認証の固定設定 | 検証器を作った時点 | Issuer が `https` のホストと、あれば空でないポートだけからなり、解析しても文字列が変わらない URL で、Audience が空でない | 推論：空の Audience はすべての JWT を拒否し、空の Issuer は Issuer の値のない署名済み JWT を通す。`https` に限るのは、平文の通信を設定から有効にできる形にしないため。ポートを許すのは、`httptest` の Issuer で取得と失敗の分類を確かめるため |
+| 保持した Discovery | 保持した時点 | Issuer が固定設定の Issuer と一致し、公開鍵の取得先が Issuer と同じ `https` のホストとポートを指す | 事実：OpenID Connect Discovery、Lambda Design §7.1。ホストとポートの限定は推論：固定した Issuer の外から鍵を読まないため |
+| 保持した公開鍵 | 保持した時点 | 完全に受信して解釈できた応答の、鍵の識別子を持つ RSA の公開鍵だけからなり、1 つ以上ある。取得に失敗しても前回の鍵が残る | 推論：GATES が RS256 だけを許すため |
 | Caller | 認証を通った時点 | [5.2 Rules](#52-rules) の認証条件を満たした GATES 用 OIDC JWT だけから作られ、Owner ID と Repository ID が [5.1 Identity Rules](#51-identity-rules) の ID の整合を満たす。Owner ID、Repository ID、ワークフロー実行 ID、試行番号はどれも正の整数である。いずれかが欠落していれば Caller は確定しない | 事実：Requirements FR-002、FR-004、Lambda Design §7.1。正の整数は推論：GitHub の ID と試行番号は 1 から始まる |
 | Installation | 取得した応答から作った時点 | Installation ID とインストール先 Owner ID が正の整数である。インストール先 Owner ID が許可オーナーの Owner ID と一致することと停止していないことは含まず、発行許可の確定が [5.2 Rules](#52-rules) の Installation の有効性として判定する | 推論：GitHub の ID は 1 から始まる。一致しない、または停止している Installation も GitHub 上に実在する値であり、作れない値ではなく発行に使えない値であるため |
 | 発行許可 | 確定した時点 | [5.2 Rules](#52-rules) の認可条件をすべて満たす。対象は発行要求の対象と同じ集合で、各完全名の表記と並びも発行要求のままである（GitHub API に渡すリポジトリ名と監査記録の要求対象を、利用者の要求と一致させるため）。Permissions は許可権限に等しい。Installation ID は、インストール先 Owner ID が許可オーナーの Owner ID と一致し、停止していない Installation のものである | 事実：Security Design §3.1 |
@@ -460,7 +467,7 @@ AWS 一時認証情報と GATES 用 OIDC JWT が同じジョブで取得され�
 | オーナー | 不変 Owner ID で同定する実体。名前と種別は設定値 | OIDC JWT の主体の先頭に現れる、オーナー名と Owner ID を並べた文字列パターン | 完全名の `owner` 部分 | 現れない |
 | 権限 / permissions | GitHub App の Permissions（`contents:read`） | IAM の許可（`lambda:InvokeFunction`、`kms:Sign`） | 入力の `permissions`（カンマ区切り）とワークフローの `permissions: id-token: write` | KMS Key Policy の署名権限と管理権限 |
 | repositories | 発行要求の完全名の集合。GitHub API へはリポジトリ名の配列に変換する | 現れない | 入力と Output のカンマ区切り文字列 | 現れない |
-| 鍵 | 署名鍵の KMS Key ARN。署名だけを依頼する | 現れない | 現れない | 鍵素材、KMS Key、Private Key のコピー |
+| 鍵 | 署名鍵の KMS Key ARN（署名だけを依頼する）と、Issuer の公開鍵（検証だけに使う） | 現れない | 現れない | 鍵素材、KMS Key、Private Key のコピー |
 
 ## 7. Unverified GitHub Behavior
 
@@ -483,3 +490,5 @@ AWS 一時認証情報と GATES 用 OIDC JWT が同じジョブで取得され�
 - [GitHub — REST API endpoints for GitHub Apps](https://docs.github.com/en/rest/apps/apps)
 - [GitHub — REST API endpoints for GitHub App installations](https://docs.github.com/en/rest/apps/installations)
 - [GitHub — Managing private keys for GitHub Apps](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps)
+- [OpenID Connect Discovery 1.0](https://openid.net/specs/openid-connect-discovery-1_0.html)
+- [RFC 7517 — JSON Web Key (JWK)](https://www.rfc-editor.org/rfc/rfc7517)

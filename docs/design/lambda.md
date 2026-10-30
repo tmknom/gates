@@ -210,7 +210,7 @@ Handler は処理中の panic を回復し、`internal_error` の失敗応答と
 | `invalid_request` | 入力不正 | Payload が [Validation](#22-validation) の入力不正の形に当たる |
 | `invalid_id_token` | 認証失敗 | GitHub OIDC JWT が [OIDC Validation](#71-oidc-validation) の規則を満たさない。署名、署名方式、Issuer、Audience、時間条件、必須 Claim の欠落・不整合を含む |
 | `authorization_denied` | 認可拒否 | Caller の Owner ID が許可オーナーと不一致、要求した権限が許可条件外、または要求リポジトリが許可オーナー / Installation の範囲外 |
-| `identity_verification_unavailable` | 一時的な障害 | OIDC Discovery / JWKS の取得が一時的に失敗した。通信の失敗、タイムアウト、5xx、レート制限による 403 / 429 で、再試行で解消し得る |
+| `identity_verification_unavailable` | 一時的な障害 | OIDC Discovery / JWKS の取得が一時的に失敗した。通信の失敗、タイムアウト、5xx、403 / 429 で、再試行で解消し得る |
 | `signing_unavailable` | 一時的な障害 | KMS 署名に失敗 |
 | `installation_resolution_failed` | Installation 利用不可 | 固定した GitHub App と許可オーナーから、発行に使える Installation を得られない。一時的な障害を除く GitHub API の失敗（App JWT が受け付けられない 401、GitHub App が許可オーナーにインストールされていない 404 など）、Installation の応答に必要な項目がない、Installation が停止している（`suspended_at` が空でない）、`account.id` が許可オーナーの Owner ID と一致しない |
 | `token_issuance_failed` | 一時的な障害 | GitHub API の一時的な障害。通信の失敗、タイムアウト、5xx、レート制限による 403 / 429 で、Installation の取得と発行要求の両方を含む。再試行で解消し得る |
@@ -227,12 +227,15 @@ Installation の応答の形式が想定と異なる場合は `installation_reso
 この分類に用いる応答の形式は実 API で確認します。
 
 Discovery と JWKS の取得の失敗は、次のように分類します。
-通信の失敗、タイムアウト、本文の受信途中の切断、5xx、レート制限による 403 / 429 は `identity_verification_unavailable` にします。
-それ以外の 200 以外の応答、応答サイズの上限の超過、完全に受信した応答を解釈できない場合、Discovery が示す Issuer が固定した Issuer と異なる場合は `internal_error` にします。
+通信の失敗、タイムアウト、本文の受信途中の切断、5xx、403 / 429 は `identity_verification_unavailable` にします。
+403 を区別せずに含めるのは、Discovery と JWKS が認証を要しない公開の文書で、GATES に起因する 403 が想定できず、レート制限と見なすためです。
+呼び出し元の ctx の期限切れと中断、TLS の失敗も、応答を受け取る前の失敗として通信の失敗に含めます。
+それ以外の 200 以外の応答（リダイレクトを含む）、応答サイズの上限の超過、完全に受信した応答を解釈できない場合、JWKS に `kid` を持つ RSA の公開鍵が一つもない場合、Discovery が示す Issuer が固定した Issuer と異なる場合、Discovery が示す JWKS の取得先が Issuer と同じ `https` のホストとポートでない場合は `internal_error` にします。
 これらは再試行では解消せず、固定した Issuer の設定か GitHub 側の変更を運用者が調べる失敗であり、一時的な障害にすると利用者に無駄な再実行を促すためです。
 取得の失敗でない認証の失敗はすべて `invalid_id_token` にします。
 JWKS を取得できたうえで署名が一致しない JWT も `invalid_id_token` であり、JWT の `iss` が固定値と異なる場合も、Discovery の Issuer の不一致とは区別して `invalid_id_token` にします。
-分類は GATES の HTTP クライアントが記録した取得の結果で行い、検証ライブラリのエラー文言には頼りません。
+`kid` があり手元の鍵で検証できない JWT で取得に失敗した場合は、署名の正否を判定できないため、JWT が不正であっても取得の失敗として返します。
+分類は公開鍵の取得が返した失敗の種別で行い、検証ライブラリのエラー文言には頼りません。
 文言はライブラリの更新で変わり得るためです。
 
 外部エラーをそのまま応答へ転記しません。認証情報を含む詳細を公開せず、相関 ID によってログと突き合わせます。Lambda の処理結果は `ok` で示し、Invoke 自体の結果と区別します。呼び出し側での AWS CLI 終了コード、`FunctionError`、`ok` の判定は [GitHub Actions Design](github-actions.md) に記述します。
@@ -252,7 +255,7 @@ flowchart LR
 | Component | 責務 |
 |---|---|
 | Lambda Handler | Payload の形式検証、各コンポーネントの呼び出し順序の制御、監査情報の記録、応答形式 |
-| OIDC Verifier | GitHub OIDC JWT の署名・Issuer・Audience・時間・Claim 検証と Caller の確定 |
+| OIDC Verifier | GitHub OIDC JWT の署名・Issuer・Audience・時間・Claim 検証と Caller の確定、Issuer の Discovery / JWKS の取得と保持 |
 | Authorization | Caller、要求（対象、権限）、取得済み Installation、固定設定から発行可否を判定し、TokenGrant を確定。ネットワーク通信を行わない |
 | Token Issuer | KMS Signer による App JWT の作成、GitHub Client を使った Installation の取得とトークン発行、GitHub 応答の TokenGrant への照合、照合に失敗したトークンの失効 |
 | KMS Signer | 固定された非対称 KMS Key とアルゴリズムで署名 |
@@ -275,6 +278,8 @@ flowchart LR
 | 許可オーナー | AllowedOwner | Lambda Handler が固定設定から作り、Authorization と Token Issuer が読む | 不変 Owner ID、オーナー名（OwnerName）、種別（OwnerType） |
 | 許可オーナーの種別 | OwnerType | Token Issuer が Installation の取得 API の選択に読む | Organization かユーザーアカウントか |
 | GATES 用 OIDC JWT（ID Token）、未検証 | RawIDToken | Lambda Handler が作り、OIDC Verifier が読む | Payload の `id_token` を認証前に運ぶ。資格情報のため、ログやエラーにどう出力しても値を伏せる。値を取り出すのは OIDC Verifier だけ |
+| Discovery | discoveryDocument | OIDC Verifier | Issuer の値と JWKS の取得先（`jwks_uri`）だけを読む |
+| Issuer の公開鍵 | issuerKeySet | OIDC Verifier が取得して保持する | 検証ライブラリの `oidc.KeySet` を満たすため Key Set と呼ぶ。OIDC Verifier の外に出さない |
 | Permissions | Permissions | Lambda Handler、Authorization、Token Issuer が共用 | 要求の `permissions` と応答の `permissions` の両方をこの型で扱う |
 | 固定設定 | Config | Lambda Handler が起動時に読み、各コンポーネントへ渡す | 許可オーナー（AllowedOwner）、Client ID、KMS Key ARN、Audience、Issuer、GitHub API Host。JWKS は Issuer の Discovery から得るため、独立した値を持たない |
 | Installation | Installation | Token Issuer が取得し、Authorization が照合する | Installation ID、インストール先 Owner ID（`account.id`）、停止状態（`suspended_at`） |
@@ -324,23 +329,26 @@ Installation は許可オーナー名から取得するため、その Installat
 
 GATES 用 OIDC JWT は、次の規則をすべて満たすときだけ Caller の根拠にし、一つでも満たさなければ `invalid_id_token` として拒否します。
 規則は [Domain Model](domain.md#52-rules) の認証条件を Claim の水準で定めたものです。
+Discovery / JWKS の取得に関する項目は、検証に使う鍵の取得の定めで、その失敗は [Failure](#32-failure) の分類に従います。
 
-- **署名**：Issuer の Discovery から得た JWKS の鍵で署名を検証する。署名方式は `RS256` だけを許す。実 JWT のヘッダーが `RS256` であることを確かめた（2026-10-30）。許す方式を Discovery の内容に委ねると、Discovery が変わったときに許す方式が GATES の外で変わるため、GATES が固定する
+- **署名**：Issuer の Discovery から得た JWKS の鍵で署名を検証する。署名方式は `RS256` だけを許す。実 JWT のヘッダーが `RS256` であることを確かめた。許す方式を Discovery の内容に委ねると、Discovery が変わったときに許す方式が GATES の外で変わるため、GATES が固定する。鍵は JWT のヘッダーの `kid` で選び、`kid` のない JWT は、検証ライブラリが鍵の集合で検証しないため、鍵を取得せずに拒否する。実 JWT に `kid` があることを確かめた
 - **Issuer**：`iss` を `https://token.actions.githubusercontent.com` に固定する。Discovery はこの Issuer から取得し、Discovery が示す Issuer が固定値と異なれば鍵を使わず、[Failure](#32-failure) の分類に従って内部障害にする
 - **Audience**：`aud` が固定設定の GATES 用 Audience の 1 要素だけであること。GATES 用 Audience を含んでいても、ほかの値が並べば拒否する。AWS 用と GATES 用の JWT を別々に取得する設計（[Security Design](security.md#22-gates-用-oidc-jwt)）に合わせ、複数の受け手に宛てた JWT を GATES の資格情報にしないため
 - **時間条件**：`exp` は必須とし、現在時刻が `exp` を過ぎていれば猶予なく拒否する。`iat` は必須とし、現在時刻に許容時計差を足した時刻より後なら拒否する。`nbf` は欠落を許し、あれば `iat` と同じ規則で判定する。許容時計差は 5 分とする。`iat` と `nbf` は、秒数が時刻の表現に収まらないほど大きい数値だと、検証に使うライブラリの時刻への変換が桁あふれして検証を通る。時間 Claim は、数字だけの JSON 文字列でも受理する。これらの見逃しを許すのは、GitHub が署名する Payload に現れる見込みがなく、検出には時間 Claim を別に読む分岐が要るため
-- **ID の Claim の表記**：`repository_owner_id`、`repository_id`、`run_id`、`run_attempt` と `sub` に含まれる ID は、JSON の文字列で、10 進数字だけからなり、先頭が `0` でなく（`0` そのものを含めて拒否する）、符号を持たず、64 ビット符号付き整数に収まる値だけを受け付ける。JSON の数値は受け付けない。実 JWT でこれらの Claim が数字だけの文字列であることを確かめた（2026-10-30）。表記を一つに限ると、`sub` の ID と Claim の ID を文字列のまま比べても整数として比べても結果が変わらない。数値も受け付けると、GitHub が表記を変えたときに黙って受け入れ、変更に気付けない
+- **ID の Claim の表記**：`repository_owner_id`、`repository_id`、`run_id`、`run_attempt` と `sub` に含まれる ID は、JSON の文字列で、10 進数字だけからなり、先頭が `0` でなく（`0` そのものを含めて拒否する）、符号を持たず、64 ビット符号付き整数に収まる値だけを受け付ける。JSON の数値は受け付けない。実 JWT でこれらの Claim が数字だけの文字列であることを確かめた。表記を一つに限ると、`sub` の ID と Claim の ID を文字列のまま比べても整数として比べても結果が変わらない。数値も受け付けると、GitHub が表記を変えたときに黙って受け入れ、変更に気付けない
 - **Claim の組の復号**：重複したキーと不正な UTF-8 を含む Claim の組は、Caller の確定に読まない Claim の中にあっても拒否する。解釈が JSON の実装ごとに分かれる入力であり、署名などの検証と Caller の確定で Claim の組を別々に読むと、検証した値と Caller にした値が食い違い得るため（[Validation](#22-validation) の重複したキーと同じ方針）。読まない Claim を区別しないのは、GitHub が署名する Payload にこれらの値が現れる見込みがなく、区別のための分岐が要らないため。Claim 名の大文字小文字だけが異なるキーは重複として拒否しない。署名と Issuer、Audience、時間条件の検証に使うライブラリは Claim 名の大文字小文字を区別せずに読み、Caller の確定は区別して読むため、`{"aud":"other","AUD":"gates"}` や、`exp` がなく `EXP` だけを持つ Claim の組は検証を通る。緩むのは Issuer、Audience、時間条件の規則である。この見逃しを許すのは、重複したキーと違って復号の既定では検出できず、検出のための分岐が要る一方で、GitHub が署名する Payload に現れる見込みがないため
 - **`sub` の解釈**：`repo:` で始まり、続く部分を最初の `/` でオーナー部とリポジトリ部に分け、リポジトリ部は次の `:` までとし、`:` がなければ拒否する。オーナー部とリポジトリ部は、それぞれ名前、`@`、ID の並びで、`@` をちょうど一つ含み、名前と ID のどちらも空でない。オーナー部の ID が `repository_owner_id` と、リポジトリ部の ID が `repository_id` と一致する。名前の部分は照合せず、リポジトリ部の後の `:` 以降は解釈しない。`@` をちょうど一つとするのは、公式文書（OIDC reference）が `@` はユーザー名にもリポジトリ名にも現れないと書いているためで、二つ以上含む `sub` は GitHub の形式に合わない値として拒否する。名前を照合しないのは、認可の根拠が ID にあり、名前は変わり得るため（[Domain Model](domain.md#51-identity-rules)）。`:` 以降を解釈しないのは、`sub` のカスタマイズで変わる部分であり、[Security Design](security.md#21-aws-iam--sts) が後半部分による制限を設けないため
 - `run_id` と `run_attempt` を必須 Claim として読み取り、監査のために Caller に添える。認可には使わない。欠落は Fail Closed の原則に従って拒否する。
 - ワークフロー起動属性として、`actor`、`actor_id`、`event_name`、`ref`、`sha`、`workflow_ref`、`job_workflow_ref`、`environment` の Claim を読み取り、監査のために Caller に添える。認可には使わない。これらは監査記録を詳しくするためのベストエフォートの属性であり、欠落していても拒否せず、欠落したまま記録する。`environment` のように、ジョブの設定によって含まれない Claim があるためである。文字列でない値も欠落として扱う（[Domain Model](domain.md#33-request-and-decision)）。値の形を検証しないため、改行や制御文字を含み得る。監査記録は値をエスケープする構造化形式の項目として出力し、文言に埋め込まない。
-- **Discovery / JWKS の取得**：任意の Issuer / JWKS / `jku` を入力から指定させない。Discovery は Lambda の初期化ではなく最初の認証で取得し、成功した内容は実行環境の中で再利用し、失敗した場合は保持せず次の認証で取得し直す。初期化で取得すると、失敗が Lambda の初期化の失敗になり、Handler が `request_id` を含む失敗応答を返せないため（[Failure](#32-failure)）。通信時間と応答サイズに上限を設け、上限の値は実際の応答の大きさを確かめて決める。手元の鍵で検証できない JWT が来たときは JWKS を取得し直し、再取得の頻度に上限を設けない。Lambda を呼び出せるのは IAM を通った許可オーナーのワークフローに限られ、無関係な相手が署名の不正な JWT を大量に送る経路がないため。取得の失敗の分類は [Failure](#32-failure) に従う
+- **Discovery / JWKS の取得**：任意の Issuer / JWKS / `jku` を入力から指定させない。Discovery は Lambda の初期化ではなく最初の認証で取得し、成功した内容は実行環境の中で再利用し、失敗した場合は保持せず次の認証で取得し直す。初期化で取得すると、失敗が Lambda の初期化の失敗になり、Handler が `request_id` を含む失敗応答を返せないため（[Failure](#32-failure)）。取得した Discovery は実行環境の中で取り直さない。`kid` があり手元の鍵で検証できない JWT が来たときは JWKS を取得し直し、再取得の頻度に上限を設けない。Lambda を呼び出せるのは IAM を通った許可オーナーのワークフローに限られ、無関係な相手が署名の不正な JWT を大量に送る経路がないため。取得の失敗の分類は [Failure](#32-failure) に従う
+- **Discovery / JWKS の取得の方式**：Discovery と JWKS は GATES が取得し、検証ライブラリには JWT の署名と Claim の検証だけを委ねる。検証ライブラリの取得処理は、応答のステータスと復号の失敗を文字列でしか返さず、応答本文をエラーに含めるため、[Failure](#32-failure) の分類に使えない。リダイレクトには従わず、JWKS の取得先は Issuer と同じ `https` のホストとポートに限る。固定した Issuer の外から鍵を読まないため
+- **取得の上限**：タイムアウトは Discovery と JWKS の取得ごとに 5 秒、応答サイズは 64 KiB とする。実際の応答は Discovery が 1,217 バイト、JWKS が 4 鍵で 5,547 バイト、取得時間はどちらも 1 秒未満だった。64 KiB は JWKS が約 10 倍に増えても収まる大きさで、鍵の追加では超えず、想定外の応答を読み込み続けない。1 回の認証で取得は最大 2 回のため、取得に費やす時間は最大 10 秒である。Lambda の関数のタイムアウトは、これに KMS と GitHub API の時間を足した値より十分長くする。短いと、取得が終わる前に Lambda がタイムアウトし、Handler が応答を書けない `FunctionError` になる（[Failure](#32-failure)）
 
 時間条件の猶予を `iat` と `nbf` にだけ置くのは、猶予の有無が招く結果が `exp` と異なるためです。
 Lambda の時計が GitHub より遅れていると、発行されたばかりの JWT の `iat` は Lambda から見て未来になり、猶予がなければ正常な JWT をすべて拒否します。
 一方で `exp` に猶予を置くと、失効したはずの JWT を受け入れる時間が延びるだけです。
 Lambda の時計が進んでいても、拒否されるのは失効の直前に届いた JWT だけであり、利用者がワークフローを再実行すれば回復します。
-`iat` を `nbf` と別に検証するのは、GitHub が `nbf` を `iat` の 5 分前に置くため（実 JWT で確認、2026-10-30）、`nbf` だけでは発行時刻が未来の JWT を 10 分先まで受け入れるからです。
+`iat` を `nbf` と別に検証するのは、GitHub が `nbf` を `iat` の 5 分前に置くため（実 JWT で確認）、`nbf` だけでは発行時刻が未来の JWT を 10 分先まで受け入れるからです。
 許容時計差を 5 分にするのは、RFC 7519 が許容時計差を数分以内にとどめるよう書いており、GitHub が `nbf` を `iat` の 5 分前に置く幅とも同じだからです。
 `exp` と `iat` の欠落を拒否し `nbf` の欠落を許すのは、OpenID Connect Core が ID Token で `exp` と `iat` を必須とし、`nbf` を定めていないためです。
 JWT の寿命は GitHub が定める `exp`（実 JWT では `iat` の 5 分後）に従い、GATES は独自の上限を設けません。
@@ -402,7 +410,7 @@ JWT の寿命は GitHub が定める `exp`（実 JWT では `iat` の 5 分後�
 |---|---|---|
 | Lambda | `github.com/aws/aws-lambda-go/lambda` | AWS 公式の Go ランタイム連携 |
 | AWS SDK / KMS | AWS SDK for Go v2 (`config`、`service/kms`) | AWS 公式の認証情報解決・KMS API |
-| GitHub OIDC 検証 | `github.com/coreos/go-oidc/v3/oidc` | Discovery / JWKS / JWT 検証を信頼できるライブラリに委譲 |
+| GitHub OIDC 検証 | `github.com/coreos/go-oidc/v3/oidc`、`github.com/go-jose/go-jose/v4` | JWT の署名と Claim の検証を信頼できるライブラリに委譲。Discovery / JWKS の取得は GATES が行う（[OIDC Validation](#71-oidc-validation)） |
 | GitHub REST API | `net/http`、`encoding/json` | 限られたエンドポイントを Go 標準ライブラリで処理 |
 | App JWT 組み立て | 標準ライブラリと KMS Sign | JWT の署名検証器は自作しない |
 | テスト | Go `testing`、`httptest` を基礎として、必要なら補助ライブラリを追加 | 環境依存しないテストを優先。追加依存を一律禁止しない |
@@ -430,7 +438,7 @@ Caller を作るのは `internal/authn` とテストだけとし、ほかの pac
 
 ## 9. Testability
 
-認可判断はネットワーク通信と分離してテストできるようにします。GitHub API の HTTP は `httptest`、KMS の API 境界はテストダブル、OIDC は固定鍵とテスト JWT / JWKS を用いて確認します。リポジトリ名の変換では `owner/repo` からリポジトリ名だけが GitHub API に渡ること、異なるオーナー・不正な区切り・大文字小文字の違い・重複を適切に処理すること、応答の `full_name` が元の要求と一致しない場合に拒否することを検証します。
+認可判断はネットワーク通信と分離してテストできるようにします。GitHub API の HTTP は `httptest`、KMS の API 境界はテストダブル、OIDC は固定鍵のテスト JWT で検証規則を、`httptest` の Issuer で Discovery / JWKS の取得と失敗の分類を確認します。リポジトリ名の変換では `owner/repo` からリポジトリ名だけが GitHub API に渡ること、異なるオーナー・不正な区切り・大文字小文字の違い・重複を適切に処理すること、応答の `full_name` が元の要求と一致しない場合に拒否することを検証します。
 受け入れ条件にない次の事例も検証します。
 
 - 501 件の対象を要求すると `invalid_request` になる
