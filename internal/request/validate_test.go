@@ -187,10 +187,10 @@ func TestValidate_Invalid(t *testing.T) {
 		{name: "missing permissions returns ErrInvalidPermissions", payload: payloadWithout("permissions"), want: []error{request.ErrInvalidPermissions}},
 		{name: "null permissions returns ErrInvalidPermissions", payload: payloadWith("permissions", `null`), want: []error{request.ErrInvalidPermissions}},
 		{name: "non-object permissions returns ErrInvalidPermissions", payload: payloadWith("permissions", `["contents"]`), want: []error{request.ErrInvalidPermissions}},
-		{name: "empty permissions returns ErrInvalidPermissions and ErrInvalidAppPermissions", payload: payloadWith("permissions", `{}`), want: []error{request.ErrInvalidPermissions, permission.ErrInvalidAppPermissions}},
+		{name: "empty permissions returns ErrInvalidPermissions and ErrMalformedPermissions", payload: payloadWith("permissions", `{}`), want: []error{request.ErrInvalidPermissions, permission.ErrMalformedPermissions}},
 		{name: "non-string level returns ErrInvalidPermissions", payload: payloadWith("permissions", `{"contents":1}`), want: []error{request.ErrInvalidPermissions}},
-		{name: "null level returns ErrInvalidPermissions and ErrInvalidAppPermissions", payload: payloadWith("permissions", `{"contents":null}`), want: []error{request.ErrInvalidPermissions, permission.ErrInvalidAppPermissions}},
-		{name: "empty level returns ErrInvalidPermissions and ErrInvalidAppPermissions", payload: payloadWith("permissions", `{"contents":""}`), want: []error{request.ErrInvalidPermissions, permission.ErrInvalidAppPermissions}},
+		{name: "null level returns ErrInvalidPermissions and ErrMalformedPermissions", payload: payloadWith("permissions", `{"contents":null}`), want: []error{request.ErrInvalidPermissions, permission.ErrMalformedPermissions}},
+		{name: "empty level returns ErrInvalidPermissions and ErrMalformedPermissions", payload: payloadWith("permissions", `{"contents":""}`), want: []error{request.ErrInvalidPermissions, permission.ErrMalformedPermissions}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -245,11 +245,11 @@ func assertRepositories(t *testing.T, got []repository.FullName, want []string) 
 	}
 }
 
-func assertPermissions(t *testing.T, got permission.AppPermissions, want map[string]string) {
+func assertPermissions(t *testing.T, got permission.Permissions, want map[string]string) {
 	t.Helper()
-	w, err := permission.NewAppPermissions(want)
+	w, err := permission.NewPermissions(want)
 	if err != nil {
-		t.Fatalf("NewAppPermissions(%v) returned error: %v", want, err)
+		t.Fatalf("NewPermissions(%v) returned error: %v", want, err)
 	}
 	if !got.Equal(w) {
 		t.Errorf("Permissions() is not equal to %v", want)

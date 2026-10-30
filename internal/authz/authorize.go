@@ -19,7 +19,7 @@ func Authorize(caller Caller, req request.TokenRequest, owner AllowedOwner) erro
 		}
 	}
 	if !req.Permissions().Equal(permission.AllowedPermissions()) {
-		return fmt.Errorf("%w: app permissions are not equal to allowed permissions", ErrAuthorizationDenied)
+		return fmt.Errorf("%w: permissions are not equal to allowed permissions", ErrAuthorizationDenied)
 	}
 	return nil
 }

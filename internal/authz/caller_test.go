@@ -8,7 +8,7 @@ import (
 )
 
 func TestNewCaller(t *testing.T) {
-	execution := authz.ExecutionContext{
+	attributes := authz.WorkflowTriggerAttributes{
 		Actor:          "octocat",
 		ActorID:        "583231",
 		EventName:      "push",
@@ -18,7 +18,7 @@ func TestNewCaller(t *testing.T) {
 		JobWorkflowRef: "example-org/app/.github/workflows/ci.yml@refs/heads/main",
 		Environment:    "production",
 	}
-	got, err := authz.NewCaller(11, 22, 33, 2, execution)
+	got, err := authz.NewCaller(11, 22, 33, 2, attributes)
 	if err != nil {
 		t.Fatalf("NewCaller returned error: %v", err)
 	}
@@ -34,13 +34,13 @@ func TestNewCaller(t *testing.T) {
 	if got.RunAttempt() != 2 {
 		t.Errorf("RunAttempt() = %d, want 2", got.RunAttempt())
 	}
-	if got.ExecutionContext() != execution {
-		t.Errorf("ExecutionContext() = %+v, want %+v", got.ExecutionContext(), execution)
+	if got.WorkflowTriggerAttributes() != attributes {
+		t.Errorf("WorkflowTriggerAttributes() = %+v, want %+v", got.WorkflowTriggerAttributes(), attributes)
 	}
 }
 
-func TestNewCaller_AllowsMissingExecutionContext(t *testing.T) {
-	if _, err := authz.NewCaller(11, 22, 33, 1, authz.ExecutionContext{}); err != nil {
+func TestNewCaller_AllowsMissingWorkflowTriggerAttributes(t *testing.T) {
+	if _, err := authz.NewCaller(11, 22, 33, 1, authz.WorkflowTriggerAttributes{}); err != nil {
 		t.Errorf("NewCaller returned error: %v", err)
 	}
 }
@@ -64,7 +64,7 @@ func TestNewCaller_Invalid(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := authz.NewCaller(tt.ownerID, tt.repositoryID, tt.runID, tt.runAttempt, authz.ExecutionContext{})
+			_, err := authz.NewCaller(tt.ownerID, tt.repositoryID, tt.runID, tt.runAttempt, authz.WorkflowTriggerAttributes{})
 			if !errors.Is(err, authz.ErrInvalidCaller) {
 				t.Errorf("NewCaller() error = %v, want %v", err, authz.ErrInvalidCaller)
 			}

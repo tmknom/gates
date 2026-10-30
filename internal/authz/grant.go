@@ -14,12 +14,12 @@ func Grant(caller Caller, req request.TokenRequest, owner AllowedOwner, inst Ins
 		return TokenGrant{}, err
 	}
 	if inst.accountID != owner.ID() {
-		return TokenGrant{}, fmt.Errorf("%w: installation account id does not match allowed owner id", ErrUnusableInstallation)
+		return TokenGrant{}, fmt.Errorf("%w: installation account id does not match allowed owner id", ErrInstallationUnavailable)
 	}
 	if !inst.suspendedAt.IsZero() {
-		return TokenGrant{}, fmt.Errorf("%w: installation is suspended", ErrUnusableInstallation)
+		return TokenGrant{}, fmt.Errorf("%w: installation is suspended", ErrInstallationUnavailable)
 	}
-	// 要求の App Permissions を写さない理由は Lambda Design の「Processing Flow」に記述する
+	// 要求の Permissions を写さない理由は Lambda Design の「Processing Flow」に記述する
 	return TokenGrant{
 		installationID: inst.id,
 		repositories:   req.Repositories(),

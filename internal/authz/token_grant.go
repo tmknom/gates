@@ -12,7 +12,7 @@ import (
 type TokenGrant struct {
 	installationID int64
 	repositories   []repository.FullName
-	permissions    permission.AppPermissions
+	permissions    permission.Permissions
 }
 
 // InstallationID は、発行に使う Installation の ID を返す。
@@ -26,7 +26,7 @@ func (g TokenGrant) Repositories() []repository.FullName {
 	return slices.Clone(g.repositories)
 }
 
-// Permissions は、発行する App Permissions を返す。
-func (g TokenGrant) Permissions() permission.AppPermissions {
+// Permissions は、発行する権限を返す。
+func (g TokenGrant) Permissions() permission.Permissions {
 	return g.permissions
 }

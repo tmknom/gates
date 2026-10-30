@@ -2,7 +2,7 @@ package repository
 
 import "fmt"
 
-// OwnerName は、完全名の Owner 部分と許可 Owner 名に共通する Owner の名前である。
+// OwnerName は、完全名のオーナー部分と許可オーナー名に共通するオーナーの名前である。
 // フィールドを非公開にし、ゼロ値以外は ParseOwnerName でしか作れないようにする。
 type OwnerName struct {
 	// == と map のキーは大文字小文字を区別して比べるため、比較できない型にして Equal だけを使わせる
@@ -15,7 +15,7 @@ type OwnerName struct {
 // google.golang.org/protobuf の DoNotCompare で知られた技法である。
 type doNotCompare [0]func()
 
-// ParseOwnerName は、GitHub の Owner 名の文字種に従って検証する。
+// ParseOwnerName は、GitHub のオーナー名の文字種に従って検証する。
 func ParseOwnerName(s string) (OwnerName, error) {
 	if s == "" {
 		return OwnerName{}, fmt.Errorf("%w: must not be empty", ErrInvalidOwnerName)

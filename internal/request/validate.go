@@ -34,7 +34,7 @@ var fieldErrors = map[string]error{
 }
 
 // Validate は、Payload を形式検証し、未検証の GATES 用 OIDC JWT と発行要求に分けて返す。
-// 値を読み取れない形だけを入力不正にし、App Permissions が許可条件に合うかは判定しない。
+// 値を読み取れない形だけを入力不正にし、Permissions が許可条件に合うかは判定しない。
 // 返す error はどれも入力不正である。sentinel error は、どの規則で拒否したかを区別するために分ける。
 func Validate(b []byte) (RawIDToken, TokenRequest, error) {
 	if len(b) > maxPayloadBytes {
@@ -55,7 +55,7 @@ func Validate(b []byte) (RawIDToken, TokenRequest, error) {
 	if err != nil {
 		return RawIDToken{}, TokenRequest{}, err
 	}
-	permissions, err := permission.NewAppPermissions(p.Permissions)
+	permissions, err := permission.NewPermissions(p.Permissions)
 	if err != nil {
 		return RawIDToken{}, TokenRequest{}, fmt.Errorf("%w: %w", ErrInvalidPermissions, err)
 	}

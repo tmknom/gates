@@ -61,20 +61,20 @@ func TestGrant_Denied(t *testing.T) {
 		wantReason string
 	}{
 		{
-			name:          "installation account id different from allowed owner id returns ErrUnusableInstallation",
+			name:          "installation account id different from allowed owner id returns ErrInstallationUnavailable",
 			callerOwnerID: allowedOwnerID,
 			permissions:   contentsRead,
 			installation:  func(t *testing.T) authz.Installation { return mustNewInstallation(t, 2002, time.Time{}) },
-			want:          authz.ErrUnusableInstallation,
+			want:          authz.ErrInstallationUnavailable,
 			notWant:       authz.ErrAuthorizationDenied,
 			wantReason:    "account id",
 		},
 		{
-			name:          "suspended installation returns ErrUnusableInstallation",
+			name:          "suspended installation returns ErrInstallationUnavailable",
 			callerOwnerID: allowedOwnerID,
 			permissions:   contentsRead,
 			installation:  func(t *testing.T) authz.Installation { return mustNewInstallation(t, allowedOwnerID, suspendedAt) },
-			want:          authz.ErrUnusableInstallation,
+			want:          authz.ErrInstallationUnavailable,
 			notWant:       authz.ErrAuthorizationDenied,
 			wantReason:    "suspended",
 		},
@@ -84,7 +84,7 @@ func TestGrant_Denied(t *testing.T) {
 			permissions:   map[string]string{"contents": "write"},
 			installation:  func(t *testing.T) authz.Installation { return mustNewInstallation(t, allowedOwnerID, time.Time{}) },
 			want:          authz.ErrAuthorizationDenied,
-			notWant:       authz.ErrUnusableInstallation,
+			notWant:       authz.ErrInstallationUnavailable,
 		},
 		{
 			name:          "request failing both authorization and installation validity returns ErrAuthorizationDenied",
@@ -92,7 +92,7 @@ func TestGrant_Denied(t *testing.T) {
 			permissions:   contentsRead,
 			installation:  func(t *testing.T) authz.Installation { return mustNewInstallation(t, 2002, suspendedAt) },
 			want:          authz.ErrAuthorizationDenied,
-			notWant:       authz.ErrUnusableInstallation,
+			notWant:       authz.ErrInstallationUnavailable,
 		},
 	}
 	owner := mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName)
