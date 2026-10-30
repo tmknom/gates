@@ -31,7 +31,7 @@ func callerFromClaims(rawClaims []byte) (authz.Caller, error) {
 		return authz.Caller{}, err
 	}
 
-	subjectOwnerID, subjectRepositoryID, err := parseSubject(c.Sub)
+	subjectOwnerID, subjectRepositoryID, err := c.Sub.parse()
 	if err != nil {
 		return authz.Caller{}, err
 	}

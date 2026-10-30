@@ -5,9 +5,12 @@ import (
 	"strings"
 )
 
+// 解析は復号の時点で行わない。行うと、形式の誤りが decodeClaims の文言に一本化され、ID の Claim より先に判定される。
+type subject string
+
 // 名前を照合せず、リポジトリ部の後を解釈しない理由は Lambda Design の「OIDC Validation」に記述する。
-func parseSubject(sub string) (ownerID, repositoryID int64, err error) {
-	rest, ok := strings.CutPrefix(sub, "repo:")
+func (s subject) parse() (ownerID, repositoryID int64, err error) {
+	rest, ok := strings.CutPrefix(string(s), "repo:")
 	if !ok {
 		return 0, 0, fmt.Errorf("%w: sub must start with the repo prefix", ErrAuthenticationFailure)
 	}
