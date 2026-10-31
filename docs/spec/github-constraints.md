@@ -3,6 +3,7 @@
 ## 1. Scope and Evidence
 
 この文書は、GitHub.com の GitHub Actions、GitHub App、GitHub REST API の仕様を、GitHub の公式資料だけを根拠に整理したものです。GitHub の公式資料そのものではなく、GitHub の仕様が変更された場合は該当する公式資料を確認します。
+[Boundaries with JWT and OpenID Connect Standards](#8-boundaries-with-jwt-and-openid-connect-standards) は、この整理を標準仕様と比較します。
 
 - **対象**：GitHub.com。GitHub Enterprise Server は対象外。
 - **REST API の確認対象版**：`2026-03-10`。以下の REST API 資料と OpenAPI 定義（REST API Description）はこの版を参照します。
@@ -13,7 +14,8 @@
 | 区分 | 意味 |
 |---|---|
 | 公式仕様 | リンクした GitHub の公式資料に記述された内容。資料の条件・適用範囲を含めて読む |
-| 推論 | 公式仕様から導いた解釈。GitHub が明示的に保証した事実とは区別する |
+| 公開値 | GitHub が公開するエンドポイントから取得した値。取得時点の値であり、将来も同じ値であることの保証ではない |
+| 推論 | 公式仕様や公開値から導いた解釈。GitHub が明示的に保証した事実とは区別する |
 | 未確認 | 公式資料で確定できない動作 |
 
 ## 2. Owner and Repository
@@ -40,7 +42,12 @@ Organization 名の規則もこの資料の対象外であり、`User` と Organ
 
 ### 3.1 Issuer、Audience、Claim
 
-**公式仕様**：GitHub Actions の OIDC Issuer は `https://token.actions.githubusercontent.com` です。OIDC Discovery は同 Issuer の `/.well-known/openid-configuration` で提供され、対応する Claim は Discovery の `claims_supported` から確認できます。Audience (`aud`) は要求時に指定できます。JOSE ヘッダーとして `alg`、`kid`、`typ` が説明され、Discovery が示す署名方式は `RS256` です（[OIDC reference](https://docs.github.com/en/actions/reference/security/oidc)、[OIDC Discovery](https://token.actions.githubusercontent.com/.well-known/openid-configuration)）。
+**公式仕様**：GitHub Actions の OIDC Issuer は `https://token.actions.githubusercontent.com` です。OIDC Discovery は同 Issuer の `/.well-known/openid-configuration` で提供され、対応する Claim は Discovery の `claims_supported` から確認できます。Audience (`aud`) は要求時に指定でき、既定値はリポジトリのオーナーの URL です。JOSE ヘッダーとして `alg`、`kid`、`typ` が説明されています（[OIDC reference](https://docs.github.com/en/actions/reference/security/oidc)、[OIDC Discovery](https://token.actions.githubusercontent.com/.well-known/openid-configuration)）。
+
+**公開値（Discovery）**：`issuer`、`jwks_uri`、`subject_types_supported`、`response_types_supported`（`id_token`）、`claims_supported`、`id_token_signing_alg_values_supported`（`RS256`）、`scopes_supported` があり、`authorization_endpoint` と `token_endpoint` はありません（[OIDC Discovery](https://token.actions.githubusercontent.com/.well-known/openid-configuration)）。
+
+**公開値（JWKS）**：各鍵に `kty`（`RSA`）、`n`、`e`、`use`（`sig`）、`alg`（`RS256`）、`kid` があり、`key_ops` はありません。
+`x5c` と `x5t` は、一部の鍵にだけあります（[JWKS](https://token.actions.githubusercontent.com/.well-known/jwks)）。
 
 主な Claim は次のとおりです。
 
@@ -58,9 +65,20 @@ Organization 名の規則もこの資料の対象外であり、`User` と Organ
 
 出典：[OIDC reference — Token claims](https://docs.github.com/en/actions/reference/security/oidc#oidc-token-claims)、[Variables reference](https://docs.github.com/en/actions/reference/workflows-and-actions/variables)。各 Claim が欠落する条件と、Claim の JSON の型は明記されていません。ここに列挙した Claim がすべてのジョブで必ず含まれるという意味ではありません。
 
+**公式仕様（JWT の例）**：公式の JWT の例では、Header に `typ`、`alg`、`x5t`、`kid` があります。
+`exp`、`iat`、`nbf` は JSON の数値で、`repository_id`、`repository_owner_id`、`run_attempt` は数字の JSON 文字列です。
+`nbf` は `iat` の10分前、`exp` は `iat` の5分後です（[OpenID Connect](https://docs.github.com/en/actions/concepts/security/openid-connect)）。
+
+**推論**：これらは例の値であり、すべての JWT の型や時刻の差を保証するものとは読めません。
+JWT の標準仕様は `nbf`、`iat`、`exp` の差を定めていないため、実 JWT の差が例と異なっても（確認結果は [Lambda Design](../design/lambda.md)）、それだけでは仕様違反になりません。
+
 ### 3.2 Immutable subject とカスタマイズ
 
-**公式仕様（既定の `sub`）**：2026年7月15日より後に作成されたリポジトリは、不変 Owner ID と Repository ID を含む形式を既定で利用します。同日より前に作成されたリポジトリは、Organization またはリポジトリ単位の設定（REST API では `use_immutable_subject`）で切り替えない限り、旧形式を維持します。同日より後にリポジトリ名を変更した場合や、リポジトリを移管した場合も、不変形式へ移行します。名前と ID は `@` で区切られます。この文字は GitHub のユーザー名とリポジトリ名には使えません（[OIDC reference — Immutable subject claims](https://docs.github.com/en/actions/reference/security/oidc#immutable-subject-claims)、[GitHub Changelog — Immutable subject claims](https://github.blog/changelog/2026-04-23-immutable-subject-claims-for-GitHub-actions-oidc-tokens/)）。
+**公式仕様（導入の理由）**：OpenID Connect の仕様は `sub` に、局所的に一意で再割当てされないことを求めています。
+旧形式の既定の `sub` は名前だけで構成されるため、Organization やリポジトリの名前が再利用されると、別のオーナーが同じ `sub` の JWT を発行させられます。
+不変形式は、この問題への対策です（[OIDC reference — Immutable subject claims](https://docs.github.com/en/actions/reference/security/oidc#immutable-subject-claims)、[GitHub Changelog — Immutable subject claims](https://github.blog/changelog/2026-04-23-immutable-subject-claims-for-github-actions-oidc-tokens/)）。
+
+**公式仕様（既定の `sub`）**：2026年7月15日より後に作成されたリポジトリは、不変 Owner ID と Repository ID を含む形式を既定で利用します。同日より前に作成されたリポジトリは、Organization またはリポジトリ単位の設定（REST API では `use_immutable_subject`）で切り替えない限り、旧形式を維持します。同日より後にリポジトリ名を変更した場合や、リポジトリを移管した場合も、不変形式へ移行します。名前と ID は `@` で区切られます。この文字は GitHub のユーザー名とリポジトリ名には使えません（[OIDC reference — Immutable subject claims](https://docs.github.com/en/actions/reference/security/oidc#immutable-subject-claims)、[GitHub Changelog — Immutable subject claims](https://github.blog/changelog/2026-04-23-immutable-subject-claims-for-github-actions-oidc-tokens/)）。
 
 ```text
 旧形式:    repo:octo-org/octo-repo:ref:refs/heads/main
@@ -188,7 +206,35 @@ GitHub は、トークンを中身を解釈しない文字列として扱うよ�
 
 **推論**：個人アカウントが所有するリポジトリでは Organization 単位の設定を使えないため、値はリポジトリまたは Environment の単位で設定します。
 
-## 8. Outstanding Verification
+## 8. Boundaries with JWT and OpenID Connect Standards
+
+GitHub が発行または受理する JWT には、[JWT Constraints](jwt-constraints.md) の規定がすべて同じように適用されるわけではありません。
+GitHub Actions OIDC JWT は通常の OpenID Connect の認証フローとは異なる方法で発行され、GitHub App JWT は GitHub API の認証に使うためです。
+この節の評価はすべて、公式資料と公開値からの推論です。
+
+### 8.1 GitHub Actions OIDC と OpenID Connect の相違
+
+| 項目 | 標準仕様 | GitHub の仕様・公開値 | 評価 |
+|---|---|---|---|
+| `authorization_endpoint` | Discovery で **REQUIRED** | Discovery の公開値にない | Discovery が定める Metadata の要件を満たさない。通常の認証フローを実装するクライアントをそのまま適用できる保証はない |
+| `token_endpoint` | Implicit Flow だけを使う場合を除き **REQUIRED** | Discovery の公開値にない。`response_types_supported` は `id_token` だけ | この欠落だけでは標準仕様への違反と断定できない |
+| `sub` の再割当て | OpenID Connect Core は再割当てを禁止 | 旧形式では、名前の再利用で別のオーナーが同じ `sub` を発行させられる。不変形式は Owner ID と Repository ID を含む | 旧形式は再割当ての禁止を満たせない。不変形式は対策だが、旧形式のリポジトリも残る |
+| `aud` と認証フロー | ID Token の `aud` は登録済みの `client_id` を含む。`nonce` は認証要求で送った場合に照合する | ワークフローが認証要求を介さずに JWT を取得し、Audience を指定する。既定値はオーナーの URL | `client_id` と `nonce` の検証を機械的に適用することは適切でない |
+
+これらの相違は、署名の検証、Issuer と検証鍵の結び付け、`aud` の照合を省略する根拠にはなりません。
+これらは ID Token に限らない JWT の規則に基づくためです（[JWT Constraints — OpenID Connect and Discovery](jwt-constraints.md#5-openid-connect-and-discovery)、[JWT Constraints — JWT Security Considerations](jwt-constraints.md#6-jwt-security-considerations)）。
+
+JWT / JWS / JWK の基本規則については、参照した公式資料と公開値の範囲では、GitHub との矛盾は見つかっていません。
+これは実 JWT を網羅して確かめた結果ではなく、確定していない事項は [Outstanding Verification](#9-outstanding-verification) に記録します。
+
+### 8.2 GitHub App JWT と ID Token の相違
+
+GitHub App JWT は、GitHub API の認証のために GitHub App 側が署名する JWT であり、OpenID Connect の ID Token として扱いません。
+したがって、OpenID Connect Core が ID Token に求める `sub` と `aud` の必須条件や、`iss` を HTTPS URL とする条件は適用されません。
+Client ID または App ID を `iss` にすることは、`iss` を文字列とする JWT 一般の規定と矛盾しません。
+`RS256` の指定と `exp` の上限10分は、JWT の標準仕様ではなく GitHub が追加する条件です（[GitHub App JWT](#42-github-app-jwt)）。
+
+## 9. Outstanding Verification
 
 公式資料で確定できていない事項を次にまとめます。根拠と確認範囲は各セクションに記載しています。
 
@@ -196,7 +242,7 @@ GitHub は、トークンを中身を解釈しない文字列として扱うよ�
 |---|---|
 | オーナー名 | 一般の `User` / Organization の命名規則と適用上の例外 |
 | リポジトリ名 | `.` と `..` の扱い、既存リポジトリへの例外的な命名規則 |
-| OIDC | カスタマイズ後の `sub` の形式（`repo` を含めないテンプレートを不変形式のリポジトリに適用した場合を含む）、Claim の JSON の型、Claim が欠落する条件、`User` 所有のリポジトリでの `repository_owner_id`、`run_attempt` の初回の値 |
+| OIDC | カスタマイズ後の `sub` の形式（`repo` を含めないテンプレートを不変形式のリポジトリに適用した場合を含む）、`sub` が OpenID Connect Core の上限255 ASCII 文字に常に収まるか、Claim の JSON の型、Claim が欠落する条件、`nbf`、`iat`、`exp` の時刻の差、JOSE Header に `crit`、`jku`、`jwk` などが現れるか、`User` 所有のリポジトリでの `repository_owner_id`、`run_attempt` の初回の値 |
 | GitHub App の鍵 | 新規生成される RSA 鍵のビット長 |
 | Installation の取得 API | Organization と User の API の `200` 以外の応答（インストールされていない場合を含む）、GitHub App とオーナーの組での一意性 |
 | トークン発行 API | 範囲外リポジトリへの要求、選択対象外の公開リポジトリに対するトークンの振る舞い、500件超の要求、停止中の Installation への要求、`422` の原因、`metadata:read` の付与条件、応答フィールドの有無 |
