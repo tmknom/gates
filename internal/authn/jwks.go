@@ -16,6 +16,7 @@ import (
 const minimumModulusBits = 2048
 
 // retrieveJWKS は JWKS を取得し、使える鍵だけを返す。
+// go-oidc の RemoteKeySet の復号を使わないのは、JWK の受理条件を判定せずに鍵を保持し、応答本文をエラーに含めるため。
 // 要素ごとに kty を先に読むのは、go-jose が対応しない鍵一つで鍵の集合全体の復号を失敗させるため。
 // RSA 以外の鍵を読まないのは、GATES が使わない鍵で認証全体を止めないためで、RFC 7517 §5 も対応しない kty の鍵を無視するよう勧める。
 func retrieveJWKS(ctx context.Context, client *http.Client, jwksURL *url.URL) (jose.JSONWebKeySet, error) {

@@ -13,6 +13,7 @@ type discoveryDocument struct {
 	JWKSURI string `json:"jwks_uri"`
 }
 
+// go-oidc の NewProvider を使わないのは、応答の大きさに上限がなく、取得の失敗を分類できる形で返さず、応答本文をエラーに含めるため。
 func discoverJWKSURL(ctx context.Context, client *http.Client, issuer *url.URL) (*url.URL, error) {
 	// URL.JoinPath は Path が空の URL に先頭の / のない Path を返し、要求の行が不正になる
 	discoveryURL := *issuer

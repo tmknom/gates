@@ -80,12 +80,30 @@ func (s *issuerStub) discoveryBody() string {
 
 func (s *issuerStub) verifier(t *testing.T) *Verifier {
 	t.Helper()
-	verifier, err := NewVerifier(s.issuer(), testAudience, testClock, WithTransport(s.server.Client().Transport))
+	return s.verifierWithClock(t, testClock)
+}
+
+func (s *issuerStub) verifierWithClock(t *testing.T, now func() time.Time) *Verifier {
+	t.Helper()
+	verifier, err := NewVerifier(s.issuer(), testAudience, now, WithTransport(s.server.Client().Transport))
 	if err != nil {
 		t.Fatalf("NewVerifier returned error: %v", err)
 	}
 	return verifier
 }
+
+func (s *issuerStub) documentRequests() int32 {
+	return s.discoveryRequests.Load() + s.jwksRequests.Load()
+}
+
+// movableClock は testNow から進められる時計で、取得の最中に stub の handler からも進めるため atomic に持つ。
+type movableClock struct {
+	elapsed atomic.Int64
+}
+
+func (c *movableClock) now() time.Time { return testNow.Add(time.Duration(c.elapsed.Load())) }
+
+func (c *movableClock) advance(d time.Duration) { c.elapsed.Add(int64(d)) }
 
 // token は stub を Issuer とする JWT を、keyID を添えて key で署名する。
 func (s *issuerStub) token(t *testing.T, key *rsa.PrivateKey, keyID string) string {
@@ -98,9 +116,10 @@ func (s *issuerStub) token(t *testing.T, key *rsa.PrivateKey, keyID string) stri
 var documents = []struct {
 	name    string
 	respond func(*issuerStub, http.HandlerFunc)
+	current func(*issuerStub) http.HandlerFunc
 }{
-	{"discovery", (*issuerStub).respondDiscovery},
-	{"jwks", (*issuerStub).respondJWKS},
+	{"discovery", (*issuerStub).respondDiscovery, func(s *issuerStub) http.HandlerFunc { return *s.discovery.Load() }},
+	{"jwks", (*issuerStub).respondJWKS, func(s *issuerStub) http.HandlerFunc { return *s.jwks.Load() }},
 }
 
 func discoveryBodyOf(issuer, jwksURI string) string {
@@ -478,7 +497,7 @@ func TestAuthenticate_UnacceptableHeaderIsRejectedWithoutRetrieval(t *testing.T)
 			got, err := stub.verifier(t).Authenticate(t.Context(), rawIDToken(t, token))
 
 			assertRejected(t, got, err, ErrAuthenticationFailure, token)
-			if requests := stub.discoveryRequests.Load() + stub.jwksRequests.Load(); requests != 0 {
+			if requests := stub.documentRequests(); requests != 0 {
 				t.Errorf("retrieved documents %d times, want 0", requests)
 			}
 		})
@@ -575,9 +594,11 @@ func TestAuthenticate_DeadlineExceededReturnsErrTransientFailure(t *testing.T) {
 	// 先に Discovery を保持し、期限が JWKS の取得の間に切れるようにする
 	t.Run("jwks deadline exceeded returns ErrTransientFailure", func(t *testing.T) {
 		stub := newIssuerStub(t, testKey(), testKeyID)
-		verifier := stub.verifier(t)
+		clock := &movableClock{}
+		verifier := stub.verifierWithClock(t, clock.now)
 		assertAuthenticated(t, verifier, stub.token(t, testKey(), testKeyID))
 		stub.respondJWKS(waitForDisconnect)
+		clock.advance(keyRetrievalInterval)
 
 		authenticateWithDeadline(t, verifier, stub.token(t, generateKey(), "unknown"))
 	})
@@ -687,22 +708,10 @@ func TestAuthenticate_DefaultClientRejectsUntrustedCertificate(t *testing.T) {
 	}
 }
 
-func TestAuthenticate_DiscoveryFailureIsNotKept(t *testing.T) {
-	stub := newIssuerStub(t, testKey(), testKeyID)
-	verifier := stub.verifier(t)
-	token := stub.token(t, testKey(), testKeyID)
-	stub.respondDiscovery(respondStatus(500))
-
-	got, err := verifier.Authenticate(t.Context(), rawIDToken(t, token))
-	assertRejected(t, got, err, ErrTransientFailure, token)
-
-	stub.respondDiscovery(respondBody(stub.discoveryBody()))
-	assertAuthenticated(t, verifier, token)
-}
-
 func TestAuthenticate_JWKSFailureKeepsDiscovery(t *testing.T) {
 	stub := newIssuerStub(t, testKey(), testKeyID)
-	verifier := stub.verifier(t)
+	clock := &movableClock{}
+	verifier := stub.verifierWithClock(t, clock.now)
 	token := stub.token(t, testKey(), testKeyID)
 	valid := *stub.jwks.Load()
 	stub.respondJWKS(respondStatus(500))
@@ -711,6 +720,7 @@ func TestAuthenticate_JWKSFailureKeepsDiscovery(t *testing.T) {
 	assertRejected(t, got, err, ErrTransientFailure, token)
 
 	stub.respondJWKS(valid)
+	clock.advance(keyRetrievalInterval)
 	assertAuthenticated(t, verifier, token)
 	if requests := stub.discoveryRequests.Load(); requests != 1 {
 		t.Errorf("discovery requests = %d, want 1", requests)
@@ -735,11 +745,13 @@ func TestAuthenticate_ReusesRetrievedDiscoveryAndKeys(t *testing.T) {
 
 func TestAuthenticate_KeyRotationRetrievesJWKSAgain(t *testing.T) {
 	stub := newIssuerStub(t, testKey(), testKeyID)
-	verifier := stub.verifier(t)
+	clock := &movableClock{}
+	verifier := stub.verifierWithClock(t, clock.now)
 	assertAuthenticated(t, verifier, stub.token(t, testKey(), testKeyID))
 
 	rotated := generateKey()
 	stub.respondJWKS(respondBody(jwksBody(t, rotated, "rotated")))
+	clock.advance(keyRetrievalInterval)
 	assertAuthenticated(t, verifier, stub.token(t, rotated, "rotated"))
 
 	if requests := stub.discoveryRequests.Load(); requests != 1 {
@@ -747,18 +759,170 @@ func TestAuthenticate_KeyRotationRetrievesJWKSAgain(t *testing.T) {
 	}
 }
 
-func TestAuthenticate_JWKSFailureKeepsPreviousKeys(t *testing.T) {
+func TestAuthenticate_RetrievalIntervalAfterSuccess(t *testing.T) {
+	tests := []struct {
+		name     string
+		elapsed  time.Duration
+		wantJWKS int32
+	}{
+		{"59 seconds rejects without retrieval", 59 * time.Second, 1},
+		{"one minute retrieves again", time.Minute, 2},
+		{"clock moved back retrieves again", -time.Second, 2},
+	}
+	tokens := []struct {
+		name  string
+		keyID string
+	}{
+		{"unknown key ID", "unknown"},
+		{"known key ID with a mismatched signature", testKeyID},
+	}
+	for _, tt := range tests {
+		for _, tokenCase := range tokens {
+			t.Run(tokenCase.name+" after "+tt.name, func(t *testing.T) {
+				stub := newIssuerStub(t, testKey(), testKeyID)
+				clock := &movableClock{}
+				verifier := stub.verifierWithClock(t, clock.now)
+				assertAuthenticated(t, verifier, stub.token(t, testKey(), testKeyID))
+				token := stub.token(t, generateKey(), tokenCase.keyID)
+
+				clock.advance(tt.elapsed)
+				got, err := verifier.Authenticate(t.Context(), rawIDToken(t, token))
+
+				assertRejected(t, got, err, ErrAuthenticationFailure, token)
+				if requests := stub.jwksRequests.Load(); requests != tt.wantJWKS {
+					t.Errorf("JWKS requests = %d, want %d", requests, tt.wantJWKS)
+				}
+			})
+		}
+	}
+}
+
+// 取得の完了から数えると、取得にかかった時間の分だけ再取得が遅れる。
+func TestAuthenticate_RetrievalIntervalCountsFromRetrievalStart(t *testing.T) {
 	stub := newIssuerStub(t, testKey(), testKeyID)
-	verifier := stub.verifier(t)
+	clock := &movableClock{}
+	verifier := stub.verifierWithClock(t, clock.now)
+	valid := *stub.jwks.Load()
+	const retrievalDuration = 10 * time.Second
+	stub.respondJWKS(func(w http.ResponseWriter, r *http.Request) {
+		clock.advance(retrievalDuration)
+		valid(w, r)
+	})
+	assertAuthenticated(t, verifier, stub.token(t, testKey(), testKeyID))
+	stub.respondJWKS(valid)
+	token := stub.token(t, generateKey(), "unknown")
+
+	clock.advance(time.Minute - retrievalDuration)
+	got, err := verifier.Authenticate(t.Context(), rawIDToken(t, token))
+
+	assertRejected(t, got, err, ErrAuthenticationFailure, token)
+	if requests := stub.jwksRequests.Load(); requests != 2 {
+		t.Errorf("JWKS requests = %d, want 2", requests)
+	}
+}
+
+// assertFailureKindOnly は、上限の間の失敗に前回の取得の応答の内容が持ち越されていないことを確かめる。
+func assertFailureKindOnly(t *testing.T, err error) {
+	t.Helper()
+	if strings.Contains(err.Error(), "status") {
+		t.Errorf("error message %q contains the previous response status", err.Error())
+	}
+}
+
+// retrievalFailures は、上限の間に前回と同じ種別を返すことを種別ごとに確かめるための表である。
+var retrievalFailures = []struct {
+	name   string
+	status int
+	want   error
+}{
+	{"transient failure", 500, ErrTransientFailure},
+	{"internal failure", 404, ErrInternalFailure},
+}
+
+func TestAuthenticate_RetrievalIntervalAfterFailureWithKeys(t *testing.T) {
+	for _, failure := range retrievalFailures {
+		t.Run(failure.name+" is returned without retrieval and retrieved again after the interval", func(t *testing.T) {
+			stub := newIssuerStub(t, testKey(), testKeyID)
+			clock := &movableClock{}
+			verifier := stub.verifierWithClock(t, clock.now)
+			token := stub.token(t, testKey(), testKeyID)
+			assertAuthenticated(t, verifier, token)
+			rotated := generateKey()
+			rotatedToken := stub.token(t, rotated, "rotated")
+
+			stub.respondJWKS(respondStatus(failure.status))
+			clock.advance(keyRetrievalInterval)
+			got, err := verifier.Authenticate(t.Context(), rawIDToken(t, rotatedToken))
+			assertRejected(t, got, err, failure.want, rotatedToken)
+			requests := stub.documentRequests()
+
+			stub.respondJWKS(respondBody(jwksBody(t, rotated, "rotated")))
+			clock.advance(keyRetrievalInterval - time.Second)
+			got, err = verifier.Authenticate(t.Context(), rawIDToken(t, rotatedToken))
+			assertRejected(t, got, err, failure.want, rotatedToken)
+			assertFailureKindOnly(t, err)
+			// 上限の間でも、手元の鍵で検証できる JWT の検証は妨げない
+			assertAuthenticated(t, verifier, token)
+			if got := stub.documentRequests(); got != requests {
+				t.Errorf("document requests = %d, want %d", got, requests)
+			}
+
+			clock.advance(time.Second)
+			assertAuthenticated(t, verifier, rotatedToken)
+		})
+	}
+}
+
+func TestAuthenticate_RetrievalIntervalAfterFailureWithoutKeys(t *testing.T) {
+	for _, document := range documents {
+		for _, failure := range retrievalFailures {
+			t.Run(document.name+" "+failure.name+" is returned without retrieval and retrieved again after the interval", func(t *testing.T) {
+				stub := newIssuerStub(t, testKey(), testKeyID)
+				clock := &movableClock{}
+				verifier := stub.verifierWithClock(t, clock.now)
+				token := stub.token(t, testKey(), testKeyID)
+				valid := document.current(stub)
+
+				document.respond(stub, respondStatus(failure.status))
+				got, err := verifier.Authenticate(t.Context(), rawIDToken(t, token))
+				assertRejected(t, got, err, failure.want, token)
+				requests := stub.documentRequests()
+
+				document.respond(stub, valid)
+				clock.advance(keyRetrievalInterval - time.Second)
+				got, err = verifier.Authenticate(t.Context(), rawIDToken(t, token))
+				assertRejected(t, got, err, failure.want, token)
+				assertFailureKindOnly(t, err)
+				if got := stub.documentRequests(); got != requests {
+					t.Errorf("document requests = %d, want %d", got, requests)
+				}
+
+				clock.advance(time.Second)
+				assertAuthenticated(t, verifier, token)
+			})
+		}
+	}
+}
+
+// 失敗を残すと、前回取得した JWKS の鍵で検証できないと分かった後も取得の失敗を返す。
+func TestAuthenticate_SuccessfulRetrievalClearsPreviousFailure(t *testing.T) {
+	stub := newIssuerStub(t, testKey(), testKeyID)
+	clock := &movableClock{}
+	verifier := stub.verifierWithClock(t, clock.now)
 	token := stub.token(t, testKey(), testKeyID)
-	assertAuthenticated(t, verifier, token)
+	valid := *stub.jwks.Load()
 
 	stub.respondJWKS(respondStatus(500))
-	unknownKeyToken := stub.token(t, generateKey(), "unknown")
-	got, err := verifier.Authenticate(t.Context(), rawIDToken(t, unknownKeyToken))
-	assertRejected(t, got, err, ErrTransientFailure, unknownKeyToken)
+	got, err := verifier.Authenticate(t.Context(), rawIDToken(t, token))
+	assertRejected(t, got, err, ErrTransientFailure, token)
 
+	stub.respondJWKS(valid)
+	clock.advance(keyRetrievalInterval)
 	assertAuthenticated(t, verifier, token)
+
+	unknownKeyToken := stub.token(t, generateKey(), "unknown")
+	got, err = verifier.Authenticate(t.Context(), rawIDToken(t, unknownKeyToken))
+	assertRejected(t, got, err, ErrAuthenticationFailure, unknownKeyToken)
 }
 
 func TestAuthenticate_RetrievedKeysRejectInvalidToken(t *testing.T) {
@@ -798,7 +962,7 @@ func TestAuthenticate_NoKeyIDIsRejectedWithoutRetrieval(t *testing.T) {
 	got, err := stub.verifier(t).Authenticate(t.Context(), rawIDToken(t, token))
 
 	assertRejected(t, got, err, ErrAuthenticationFailure, token)
-	if requests := stub.discoveryRequests.Load() + stub.jwksRequests.Load(); requests != 0 {
+	if requests := stub.documentRequests(); requests != 0 {
 		t.Errorf("retrieved documents %d times, want 0", requests)
 	}
 }
@@ -826,12 +990,34 @@ func TestAuthenticate_ConcurrentCallsShareRetrieval(t *testing.T) {
 	}
 }
 
-// 記録先を共有すると、取得に失敗した呼び出しの失敗を、取得していない呼び出しが受け取る。
-func TestAuthenticate_ConcurrentCallsKeepRetrievalFailureToThemselves(t *testing.T) {
+func TestAuthenticate_ConcurrentUnknownKeyIDsStayWithinRetrievalInterval(t *testing.T) {
 	stub := newIssuerStub(t, testKey(), testKeyID)
 	verifier := stub.verifier(t)
+	unknownKeyToken := rawIDToken(t, stub.token(t, generateKey(), "unknown"))
+
+	var calls sync.WaitGroup
+	for range 8 {
+		calls.Go(func() {
+			if _, err := verifier.Authenticate(t.Context(), unknownKeyToken); !errors.Is(err, ErrAuthenticationFailure) {
+				t.Errorf("Authenticate error = %v, want ErrAuthenticationFailure", err)
+			}
+		})
+	}
+	calls.Wait()
+
+	if requests := stub.jwksRequests.Load(); requests != 1 {
+		t.Errorf("JWKS requests = %d, want 1", requests)
+	}
+}
+
+// retrievalRecorder を呼び出しごとに分けないと、取得に至らずに拒否された呼び出しが、別の呼び出しの取得の失敗を受け取る。
+func TestAuthenticate_ConcurrentRetrievalFailureDoesNotReachCallsRejectedWithoutRetrieval(t *testing.T) {
+	stub := newIssuerStub(t, testKey(), testKeyID)
+	clock := &movableClock{}
+	verifier := stub.verifierWithClock(t, clock.now)
 	assertAuthenticated(t, verifier, stub.token(t, testKey(), testKeyID))
 	stub.respondJWKS(respondStatus(500))
+	clock.advance(keyRetrievalInterval)
 
 	unknownKeyToken := rawIDToken(t, stub.token(t, generateKey(), "unknown"))
 	otherAudience := marshalClaims(t, claimsWith(map[string]any{"iss": stub.issuer(), "aud": "other"}))
@@ -886,7 +1072,7 @@ func TestAuthenticate_NonCompactSerializationIsRejectedWithoutRetrieval(t *testi
 			got, err := stub.verifier(t).Authenticate(t.Context(), rawIDToken(t, tt.serialize(t, compact)))
 
 			assertRejected(t, got, err, ErrAuthenticationFailure, compact)
-			if requests := stub.discoveryRequests.Load() + stub.jwksRequests.Load(); requests != 0 {
+			if requests := stub.documentRequests(); requests != 0 {
 				t.Errorf("retrieved documents %d times, want 0", requests)
 			}
 		})

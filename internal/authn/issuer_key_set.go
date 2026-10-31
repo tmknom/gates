@@ -7,21 +7,31 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"time"
 
 	"github.com/go-jose/go-jose/v4"
 )
 
+// keyRetrievalInterval の値の理由は Lambda Design の JWKS の再取得の上限に置く。
+const keyRetrievalInterval = time.Minute
+
 // issuerKeySet は Issuer の公開鍵を取得して保持する oidc.KeySet である。
-// 検証ライブラリの取得処理は失敗を分類できる形で返さないため、取得を GATES が担う。
+// go-oidc の RemoteKeySet を使わないのは、次の点で要件に合わないため。
+// 取得の失敗を分類できる形で返さず、応答の大きさに上限がなく、応答本文をエラーに含め、kid のない JWT を保持した鍵のすべてで試行し、再取得の頻度を制限しない。
 type issuerKeySet struct {
 	client *http.Client
 	issuer *url.URL
+	now    func() time.Time
 
-	// mu を取得の通信中も保持する。同時の呼び出しで取得が重複せず、別の呼び出しの失敗を受け取らないため。
+	// mu を取得の通信中も保持する。同時の呼び出しで取得が重複せず、待っていた呼び出しが前の呼び出しの取得結果で検証するため。
 	// 待つ側は ctx の中断に反応しないが、Lambda は同時に一つの要求しか処理せず、待ちが起きない。
 	mu      sync.Mutex
 	jwksURL *url.URL
 	keys    jose.JSONWebKeySet
+	// retrievalStartedAt は前回の取得の開始時刻で、ゼロ値は取得を一度も試みていないことを示す。
+	retrievalStartedAt time.Time
+	// retrievalFailure は前回の取得の失敗の種別で、成功していれば nil である。
+	retrievalFailure error
 }
 
 // Option は Discovery と JWKS の取得の設定を変える。
@@ -32,13 +42,14 @@ func WithTransport(transport http.RoundTripper) Option {
 	return func(keySet *issuerKeySet) { keySet.client.Transport = transport }
 }
 
-func newIssuerKeySet(issuer *url.URL, opts ...Option) *issuerKeySet {
+func newIssuerKeySet(issuer *url.URL, now func() time.Time, opts ...Option) *issuerKeySet {
 	keySet := &issuerKeySet{
 		client: &http.Client{
 			// 固定した Issuer の外から文書を読まないよう、リダイレクトに従わず 200 以外として分類する
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 		issuer: issuer,
+		now:    now,
 	}
 	for _, opt := range opts {
 		opt(keySet)
@@ -46,7 +57,7 @@ func newIssuerKeySet(issuer *url.URL, opts ...Option) *issuerKeySet {
 	return keySet
 }
 
-// VerifySignature は、kid のある JWT を保持している公開鍵で検証できなければ取得し直して、もう一度だけ検証する。
+// VerifySignature は、kid のある JWT を保持している公開鍵で検証できなければ、再取得の上限の範囲で取得し直して、もう一度だけ検証する。
 // 取得の失敗は失敗の種別を包んで返し、それ以外の拒否は種別を包まずに返す。
 func (k *issuerKeySet) VerifySignature(ctx context.Context, jwt string) ([]byte, error) {
 	// go-oidc の解析は JSON 形式と空白を含む JWT を通すため、受理する形をここで限る
@@ -66,13 +77,37 @@ func (k *issuerKeySet) VerifySignature(ctx context.Context, jwt string) ([]byte,
 	defer k.mu.Unlock()
 
 	// 検証できる間は取得し直さず、Issuer が取り下げた鍵も受理し続ける。Security Design が受容したリスクである
-	if payload, err := k.verify(signature); err == nil {
+	payload, err := k.verify(signature)
+	if err == nil {
 		return payload, nil
 	}
+
+	// 単調時計の読みを外し、時間条件と同じ壁時計で比べる。単調時計は実行環境の凍結中に進まない可能性があり、上限が実時間で延びるため
+	now := k.now().Round(0)
+	// retrievalStartedAt がゼロ値なら経過時間は time.Duration の上限に飽和し、上限に当たらない。
+	// 壁時計が戻ると経過時間が負になる。上限に当てると、戻った分だけ取得が止まる
+	if elapsed := now.Sub(k.retrievalStartedAt); elapsed >= 0 && elapsed < keyRetrievalInterval {
+		if k.retrievalFailure != nil {
+			return nil, fmt.Errorf("%w: key retrieval is limited after the previous retrieval failed", k.retrievalFailure)
+		}
+		return nil, err
+	}
+	k.retrievalStartedAt = now
+	k.retrievalFailure = nil
 	if err := k.retrieve(ctx); err != nil {
+		k.retrievalFailure = retrievalFailureKind(err)
 		return nil, err
 	}
 	return k.verify(signature)
+}
+
+// retrievalFailureKind は取得の失敗から種別だけを取り出す。応答のステータスのような内容を、後の呼び出しの失敗に持ち越さないため。
+// retrieve の失敗はどれも ErrTransientFailure か ErrInternalFailure を包む。
+func retrievalFailureKind(err error) error {
+	if errors.Is(err, ErrTransientFailure) {
+		return ErrTransientFailure
+	}
+	return ErrInternalFailure
 }
 
 // verify は mu を保持して呼ぶ。
@@ -86,7 +121,7 @@ func (k *issuerKeySet) verify(signature *jose.JSONWebSignature) ([]byte, error) 
 	return signature.Verify(&k.keys)
 }
 
-// retrieve は mu を保持して呼ぶ。失敗した取得の内容を保持しない。
+// retrieve は mu を保持して呼ぶ。
 func (k *issuerKeySet) retrieve(ctx context.Context) error {
 	if k.jwksURL == nil {
 		jwksURL, err := discoverJWKSURL(ctx, k.client, k.issuer)

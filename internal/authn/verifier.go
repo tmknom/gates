@@ -35,7 +35,7 @@ func NewVerifier(issuer, audience string, now func() time.Time, opts ...Option) 
 	if audience == "" {
 		return nil, fmt.Errorf("%w: must not be empty", ErrInvalidAudience)
 	}
-	return newVerifier(issuer, audience, newIssuerKeySet(issuerURL, opts...), now), nil
+	return newVerifier(issuer, audience, newIssuerKeySet(issuerURL, now, opts...), now), nil
 }
 
 // parseIssuer は Domain Model の認証の固定設定の条件を Issuer について確かめる。
