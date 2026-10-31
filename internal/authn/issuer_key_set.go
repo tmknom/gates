@@ -49,7 +49,8 @@ func newIssuerKeySet(issuer *url.URL, opts ...Option) *issuerKeySet {
 // VerifySignature は、kid のある JWT を保持している公開鍵で検証できなければ取得し直して、もう一度だけ検証する。
 // 取得の失敗は失敗の種別を包んで返し、署名の不一致は種別を包まずに返す。
 func (k *issuerKeySet) VerifySignature(ctx context.Context, jwt string) ([]byte, error) {
-	signature, err := jose.ParseSigned(jwt, []jose.SignatureAlgorithm{jose.RS256})
+	// go-oidc の解析は JSON 形式と空白を含む JWT を通すため、受理する形をここで限る
+	signature, err := jose.ParseSignedCompact(jwt, []jose.SignatureAlgorithm{jose.RS256})
 	if err != nil {
 		return nil, fmt.Errorf("parse signature: %w", err)
 	}

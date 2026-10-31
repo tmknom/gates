@@ -209,7 +209,7 @@ Handler は処理中の panic を回復し、`internal_error` の失敗応答と
 | Error code | 失敗の種別 | 内容 |
 |---|---|---|
 | `invalid_request` | 入力不正 | Payload が [Validation](#22-validation) の入力不正の形に当たる |
-| `invalid_id_token` | 認証失敗 | GitHub OIDC JWT が [OIDC Validation](#71-oidc-validation) の規則を満たさない。署名、署名方式、Issuer、Audience、時間条件、必須 Claim の欠落・不整合を含む |
+| `invalid_id_token` | 認証失敗 | GitHub OIDC JWT が [OIDC Validation](#71-oidc-validation) の規則を満たさない。JWT の形式、署名、署名方式、Issuer、Audience、時間条件、必須 Claim の欠落・不整合を含む |
 | `authorization_denied` | 認可拒否 | Caller の Owner ID が許可オーナーと不一致、要求した権限が許可条件外、または要求リポジトリが許可オーナー / Installation の範囲外 |
 | `identity_verification_unavailable` | 一時的な障害 | OIDC Discovery / JWKS の取得が一時的に失敗した。通信の失敗、タイムアウト、5xx、403 / 429 で、再試行で解消し得る |
 | `signing_unavailable` | 一時的な障害 | KMS 署名に失敗 |
@@ -344,6 +344,7 @@ JWT / JWS / JWK / OpenID Connect の標準仕様の規定と適用範囲は [JWT
 本節の「実 JWT で確かめた」は設計時の観測の記録であり、GitHub が保証する仕様ではありません。
 規則と標準仕様の対応、標準仕様との差分、受理条件を定めていない項目は、[標準仕様との対応](#標準仕様との対応)に記述します。
 
+- **JWT の形式**：JWS Compact Serialization だけを受理し、JSON 形式と改行以外の空白を含む形は、署名が正当でも鍵を取得せずに拒否する。改行 (CR と LF) を含む形は受理する。検証に使うライブラリの解析が読み飛ばし、改行を除いた形と同じ値として検証するためである。この見逃しを許すのは、GitHub が発行する JWT に現れる見込みがなく、検出には解析の前に別の分岐が要るため
 - **署名**：Issuer の Discovery から得た JWKS の鍵で署名を検証する。署名方式は `RS256` だけを許す。実 JWT のヘッダーが `RS256` であることを確かめた。許す方式を Discovery の内容に委ねると、Discovery が変わったときに許す方式が GATES の外で変わるため、GATES が固定する。鍵は JWT のヘッダーの `kid` で選び、`kid` のない JWT は、検証ライブラリが鍵の集合で検証しないため、鍵を取得せずに拒否する。実 JWT に `kid` があることを確かめた
 - **Issuer**：`iss` を `https://token.actions.githubusercontent.com` に固定する。Discovery はこの Issuer から取得し、Discovery が示す Issuer が固定値と異なれば鍵を使わず、[Failure](#32-failure) の分類に従って内部障害にする
 - **Audience**：`aud` が固定設定の GATES 用 Audience の 1 要素だけであること。GATES 用 Audience を含んでいても、ほかの値が並べば拒否する。AWS 用と GATES 用の JWT を別々に取得する設計（[Security Design](security.md#22-gates-用-oidc-jwt)）に合わせ、複数の受け手に宛てた JWT を GATES の資格情報にしないため
@@ -400,6 +401,7 @@ GATES は GATES 用 OIDC JWT を OpenID Connect の認証フローを経ずに�
 
 | 項目 | 標準仕様 | 本節の規則 |
 |---|---|---|
+| JWT の形式 | Compact Serialization で表す（[§2.1](../spec/jwt-constraints.md#21-構造署名アルゴリズム)） | Compact Serialization だけを受理する。改行を含む形は例外として受理する |
 | `alg` | JOSE Header で必須。実装が許可する方式を明示する（[§2.1](../spec/jwt-constraints.md#21-構造署名アルゴリズム)） | `RS256` だけを許す |
 | `kid`（JOSE Header） | JWS では任意。OpenID Connect Core に条件付きの規定がある（[§2.2](../spec/jwt-constraints.md#22-鍵の識別と-header-の拡張)） | 必須。欠落は拒否 |
 | `kid`（JWK） | 任意（[§3.1](../spec/jwt-constraints.md#31-鍵の属性)） | `kid` のない鍵は検証に使わない |
@@ -411,11 +413,13 @@ GATES は GATES 用 OIDC JWT を OpenID Connect の認証フローを経ずに�
 | Claim 名の重複 | 拒否するか、最後の同名フィールドだけを採用する（[§4](../spec/jwt-constraints.md#4-jwt-claims)） | 拒否 |
 | Discovery | Provider Metadata に `issuer`、`jwks_uri` のほかにも必須項目がある（[§5](../spec/jwt-constraints.md#5-openid-connect-and-discovery)） | Issuer の値と JWKS の取得先だけを読み、ほかの項目を受理条件にしない |
 
-次の 3 項目で、本節の規則は標準仕様より緩くなっています。
+次の項目で、本節の規則は標準仕様より緩くなっています。
 数字文字列と Claim 名の大文字小文字を受け入れる理由は、上の時間条件と Claim の組の復号の規則に記述しています。
+改行を受け入れる理由は、上の JWT の形式の規則に記述しています。
 
 | 項目 | 標準仕様 | 本節の規則 | 影響 |
 |---|---|---|---|
+| JWT 中の改行 | Compact Serialization の各部分は Base64URL で、改行を含まない | 受理する | 改行を除いた JWT と同じ値で検証する。受理する Claim の値は変わらない |
 | 時間 Claim の数字文字列 | NumericDate は JSON の数値 | 受理する | 文字列が表す時刻で時間条件を判定する。GitHub が数字文字列を署名したときに限り現れる |
 | Claim 名の大文字小文字 | エスケープを解いた文字列を完全一致で比較し、`aud` と `AUD` を区別する | Issuer、Audience、時間条件の検証では区別しない | `aud` が別の値でも `AUD` が GATES 用 Audience なら検証を通り、`EXP` だけの JWT は `exp` の必須条件を通る。GitHub がこの形を署名したときに限り現れる |
 | `exp` と等しい現在時刻 | 現在時刻が `exp` より前であること。猶予は許容する | 受理する | `exp` とちょうど等しい瞬間だけ受理し、それ以降は拒否する。受理する期間はほとんど延びない |
