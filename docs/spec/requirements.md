@@ -152,6 +152,6 @@ GitHub App Private Key を GitHub Secrets や Actions Runner に置かず、署�
 | AC-25 | AWS の認証情報を持たない、または Invoke を許可されていない主体が Lambda を呼び出す | 関数の実行前に拒否される | FR-025 |
 | AC-26 | 呼び出し元を名前だけで特定する形式のトークンを持つワークフローが、IAM ロールの引き受けを試みる | 引き受けが拒否され、Lambda は呼び出されない | FR-005 |
 | AC-27 | 適切に署名された JWT で NumericDate に数字文字列を使う、`iss`、`aud`、`exp`、`iat`、`nbf` と大文字小文字だけが異なる名前の Claim を含める、`now == exp` にする、あるいは時刻に範囲の外の値か、小数部または指数部を持つ値を使う | `invalid_id_token` として拒否し、Caller を確定しない | FR-002, FR-003 |
-| AC-28 | JOSE Header の未対応 `crit`、JWT の `b64:false`、2048 bit 未満の RSA 公開鍵、用途やアルゴリズムが不整合な JWK を用いた署名済み JWT | 検証鍵として採用せず `invalid_id_token` として拒否する。JWKS の取得自体の障害は別エラーとする | FR-002, FR-003 |
+| AC-28 | JOSE Header の未対応 `crit`、JWT の `b64:false`、2048 bit 未満の RSA 公開鍵、用途やアルゴリズムが不整合な JWK を用いた署名済み JWT | 検証鍵として採用せず `invalid_id_token` として拒否する。JWKS の取得自体の障害と、使える鍵が 1 つもない JWKS は別エラーとする | FR-002, FR-003 |
 | AC-29 | 発行 API が `422` を返す | GATES 自身の認可拒否と区別した `github_issuance_rejected` として拒否し、トークンを返さない | FR-020, QR-003 |
 | AC-30 | GitHub 発行 API に要求が到達した後、応答の受信に失敗してトークン文字列を取得できない | トークンを返さず、GitHub 側の発行有無・失効成功を保証しない。取得できないトークンに対する失効は要求しない | FR-018, QR-003 |
