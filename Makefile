@@ -75,6 +75,12 @@ trivy: container-mountpoints ## scan vulnerabilities, misconfigurations and secr
 trivy-update: ## rebuild the trivy image to refresh its vulnerability database
 	TRIVY_TARGET=$(CURDIR) docker compose -f scripts/trivy/compose.yaml build --no-cache scan
 
+# Targets: Formal Verification
+.PHONY: alloy
+alloy: ## verify formal models by Alloy in an isolated container
+	ALLOY_TARGET=$(CURDIR)/formal docker compose -f scripts/alloy/compose.yaml run --build --rm -T --interactive=false alloy exec -c '*' -o /tmp/out -t none authorization.als
+	ALLOY_TARGET=$(CURDIR)/formal docker compose -f scripts/alloy/compose.yaml run --rm -T --interactive=false alloy exec -c '*' -o /tmp/out -t none issuance-temporal.als
+
 # 読み取り専用の /src にはマウントポイントを作れないため、compose.yaml が隠すパスをホスト側で用意する。既存の .envrc と .env は変更しない
 .PHONY: container-mountpoints
 container-mountpoints:
