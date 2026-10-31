@@ -1,0 +1,43 @@
+# Alloy を隔離して実行するサービス定義
+#
+# 環境変数は実行時に設定する。
+#   ALLOY_TARGET  モデルを置いたディレクトリの絶対パス。リポジトリのルートではなく、モデルのディレクトリに絞る
+#
+# 実行例
+#   ALLOY_TARGET="$PWD/models" docker compose -f scripts/alloy/compose.yaml run --build --rm -T --interactive=false alloy exec -c '*' -o /tmp/out -t none model.als
+#
+# exec の出力先は既定でモデルと同じディレクトリのため、読み取り専用の /src では -o で /tmp に向ける。
+# -o - は解を標準出力に出す代わりに、コマンドごとの判定の表を出さない。
+# 反例が見つかっても終了コードは 0 のため、検証の成否は表の判定で読む。check は UNSAT が反例なし、SAT が反例ありを表す
+
+name: alloy
+
+services:
+  alloy:
+    # localhost/ を付け、Docker Hub の同名のイメージを取ってこないようにする
+    build: .
+    image: localhost/gates-alloy:latest
+    pull_policy: never
+    user: "65534:65534"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=256m
+    network_mode: none
+    ipc: none
+    mem_limit: 2g
+    memswap_limit: 2g
+    pids_limit: 128
+    cpus: 2
+    ulimits:
+      core: 0
+    init: true
+    working_dir: /src
+    environment:
+      HOME: /tmp
+    volumes:
+      - type: bind
+        source: ${ALLOY_TARGET:?ALLOY_TARGET is required}
+        target: /src
+        read_only: true
