@@ -2,7 +2,7 @@
 
 ## 1. Security Model
 
-本システムでは、AWS IAM による Lambda Invoke の入口制御と、Lambda 内で検証した GitHub OIDC JWT に基づくトークン発行認可を分離します。GitHub App Private Key は AWS KMS に置き、Lambda は署名操作を KMS に依頼します。発行する Installation Access Token は、要求されたリポジトリと `contents:read` に限定します。
+本システムでは、AWS IAM による Lambda Invoke の入口制御と、Lambda 内で検証した GitHub OIDC JWT に基づくトークン発行認可を分離します。GitHub App Private Key は AWS KMS に置き、Lambda は署名操作を KMS に依頼します。現在のスコープでは、返却する Installation Access Token を要求されたリポジトリと `contents:read`（許可された付随権限を除く）に限定します。スコープ判断の理由と将来の検討事項は [Project Scope](../spec/project-scope.md) に置きます。
 
 コンポーネントの全体構成、JWT の生成元、正常系の処理順序は [System Architecture](architecture.md) に記述します。本ドキュメントは各境界が保証する内容と、認可・資格情報保護・拒否条件を定義します。
 
@@ -76,13 +76,13 @@ Caller の `repository_id` とワークフロー起動属性は監査のため�
 
 ### 3.2 Installation Scope as Authorization Boundary
 
-許可されたオーナーの有効なワークフローは、GATES で利用する GitHub App がインストールされたリポジトリへの `contents:read` トークンを要求できます。アクセス先のチームが GATES を利用するかどうかには依存しません。
+許可オーナーの有効なワークフローは、呼び出し元リポジトリ／チーム別の認可を経ず、GATES が許可する権限の範囲で GitHub App の Installation 対象リポジトリに横断的なトークン発行を要求できます。この権限は GitHub App / Installation 自体の権限上限にも拘束されます。**現在のスコープ**では GATES が許可するのは `contents:read` のみです。権限拡大を将来検討することと、細粒度認可を今は導入しない理由は [Project Scope](../spec/project-scope.md) に置きます。
 
 GitHub App のインストール対象が読み取り可能範囲の上限となります。`Only select repositories` により対象を限定できます。`All repositories` を使用すると、そのオーナーにインストールされた App の対象リポジトリ全体が読み取り可能範囲に含まれます。インストール対象の変更は認可境界の変更として扱います。
 
 許可オーナーが Organization の場合、この変更は Organization オーナーだけの操作ではありません。
 既定では、リポジトリ管理者が自身の管理するリポジトリをインストール済みの App の対象に追加でき、`installation_repositories:write` を持つ呼び出し元も、そのリポジトリを Installation に追加または削除できます（[GitHub Constraints](../spec/github-constraints.md#5-installation)）。
-追加されたリポジトリは、許可オーナーのすべての有効なワークフローから読み取り可能になります。
+追加されたリポジトリは、GATES と Installation が許可する権限の範囲で、許可オーナーの有効なワークフローから横断的にアクセスされ得ます。現在は `contents:read` のため、非公開コードや設定、誤って格納された秘密情報の読み取りが主な懸念です。
 このため、Organization の許可オーナーには、リポジトリ管理者によるインストールを Organization オーナーが制限していることと、`installation_repositories:write` の付与先を管理していることを、運用の前提として求めます。
 GATES はこの設定を実行時に確認しません。
 
@@ -98,21 +98,21 @@ Lambda は Installation ID を設定として持たず、固定したオーナ�
 
 ### 3.3 Permission Boundary
 
-Lambda が許可する権限は `contents:read` に固定します。要求された Permissions が許可条件と異なる場合は拒否します。GitHub App の権限上限が GATES の許可範囲より広くても、発行するトークンの権限は拡大しません。
+現在のスコープで Lambda が許可する権限は `contents:read` に固定します。要求された Permissions が許可条件と異なる場合は拒否します。GitHub App / Installation の付与権限が GATES の許可範囲より広くても、発行するトークンの権限は拡大しません。付随する `metadata:read` のみ、§3.4 の条件で照合時に許容します。将来のスコープ選択は [Project Scope](../spec/project-scope.md) を参照します。
 
 ### 3.4 Issuance Result Verification
 
 - GitHub API に発行を要求するときは、認可された `TokenGrant` の `repositories` と `permissions` を必ず指定する。
 - 発行応答の対象リポジトリと実効権限を `TokenGrant` に照合する。Owner ID、Repository ID の有効性・一意性、対象の全件一致を確認し、必要な情報の欠落、対象外のリポジトリ、過大な権限があればトークンを返却しない。この拒否は GitHub API の通信障害とは別のエラーとして返し、監査記録に Caller とともに残す。
-- 照合に失敗した時点で GitHub はトークンを発行済みのため、返却しないだけでなく失効させる。失効はベストエフォートとし、成否を監査記録に残す。
+- GitHub の発行応答からトークン文字列を取得でき、照合に失敗した場合は、利用者へ返却せず失効 API の呼び出しを試みる。失効はベストエフォートとし、試行の成否を監査記録に残す。API 応答が失われた場合はトークンの発行有無が不明となり得る。
 - 要求にかかわらず GitHub が付与する `metadata:read` だけは、応答に含まれていても許容する。付与の条件は未確認であり（[GitHub Constraints](../spec/github-constraints.md#62-発行応答permission)）、含まれなくても拒否しない。
 - 発行応答の `repository_selection` が `selected` であることを確認する。`all` は Installation の全リポジトリを対象にしたことを意味し、要求外の対象を含むため返却しない。
 - 応答の Repository ID は発行結果の確認・監査に利用し、要求時に事前検証した ID と同一であることを証明するものではない。
 
 対象の全件一致を照合するため、[Requirements](../spec/requirements.md) FR-007 のうち範囲外の対象を含む要求にトークンを返さないことは、GitHub が範囲外の対象を拒否するかどうかに依存しません。
-GitHub が範囲外の対象を黙って除いても、応答の対象が `TokenGrant` と一致しないことで検出し、トークンを返さずに失効させます。
-GitHub の振る舞いで変わるのは、エラーが `authorization_denied` と `issuance_verification_failed` のどちらになるかと、失効が必要になるかどうかです。
-失効に失敗した場合でも、そのトークンは Lambda の外に出ず、GitHub が定めた有効期限で失効します。
+GitHub が範囲外の対象を黙って除いて発行した場合は、応答の対象と `TokenGrant` の不一致を検出し、トークンを返さず、取得したトークンの失効を試みます。
+GitHub が発行要求を `422` で拒否した場合は `github_issuance_rejected`、発行応答を取得して照合が失敗した場合は `issuance_verification_failed` とします。GATES が発行前の認可条件により拒否する `authorization_denied` と区別します。
+GitHub 側での失効成功や、応答喪失で取得できなかったトークンの不存在は保証せず、GitHub 側で有効なまま残る可能性があります。
 
 GitHub API の要求・応答形式と具体的な照合条件は [Lambda Design](lambda.md) に記述します。
 
@@ -125,7 +125,7 @@ KMS Key の構成・IAM 権限は Terraform で管理します。GitHub App Priv
 | GitHub App Private Key | KMS インポート前は運用者が別の運用境界で扱う。Lambda と Runner には渡さない。インポート後、インポート前のコピーは運用者の手元から削除する。KMS にインポートした鍵素材は取り出せないため、KMS Key を失った場合は GitHub 側で新しい秘密鍵を発行して切り替える |
 | AWS KMS Key | インポート済みの非対称署名鍵。Lambda 実行 Role に当該キーの `kms:Sign` のみ許可。鍵更新時は新 KMS Key を用意 |
 | GitHub App JWT | KMS 署名で Lambda が短時間生成し、GitHub API 呼び出しにのみ使用。外部返却・ログ出力禁止 |
-| Installation Access Token | 要求・認可された対象と `contents:read` に限定して Runner へ返す。短命でも窃取リスクは残る。照合に失敗したものは返さず、Lambda が失効させる |
+| Installation Access Token | 現在は要求・認可された対象と `contents:read`（付随する `metadata:read` を許容）に限定して Runner へ返す。短命でも窃取リスクは残る。照合に失敗したものは返さず、文字列を取得できた場合に失効を試みる |
 | AWS 一時認証情報・GATES 用 OIDC JWT | Runner で短時間だけ保持し、ログやデバッグ出力に含めない |
 
 署名アルゴリズムと JWT の組み立ては [Lambda Design](lambda.md#72-kms-signing) に記述します。

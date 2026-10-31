@@ -4,7 +4,7 @@
 
 Composite Action は、GitHub Actions の利用者にトークン取得手段を提供します。AWS 用 GitHub OIDC JWT による一時認証情報の取得、GATES 用 OIDC JWT の取得、Lambda の同期 Invoke、応答の処理と同一ジョブ内の後続ステップへのトークン出力を担当します。発行許可の判定は Lambda 側が行います。
 
-Composite Action は GATES 運用者が提供し、利用者向けの安定した境界とします。利用者に求めるのは、ワークフローでの `permissions: id-token: write` の宣言、対象リポジトリおよび権限の指定、運用者が用意した接続情報の参照だけです。
+Composite Action は GATES 運用者が提供し、利用者向けの安定した境界とします。利用者に求めるのは、ワークフローでの `permissions: id-token: write` の宣言、対象リポジトリおよび権限の指定、運用者が用意した接続情報の参照だけです。現在の `contents:read` 制限の判断理由は [Project Scope](../spec/project-scope.md) に置きます。
 
 Composite Action は、Lambda と同じこのリポジトリの `.github/actions/<ACTION-NAME>/action.yml` に置きます。
 Lambda の入出力契約と Composite Action を同じ PR で変更でき、両者の食い違いを防げるためです。
@@ -124,7 +124,7 @@ jobs:
 
 ## 6. Testability
 
-入力形式の異常、AWS 認証の失敗、AWS CLI の終了コード、`StatusCode` と `FunctionError`、`ok:false`、Action Output への転送（レスポンスの配列・オブジェクトからカンマ区切りへの変換を含む）を検証します。GATES 用 OIDC JWT を含むリクエストファイルと発行トークンを含むレスポンスファイルについて、権限設定、正常系・異常系での後処理、ログへの資格情報非出力、同一ジョブ内の後続ステップからの利用を確認します。受け入れ条件は [Requirements](../spec/requirements.md) を正本とします。
+入力形式の異常、AWS 認証の失敗、AWS CLI の終了コード、`StatusCode` と `FunctionError`、`ok:false`、Action Output への転送（レスポンスの配列・オブジェクトからカンマ区切りへの変換を含む）を検証します。GATES 用 OIDC JWT を含むリクエストファイルと発行トークンを含むレスポンスファイルについて、権限設定、正常系・異常系での後処理、ログへの資格情報非出力、同一ジョブ内の後続ステップからの利用を確認します。GitHub の Installation Access Token は固定長と仮定せず、トークンの形式・長さによらずマスク・非記録・出力が正しく行われることを検証します。受け入れ条件は [Requirements](../spec/requirements.md) を正本とします。
 
 ## 7. Sources
 
