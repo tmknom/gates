@@ -20,3 +20,5 @@ RUN set -eux; \
   rm /tmp/ruleset.zip
 
 ENV TFLINT_PLUGIN_DIR=/opt/tflint/plugins
+
+USER 65534:65534
