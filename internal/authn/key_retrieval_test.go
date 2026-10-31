@@ -2,14 +2,21 @@ package authn
 
 import (
 	"context"
+	"crypto"
+	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"maps"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -261,6 +268,9 @@ func TestAuthenticate_UnacceptableJWKS(t *testing.T) {
 		{"RSA key with invalid modulus", `{"keys":[{"kty":"RSA","kid":"` + testKeyID + `","n":"!` + responseMarker + `","e":"AQAB"}]}`},
 		{"RSA key without key ID", jwksBody(t, testKey(), "")},
 		{"RSA key that is not public", jwksBodyOf(t, jose.JSONWebKey{Key: testKey(), KeyID: testKeyID})},
+		{"RSA key with exponent 1", jwksOf(jwkWith(t, testKey(), testKeyID, map[string]any{"e": "AQ"}))},
+		{"key_ops that is null", jwksOf(jwkWith(t, testKey(), testKeyID, map[string]any{"key_ops": nil}))},
+		{"key_ops with a non string element", jwksOf(jwkWith(t, testKey(), testKeyID, map[string]any{"key_ops": []any{1}}))},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name+" returns ErrInternalFailure", func(t *testing.T) {
@@ -284,18 +294,237 @@ func TestAuthenticate_JWKSSkipsUnusableKeys(t *testing.T) {
 		unusable string
 	}{
 		{"non RSA key", `{"kty":"EC","kid":"ec","crv":"unknown"}`},
+		{"non RSA key with key_ops that is a string", `{"kty":"EC","kid":"ec","crv":"unknown","key_ops":"verify"}`},
 		{"RSA key without key ID", singleKey(jwksBody(t, generateKey(), ""))},
 		{"RSA key that is not public", singleKey(jwksBodyOf(t, jose.JSONWebKey{Key: generateKey(), KeyID: "private"}))},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name+" next to a usable key returns Caller", func(t *testing.T) {
 			stub := newIssuerStub(t, testKey(), testKeyID)
-			usable := singleKey(jwksBody(t, testKey(), testKeyID))
-			stub.respondJWKS(respondBody(`{"keys":[` + tt.unusable + `,` + usable + `]}`))
+			stub.respondJWKS(respondBody(jwksOf(tt.unusable, jwkWith(t, testKey(), testKeyID, nil))))
 
 			assertAuthenticated(t, stub.verifier(t), stub.token(t, testKey(), testKeyID))
 		})
 	}
+}
+
+// jwkWith は key の公開鍵の JWK を、members のメンバーで上書きした JSON で返す。
+func jwkWith(t *testing.T, key *rsa.PrivateKey, keyID string, members map[string]any) string {
+	t.Helper()
+	encoded, err := json.Marshal(jose.JSONWebKey{Key: key.Public(), KeyID: keyID})
+	if err != nil {
+		t.Fatalf("Marshal returned error: %v", err)
+	}
+	var jwk map[string]any
+	if err := json.Unmarshal(encoded, &jwk); err != nil {
+		t.Fatalf("Unmarshal returned error: %v", err)
+	}
+	maps.Copy(jwk, members)
+	overridden, err := json.Marshal(jwk)
+	if err != nil {
+		t.Fatalf("Marshal returned error: %v", err)
+	}
+	return string(overridden)
+}
+
+func jwksOf(keys ...string) string {
+	return `{"keys":[` + strings.Join(keys, ",") + `]}`
+}
+
+func TestAuthenticate_UnusableJWK(t *testing.T) {
+	const unusableKeyID = "unusable"
+	shortKey, err := rsa.GenerateKey(rand.Reader, 2047)
+	if err != nil {
+		t.Fatalf("GenerateKey returned error: %v", err)
+	}
+	otherKey := generateKey()
+	tests := []struct {
+		name    string
+		key     *rsa.PrivateKey
+		members map[string]any
+	}{
+		{"modulus of 2047 bits", shortKey, nil},
+		{"use for encryption", otherKey, map[string]any{"use": "enc"}},
+		{"key_ops without verify", otherKey, map[string]any{"key_ops": []string{"sign"}}},
+		{"empty key_ops", otherKey, map[string]any{"key_ops": []string{}}},
+		{"alg other than RS256", otherKey, map[string]any{"alg": "RS384"}},
+		{"use and key_ops that disagree", otherKey, map[string]any{"use": "sig", "key_ops": []string{"verify", "encrypt"}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name+" next to a usable key rejects its token with ErrAuthenticationFailure", func(t *testing.T) {
+			stub := newIssuerStub(t, testKey(), testKeyID)
+			stub.respondJWKS(respondBody(jwksOf(jwkWith(t, testKey(), testKeyID, nil), jwkWith(t, tt.key, unusableKeyID, tt.members))))
+			token := stub.token(t, tt.key, unusableKeyID)
+
+			got, err := stub.verifier(t).Authenticate(t.Context(), rawIDToken(t, token))
+
+			assertRejected(t, got, err, ErrAuthenticationFailure, token)
+		})
+	}
+}
+
+func TestAuthenticate_UsableJWK(t *testing.T) {
+	tests := []struct {
+		name    string
+		members map[string]any
+	}{
+		{"no use, key_ops, or alg", nil},
+		{"key_ops with verify and an operation outside signatures but no use", map[string]any{"key_ops": []string{"verify", "encrypt"}}},
+		{"use and key_ops limited to signature operations", map[string]any{"use": "sig", "key_ops": []string{"sign", "verify"}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name+" returns Caller", func(t *testing.T) {
+			stub := newIssuerStub(t, testKey(), testKeyID)
+			stub.respondJWKS(respondBody(jwksOf(jwkWith(t, testKey(), testKeyID, tt.members))))
+
+			assertAuthenticated(t, stub.verifier(t), stub.token(t, testKey(), testKeyID))
+		})
+	}
+}
+
+func TestAuthenticate_KeyRejectedByCryptoRSA(t *testing.T) {
+	const exponent65536 = "AQAA"
+	evenModulus := new(big.Int).Lsh(testKey().N, 1)
+	tests := []struct {
+		name    string
+		members map[string]any
+	}{
+		{"even exponent", map[string]any{"e": exponent65536}},
+		{"even modulus", map[string]any{"n": base64.RawURLEncoding.EncodeToString(evenModulus.Bytes())}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name+" returns ErrAuthenticationFailure", func(t *testing.T) {
+			stub := newIssuerStub(t, testKey(), testKeyID)
+			stub.respondJWKS(respondBody(jwksOf(jwkWith(t, testKey(), testKeyID, tt.members))))
+			token := stub.token(t, testKey(), testKeyID)
+
+			got, err := stub.verifier(t).Authenticate(t.Context(), rawIDToken(t, token))
+
+			assertRejected(t, got, err, ErrAuthenticationFailure, token)
+		})
+	}
+}
+
+func TestAuthenticate_SameKeyID(t *testing.T) {
+	t.Run("two usable keys return ErrAuthenticationFailure", func(t *testing.T) {
+		stub := newIssuerStub(t, testKey(), testKeyID)
+		// 先頭の鍵で署名する。一意性を判定しなければ go-jose が先頭の鍵を選んで受理する
+		stub.respondJWKS(respondBody(jwksOf(jwkWith(t, testKey(), testKeyID, nil), jwkWith(t, generateKey(), testKeyID, nil))))
+		token := stub.token(t, testKey(), testKeyID)
+
+		got, err := stub.verifier(t).Authenticate(t.Context(), rawIDToken(t, token))
+
+		assertRejected(t, got, err, ErrAuthenticationFailure, token)
+	})
+	t.Run("two usable keys under another key ID return Caller", func(t *testing.T) {
+		stub := newIssuerStub(t, testKey(), testKeyID)
+		stub.respondJWKS(respondBody(jwksOf(
+			jwkWith(t, generateKey(), "shared", nil),
+			jwkWith(t, generateKey(), "shared", nil),
+			jwkWith(t, testKey(), testKeyID, nil),
+		)))
+
+		assertAuthenticated(t, stub.verifier(t), stub.token(t, testKey(), testKeyID))
+	})
+	t.Run("an unusable key before a usable key returns Caller", func(t *testing.T) {
+		stub := newIssuerStub(t, testKey(), testKeyID)
+		unusable := jwkWith(t, generateKey(), testKeyID, map[string]any{"use": "enc"})
+		stub.respondJWKS(respondBody(jwksOf(unusable, jwkWith(t, testKey(), testKeyID, nil))))
+
+		assertAuthenticated(t, stub.verifier(t), stub.token(t, testKey(), testKeyID))
+	})
+}
+
+// signWithHeader は Protected Header を JSON のまま受ける。重複した名前のように、署名器から作れない Header にも署名するため。
+func signWithHeader(t *testing.T, key *rsa.PrivateKey, header string, payload []byte) string {
+	t.Helper()
+	signingInput := base64.RawURLEncoding.EncodeToString([]byte(header)) + "." + base64.RawURLEncoding.EncodeToString(payload)
+	digest := sha256.Sum256([]byte(signingInput))
+	signature, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
+	if err != nil {
+		t.Fatalf("SignPKCS1v15 returned error: %v", err)
+	}
+	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
+}
+
+func (s *issuerStub) tokenWithHeader(t *testing.T, key *rsa.PrivateKey, header string) string {
+	t.Helper()
+	return signWithHeader(t, key, header, marshalClaims(t, claimsWith(map[string]any{"iss": s.issuer()})))
+}
+
+func TestAuthenticate_UnacceptableHeaderIsRejectedWithoutRetrieval(t *testing.T) {
+	const base = `"alg":"RS256","kid":"` + testKeyID + `"`
+	tests := []struct {
+		name   string
+		header string
+	}{
+		{"crit with an unsupported extension", `{` + base + `,"crit":["exp"],"exp":1}`},
+		{"empty crit", `{` + base + `,"crit":[]}`},
+		{"crit with a registered name", `{` + base + `,"crit":["alg"]}`},
+		{"crit naming b64", `{` + base + `,"crit":["b64"],"b64":true}`},
+		{"crit that is null", `{` + base + `,"crit":null}`},
+		{"b64 false", `{` + base + `,"b64":false}`},
+		{"b64 true", `{` + base + `,"b64":true}`},
+		{"b64 that is not a boolean", `{` + base + `,"b64":"false"}`},
+		{"duplicate name", `{` + base + `,"kid":"` + testKeyID + `"}`},
+		{"duplicate name after unescaping", `{` + base + `,` + escapedName("kid") + `:"` + testKeyID + `"}`},
+		{"invalid UTF-8", `{` + base + `,"unknown":"` + "\xff" + `"}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name+" returns ErrAuthenticationFailure", func(t *testing.T) {
+			stub := newIssuerStub(t, testKey(), testKeyID)
+			token := stub.tokenWithHeader(t, testKey(), tt.header)
+
+			got, err := stub.verifier(t).Authenticate(t.Context(), rawIDToken(t, token))
+
+			assertRejected(t, got, err, ErrAuthenticationFailure, token)
+			if requests := stub.discoveryRequests.Load() + stub.jwksRequests.Load(); requests != 0 {
+				t.Errorf("retrieved documents %d times, want 0", requests)
+			}
+		})
+	}
+}
+
+func TestAuthenticate_UnknownHeaderIsIgnored(t *testing.T) {
+	stub := newIssuerStub(t, testKey(), testKeyID)
+	token := stub.tokenWithHeader(t, testKey(), `{"alg":"RS256","kid":"`+testKeyID+`","unknown":{"nested":1}}`)
+
+	assertAuthenticated(t, stub.verifier(t), token)
+}
+
+func attackerKeyHeader(t *testing.T, attacker *rsa.PrivateKey) string {
+	t.Helper()
+	return `{"alg":"RS256","kid":"` + testKeyID + `","jwk":` + jwkWith(t, attacker, testKeyID, nil) +
+		`,"jku":"https://attacker.example/jwks","x5u":"https://attacker.example/cert"}`
+}
+
+func TestAuthenticate_KeyHeadersDoNotChangeRetrievalOrVerificationKey(t *testing.T) {
+	stub := newIssuerStub(t, testKey(), testKeyID)
+	var requested []string
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requested = append(requested, req.URL.String())
+		return stub.server.Client().Transport.RoundTrip(req)
+	})
+	verifier, err := NewVerifier(stub.issuer(), testAudience, testClock, WithTransport(transport))
+	if err != nil {
+		t.Fatalf("NewVerifier returned error: %v", err)
+	}
+
+	assertAuthenticated(t, verifier, stub.tokenWithHeader(t, testKey(), attackerKeyHeader(t, generateKey())))
+
+	if want := []string{stub.issuer() + discoveryPath, stub.issuer() + jwksPath}; !slices.Equal(requested, want) {
+		t.Errorf("requested = %v, want %v", requested, want)
+	}
+}
+
+func TestAuthenticate_SignatureByKeyInHeaderReturnsErrAuthenticationFailure(t *testing.T) {
+	stub := newIssuerStub(t, testKey(), testKeyID)
+	attacker := generateKey()
+	token := stub.tokenWithHeader(t, attacker, attackerKeyHeader(t, attacker))
+
+	got, err := stub.verifier(t).Authenticate(t.Context(), rawIDToken(t, token))
+
+	assertRejected(t, got, err, ErrAuthenticationFailure, token)
 }
 
 func TestAuthenticate_ResponseSizeLimit(t *testing.T) {

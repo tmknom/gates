@@ -12,7 +12,7 @@ import (
 )
 
 // issuerKeySet は Issuer の公開鍵を取得して保持する oidc.KeySet である。
-// 検証ライブラリの取得処理は失敗を分類できる形で返さないため、取得だけを GATES が担う。
+// 検証ライブラリの取得処理は失敗を分類できる形で返さないため、取得を GATES が担う。
 type issuerKeySet struct {
 	client *http.Client
 	issuer *url.URL
@@ -47,12 +47,15 @@ func newIssuerKeySet(issuer *url.URL, opts ...Option) *issuerKeySet {
 }
 
 // VerifySignature は、kid のある JWT を保持している公開鍵で検証できなければ取得し直して、もう一度だけ検証する。
-// 取得の失敗は失敗の種別を包んで返し、署名の不一致は種別を包まずに返す。
+// 取得の失敗は失敗の種別を包んで返し、それ以外の拒否は種別を包まずに返す。
 func (k *issuerKeySet) VerifySignature(ctx context.Context, jwt string) ([]byte, error) {
 	// go-oidc の解析は JSON 形式と空白を含む JWT を通すため、受理する形をここで限る
 	signature, err := jose.ParseSignedCompact(jwt, []jose.SignatureAlgorithm{jose.RS256})
 	if err != nil {
 		return nil, fmt.Errorf("parse signature: %w", err)
+	}
+	if err := checkJOSEHeader(jwt); err != nil {
+		return nil, err
 	}
 	// 取得しても結果が変わらない
 	if signature.Signatures[0].Header.KeyID == "" {
@@ -62,11 +65,23 @@ func (k *issuerKeySet) VerifySignature(ctx context.Context, jwt string) ([]byte,
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
-	if payload, err := signature.Verify(&k.keys); err == nil {
+	// 検証できる間は取得し直さず、Issuer が取り下げた鍵も受理し続ける。Security Design が受容したリスクである
+	if payload, err := k.verify(signature); err == nil {
 		return payload, nil
 	}
 	if err := k.retrieve(ctx); err != nil {
 		return nil, err
+	}
+	return k.verify(signature)
+}
+
+// verify は mu を保持して呼ぶ。
+// go-jose は同じ kid の先頭の鍵を使うため、一意に選べない JWT を先に拒否する。
+// JWKS の取得は同じ kid の鍵を拒否しない。選択できるかは JWT ごとに決まり、ほかの kid の JWT の検証を止めないため。
+func (k *issuerKeySet) verify(signature *jose.JSONWebSignature) ([]byte, error) {
+	// 取得が使えない鍵を除いてあるため、件数は使える鍵の数である
+	if len(k.keys.Key(signature.Signatures[0].Header.KeyID)) > 1 {
+		return nil, errors.New("key id does not identify a single key")
 	}
 	return signature.Verify(&k.keys)
 }

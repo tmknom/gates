@@ -87,7 +87,7 @@ func (v *Verifier) Authenticate(ctx context.Context, rawIDToken request.RawIDTok
 			return authz.Caller{}, recorder.failure
 		}
 		// ErrAuthenticationFailure の文言の規則に従い、error を包まない
-		return authz.Caller{}, fmt.Errorf("%w: signature, issuer, audience, or time condition is not satisfied", ErrAuthenticationFailure)
+		return authz.Caller{}, fmt.Errorf("%w: jose header, key selection, signature, issuer, audience, or time condition is not satisfied", ErrAuthenticationFailure)
 	}
 
 	// Claims は encoding/json (v1) で復号するため、重複したキーを拒否する checkClaimSet と callerFromClaims に生の JSON を渡す。

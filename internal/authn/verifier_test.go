@@ -85,8 +85,8 @@ func signLeadingClaims(t *testing.T, leading, omitted string) string {
 	return signPayload(t, jose.RS256, testKey(), append([]byte("{"+leading+","), rest...))
 }
 
-// escapedClaimName は、先頭の文字を Unicode エスケープで書いた JSON の文字列を返す。エスケープを解いた後の名前で比較されることを確かめるため。
-func escapedClaimName(name string) string {
+// escapedName は、先頭の文字を Unicode エスケープで書いた JSON の文字列を返す。エスケープを解いた後の名前で比較されることを確かめるため。
+func escapedName(name string) string {
 	return fmt.Sprintf(`"%cu%04x%s"`, '\\', name[0], name[1:])
 }
 
@@ -228,7 +228,7 @@ func TestVerifierAuthenticate_InvalidToken(t *testing.T) {
 			return signLeadingClaims(t, `"aud":"other","aud":"`+testAudience+`"`, "aud")
 		}},
 		{"duplicate exp keys after unescaping", func(t *testing.T) string {
-			return signLeadingClaims(t, `"exp":1700000300,`+escapedClaimName("exp")+`:1700000300`, "exp")
+			return signLeadingClaims(t, `"exp":1700000300,`+escapedName("exp")+`:1700000300`, "exp")
 		}},
 		{"invalid UTF-8 in a claim not read for Caller", func(t *testing.T) string {
 			return signLeadingClaims(t, "\"jti\":\"\xff\"", "jti")
@@ -249,7 +249,7 @@ func TestVerifierAuthenticate_InvalidToken(t *testing.T) {
 			return signLeadingClaims(t, `"aud":"other","AUD":"`+testAudience+`"`, "aud")
 		}},
 		{"escaped AUD after a different aud", func(t *testing.T) string {
-			return signLeadingClaims(t, `"aud":"other",`+escapedClaimName("AUD")+`:"`+testAudience+`"`, "aud")
+			return signLeadingClaims(t, `"aud":"other",`+escapedName("AUD")+`:"`+testAudience+`"`, "aud")
 		}},
 		// 別名の値を正しい名前と同じにし、別名の拒否だけが拒否できるようにする
 		{"iss with ISS", func(t *testing.T) string {
