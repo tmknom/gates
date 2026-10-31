@@ -63,10 +63,23 @@ clean: ## remove build artifacts
 
 # Targets: Terraform
 .PHONY: tflint
-tflint: ## static analysis by tflint in an isolated container
-	@# 読み取り専用の /src にはマウントポイントを作れないため、compose.yaml が覆う tmp/ をホスト側で用意する
-	@mkdir -p tmp
+tflint: container-mountpoints ## static analysis by tflint in an isolated container
 	TFLINT_TARGET=$(CURDIR) docker compose -f scripts/tflint/compose.yaml run --build --rm -T --interactive=false lint
+
+# Targets: Security
+.PHONY: trivy
+trivy: container-mountpoints ## scan vulnerabilities, misconfigurations and secrets by trivy in an isolated container
+	TRIVY_TARGET=$(CURDIR) docker compose -f scripts/trivy/compose.yaml run --rm -T --interactive=false scan
+
+.PHONY: trivy-update
+trivy-update: ## rebuild the trivy image to refresh its vulnerability database
+	TRIVY_TARGET=$(CURDIR) docker compose -f scripts/trivy/compose.yaml build --no-cache scan
+
+# 読み取り専用の /src にはマウントポイントを作れないため、compose.yaml が隠すパスをホスト側で用意する。既存の .envrc は変更しない
+.PHONY: container-mountpoints
+container-mountpoints:
+	@mkdir -p .claude .makefiles $(DIST_DIR) tmp
+	@[ -e .envrc ] || touch .envrc
 
 # Targets: GitHub Actions
 .PHONY: lint-gha
