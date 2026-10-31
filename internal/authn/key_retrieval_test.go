@@ -181,7 +181,7 @@ func TestAuthenticate_RetrievalFailure(t *testing.T) {
 		_, _ = io.WriteString(w, `{"issuer":`)
 	}
 	redirectToDocument := func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, r.URL.Path, http.StatusFound)
+		http.Redirect(w, r, r.URL.Path, http.StatusFound) //nolint:gosec // G710: テスト内の Issuer が自身の同じパスへ転送するだけで、外部へは転送しない
 	}
 	tests := []struct {
 		name    string
@@ -624,19 +624,42 @@ func TestAuthenticate_ConcurrentCallsKeepRetrievalFailureToThemselves(t *testing
 	calls.Wait()
 }
 
-// go-oidc は解析できた JWT だけを渡すため、Authenticate からは通らない。oidc.KeySet の契約として直接確かめる。
-func TestIssuerKeySetVerifySignature_MalformedTokenReturnsErrorWithoutRetrieval(t *testing.T) {
+func TestAuthenticate_CompactWithLineBreakIsAuthenticated(t *testing.T) {
 	stub := newIssuerStub(t, testKey(), testKeyID)
-	issuer, err := parseIssuer(stub.issuer())
-	if err != nil {
-		t.Fatalf("parseIssuer returned error: %v", err)
-	}
-	keySet := newIssuerKeySet(issuer, WithTransport(stub.server.Client().Transport))
+	token := strings.Replace(stub.token(t, testKey(), testKeyID), ".", ".\r\n", 1)
 
-	if _, err := keySet.VerifySignature(t.Context(), "not-a-jwt"); err == nil {
-		t.Fatal("VerifySignature returned no error")
+	assertAuthenticated(t, stub.verifier(t), token)
+}
+
+// go-oidc の解析は JSON 形式と空白を含む JWT を通すため、正当な署名でも issuerKeySet の解析で拒否することを確かめる。
+func TestAuthenticate_NonCompactSerializationIsRejectedWithoutRetrieval(t *testing.T) {
+	tests := []struct {
+		name      string
+		serialize func(t *testing.T, compact string) string
+	}{
+		{"JSON serialization returns ErrAuthenticationFailure", func(t *testing.T, compact string) string {
+			t.Helper()
+			signature, err := jose.ParseSignedCompact(compact, []jose.SignatureAlgorithm{jose.RS256})
+			if err != nil {
+				t.Fatalf("ParseSignedCompact returned error: %v", err)
+			}
+			return signature.FullSerialize()
+		}},
+		{"compact with whitespace returns ErrAuthenticationFailure", func(_ *testing.T, compact string) string {
+			return strings.Replace(compact, ".", ". ", 1)
+		}},
 	}
-	if requests := stub.discoveryRequests.Load(); requests != 0 {
-		t.Errorf("discovery requests = %d, want 0", requests)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stub := newIssuerStub(t, testKey(), testKeyID)
+			compact := stub.token(t, testKey(), testKeyID)
+
+			got, err := stub.verifier(t).Authenticate(t.Context(), rawIDToken(t, tt.serialize(t, compact)))
+
+			assertRejected(t, got, err, ErrAuthenticationFailure, compact)
+			if requests := stub.discoveryRequests.Load() + stub.jwksRequests.Load(); requests != 0 {
+				t.Errorf("retrieved documents %d times, want 0", requests)
+			}
+		})
 	}
 }

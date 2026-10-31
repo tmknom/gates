@@ -3,6 +3,7 @@ package authn
 import (
 	"encoding/json/v2"
 	"errors"
+	"maps"
 	"strings"
 	"testing"
 
@@ -60,9 +61,7 @@ func marshalClaims(t *testing.T, claims map[string]any) []byte {
 
 func claimsWith(overrides map[string]any) map[string]any {
 	claims := validClaims()
-	for name, value := range overrides {
-		claims[name] = value
-	}
+	maps.Copy(claims, overrides)
 	return claims
 }
 

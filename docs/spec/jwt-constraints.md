@@ -13,7 +13,8 @@ RFC の **MUST / SHOULD / MAY** は原文の規範的強度を表します。Ope
 
 ### 2.1 構造、署名、アルゴリズム
 
-**標準仕様**：JWS Compact Serialization は、Base64URL エンコードされた Protected Header、Payload、Signature の3部分を `.` で連結します。
+**標準仕様**：JWT は JWS Compact Serialization か JWE Compact Serialization で表します（[RFC 7519 §1](https://www.rfc-editor.org/rfc/rfc7519.html#section-1)）。
+JWS Compact Serialization は、Base64URL エンコードされた Protected Header、Payload、Signature の3部分を `.` で連結します。
 JOSE Header の `alg` は、存在することと、理解・処理されることが **MUST** です。
 `alg` が対応しないアルゴリズムを表す場合や、署名者に結び付くそのアルゴリズム用の鍵がない場合、署名は無効です。
 署名は、`alg` が正確に表す方式で検証します（[RFC 7515 §3.1、§4.1.1、§5.2](https://www.rfc-editor.org/rfc/rfc7515.html#section-5.2)）。
