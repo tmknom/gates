@@ -2,6 +2,8 @@
 
 ## 1. Overview
 
+本ドキュメントは現在のシステム構成を示します。オーナー単位の認可と `contents:read` の制限を採用する段階的なスコープ判断は [Project Scope](../spec/project-scope.md) を参照します。
+
 GATES（GitHub App Token Exchange System）は、GitHub Actions から指定したリポジトリを読み取るために、短命な GitHub App Installation Access Token を発行するシステムです。利用者は Composite Action を通じてアクセス先リポジトリと `contents:read` 権限を指定します。Lambda は要求を処理し、対象を限定したトークンを GitHub Actions に返します。
 
 システムは GitHub.com の単一のオーナー（Organization またはユーザーアカウント）を対象とし、AWS Lambda 上の Go アプリケーション、AWS STS、AWS KMS、および GitHub API によって構成します。GitHub App Private Key を Lambda や Actions Runner に渡さず、署名操作を KMS に委譲します。

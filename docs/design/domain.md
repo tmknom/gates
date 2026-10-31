@@ -5,7 +5,7 @@ GATES は、許可された単一のオーナー配下の GitHub Actions ワー�
 
 ## 1. Purpose and Scope
 
-本ドキュメントの目的は、Lambda 上の Go アプリケーション、Composite Action、Terraform の設計・実装・レビューが、概念の意味と判定のルールを一つのモデルから参照できるようにすることです。
+本ドキュメントの目的は、Lambda 上の Go アプリケーション、Composite Action、Terraform の設計・実装・レビューが、概念の意味と判定のルールを一つのモデルから参照できるようにすることです。現在の権限上限と認可の粒度は [Project Scope](../spec/project-scope.md) に基づくもので、恒久的な機能上限を意味しません。
 中心に置くのは、Lambda が担う発行の判定です。
 Composite Action、AWS IAM、KMS の鍵管理は、発行の判定と語の意味が異なる範囲として境界を示すにとどめます。
 
@@ -64,7 +64,7 @@ GATES が所有する概念は、発行要求、Caller、発行許可、発行�
 | **GitHub App** | GitHub App | Client ID | 権限の上限（GitHub 側で設定）、Private Key（複数持てる。上限は GitHub Constraints §4.1） | 事実：Requirements §2.1、Lambda Design §7.2、GitHub Constraints §4.1 |
 | **Installation** | Installation | Installation ID | インストール先 Owner ID、対象の選び方、付与された権限、停止状態 | 事実：GitHub Constraints §5 |
 | **ワークフロー実行** | Workflow Run | ワークフロー実行 ID と試行番号 | 実行元のリポジトリとオーナー、起動のイベントと ref など。GATES 用 OIDC JWT の主体は実行元とワークフロー起動属性の一部を表し、実行そのものは識別しない | 事実：GitHub Constraints §3.1 |
-| **Issuer の公開鍵** | JWKS | 鍵の識別子 | Issuer が GATES 用 OIDC JWT の署名の検証のために公開する鍵の集合。ローテーションで入れ替わる。GATES は Discovery から取得先を知り、取得して実行環境の中で保持する | 事実：Lambda Design §7.1、RFC 7517。語は候補 |
+| **Issuer の公開鍵集合** | JWK Set（JWKS） | 固定 Issuer に対応する公開鍵集合（取得先は Discovery の `jwks_uri`） | 署名検証用の個々の JWK の集合。ローテーションによって内容が変わり得る。GATES は Discovery で取得先を確認し、実行環境内で保持する。個々の鍵の選択には JWK の `kid` を使う | 事実：Lambda Design §7.1、RFC 7517 §4.5・§5。日本語の概念名は本ドキュメントの表現 |
 | **Discovery** | Discovery | Issuer | Issuer が公開する設定。GATES はそこから Issuer の値と公開鍵の取得先だけを読む。成功した内容は実行環境の中で再利用し、失敗した内容は保持しない | 事実：Lambda Design §7.1、OpenID Connect Discovery |
 
 オーナーとリポジトリは、どちらも不変 ID と名前の二つの表現を持ちます。
@@ -112,7 +112,7 @@ Client ID、KMS Key ARN、Audience、Issuer、API Host は、認証、署名、I
 | **オーナー名** | Owner Name | 値 | 完全名のオーナー部分と許可オーナー名の二か所に現れるオーナーの名前。どちらも同じ文字種の規則に従う。比較は ASCII の範囲で大文字小文字を区別しない | 事実：Lambda Design §2.2 |
 | **Permission Entry** | Permission Entry | 値 | 権限名と水準の組（`contents:read` など） | 事実：Requirements FR-008 |
 | **Permissions** | Permissions | 値 | Permission Entry の集合。権限名ごとに水準を一つ持つ（GitHub の権限の表現が権限名をキーに持つため）。要求では `{contents:read}` だけが許可される。GitHub REST API のスキーマ「App Permissions」に対応する | 事実：Requirements FR-008、Security Design §3.1、GitHub Constraints §6.1、REST API endpoints for GitHub Apps のスキーマ「App Permissions」 |
-| **許可権限** | Allowed Permissions | 値 | GATES が発行を許可する Permissions。`{contents:read}` に固定 | 事実：Requirements §2.1 |
+| **許可権限** | Allowed Permissions | 値 | 現在のスコープで GATES が発行を許可する Permissions。`{contents:read}` に固定 | 事実：Requirements §2.1 |
 | **付随権限** | Implied Permissions | 値 | 要求にかかわらず GitHub が付与する Permission Entry。`metadata:read` だけを許容する | 事実：Requirements FR-018 が除外の枠を定める。`metadata:read` だけを許容するのは GATES の判断。未確認：`metadata:read` が実際に付与されるか（GitHub Constraints §6.2）。語は候補 |
 | **Caller** | Caller | 値 | 検証済み GATES 用 OIDC JWT から確定した呼び出し元。不変 Owner ID と Repository ID で識別し、ワークフロー実行 ID と試行番号、およびワークフロー起動属性を監査のためだけに添える | 事実：Requirements FR-002 |
 | **ワークフロー起動属性** | Workflow Trigger Attributes | 値 | ワークフロー実行の起動と、GATES 用 OIDC JWT を取得したジョブを示す属性の組。誰が起動したか（行為者の名前と ID）、どのイベントか、どの ref とコミットか、どのワークフロー定義か、どの environment か。どれも欠落し得る | 事実：GitHub Constraints §3.1、Lambda Design §7.1 |
@@ -252,7 +252,7 @@ flowchart LR
 | Sign | 一時的な障害 |
 | Resolve Installation | Installation 利用不可（App JWT の拒否、未インストール、必須項目の欠落）。取得時の一時的な障害は一時的な障害 |
 | Grant | Installation 利用不可（インストール先 Owner ID の不一致、停止）。認可条件を満たさなければ認可拒否（Authorize を通った要求では起きないため、[4.3](#43-lifecycle-of-an-issuance) の図には描かない） |
-| Issue | 認可拒否（GitHub が対象を受け付けない）。一時的な障害は一時的な障害、その他の失敗は Installation 利用不可 |
+| Issue | GitHub 発行拒否（発行 API の `422`）。通信の失敗などは一時的な障害、その他の失敗は Installation 利用不可 |
 | Verify | 照合失敗 |
 | Revoke | なし。失効に失敗しても照合失敗のまま終わる |
 
@@ -271,9 +271,10 @@ flowchart LR
 |---|---|---|---|---|
 | **入力不正** | Invalid Request | Payload を GATES が読み取れない | 利用者が要求の形を直す。要求を読み取れていないため、監査記録に要求対象と要求権限を残さない | 事実：Lambda Design §2.2 |
 | **認証失敗** | Authentication Failure | GATES 用 OIDC JWT から Caller を確定できない | 利用者がワークフローの設定を直す。OIDC JWT の主体のカスタマイズが原因なら、リポジトリかオーナーの管理者が直す（[4.4](#44-events-outside-gates-that-change-the-outcome)）。監査記録に未検証の値を Caller として残さない | 事実：Requirements FR-002、Security Design §5 |
-| **認可拒否** | Authorization Denied | Caller と要求は読み取れたが、認可条件を満たさない。GitHub が要求した対象を受け付けない場合も含む | 利用者が要求の対象か権限を直す。監査記録には、利用者の要求が許可外だったことが残る | 事実：Security Design §3.1、Lambda Design §3.2 |
+| **認可拒否** | Authorization Denied | Caller と要求は読み取れたが、GATES の認可条件を満たさない | 利用者が要求の対象か権限を直す。監査記録には、GATES の認可で拒否したことが残る | 事実：Security Design §3.1、Lambda Design §3.2 |
 | **Installation 利用不可** | Installation Unavailable | 固定した GitHub App と許可オーナーから、発行に使える Installation を得られない。取得の失敗、必須項目の欠落、停止、インストール先 Owner ID の不一致、発行の間に Installation か App の状態が変わった場合 | GATES 運用者かオーナーの管理者が、GitHub 側か固定設定を直す。再試行では解消しない | 事実：Lambda Design §3.2 |
-| **照合失敗** | Verification Failure | GitHub が発行したトークンの発行結果が、発行許可と一致しない | 運用者が設定か GitHub 側の仕様変更を調べる。発行済みのトークンの失効を試みる | 事実：Requirements FR-018、Lambda Design §3.1 |
+| **GitHub 発行拒否** | GitHub Issuance Rejected | GATES の認可が成立したが、GitHub 発行 API が `422` で要求を拒否した。原因は応答コードから確定できない | 利用者の許可外要求とは断定せず、運用者が GitHub の発行条件・状態・応答を調べる。トークン文字列は未取得 | 事実：Lambda Design §3.2 |
+| **照合失敗** | Verification Failure | GitHub 発行 API の応答を取得したが、発行結果が発行許可と一致しない | 運用者が設定か GitHub 側の仕様変更を調べる。トークン文字列を取得できた場合は失効を試みる | 事実：Requirements FR-018、Lambda Design §3.1 |
 | **一時的な障害** | Transient Failure | Discovery / JWKS の取得、KMS の署名、GitHub API の呼び出しのいずれかが一時的に失敗した。通信の失敗、タイムアウト、サーバー側のエラー、レート制限を指す | 呼び出し元の再試行で解消し得る | 事実：Lambda Design §3.2 |
 | **内部障害** | Internal Failure | 想定外の失敗。どの段階にも属さない失敗と、GitHub OIDC Provider の応答が想定と異なる失敗（Discovery が示す Issuer が固定した Issuer と異なる、公開鍵の取得先が Issuer と異なるホストかポートを指す、応答を解釈できない、使える公開鍵が一つもない、応答が上限より大きい、再試行では解消しない失敗の応答が返る）を含む | 運用者が調べる。再試行では解消しない | 事実：Lambda Design §3.2 |
 
@@ -282,8 +283,7 @@ Installation 利用不可を認可拒否と分けるのは、利用者の要求�
 一時的な障害と分けるのは、再試行では解消せず、運用者の対応を要するためです。
 
 Installation 利用不可と照合失敗は、どちらも設定ミスや GitHub 側の仕様変更を示し得る監視対象です。
-両者の境界は、GitHub がトークンを発行したかどうかにあります。
-Installation の応答が想定と異なれば、トークンが存在しないため Installation 利用不可に、発行結果が想定と異なれば、失効させるべきトークンが存在するため照合失敗に分類します。
+両者の境界は、問題を検出した処理段階です。Installation の取得・確認時点の不整合は Installation 利用不可、発行応答を取得して照合した不整合は照合失敗です。
 照合失敗を一時的な障害と分けるのも、発行結果の不整合が再試行で解消する障害ではなく、監視対象だからです。
 
 一時的な障害は、失敗した依存先が Discovery / JWKS、KMS、GitHub API のどれであっても一つの種別にまとめます。
@@ -311,12 +311,14 @@ stateDiagram-v2
   state "署名済み" as signed
   state "Installation 解決済み" as resolved
   state "発行許可済み" as granted
-  state "発行済み" as issued
+  state "発行 API 応答取得済み" as issued
+  state "発行 API 呼出中" as issue_requested
   state "返却可能" as returnable
   state "入力不正" as rej_request
   state "認証失敗" as rej_auth
   state "認可拒否" as rej_authz
   state "Installation 利用不可" as rej_installation
+  state "GitHub 発行拒否" as rej_issue
   state "照合失敗" as rej_verify
   state "一時的な障害" as rej_transient
   state "内部障害" as rej_internal
@@ -336,19 +338,19 @@ stateDiagram-v2
   signed --> rej_transient : 取得時の一時的な障害
   resolved --> granted : 発行許可の確定
   resolved --> rej_installation : 停止、インストール先 Owner ID の不一致
-  granted --> issued : 発行
-  granted --> rej_authz : GitHub が対象を受け付けない
-  granted --> rej_transient : 一時的な障害
-  granted --> rej_installation : その他の失敗
+  granted --> issue_requested : 発行 API 呼出し
+  issue_requested --> issued : 発行応答を受信
+  issue_requested --> rej_issue : 発行 API が要求を拒否
+  issue_requested --> rej_transient : 応答喪失を含む一時的な障害（発行有無は不明）
+  issue_requested --> rej_installation : その他の失敗
   issued --> returnable : 発行結果の照合
-  issued --> rej_verify : 発行許可との不一致（トークンを失効）
+  issued --> rej_verify : 発行許可との不一致（取得済みトークンを失効試行）
   returnable --> [*]
 ```
 
 内部障害への遷移は認証の段階のものだけを描き、どの段階でも起き得る想定外の失敗は描きません。
 
-照合失敗だけは、GitHub がトークンを発行した後の拒否です。
-そのため、この状態に至るときはトークンの失効を試みます（事実：Lambda Design §3.1）。
+照合失敗は GitHub の発行応答を取得した後の拒否です。空でないトークン文字列を取得した場合は失効を試みます。発行 API への要求後に通信が断たれた場合は、GitHub 側で発行が成功していてもトークン文字列を取得できないことがあります。返却しないことは保証しますが、GitHub 側でトークンが残らないことは保証しません（事実：Requirements FR-018、QR-003）。
 
 認可が事前認可と発行許可の確定の二段に分かれるのは、Installation を取得しないとインストール先 Owner ID を照合できず、Installation の取得には署名済みの GitHub App JWT が要るためです（推論：Lambda Design §6 手順 3 から 5 の順序から）。
 事前認可は、KMS と GitHub API を呼ぶ前に、認可の見込みがない要求を落とすための段階です（事実：Lambda Design §6）。
@@ -360,13 +362,14 @@ stateDiagram-v2
 | 出来事 | 影響 | 根拠 |
 |---|---|---|
 | オーナーの名前変更 | IAM Role の引き受けとオーナー名の照合が失敗し、設定を更新するまで発行が止まる | 事実：AWS Infrastructure Design §3.1 |
-| リポジトリの名前変更・移管 | 旧名で要求すると、GitHub が受け付けないか実効対象の完全名が一致しないかのいずれかで返却しない。新しい名前で要求すれば影響しない | 推論：Lambda Design §3.1 の照合条件から。旧名への GitHub の応答は未確認 |
+| リポジトリの名前変更 | 旧名で要求すると、GitHub が拒否するか実効対象の完全名が一致せず返却できない場合がある。同一の許可オーナー・Installation の対象に残り、ほかの条件も成立するなら、新しい完全名で要求できる | 推論：Lambda Design §3.1 の照合条件から。旧名への GitHub の応答は未確認 |
+| リポジトリの移管 | 所有オーナーと Installation の対象範囲が変わり得る。異なるオーナーへの移管後は、名前を変えて要求するだけでは現在の単一オーナー認可を満たさない | 推論：Requirements FR-006・FR-007、Security Design §3.1 の Owner ID と Installation の確認から |
 | Installation の対象の追加・削除 | 読み取り可能範囲の上限が変わる。Organization では、制限していなければリポジトリ管理者も追加できる | 事実：Security Design §3.2 |
 | GitHub App の再インストール | Installation ID が変わるが、設定変更なしに新しい Installation を導出する | 事実：Security Design §3.2 |
 | Installation の停止 | 取得した Installation が停止状態のため、発行許可を作らず Installation 利用不可で閉じる。GitHub の発行 API を呼ばない | 事実：Security Design §3.1、Lambda Design §6 手順 5 |
 | GitHub 側での旧 Private Key の失効 | 新しい KMS Key に切り替え済みなら影響しない | 事実：Requirements AC-14 |
 | OIDC JWT の主体のカスタマイズ | 実 JWT で確かめた形式から外れると、入口制御の拒否か認証失敗で発行が止まる | 推論：Lambda Design §7.1、AWS Infrastructure Design §3.1 の主体の条件から。実環境では未確認 |
-| Issuer の公開鍵のローテーション | 保持している公開鍵で検証できない JWT が来ると取得し直すため、設定変更なしに新しい鍵で検証する | 事実：Lambda Design §7.1 |
+| Issuer の公開鍵のローテーション | 未知の `kid` で JWKS の再取得が許され、取得に成功すれば新しい鍵に追従できる。再取得の頻度上限中や取得失敗時は、正当な JWT でも一時的に拒否され得る | 推論：Lambda Design §7.1 の再取得制限と検証条件から |
 | 公開鍵の取得先の変更 | 保持した Discovery は取り直さないため、古い取得先が使えなくなると、実行環境が入れ替わるまで一時的な障害か内部障害で止まる | 推論：Lambda Design §7.1 の Discovery の再利用から |
 
 ## 5. Rules and Invariants
@@ -384,7 +387,7 @@ stateDiagram-v2
 
 | ルール | 適用対象 | 成立条件 | 例外 | 根拠 |
 |---|---|---|---|---|
-| 認証条件 | 認証 | GATES 用 OIDC JWT が、Issuer の公開する鍵で GATES が許可した署名方式により署名され、Issuer が固定設定の Issuer と一致し、Audience が GATES 用 Audience の一つだけであり、現在時刻が失効時刻を過ぎておらず、有効期間の開始と発行時刻が現在時刻に許容時計差（[Lambda Design](lambda.md#71-oidc-validation)）を足した時刻より後でなく、属性を一意に読み取れ、発行時刻、失効時刻、Caller の確定に要る属性がそろい、[5.1 Identity Rules](#51-identity-rules) の ID の整合を満たす。一つでも満たさなければ認証失敗 | 有効期間の開始は欠落を許す | 事実：Requirements FR-002、FR-003、Lambda Design §7.1、Security Design §2.2 |
+| 認証条件 | 認証 | GATES 用 OIDC JWT が、Issuer の公開する鍵で GATES が許可した署名方式により署名され、Issuer が固定設定の Issuer と一致し、Audience が GATES 用 Audience の一つだけであり、現在時刻が失効時刻より前であり、有効期間の開始と発行時刻が現在時刻に許容時計差（[Lambda Design](lambda.md#71-oidc-validation)）を足した時刻より後でなく、属性を一意に読み取れ、発行時刻、失効時刻、Caller の確定に要る属性がそろい、[5.1 Identity Rules](#51-identity-rules) の ID の整合を満たす。一つでも満たさなければ認証失敗 | 有効期間の開始は欠落を許す | 事実：Requirements FR-002、FR-003、Lambda Design §7.1、Security Design §2.2 |
 | 認可条件 | 事前認可、発行許可の確定 | Caller の Owner ID が許可オーナーの Owner ID と一致し、要求の各完全名のオーナー名が許可オーナー名と一致し、Permissions が許可権限と等しい。満たさなければ認可拒否 | なし | 事実：Security Design §3.1 |
 | Installation の有効性 | 発行許可の確定 | 取得した Installation のインストール先 Owner ID が許可オーナーの Owner ID と一致し、停止していない。満たさなければ Installation 利用不可 | なし | 事実：Security Design §3.1 |
 | 全件成立 | 複数対象の発行要求 | すべての対象が条件を満たすときだけ発行する。一部だけの発行や対象の縮小をしない | なし | 事実：Requirements FR-011 |
@@ -399,8 +402,9 @@ stateDiagram-v2
 
 Installation に対象リポジトリが含まれることを、GATES は発行前に確認しません（事実：Security Design §2 の Authorization の行）。
 含まれない対象は、GitHub API が発行要求を受け付けないか、発行結果の対象一覧が要求と一致しないかのどちらかで検出します（推論）。
-GitHub がどちらの振る舞いをするかで、失敗の種別が認可拒否と照合失敗のどちらになるかは変わりますが、トークンを返さない点は変わりません。
-後者では GitHub がトークンを発行済みのため、返さないことに加えて失効を試みます。
+失敗の種別は GitHub の応答で決まり、発行要求の `422` なら GitHub 発行拒否、その他の失敗なら Installation 利用不可、発行応答が発行許可と一致しなければ照合失敗です。
+種別からは、対象が Installation に含まれなかったことを断定できません。
+どの場合も利用者にトークンを返しません。
 
 ### 5.3 Invariants
 
@@ -413,17 +417,16 @@ GitHub がどちらの振る舞いをするかで、失敗の種別が認可拒�
 | 許可オーナー | 固定設定を読んだ時点 | Owner ID が正の整数で、オーナー名がオーナー名の文字種を満たし、種別が二つの値のどちらかである | 事実：Requirements FR-024、Lambda Design §2.2 の名前の文字種。推論：条件を満たさない値を作らない方針（本節冒頭） |
 | 認証の固定設定 | 検証器を作った時点 | Issuer が `https` のホストと、あれば空でないポートだけからなり、解析しても文字列が変わらない URL で、Audience が空でない | 推論：空の Audience はすべての JWT を拒否し、空の Issuer は Issuer の値のない署名済み JWT を通す。`https` に限るのは、平文の通信を設定から有効にできる形にしないため。ポートを許すのは、`httptest` の Issuer で取得と失敗の分類を確かめるため |
 | 保持した Discovery | 保持した時点 | Issuer が固定設定の Issuer と一致し、公開鍵の取得先が Issuer と同じ `https` のホストとポートを指す | 事実：OpenID Connect Discovery、Lambda Design §7.1。ホストとポートの限定は推論：固定した Issuer の外から鍵を読まないため |
-| 保持した公開鍵 | 保持した時点 | 完全に受信して解釈できた応答の、鍵の識別子を持つ RSA の公開鍵だけからなり、1 つ以上ある。取得に失敗しても前回の鍵が残る | 推論：GATES が RS256 だけを許すため |
+| 保持した公開鍵 | 保持した時点 | 完全に受信して解釈できた応答の、鍵の識別子を持つ RSA の公開鍵だけからなり、1 つ以上ある。取得に失敗しても前回の鍵が残り、未知の鍵で検証に成功したとは扱わない | 推論：GATES が RS256 だけを許すため |
 | Caller | 認証を通った時点 | [5.2 Rules](#52-rules) の認証条件を満たした GATES 用 OIDC JWT だけから作られ、Owner ID と Repository ID が [5.1 Identity Rules](#51-identity-rules) の ID の整合を満たす。Owner ID、Repository ID、ワークフロー実行 ID、試行番号はどれも正の整数である。いずれかが欠落していれば Caller は確定しない | 事実：Requirements FR-002、FR-004、Lambda Design §7.1。正の整数は推論：GitHub の ID と試行番号は 1 から始まる |
 | Installation | 取得した応答から作った時点 | Installation ID とインストール先 Owner ID が正の整数である。インストール先 Owner ID が許可オーナーの Owner ID と一致することと停止していないことは含まず、発行許可の確定が [5.2 Rules](#52-rules) の Installation の有効性として判定する | 推論：GitHub の ID は 1 から始まる。一致しない、または停止している Installation も GitHub 上に実在する値であり、作れない値ではなく発行に使えない値であるため |
 | 発行許可 | 確定した時点 | [5.2 Rules](#52-rules) の認可条件をすべて満たす。対象は発行要求の対象と同じ集合で、各完全名の表記と並びも発行要求のままである（GitHub API に渡すリポジトリ名と監査記録の要求対象を、利用者の要求と一致させるため）。Permissions は許可権限に等しい。Installation ID は、インストール先 Owner ID が許可オーナーの Owner ID と一致し、停止していない Installation のものである | 事実：Security Design §3.1 |
 | 返却可能な発行結果 | 照合を通った時点 | トークンが空でなく、有効期限が将来である。実効対象の完全名の集合が発行許可の対象と一致し、件数が同じで、余分・欠落・重複がない。各実効対象の Repository ID が有効で一意であり、所有オーナーの Owner ID が許可オーナーの Owner ID と一致する。実効権限が許可権限に付随権限を加えた範囲内で、`contents:read` を含む。対象の選び方が、選択したリポジトリに限られている | 事実：Lambda Design §3.1、Requirements FR-018 |
-| 発行処理 | 全体 | 返却可能な発行結果がなければトークンを返さない。照合を通らなかった発行結果のトークンは失効を試みる。固定設定は処理中に変わらない。資格情報をログとエラー本文に出さない | 事実：Requirements QR-003、FR-007、FR-018、FR-024、QR-004 |
+| 発行処理 | 全体 | 返却可能な発行結果がなければトークンを返さない。照合を通らず、空でないトークン文字列を取得できた場合は、実行可能な範囲で失効 API の呼び出しを試みる。失効成功と、応答を取得できなかったトークンの不存在は保証しない。固定設定は処理中に変わらない。資格情報をログとエラー本文に出さない | 事実：Requirements QR-003、FR-007、FR-018、FR-024、QR-004 |
 
 「返却可能な発行結果」の条件のうち対象の全件一致は、GitHub が要求外の対象を黙って除いた場合も、余分な対象を加えた場合も検出します。
 この条件があるため、FR-007 と FR-010 のうち「トークンを返さない」ことは GitHub の拒否の振る舞いに依存しません（推論）。
-GitHub が発行した後に検出した場合、発行されたトークンが GitHub 上で無効になるかは失効の成否に依存します。
-失効に失敗しても、そのトークンは Lambda の外に出ず、GitHub が定めた有効期限で失効します。
+GitHub が発行した後に不整合を検出して失効に失敗した場合、GitHub 側でトークンが有効なまま残り得ます。
 
 ## 6. Bounded Contexts and Ubiquitous Language
 
