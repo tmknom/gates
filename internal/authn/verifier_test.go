@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -76,6 +77,19 @@ func signClaims(t *testing.T, claims map[string]any) string {
 	return signPayload(t, jose.RS256, testKey(), marshalClaims(t, claims))
 }
 
+// signLeadingClaims は leading の JSON のメンバーを先頭に固定して署名する。
+// go-oidc が読む値は大文字小文字だけが異なる名前の順序で変わり、map から作る JSON では順序を決められないため。
+func signLeadingClaims(t *testing.T, leading, omitted string) string {
+	t.Helper()
+	rest := marshalClaims(t, claimsWithout(omitted))[1:]
+	return signPayload(t, jose.RS256, testKey(), append([]byte("{"+leading+","), rest...))
+}
+
+// escapedClaimName は、先頭の文字を Unicode エスケープで書いた JSON の文字列を返す。エスケープを解いた後の名前で比較されることを確かめるため。
+func escapedClaimName(name string) string {
+	return fmt.Sprintf(`"%cu%04x%s"`, '\\', name[0], name[1:])
+}
+
 func rawIDToken(t *testing.T, token string) request.RawIDToken {
 	t.Helper()
 	payload, err := json.Marshal(map[string]any{
@@ -139,7 +153,8 @@ func TestVerifierAuthenticate(t *testing.T) {
 	}{
 		{"all claims present", validClaims()},
 		{"aud as one-element array", claimsWith(map[string]any{"aud": []string{testAudience}})},
-		{"exp equal to current time", claimsWith(map[string]any{"exp": unixAfter(0)})},
+		{"exp at numeric date upper limit", claimsWith(map[string]any{"exp": 253402300799})},
+		{"iat at numeric date lower limit", claimsWith(map[string]any{"iat": 0})},
 		{"nbf missing", claimsWithout("nbf")},
 		{"nbf at clock skew limit", claimsWith(map[string]any{"nbf": unixAfter(5 * time.Minute)})},
 		{"iat at clock skew limit", claimsWith(map[string]any{"iat": unixAfter(5 * time.Minute)})},
@@ -186,6 +201,9 @@ func TestVerifierAuthenticate_InvalidToken(t *testing.T) {
 		{"aud missing", func(t *testing.T) string {
 			return signClaims(t, claimsWithout("aud"))
 		}},
+		{"exp equal to current time", func(t *testing.T) string {
+			return signClaims(t, claimsWith(map[string]any{"exp": unixAfter(0)}))
+		}},
 		{"exp one second ago", func(t *testing.T) string {
 			return signClaims(t, claimsWith(map[string]any{"exp": unixAfter(-time.Second)}))
 		}},
@@ -205,32 +223,99 @@ func TestVerifierAuthenticate_InvalidToken(t *testing.T) {
 		{"claims rejected by caller rules", func(t *testing.T) string {
 			return signClaims(t, claimsWith(map[string]any{"sub": "repo:octo@99/app@22:ref:refs/heads/main"}))
 		}},
-		// 検証ライブラリは後の値を読み、aud の検証を通る。Caller を確定する復号が重複そのものを拒否する
+		// 検証ライブラリは後の値を読み、aud の検証を通る。Claim の組の復号が重複そのものを拒否する
 		{"duplicate aud keys", func(t *testing.T) string {
-			rest := marshalClaims(t, claimsWithout("aud"))[1:]
-			payload := append([]byte(`{"aud":"other","aud":"`+testAudience+`",`), rest...)
-			return signPayload(t, jose.RS256, testKey(), payload)
+			return signLeadingClaims(t, `"aud":"other","aud":"`+testAudience+`"`, "aud")
+		}},
+		{"duplicate exp keys after unescaping", func(t *testing.T) string {
+			return signLeadingClaims(t, `"exp":1700000300,`+escapedClaimName("exp")+`:1700000300`, "exp")
+		}},
+		{"invalid UTF-8 in a claim not read for Caller", func(t *testing.T) string {
+			return signLeadingClaims(t, "\"jti\":\"\xff\"", "jti")
+		}},
+		{"only EXP", func(t *testing.T) string {
+			return signLeadingClaims(t, `"EXP":1700000300`, "exp")
+		}},
+		{"only IAT", func(t *testing.T) string {
+			return signLeadingClaims(t, `"IAT":1700000000`, "iat")
+		}},
+		{"only ISS", func(t *testing.T) string {
+			return signLeadingClaims(t, `"ISS":"`+testIssuer+`"`, "iss")
+		}},
+		{"only AUD", func(t *testing.T) string {
+			return signLeadingClaims(t, `"AUD":"`+testAudience+`"`, "aud")
+		}},
+		{"AUD after a different aud", func(t *testing.T) string {
+			return signLeadingClaims(t, `"aud":"other","AUD":"`+testAudience+`"`, "aud")
+		}},
+		{"escaped AUD after a different aud", func(t *testing.T) string {
+			return signLeadingClaims(t, `"aud":"other",`+escapedClaimName("AUD")+`:"`+testAudience+`"`, "aud")
+		}},
+		// 別名の値を正しい名前と同じにし、別名の拒否だけが拒否できるようにする
+		{"iss with ISS", func(t *testing.T) string {
+			return signLeadingClaims(t, `"iss":"`+testIssuer+`","ISS":"`+testIssuer+`"`, "iss")
+		}},
+		{"exp with EXP", func(t *testing.T) string {
+			return signLeadingClaims(t, `"exp":1700000300,"EXP":1700000300`, "exp")
+		}},
+		{"iat with IAT", func(t *testing.T) string {
+			return signLeadingClaims(t, `"iat":1700000000,"IAT":1700000000`, "iat")
+		}},
+		{"nbf with NBF", func(t *testing.T) string {
+			return signLeadingClaims(t, `"nbf":1699999700,"NBF":1699999700`, "nbf")
+		}},
+		// U+017F は s と同じ大文字小文字の対応に属し、encoding/json (v1) は iss として読む
+		{"iss with non-ASCII alias", func(t *testing.T) string {
+			return signLeadingClaims(t, `"iss":"`+testIssuer+`","iſſ":"`+testIssuer+`"`, "iss")
 		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name+" returns ErrAuthenticationFailure", func(t *testing.T) {
-			token := tt.token(t)
-
-			got, err := newTestVerifier().Authenticate(t.Context(), rawIDToken(t, token))
-			if !errors.Is(err, ErrAuthenticationFailure) {
-				t.Fatalf("Authenticate error = %v, want ErrAuthenticationFailure", err)
-			}
-			if got != (authz.Caller{}) {
-				t.Errorf("Authenticate = %+v, want zero Caller", got)
-			}
-
-			// oidc: は検証ライブラリの文言の接頭辞で、値を含まない文言が混ざったときにも検出するために入れる
-			forbidden := append(strings.Split(token, "."), "oidc:", testIssuer, "octo@", "other.example")
-			for _, value := range forbidden {
-				if strings.Contains(err.Error(), value) {
-					t.Errorf("error message %q contains %q", err.Error(), value)
-				}
-			}
+			assertAuthenticationFailure(t, tt.token(t))
 		})
+	}
+}
+
+// 文字列、小数、指数表記の値は、go-oidc が読むと 3 つの Claim のどれでも時間条件を通る時刻にし、型の判定だけが拒否できるようにする。
+// 範囲の外の値は、Claim によっては go-oidc や iat の判定でも拒否される。
+func TestVerifierAuthenticate_InvalidNumericDate(t *testing.T) {
+	literals := []struct {
+		name    string
+		literal string
+	}{
+		{"numeric string", `"1700000100"`},
+		{"null", `null`},
+		{"true", `true`},
+		{"fraction", `1700000100.5`},
+		{"exponent", `1.7000001e9`},
+		{"negative", `-1`},
+		{"one above upper limit", `253402300800`},
+		{"above int64", `9223372036854775808`},
+	}
+	for _, name := range []string{"exp", "iat", "nbf"} {
+		for _, tt := range literals {
+			t.Run(name+" "+tt.name+" returns ErrAuthenticationFailure", func(t *testing.T) {
+				assertAuthenticationFailure(t, signLeadingClaims(t, `"`+name+`":`+tt.literal, name), tt.literal)
+			})
+		}
+	}
+}
+
+func assertAuthenticationFailure(t *testing.T, token string, values ...string) {
+	t.Helper()
+	got, err := newTestVerifier().Authenticate(t.Context(), rawIDToken(t, token))
+	if !errors.Is(err, ErrAuthenticationFailure) {
+		t.Fatalf("Authenticate error = %v, want ErrAuthenticationFailure", err)
+	}
+	if got != (authz.Caller{}) {
+		t.Errorf("Authenticate = %+v, want zero Caller", got)
+	}
+
+	// oidc: は検証ライブラリの文言の接頭辞で、値を含まない文言が混ざったときにも検出するために入れる
+	forbidden := append(strings.Split(token, "."), "oidc:", testIssuer, "octo@", "other.example", "EXP", "IAT", "ISS", "AUD", "NBF", "ſ")
+	for _, value := range append(forbidden, values...) {
+		if strings.Contains(err.Error(), value) {
+			t.Errorf("error message %q contains %q", err.Error(), value)
+		}
 	}
 }
