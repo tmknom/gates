@@ -52,7 +52,7 @@ func parseIssuer(issuer string) (*url.URL, error) {
 	return issuerURL, nil
 }
 
-// newVerifier は now を go-oidc の設定に渡し、exp、nbf と Authenticate の iat を同じ時計で判定する。
+// newVerifier は now を go-oidc の設定に渡し、go-oidc と Authenticate の判定を同じ時計で行う。
 func newVerifier(issuer, audience string, keys oidc.KeySet, now func() time.Time) *Verifier {
 	config := &oidc.Config{
 		ClientID:             audience,
@@ -90,6 +90,14 @@ func (v *Verifier) Authenticate(ctx context.Context, rawIDToken request.RawIDTok
 		return authz.Caller{}, fmt.Errorf("%w: signature, issuer, audience, or time condition is not satisfied", ErrAuthenticationFailure)
 	}
 
+	// Claims は encoding/json (v1) で復号するため、重複したキーを拒否する checkClaimSet と callerFromClaims に生の JSON を渡す。
+	// Verify が同じ Payload を復号済みで失敗しない。失敗しても raw が空のまま checkClaimSet が拒否する
+	var raw json.RawMessage
+	_ = idToken.Claims(&raw)
+	if err := checkClaimSet(raw); err != nil {
+		return authz.Caller{}, err
+	}
+
 	// go-oidc は aud の含有だけを確かめるため、ここでは要素数だけを判定する
 	if len(idToken.Audience) != 1 {
 		return authz.Caller{}, fmt.Errorf("%w: aud must have exactly one value", ErrAuthenticationFailure)
@@ -98,13 +106,14 @@ func (v *Verifier) Authenticate(ctx context.Context, rawIDToken request.RawIDTok
 	if idToken.IssuedAt.IsZero() {
 		return authz.Caller{}, fmt.Errorf("%w: iat is required", ErrAuthenticationFailure)
 	}
-	if idToken.IssuedAt.After(v.config.Now().Add(clockSkew)) {
+	now := v.config.Now()
+	if idToken.IssuedAt.After(now.Add(clockSkew)) {
 		return authz.Caller{}, fmt.Errorf("%w: iat must not be later than the current time plus the clock skew", ErrAuthenticationFailure)
 	}
+	// go-oidc の exp の判定は Expiry.Before(now) で、現在時刻と等しい exp を受理する。設定で変えられないため重ねて判定する
+	if !now.Before(idToken.Expiry) {
+		return authz.Caller{}, fmt.Errorf("%w: exp must be later than the current time", ErrAuthenticationFailure)
+	}
 
-	// Claims は encoding/json (v1) で復号するため、重複したキーを拒否する callerFromClaims に生の JSON を渡す。
-	// Verify が同じ Payload を復号済みで失敗しない。失敗しても raw が空のまま callerFromClaims が拒否する
-	var raw json.RawMessage
-	_ = idToken.Claims(&raw)
 	return callerFromClaims(raw)
 }
