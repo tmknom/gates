@@ -1,0 +1,20 @@
+# 実行時はネットワークを持たないため、更新の確認をすべて止め、イメージ内の DB とチェックだけで検査する
+db:
+  no-progress: true
+  skip-update: true
+  java-skip-update: true
+rego:
+  skip-check-update: true
+vulnerability:
+  skip-vex-repo-update: true
+scan:
+  offline: true
+  skip-version-check: true
+  disable-telemetry: true
+  scanners:
+    - vuln
+    - misconfig
+    - secret
+ignorefile: /config/.trivyignore
+# 検出があれば make を失敗させる
+exit-code: 1

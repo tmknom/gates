@@ -1,0 +1,62 @@
+# trivy を隔離して実行するサービス定義
+#
+# 環境変数は Makefile が設定する。
+#   TRIVY_TARGET  検査するディレクトリの絶対パス
+
+name: trivy
+
+services:
+  scan:
+    # 脆弱性 DB をイメージに持つため、実行のたびにはビルドしない。イメージがなければ Compose がビルドし、更新は Makefile の trivy-update が行う。
+    # localhost/ を付け、Docker Hub の同名のイメージを取ってこないようにする
+    build: .
+    image: localhost/gates-trivy:latest
+    pull_policy: never
+    user: "65534:65534"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=256m
+      # 検査に不要なディレクトリを空の tmpfs で覆い、検査対象から外してコンテナからも隠す。
+      # 隠すパスは .gitignore と連動せず、ここに列挙していないものはコンテナから読める。
+      # 追加するときは Makefile の container-mountpoints と scripts/tflint/compose.yaml も更新する
+      - /src/.claude:ro,noexec,nosuid,nodev,size=1m
+      - /src/.git:ro,noexec,nosuid,nodev,size=1m
+      - /src/.makefiles:ro,noexec,nosuid,nodev,size=1m
+      - /src/dist:ro,noexec,nosuid,nodev,size=1m
+      - /src/tmp:ro,noexec,nosuid,nodev,size=1m
+    network_mode: none
+    ipc: none
+    mem_limit: 2g
+    memswap_limit: 2g
+    pids_limit: 128
+    cpus: 2
+    ulimits:
+      core: 0
+    init: true
+    working_dir: /src
+    environment:
+      HOME: /tmp
+    volumes:
+      - type: bind
+        source: ${TRIVY_TARGET:?TRIVY_TARGET is required}
+        target: /src
+        read_only: true
+      # tmpfs はファイルを覆えないため、/dev/null を重ねて .envrc の中身をコンテナから隠す
+      - type: bind
+        source: /dev/null
+        target: /src/.envrc
+        read_only: true
+      - type: bind
+        source: ./trivy.yaml
+        target: /config/trivy.yaml
+        read_only: true
+      - type: bind
+        source: ./.trivyignore
+        target: /config/.trivyignore
+        read_only: true
+    command:
+      - fs
+      - --config=/config/trivy.yaml
+      - .
