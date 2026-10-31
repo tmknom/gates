@@ -4,7 +4,7 @@
 #   LINT_MODULE      lint する Go モジュールのディレクトリの絶対パス
 #   LINT_GOMODCACHE  ホストのモジュールキャッシュの絶対パス（go env GOMODCACHE）
 
-name: wisdom-golangci-lint
+name: golangci-lint
 
 services:
   lint:

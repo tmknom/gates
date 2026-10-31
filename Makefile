@@ -61,6 +61,13 @@ cover: ## measure test coverage excluding main.go and require 100% under interna
 clean: ## remove build artifacts
 	rm -rf $(DIST_DIR)
 
+# Targets: Terraform
+.PHONY: tflint
+tflint: ## static analysis by tflint in an isolated container
+	@# 読み取り専用の /src にはマウントポイントを作れないため、compose.yaml が覆う tmp/ をホスト側で用意する
+	@mkdir -p tmp
+	TFLINT_TARGET=$(CURDIR) docker compose -f scripts/tflint/compose.yaml run --build --rm -T --interactive=false lint
+
 # Targets: GitHub Actions
 .PHONY: lint-gha
 lint-gha: lint/workflow lint/yaml ## Lint workflow files and YAML files
