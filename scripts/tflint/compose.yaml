@@ -17,7 +17,13 @@ services:
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=64m
-      # --recursive は gitignore を見ないため、作業用の tmp/ を空の tmpfs で覆い、検査対象から外してコンテナからも隠す
+      # --recursive は gitignore を見ないため、検査に不要なディレクトリを空の tmpfs で覆い、検査対象から外してコンテナからも隠す。
+      # 隠すパスは .gitignore と連動せず、ここに列挙していないものはコンテナから読める。
+      # 追加するときは Makefile の container-mountpoints と scripts/trivy/compose.yaml も更新する
+      - /src/.claude:ro,noexec,nosuid,nodev,size=1m
+      - /src/.git:ro,noexec,nosuid,nodev,size=1m
+      - /src/.makefiles:ro,noexec,nosuid,nodev,size=1m
+      - /src/dist:ro,noexec,nosuid,nodev,size=1m
       - /src/tmp:ro,noexec,nosuid,nodev,size=1m
     network_mode: none
     ipc: none
@@ -32,11 +38,15 @@ services:
     environment:
       HOME: /tmp
     volumes:
-      # TODO: Terraform のコードを追加したら、Makefile の TFLINT_TARGET をそのディレクトリに絞り、/src/tmp の tmpfs と Makefile の mkdir -p tmp を外す。
-      # リポジトリ全体をマウントする今は .envrc や .git/config もコンテナから読める
+      # TODO: Terraform のコードを追加したら、Makefile の TFLINT_TARGET をそのディレクトリに絞り、/src 配下を隠す tmpfs と .envrc のマウント、Makefile の container-mountpoints への依存を外す
       - type: bind
         source: ${TFLINT_TARGET:?TFLINT_TARGET is required}
         target: /src
+        read_only: true
+      # tmpfs はファイルを覆えないため、/dev/null を重ねて .envrc の中身をコンテナから隠す
+      - type: bind
+        source: /dev/null
+        target: /src/.envrc
         read_only: true
       - type: bind
         source: ./.tflint.hcl
