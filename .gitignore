@@ -1,4 +1,4 @@
-# 機密ファイルをここに足すときは、scripts/trivy/compose.yaml と scripts/tflint/compose.yaml でもコンテナから隠す。
+# 機密ファイルをここに足すときは、scripts/golangci-lint/compose.yaml、scripts/tflint/compose.yaml、scripts/trivy/compose.yaml でもコンテナから隠す。
 # 隠すパスはそれぞれの compose.yaml に列挙していて、ここに足しても自動では隠れない
 
 # Binaries for programs and plugins
