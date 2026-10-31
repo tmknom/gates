@@ -34,7 +34,7 @@ vet: ## static analysis by vet
 
 # Docker を使うため all には含めない
 .PHONY: lint
-lint: ## static analysis by golangci-lint in an isolated container
+lint: container-mountpoints ## static analysis by golangci-lint in an isolated container
 	LINT_MODULE=$(CURDIR) LINT_GOMODCACHE="$$(go env GOMODCACHE)" \
 		docker compose -f scripts/golangci-lint/compose.yaml run --rm -T --interactive=false lint
 
@@ -75,11 +75,12 @@ trivy: container-mountpoints ## scan vulnerabilities, misconfigurations and secr
 trivy-update: ## rebuild the trivy image to refresh its vulnerability database
 	TRIVY_TARGET=$(CURDIR) docker compose -f scripts/trivy/compose.yaml build --no-cache scan
 
-# 読み取り専用の /src にはマウントポイントを作れないため、compose.yaml が隠すパスをホスト側で用意する。既存の .envrc は変更しない
+# 読み取り専用の /src にはマウントポイントを作れないため、compose.yaml が隠すパスをホスト側で用意する。既存の .envrc と .env は変更しない
 .PHONY: container-mountpoints
 container-mountpoints:
 	@mkdir -p .claude .makefiles $(DIST_DIR) tmp
 	@[ -e .envrc ] || touch .envrc
+	@[ -e .env ] || touch .env
 
 # Targets: GitHub Actions
 .PHONY: lint-gha
