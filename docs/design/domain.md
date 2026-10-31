@@ -475,7 +475,7 @@ AWS 一時認証情報と GATES 用 OIDC JWT が同じジョブで取得され�
 
 公式文書で確認できない GitHub の振る舞いのうち、GATES のルールに影響するのは次の 2 つです。
 どちらもトークンを返すかどうかは変えないため、裏取りを前提にしません。
-確定できていない事項の一覧は [GitHub Constraints](../spec/github-constraints.md#8-outstanding-verification) にあります。
+確定できていない事項の一覧は [GitHub Constraints](../spec/github-constraints.md#9-outstanding-verification) にあります。
 
 - 範囲外の対象を含む発行要求への応答。失敗の種別の分類だけが変わる（[5.2 Rules](#52-rules)）
 - 要求にかかわらず `metadata:read` が付与されるかどうか。付与されなくても照合は通る（[3.3 Request and Decision](#33-request-and-decision)）
