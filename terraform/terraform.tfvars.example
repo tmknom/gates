@@ -1,3 +1,13 @@
 # terraform/local/terraform.tfvars にコピーして値を設定する
 
 region = "ap-northeast-1"
+
+allowed_owner_id     = "12345678"
+allowed_owner_name   = "example-owner"
+allowed_owner_type   = "Organization"
+github_app_client_id = "Iv23example"
+gates_audience       = "gates"
+
+# log_retention_in_days        = 7
+# lambda_reserved_concurrency  = -1
+# iam_permissions_boundary_arn = "arn:aws:iam::123456789012:policy/example"
