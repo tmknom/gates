@@ -4,7 +4,7 @@
 
 AWS のリソース設定は Terraform で管理します。GitHub App Private Key の取得、変換、KMS への鍵素材インポートは Terraform の対象外とし、独立した運用手順に従います。
 
-AWS 側は GitHub OIDC → AWS STS → IAM 認証付き Lambda 直接 Invoke → KMS `Sign` を提供します。GitHub の OIDC JWT によるリポジトリ単位の本人確認と GitHub App Token の発行認可は、Lambda 内の Go アプリケーションが行います。
+AWS 側は GitHub OIDC → AWS STS → IAM 認証付き Lambda 直接 Invoke → KMS `Sign` を提供します。GitHub の OIDC JWT によるリポジトリ単位の本人確認と Installation Access Token の発行認可は、Lambda 内の Go アプリケーションが行います。
 
 Terraform の State / Plan、Git、CI の成果物、Lambda の環境変数に GitHub App Private Key や変換途中の秘密鍵素材を含めません。鍵素材を読み込む Terraform の Resource、Data Source、Provisioner、外部実行処理は作りません。
 
@@ -19,7 +19,7 @@ Terraform の State / Plan、Git、CI の成果物、Lambda の環境変数に G
 | KMS Key | GitHub App Private Key（RSA）の鍵素材を外部からインポートするための署名鍵のメタデータを管理 | `origin=EXTERNAL`、`key_usage=SIGN_VERIFY`、実鍵長に一致する `key_spec=RSA_*`。インポート処理は Terraform の対象外 |
 | KMS Key Policy | 鍵の管理・利用主体を制限 | 署名権限と鍵管理権限を分離。Lambda 実行 Role に署名権限のみ許可し、鍵の管理権限は運用者の管理主体に残す |
 | KMS Alias（任意） | 運用者が署名鍵を識別するための補助 | Lambda と IAM は明示的な Key ARN を使用する。Alias を追加しても署名鍵は自動切り替えしない |
-| CloudWatch Logs | Lambda の実行結果と監査情報を保管 | 保持期間とアクセス制限を設定。JWT、App JWT、Installation Access Token、AWS 一時認証情報は記録しない |
+| CloudWatch Logs | Lambda の実行結果と監査記録を保管 | 保持期間とアクセス制限を設定。JWT、App JWT、Installation Access Token、AWS 一時認証情報は記録しない |
 
 GitHub App の作成とインストール対象は GitHub 側で管理し、Terraform は AWS リソースの構成を管理します。
 
@@ -27,7 +27,7 @@ GitHub App の作成とインストール対象は GitHub 側で管理し、Terr
 
 ### 3.1 GitHub Actions IAM Role
 
-Trust Policy は `aud` と `sub` の条件で引き受けを制限します。AWS IAM は `repository_owner_id` などの GitHub 固有 Claim も条件キーとして評価できますが、これらの Claim は名前だけの旧形式の `sub` を持つトークンにも含まれるため、旧形式の拒否には使えません。不変 Owner ID の制約と旧形式の拒否は、不変 ID 入りの `sub` 形式 `repo:OWNER@OWNER-ID/REPO@REPO-ID:<ref や environment など>` に対する次のパターンで表現します。
+Trust Policy は `aud` と `sub` の条件で引き受けを制限します。AWS IAM は `repository_owner_id` などの GitHub 固有 Claim も条件キーとして評価できますが、これらの Claim は名前だけの旧形式の `sub` を持つ OIDC JWT にも含まれるため、旧形式の拒否には使えません。不変 Owner ID の制約と旧形式の拒否は、不変 ID 入りの `sub` 形式 `repo:OWNER@OWNER-ID/REPO@REPO-ID:<ref や environment など>` に対する次のパターンで表現します。
 
 ```json
 {
@@ -105,7 +105,6 @@ Lambda のアーキテクチャを `arm64` とするのは、Go のバイナリ�
 
 Lambda と KMS Key は単一のリージョンに置きます。
 リージョンは Terraform の入力で受け取り、既定値を `ap-northeast-1` とします。
-Composite Action に渡す Variables の `GATES_AWS_REGION` にも同じ値を設定します（[GitHub Actions Design](github-actions.md#21-inputs-and-outputs)）。
 
 Lambda の設定では次を扱います。
 
@@ -115,7 +114,7 @@ Lambda の設定では次を扱います。
 | タイムアウト・メモリ | JWT 検証と GitHub API / KMS の外部呼び出しに必要な処理時間・メモリを確保 |
 | 同時実行数 | Reserved Concurrency による実行数の上限を設定可能とする |
 | 環境変数 | GitHub App の Client ID、オーナー名と不変 Owner ID、オーナーの種別、GATES 用 Audience、KMS Key ARN などの非秘密設定。実行時の要求からは変更できない |
-| 監査ログ | ログ保持期間、アクセス権限、相関 ID、非秘密の認証・発行結果。保持期間は Terraform の入力で受け取り、既定値を7日とする |
+| ログと監査記録 | ログ保持期間、アクセス権限、相関 ID、非秘密の認証・発行結果。保持期間は Terraform の入力で受け取り、既定値を7日とする |
 
 ログの保持期間に求められる長さは、組織の監査方針によって異なります。
 そのため GATES は保持期間の値を強制せず、ログを保存し、保持期間を設定できるようにするところまでを責務とします。

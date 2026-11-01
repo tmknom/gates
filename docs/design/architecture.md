@@ -43,27 +43,25 @@ Composite Action は AWS 一時認証情報を使用し、AWS Lambda Invoke API 
 |---|---|---|
 | GitHub Actions / Composite Action | 利用者の要求を受け付け、OIDC JWT の取得、AWS 認証、Lambda Invoke、発行結果の受け取りを行う | 対象リポジトリ・権限・接続情報 → GitHub OIDC JWT、AWS 一時認証情報、Installation Access Token |
 | GitHub OIDC Provider | GitHub Actions のワークフロー実行を表す OIDC JWT を発行し、検証用の公開鍵情報を提供する | Audience → OIDC JWT、Discovery / JWKS |
-| AWS STS | AWS 向け GitHub OIDC JWT を受け、Lambda 呼び出しに使う AWS 一時認証情報を発行する | OIDC JWT → AWS 一時認証情報 |
-| AWS Lambda / Go アプリケーション | GATES 用 OIDC JWT と要求を受け、Caller の識別、対象と権限の確認、GitHub App Token の発行を行う | Invoke Payload → 発行結果またはエラー |
+| AWS STS | AWS 用 OIDC JWT を受け、Lambda 呼び出しに使う AWS 一時認証情報を発行する | OIDC JWT → AWS 一時認証情報 |
+| AWS Lambda / Go アプリケーション | GATES 用 OIDC JWT と要求を受け、Caller の識別、対象と権限の確認、Installation Access Token の発行を行う | Invoke Payload → 発行結果またはエラー |
 | AWS KMS | インポート済み GitHub App Private Key による署名を実行する | 署名対象のダイジェスト → 署名 |
 | GitHub API | GitHub App のオーナーに対する Installation を返し、指定した対象・権限で Installation Access Token を発行する | GitHub App JWT、対象・権限 → Installation 情報、Installation Access Token |
-
-Lambda 内の認証・認可・署名処理は [Lambda Design](lambda.md)、Composite Action の設計は [GitHub Actions Design](github-actions.md) に記述します。IAM、Lambda、KMS の AWS リソース設定は [AWS Infrastructure Design](aws-infrastructure.md) に記述します。
 
 ## 4. Information and Credentials
 
 | 情報 | 生成元 | 主な利用先・目的 |
 |---|---|---|
 | 対象リポジトリと要求権限 | ワークフロー利用者 | Composite Action から Lambda へ渡す発行要求 |
-| 接続情報（IAM Role ARN、Lambda 関数名、AWS リージョン、GATES 用 Audience） | GATES 運用者が GitHub の Secrets / Variables に用意（置く単位は [GitHub Actions Design](github-actions.md#21-inputs-and-outputs)） | Composite Action が AWS STS、Lambda Invoke、GATES 用 OIDC JWT の取得に使う |
-| AWS 用 GitHub OIDC JWT | GitHub OIDC Provider | AWS STS での一時認証情報の取得。Audience は `sts.amazonaws.com` |
+| 接続情報（IAM Role ARN、Lambda 関数名、AWS リージョン、GATES 用 Audience） | GATES 運用者が GitHub の Secrets / Variables に用意 | Composite Action が AWS STS、Lambda Invoke、GATES 用 OIDC JWT の取得に使う |
+| AWS 用 OIDC JWT | GitHub OIDC Provider | AWS STS での一時認証情報の取得。Audience は `sts.amazonaws.com` |
 | AWS 一時認証情報 | AWS STS | Composite Action から Lambda Invoke を認証付きで実行 |
-| GATES 用 GitHub OIDC JWT | GitHub OIDC Provider | Lambda 内で Caller を確定し、ワークフロー起動属性を監査のために読み取る。GATES 用 Audience を使用 |
+| GATES 用 OIDC JWT | GitHub OIDC Provider | Lambda 内で Caller を確定し、ワークフロー起動属性を監査のために読み取る。GATES 用 Audience を使用 |
 | GitHub App JWT | Lambda が作成し、KMS が署名 | GitHub API の Installation 取得と Installation Access Token 発行 |
 | Installation 情報 | GitHub API | 発行対象となる GitHub App のインストール先の確認 |
 | Installation Access Token | GitHub API | 指定したリポジトリへの読み取りアクセス。Lambda から Composite Action に返却 |
 
-AWS 用と GATES 用の OIDC JWT は、同じ GitHub Actions ジョブから別々の Audience を指定して取得します。GitHub App JWT はこれらとは異なり、Lambda が GitHub App として GitHub API を呼び出すために生成します。各資格情報の信頼条件と保護方針は [Security Design](security.md) に記述します。
+AWS 用と GATES 用の OIDC JWT は、同じ GitHub Actions ジョブから別々の Audience を指定して取得します。GitHub App JWT はこれらとは異なり、Lambda が GitHub App として GitHub API を呼び出すために生成します。
 
 ## 5. End-to-End Data Flow
 
@@ -100,21 +98,13 @@ AWS 用 OIDC JWT から取得した AWS 一時認証情報で Lambda を呼び�
 
 Composite Action は応答を処理し、発行されたトークン、有効期限、対象、実効権限を同一ジョブ内の後続ステップへ渡します。
 
-Lambda の応答形式は [Lambda Design](lambda.md)、Composite Action の応答処理は [GitHub Actions Design](github-actions.md)、拒否条件と認可の不変条件は [Security Design](security.md) に記述します。
-
-## 6. Related Designs
+## 6. Related Specifications
 
 | 文書 | 主題 |
 |---|---|
 | [Requirements](../spec/requirements.md) | 目的、対象範囲、要求、受け入れ条件 |
 | [GitHub Constraints](../spec/github-constraints.md) | GATES が依存する GitHub の仕様、適用範囲、出典、未確認事項 |
 | [JWT Constraints](../spec/jwt-constraints.md) | JWT / JWS / JWK / OpenID Connect の標準仕様の規定と適用範囲 |
-| [Security Design](security.md) | 信頼境界、認証・認可、資格情報の保護、失敗時の扱い |
-| [AWS Infrastructure Design](aws-infrastructure.md) | IAM、Lambda、KMS、Terraform の AWS リソース構成 |
-| [Lambda Design](lambda.md) | Lambda Invoke の入出力契約、Go のコンポーネント、ドメインモデル、技術選定 |
-| [GitHub Actions Design](github-actions.md) | Composite Action の入出力、処理手順、利用例 |
-
-GitHub が定める仕様は GitHub Constraints に、標準仕様の規定は JWT Constraints に置き、各設計書はそれらを参照したうえで GATES の設計判断を定めます。
 
 ## 7. Sources
 
@@ -124,9 +114,11 @@ GitHub が定める仕様は GitHub Constraints に、標準仕様の規定は J
 - [AWS — Lambda Invoke API](https://docs.aws.amazon.com/lambda/latest/api/API_Invoke.html)
 - [AWS — KMS Sign API](https://docs.aws.amazon.com/kms/latest/APIReference/API_Sign.html)
 
-## Appendix: Impact of Future Scope
+## Appendix: Detailed Designs
 
-[Future Scope](../spec/future-scope.md) が想定する機能を取り込む場合、本ドキュメントには次の影響が及びます。
-
-- **細粒度の認可**：認可ポリシーの管理が必要になれば、コンポーネント（§3）と、Lambda が要求を処理する流れ（§5）が変わり得る
-- **発行可能な権限の拡大**：利用者が指定する権限の説明（§1）が変わる。Account / Organization に関係する権限を扱うなら、リポジトリを対象とする要求の流れ（§5）も見直す
+| 文書 | 主題 |
+|---|---|
+| [Security Design](security.md) | 信頼境界、認証・認可、資格情報の保護、失敗時の扱い |
+| [AWS Infrastructure Design](aws-infrastructure.md) | AWS リソースの構成 |
+| [Lambda Design](lambda.md) | Lambda の入出力契約、コンポーネント、外部連携 |
+| [GitHub Actions Design](github-actions.md) | Composite Action の入出力と処理手順 |

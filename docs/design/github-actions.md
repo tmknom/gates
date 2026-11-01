@@ -2,7 +2,7 @@
 
 ## 1. Responsibility
 
-Composite Action は、GitHub Actions の利用者にトークン取得手段を提供します。AWS 用 GitHub OIDC JWT による一時認証情報の取得、GATES 用 OIDC JWT の取得、Lambda の同期 Invoke、応答の処理と同一ジョブ内の後続ステップへのトークン出力を担当します。発行許可の判定は Lambda 側が行います。
+Composite Action は、GitHub Actions の利用者にトークン取得手段を提供します。AWS 用 OIDC JWT による一時認証情報の取得、GATES 用 OIDC JWT の取得、Lambda の同期 Invoke、応答の処理と同一ジョブ内の後続ステップへのトークン出力を担当します。発行の可否の判定は Lambda 側が行います。
 
 Composite Action は GATES 運用者が提供し、利用者向けの安定した境界とします。利用者に求めるのは、ワークフローでの `permissions: id-token: write` の宣言、対象リポジトリおよび権限の指定、運用者が用意した接続情報の参照だけです。
 
@@ -24,7 +24,7 @@ IAM Role と Lambda の AWS リソース設定は [AWS Infrastructure Design](aw
 | `permissions` | はい | カンマ区切りの `permission:level`。値は `contents:read` |
 | `role-arn` | はい | 引き受ける IAM Role の ARN |
 | `function-name` | はい | 呼び出す Lambda の関数名 |
-| `aws-region` | はい | IAM Role と Lambda を置く AWS リージョン |
+| `aws-region` | はい | 呼び出す Lambda を置く AWS リージョン。AWS STS の呼び出しにも使う |
 | `audience` | はい | GATES 用 OIDC JWT の Audience |
 
 `role-arn`、`function-name`、`aws-region`、`audience` を **接続情報** と呼びます。接続情報は Composite Action の中に固定せず、入力として受け取ります。Composite Action の定義にデプロイ固有の値を持たせないためです。全リポジトリを対象にする入力は設けません。GATES は対象を明示した要求だけを受け付けるためです。
@@ -33,6 +33,7 @@ IAM Role と Lambda の AWS リソース設定は [AWS Infrastructure Design](aw
 
 Secrets と Variables を置く単位は、許可オーナーの種別で決まります（GitHub 側の仕様は [GitHub Constraints](../spec/github-constraints.md#7-github-actions-integration)）。
 オーナーが Organization なら Organization 単位に一度だけ登録します。
+ただし、GitHub Free の private リポジトリと、ポリシーで利用を制限したリポジトリからは Organization 単位の値を参照できないため、それらのリポジトリには個別に登録します。
 ユーザーアカウントには Organization 単位に相当する Secrets と Variables がないため、Composite Action を使う各リポジトリに登録します。
 ワークフローからの参照の書き方は `secrets.*` と `vars.*` で共通なので、どちらの単位でも利用者のワークフロー定義は変わりません。
 
@@ -44,6 +45,8 @@ Secrets と Variables を置く単位は、許可オーナーの種別で決ま�
 | `audience` | `${{ vars.GATES_AUDIENCE }}` |
 
 `function-name` には ARN ではなく関数名を渡します。関数名は引き受けた IAM Role と同じアカウントの関数として解決されるため、AWS アカウント ID を含めずに済みます。
+
+`GATES_AWS_REGION` には、Lambda と KMS Key を置くリージョン（Terraform の入力の値）と同じ値を設定します（[AWS Infrastructure Design](aws-infrastructure.md#5-lambda-deployment-and-operation)）。
 
 接続情報を利用者が入力しても、発行範囲は広がりません。IAM Role の引き受けは Trust Policy が不変 Owner ID 入りの `sub` で制限し、引き受けた Role に許可されるのは GATES 用 Lambda の Invoke だけです（[AWS Infrastructure Design](aws-infrastructure.md#31-github-actions-iam-role)）。Audience は Lambda が GATES 用の値との完全一致を検証します（[Lambda Design](lambda.md#71-oidc-validation)）。別の値を渡した要求は、いずれかの境界で失敗します。
 
@@ -124,7 +127,7 @@ jobs:
 
 ## 6. Testability
 
-入力形式の異常、AWS 認証の失敗、AWS CLI の終了コード、`StatusCode` と `FunctionError`、`ok:false`、Action Output への転送（レスポンスの配列・オブジェクトからカンマ区切りへの変換を含む）を検証します。GATES 用 OIDC JWT を含むリクエストファイルと発行トークンを含むレスポンスファイルについて、権限設定、正常系・異常系での後処理、ログへの資格情報非出力、同一ジョブ内の後続ステップからの利用を確認します。GitHub の Installation Access Token は固定長と仮定せず、トークンの形式・長さによらずマスク・非記録・出力が正しく行われることを検証します。受け入れ条件は [Requirements](../spec/requirements.md) を正本とします。
+入力形式の異常、AWS 認証の失敗、AWS CLI の終了コード、`StatusCode` と `FunctionError`、`ok:false`、Action Output への転送（レスポンスの配列・オブジェクトからカンマ区切りへの変換を含む）を検証します。GATES 用 OIDC JWT を含むリクエストファイルと Installation Access Token を含むレスポンスファイルについて、権限設定、正常系・異常系での後処理、ログへの資格情報非出力、同一ジョブ内の後続ステップからの利用を確認します。GitHub の Installation Access Token は固定長と仮定せず、トークンの形式・長さによらずマスク・非記録・出力が正しく行われることを検証します。受け入れ条件は [Requirements](../spec/requirements.md) を正本とします。
 
 ## 7. Sources
 
@@ -138,5 +141,5 @@ jobs:
 
 [Future Scope](../spec/future-scope.md) が想定する機能を取り込む場合、本ドキュメントには次の影響が及びます。
 
-- **細粒度の認可**：発行許可の判定は Lambda 側が行う（§1）ため、利用者が指定する入力が増えない限り、Composite Action は変わらない
+- **細粒度の認可**：発行の可否の判定は Lambda 側が行う（§1）ため、利用者が指定する入力が増えない限り、Composite Action は変わらない
 - **発行可能な権限の拡大**：`permissions` 入力の値（§2.1）と利用例（§4.1）が変わる。許可条件の判定を Lambda の認可に委ねる方針（§2.2）は変わらない。Account / Organization に関係する権限の対象を `repositories` 入力で表せないなら、入力も見直す
