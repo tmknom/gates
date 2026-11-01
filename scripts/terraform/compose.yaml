@@ -1,0 +1,166 @@
+# Terraform を隔離して実行するサービス定義
+#
+# 環境変数は Makefile が設定する。
+#   TF_HOST_DIR        terraform/ にあたるディレクトリの絶対パス
+#   TF_HOST_LOCAL_DIR  tmp/terraform/ にあたるディレクトリの絶対パス
+#   TF_HOST_DIST_DIR   dist/ の絶対パス
+#   TF_HOST_UID        コンテナを実行するユーザーの UID
+#   TF_HOST_GID        コンテナを実行するユーザーの GID
+
+name: gates-terraform
+
+x-isolation: &isolation
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  read_only: true
+  ipc: none
+  ulimits:
+    core: 0
+  init: true
+
+x-terraform: &terraform
+  <<: *isolation
+  build: &terraform-build
+    context: ../../terraform
+    dockerfile: ../scripts/terraform/Dockerfile
+    additional_contexts:
+      config: .
+    target: provider
+  # Makefile が実行のたびにビルドする。localhost/ を付け、Docker Hub の同名のイメージを取ってこないようにする
+  image: localhost/gates-terraform:latest
+  pull_policy: never
+  # State と lock ファイルを運用者のファイルとして残すため、65534 ではなく手元のユーザーで実行する
+  user: "${TF_HOST_UID:?TF_HOST_UID is required}:${TF_HOST_GID:?TF_HOST_GID is required}"
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=1g
+  mem_limit: 3g
+  memswap_limit: 3g
+  pids_limit: 256
+  cpus: 2
+  working_dir: /src/terraform
+  environment: &terraform-environment
+    HOME: /tmp
+    TF_DATA_DIR: ../tmp/terraform/.terraform
+    TF_INPUT: "0"
+    CHECKPOINT_DISABLE: "1"
+  volumes:
+    - &terraform-dir-read-only
+      type: bind
+      source: ${TF_HOST_DIR:?TF_HOST_DIR is required}
+      target: /src/terraform
+      read_only: true
+    - &local-dir
+      type: bind
+      source: ${TF_HOST_LOCAL_DIR:?TF_HOST_LOCAL_DIR is required}
+      target: /src/tmp/terraform
+    - &dist-dir
+      type: bind
+      source: ${TF_HOST_DIST_DIR:?TF_HOST_DIST_DIR is required}
+      target: /src/dist
+      read_only: true
+
+x-proxy: &proxy
+  <<: *isolation
+  build: ./proxy
+  image: localhost/gates-terraform-proxy:latest
+  pull_policy: never
+  user: "65534:65534"
+  # squid は起動時に /dev/shm の共有メモリを作るため、ipc: none では動かない
+  ipc: private
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=16m
+  mem_limit: 256m
+  memswap_limit: 256m
+  pids_limit: 64
+  cpus: 1
+  healthcheck:
+    # ポート 3128（16 進数で 0C38）の待ち受けを確かめる。接続すると、毎回 squid のログに残り、通信先の確認の邪魔になる
+    test: ["CMD", "grep", "-qs", ":0C38 ", "/proc/net/tcp", "/proc/net/tcp6"]
+    interval: 1s
+    timeout: 1s
+    retries: 10
+
+services:
+  # 認証情報も通信も要らない処理
+  offline:
+    <<: *terraform
+    network_mode: none
+
+  # terraform/ を書き換える処理を offline と分ける
+  fmt:
+    <<: *terraform
+    network_mode: none
+    volumes:
+      - &terraform-dir-writable
+        <<: *terraform-dir-read-only
+        read_only: false
+      - *local-dir
+      - *dist-dir
+
+  aws:
+    <<: *terraform
+    depends_on:
+      proxy-aws:
+        condition: service_healthy
+    networks: [aws-internal]
+    environment:
+      <<: *terraform-environment
+      HTTPS_PROXY: http://proxy-aws:3128
+      # 値はシェルから引き継ぐ。${VAR:?} はファイル全体の展開で評価され、ほかのサービスまで起動できなくなるため、必須の確認は Makefile の tf-aws-credentials で行う
+      AWS_ACCESS_KEY_ID:
+      AWS_SECRET_ACCESS_KEY:
+      AWS_SESSION_TOKEN:
+
+  # Provider を取得する処理から認証情報を遠ざけるため、AWS の認証情報を渡さない
+  lock:
+    <<: *terraform
+    build:
+      <<: *terraform-build
+      target: base
+    image: localhost/gates-terraform-base:latest
+    depends_on:
+      proxy-lock:
+        condition: service_healthy
+    networks: [lock-internal]
+    environment:
+      <<: *terraform-environment
+      HTTPS_PROXY: http://proxy-lock:3128
+      # providers lock は全プラットフォームの Provider を一時ディレクトリへ展開し、/tmp の tmpfs に収まらない
+      TMPDIR: /src/tmp/terraform
+    volumes:
+      - *terraform-dir-writable
+      - *local-dir
+      - *dist-dir
+
+  # 許可リストが混ざらないよう、proxy と internal ネットワークは用途ごとに分ける
+  proxy-aws:
+    <<: *proxy
+    networks: [aws-internal, aws-egress]
+    volumes:
+      - &squid-config
+        type: bind
+        source: ./proxy/squid.conf
+        target: /config/squid.conf
+        read_only: true
+      - type: bind
+        source: ./proxy/allow-aws.txt
+        target: /config/allow.txt
+        read_only: true
+
+  proxy-lock:
+    <<: *proxy
+    networks: [lock-internal, lock-egress]
+    volumes:
+      - *squid-config
+      - type: bind
+        source: ./proxy/allow-registry.txt
+        target: /config/allow.txt
+        read_only: true
+
+networks:
+  aws-internal:
+    internal: true
+  aws-egress: {}
+  lock-internal:
+    internal: true
+  lock-egress: {}
