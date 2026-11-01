@@ -61,13 +61,13 @@ func TestGrant_Denied(t *testing.T) {
 		wantReason string
 	}{
 		{
-			name:          "installation account id different from allowed owner id returns ErrInstallationUnavailable",
+			name:          "installation owner id different from allowed owner id returns ErrInstallationUnavailable",
 			callerOwnerID: allowedOwnerID,
 			permissions:   contentsRead,
 			installation:  func(t *testing.T) authz.Installation { return mustNewInstallation(t, 2002, time.Time{}) },
 			want:          authz.ErrInstallationUnavailable,
 			notWant:       authz.ErrAuthorizationDenied,
-			wantReason:    "account id",
+			wantReason:    "installation owner id",
 		},
 		{
 			name:          "suspended installation returns ErrInstallationUnavailable",
@@ -115,24 +115,24 @@ func TestGrant_Denied(t *testing.T) {
 }
 
 func TestGrant_ErrorDoesNotContainValues(t *testing.T) {
-	const accountID = 987654321
+	const installationOwnerID = 987654321
 	owner := mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName)
 	caller := mustNewCaller(t, allowedOwnerID)
 	req := mustTokenRequest(t, []string{"Example-Org/app"}, contentsRead)
-	_, err := authz.Grant(caller, req, owner, mustNewInstallation(t, accountID, time.Time{}))
+	_, err := authz.Grant(caller, req, owner, mustNewInstallation(t, installationOwnerID, time.Time{}))
 	if err == nil {
 		t.Fatal("Grant() returned no error")
 	}
-	for _, s := range []string{strconv.Itoa(installationID), strconv.Itoa(accountID), strconv.Itoa(allowedOwnerID)} {
+	for _, s := range []string{strconv.Itoa(installationID), strconv.Itoa(installationOwnerID), strconv.Itoa(allowedOwnerID)} {
 		if strings.Contains(err.Error(), s) {
 			t.Errorf("error %q contains value %q", err, s)
 		}
 	}
 }
 
-func mustNewInstallation(t *testing.T, accountID int64, suspendedAt time.Time) authz.Installation {
+func mustNewInstallation(t *testing.T, installationOwnerID int64, suspendedAt time.Time) authz.Installation {
 	t.Helper()
-	inst, err := authz.NewInstallation(installationID, accountID, suspendedAt)
+	inst, err := authz.NewInstallation(installationID, installationOwnerID, suspendedAt)
 	if err != nil {
 		t.Fatalf("NewInstallation returned error: %v", err)
 	}

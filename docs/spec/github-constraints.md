@@ -180,7 +180,7 @@ Organization オーナーがリポジトリ管理者によるインストール�
 
 ## 6. Installation Access Token
 
-### 6.1 発行要求と有効期限
+### 6.1 発行 API の呼び出しと有効期限
 
 **公式仕様**：GitHub App JWT で `POST /app/installations/{installation_id}/access_tokens` を呼び出すと、Installation Access Token を発行できます（[Generating an installation access token](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app)、[REST API — GitHub Apps](https://docs.github.com/en/rest/apps/apps?apiVersion=2026-03-10)、[REST API Description](https://github.com/github/rest-api-description)）。
 
@@ -220,7 +220,7 @@ GitHub は、トークンを、中身を解釈しない文字列として扱う�
 
 - Installation 範囲外のリポジトリを要求したとき、発行を拒否するか、対象を縮小した応答を返すか
 - 500件を超えて指定したときの応答
-- 停止中の Installation に対する発行要求の応答。App 停止の API の説明は、停止するとそのアカウントに対する App の API アクセスが遮断されるとするが、発行 API の応答コードは示していない（[REST API — GitHub Apps](https://docs.github.com/en/rest/apps/apps?apiVersion=2026-03-10)）
+- 停止中の Installation に対する発行 API の応答。App 停止の API の説明は、停止するとそのアカウントに対する App の API アクセスが遮断されるとするが、発行 API の応答コードは示していない（[REST API — GitHub Apps](https://docs.github.com/en/rest/apps/apps?apiVersion=2026-03-10)）
 - 発行応答の各フィールドの存在条件。OpenAPI 定義で必須なのは `token` と `expires_at` だけで、`permissions`、`repositories`、`repository_selection` は必須ではない（[REST API Description](https://github.com/github/rest-api-description)）
 
 ### 6.3 失効

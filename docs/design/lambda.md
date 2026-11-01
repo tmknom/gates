@@ -38,7 +38,7 @@ Payload を GATES が読み取れるかの判定を **形式検証**、GATES 用
 |---|---|
 | `version` | 必須、整数 `1` |
 | `id_token` | 必須、GATES 用 Audience の JWT。Bearer 資格情報として慎重に扱う |
-| `repositories` | 必須、重複のない 1 件以上 500 件以下の `owner/repo` の配列。上限は GitHub のトークン発行 API が一度に受け付ける件数に合わせる（[GitHub Constraints](../spec/github-constraints.md#61-発行要求と有効期限)）。GATES が設ける 16 KiB の Payload には最短の要素で 2,000 件以上が入るため、Payload サイズより先にこの上限に達する |
+| `repositories` | 必須、重複のない 1 件以上 500 件以下の `owner/repo` の配列。上限は GitHub のトークン発行 API が一度に受け付ける件数に合わせる（[GitHub Constraints](../spec/github-constraints.md#61-発行-api-の呼び出しと有効期限)）。GATES が設ける 16 KiB の Payload には最短の要素で 2,000 件以上が入るため、Payload サイズより先にこの上限に達する |
 | `permissions` | 必須、値は **`{"contents":"read"}`**。形式が不正なら入力不正、形式が正しく値が許可条件と異なれば認可拒否 |
 
 - 対象は同一オーナーに属し、GATES で利用する同一の GitHub App Installation に含まれる必要がある。
@@ -89,7 +89,7 @@ Payload を GATES が読み取れるかの判定を **形式検証**、GATES 用
 #### 権限名と水準の文字種
 
 `permissions` のキー（権限名）と値（水準）は、1 文字以上 64 文字以下の ASCII 小文字とアンダースコア（`_`）の文字列に限ります。
-GitHub の Permissions の表現は [GitHub Constraints](../spec/github-constraints.md#61-発行要求と有効期限) を参照します。
+GitHub の Permissions の表現は [GitHub Constraints](../spec/github-constraints.md#61-発行-api-の呼び出しと有効期限) を参照します。
 この文字種は、その表現に合わせて GATES が決めた形式の制限です。
 GitHub が公式に定めた規則ではありません。
 この文字種に合わない文字列は、GitHub の権限名や水準として読み取れないため、入力不正にします。
@@ -219,21 +219,21 @@ Handler は処理中の panic を回復し、`internal_error` の失敗応答と
 | `identity_verification_unavailable` | 一時的な障害 | OIDC Discovery / JWKS の取得が一時的に失敗した。通信の失敗、タイムアウト、5xx、403 / 429 で、再試行で解消し得る |
 | `signing_unavailable` | 一時的な障害 | KMS 署名に失敗 |
 | `installation_resolution_failed` | Installation 利用不可 | 固定した GitHub App と許可オーナーから、発行に使える Installation を得られない。一時的な障害を除く GitHub API の失敗（App JWT が受け付けられない 401、GitHub App が許可オーナーにインストールされていないときに想定する 404 など）、Installation の応答に必要な項目がない、Installation が停止している（`suspended_at` が空でない）、`account.id` が許可オーナーの Owner ID と一致しない |
-| `token_issuance_failed` | 一時的な障害 | GitHub API の一時的な障害。通信の失敗、タイムアウト、5xx、レート制限による 403 / 429 で、Installation の取得と発行要求の両方を含む。再試行で解消し得る |
+| `token_issuance_failed` | 一時的な障害 | GitHub API の一時的な障害。通信の失敗、タイムアウト、5xx、レート制限による 403 / 429 で、Installation の取得と発行 API の呼び出しの両方を含む。再試行で解消し得る |
 | `github_issuance_rejected` | GitHub 発行拒否 | GATES の認可が成立した後、GitHub の発行 API が `422` で要求を拒否した。検証失敗やスパム判定など、原因は応答コードから特定できない |
 | `issuance_verification_failed` | 照合失敗 | GitHub API の発行応答が [Success](#31-success) の照合条件に適合しない。空でないトークン文字列を取得できた場合は失効を試みる |
 | `internal_error` | 内部障害 | 想定外の内部障害。Handler の panic のようにどの段階にも属さない失敗と、Discovery / JWKS の取得のうち再試行で解消しない失敗を含む |
 
 GitHub API の失敗は、HTTP 応答から次のように分類します。
 通信の失敗、タイムアウト、5xx、レート制限による 403 / 429 は `token_issuance_failed` にします。
-発行要求の 422 は `github_issuance_rejected` にします。
+発行 API の 422 は `github_issuance_rejected` にします。
 それ以外の失敗は `installation_resolution_failed` にします。
 Client ID の誤り、KMS Key と GitHub に登録した Private Key の不一致、Installation の削除や停止が、ここに入ります。
-発行要求で起きた 401 / 403 / 404 も、直前に同じ App JWT で Installation を取得できているため、要求の間に Installation か App の状態が変わったものとしてこのコードに含めます。
+発行 API の呼び出しで起きた 401 / 403 / 404 も、直前に同じ App JWT で Installation を取得できているため、その間に Installation か App の状態が変わったものとしてこのコードに含めます。
 Installation の応答の形式が想定と異なる場合は `installation_resolution_failed` に、発行応答の形式が想定と異なる場合は `issuance_verification_failed` にします。
 
 この分類は GATES のエラー分類であり、GitHub の HTTP ステータスの定義ではありません。
-発行 API の `422` は、GitHub の公開仕様では検証失敗またはスパム判定を指し、Installation の範囲外の要求だけを意味しません（[GitHub Constraints](../spec/github-constraints.md#61-発行要求と有効期限)）。
+発行 API の `422` は、GitHub の公開仕様では検証失敗またはスパム判定を指し、Installation の範囲外の要求だけを意味しません（[GitHub Constraints](../spec/github-constraints.md#61-発行-api-の呼び出しと有効期限)）。
 Installation の取得に使う Organization と User の API も、公開している応答コードは `200` だけで、未インストールのときの応答は公開されていません（[GitHub Constraints](../spec/github-constraints.md#5-installation)）。
 上の 404 は GATES の想定であり、分類は `200` 以外の応答をレート制限と一時的な障害を除いて `installation_resolution_failed` にすることで成り立ち、特定のステータスには依存しません。
 ステータスと失敗原因の対応は公開されておらず、いつ変わってもおかしくないため、GATES は原因を断定しません。
@@ -580,7 +580,7 @@ Caller を作るのは `internal/authn` とテストだけとし、ほかの pac
 - `aud` に GATES 用 Audience とほかの値が並ぶ JWT が `invalid_id_token` になる
 - `nbf` と `iat` が現在時刻の 4 分後なら受理し、6 分後なら `invalid_id_token` になる
 - GitHub の発行 API が `422` を返すと `github_issuance_rejected` になる
-- 発行要求の送信後にタイムアウトすると、トークンを返さず、失効も要求せず、失効を試みたと監査記録に残さない
+- 発行 API を呼び出した後にタイムアウトすると、トークンを返さず、失効も要求せず、失効を試みたと監査記録に残さない
 - 不正な `kid` の連続した要求や同時の要求でも JWKS の再取得が上限を超えず、鍵のローテーション後の JWT を受理できる
 - Discovery が示す Issuer が固定した Issuer と異なるとき `internal_error` になり、JWT の `iss` が固定値と異なるときは `invalid_id_token` になる
 - Discovery / JWKS の取得が 5xx やタイムアウトのとき `identity_verification_unavailable`、404 や応答サイズの超過のとき `internal_error` になる
