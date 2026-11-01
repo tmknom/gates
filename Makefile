@@ -6,6 +6,8 @@
 # Variables: Go
 MODULE := $(shell go list -m)
 DIST_DIR := dist
+LAMBDA_BUILD_DIR := $(DIST_DIR)/lambda
+LAMBDA_PACKAGE := $(DIST_DIR)/lambda.zip
 # main.go は起動だけのため、カバレッジの計測から外す
 COVER_EXCLUDE := /main\.go:
 
@@ -61,6 +63,17 @@ cover: ## measure test coverage excluding main.go and require 100% under interna
 clean: ## remove build artifacts
 	rm -rf $(DIST_DIR)
 
+# コードが同じなら ZIP のハッシュを同じにし、変更のない関数の更新を Plan に出さない。
+# そのため、コミットごとに変わる VCS の情報をバイナリに入れず、ZIP に入る権限と更新時刻を固定する。zip は更新時刻をローカル時刻で記録するため、TZ も固定する
+.PHONY: lambda-package
+lambda-package: ## build the deployment package for Lambda
+	rm -rf $(LAMBDA_BUILD_DIR) $(LAMBDA_PACKAGE)
+	mkdir -p $(LAMBDA_BUILD_DIR)
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -buildvcs=false -o $(LAMBDA_BUILD_DIR)/bootstrap .
+	chmod 755 $(LAMBDA_BUILD_DIR)/bootstrap
+	TZ=UTC touch -t 200001010000 $(LAMBDA_BUILD_DIR)/bootstrap
+	TZ=UTC zip -X -j $(LAMBDA_PACKAGE) $(LAMBDA_BUILD_DIR)/bootstrap
+
 # Targets: Terraform
 .PHONY: tflint
 tflint: tf-local-dir tf-misplaced-values ## static analysis by tflint in an isolated container
@@ -76,6 +89,7 @@ endif
 # 名前を変えるときは terraform/backend.tf、.gitignore、scripts/ の terraform、tflint、golangci-lint、trivy の compose.yaml も変更する
 TF_LOCAL_NAME := local
 TF_LOCAL_DIR := $(TF_DIR)/$(TF_LOCAL_NAME)
+TF_PACKAGE_CHECKSUM := $(TF_LOCAL_DIR)/lambda.zip.sha256
 TF_COMPOSE := TF_HOST_DIR=$(abspath $(TF_DIR)) TF_HOST_LOCAL_DIR=$(abspath $(TF_LOCAL_DIR)) TF_HOST_DIST_DIR=$(abspath $(DIST_DIR)) \
 	TF_HOST_UID=$$(id -u) TF_HOST_GID=$$(id -g) docker compose -f scripts/terraform/compose.yaml
 TF_RUN := $(TF_COMPOSE) run --build --rm -T --interactive=false
@@ -100,22 +114,37 @@ tf-fmt: tf-mountpoints tf-misplaced-values ## format terraform code
 	$(TF_RUN) fmt fmt -recursive
 
 .PHONY: tf-check
-tf-check: tf-mountpoints tf-misplaced-values ## check format and validate terraform code
+tf-check: tf-mountpoints tf-misplaced-values ## check format, validate and test terraform code
 	$(TF_RUN) fmt-check fmt -check -recursive
 	$(TF_RUN) offline validate
+	$(TF_RUN) offline test
 
 .PHONY: tf-show
 tf-show: tf-mountpoints ## show the saved terraform plan
 	$(TF_RUN) offline show $(TF_LOCAL_NAME)/plan.tfplan
 
+# 古いコードを配布しないよう、Plan のたびにデプロイパッケージを作り直す
 .PHONY: tf-plan
-tf-plan: tf-aws-credentials tf-mountpoints ## create a terraform plan with temporary AWS credentials through the AWS allowlist proxy
-	$(call tf_run_with_proxy,aws,plan -var-file=$(TF_LOCAL_NAME)/terraform.tfvars -out=$(TF_LOCAL_NAME)/plan.tfplan)
+tf-plan: tf-aws-credentials tf-mountpoints tf-package-checksum ## create a terraform plan with temporary AWS credentials through the AWS allowlist proxy
+	$(call tf_run_with_proxy,aws,plan -var-file=$(TF_LOCAL_NAME)/terraform.tfvars -var=lambda_package_path=../$(LAMBDA_PACKAGE) -out=$(TF_LOCAL_NAME)/plan.tfplan)
 
-# 確認した Plan と違う変更を適用しないよう、保存した Plan の適用だけに絞る
+# 確認した Plan と違う変更を適用しないよう、保存した Plan の適用だけに絞る。Apply は Plan の後のデプロイパッケージを読むため、Plan のときと同じかも確かめる
 .PHONY: tf-apply
-tf-apply: tf-aws-credentials tf-mountpoints ## apply the saved terraform plan with temporary AWS credentials through the AWS allowlist proxy
+tf-apply: tf-aws-credentials tf-mountpoints tf-package-unchanged ## apply the saved terraform plan with temporary AWS credentials through the AWS allowlist proxy
 	$(call tf_run_with_proxy,aws,apply $(TF_LOCAL_NAME)/plan.tfplan)
+
+.PHONY: tf-package-checksum
+tf-package-checksum: tf-plan-discard lambda-package tf-local-dir
+	shasum -a 256 $(LAMBDA_PACKAGE) > $(TF_PACKAGE_CHECKSUM)
+
+# Plan が失敗すると前回の Plan が残り、新しいチェックサムと組み合わさって Apply できてしまうため、先に捨てる
+.PHONY: tf-plan-discard
+tf-plan-discard:
+	rm -f $(TF_LOCAL_DIR)/plan.tfplan
+
+.PHONY: tf-package-unchanged
+tf-package-unchanged:
+	shasum -a 256 -c $(TF_PACKAGE_CHECKSUM)
 
 # AWS_SESSION_TOKEN を必須にして、長期のアクセスキーでは起動できないようにする
 .PHONY: tf-aws-credentials

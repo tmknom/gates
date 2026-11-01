@@ -54,9 +54,20 @@ Lambda 実行 Role には、指定 KMS Key ARN に対する `kms:Sign` のみを
 
 KMS Key Policy の変更権限、鍵素材のインポート・削除権限、Alias の更新権限は Lambda 実行 Role へ付与しません。鍵管理を担う主体は Lambda と分離します。
 
+Lambda 実行 Role の Trust Policy は、信頼先を Lambda サービスに限ります。
+`iam:PassRole` を持つ主体が別の関数にこの Role を渡すと、その関数のコードが `kms:Sign` を使えます。
+
 ### 3.3 Deployment Permissions
 
 Terraform を適用する主体には、リソース作成・ポリシー更新・コード配布に必要な権限を与えます。KMS 鍵素材のインポートに必要な権限は通常の Terraform 適用から分離します。Terraform の適用主体に強い管理権限が必要になる点は、実行主体と変更レビューによって制御します。
+
+IAM Role に付ける Permissions Boundary は、Terraform の入力で任意に指定できます。
+Boundary はアカウントの方針によって異なるため、GATES として値を定めません。
+指定する Boundary は次の条件を満たす必要があります。
+
+- Lambda 実行 Role の Boundary は `kms:Sign` とログの出力を許可する
+- GitHub Actions IAM Role の Boundary は `lambda:InvokeFunction` を許可する
+- 送信元 IP で拒否する Boundary は使えない。Lambda と GitHub のランナーの送信元 IP を固定できないため
 
 Terraform は運用者の手元から適用し、CI からは Plan も Apply も実行しません。
 CI に適用権限を与えると、IAM と KMS Key Policy を変更できる強い権限を CI に置くことになるためです。
@@ -113,12 +124,26 @@ Lambda の設定では次を扱います。
 | ネットワーク | 利用者管理 VPC に接続せず、GitHub API と OIDC JWKS への HTTPS 通信を確保 |
 | タイムアウト・メモリ | JWT 検証と GitHub API / KMS の外部呼び出しに必要な処理時間・メモリを確保 |
 | 同時実行数 | Reserved Concurrency による実行数の上限を設定可能とする |
-| 環境変数 | GitHub App の Client ID、オーナー名と不変 Owner ID、オーナーの種別、GATES 用 Audience、KMS Key ARN などの非秘密設定。実行時の要求からは変更できない |
+| 環境変数 | 非秘密設定。実行時の要求からは変更できない |
 | ログと監査記録 | ログ保持期間、アクセス権限、相関 ID、非秘密の認証・発行結果。保持期間は Terraform の入力で受け取り、既定値を7日とする |
 
 ログの保持期間に求められる長さは、組織の監査方針によって異なります。
 そのため GATES は保持期間の値を強制せず、ログを保存し、保持期間を設定できるようにするところまでを責務とします。
 運用者は、自組織の方針に従って保持期間の入力を変更します。
+
+環境変数の名前は、Lambda と Terraform の間の契約として次のとおり定めます。
+
+| 環境変数 | 値 |
+|---|---|
+| `GATES_ALLOWED_OWNER_ID` | 不変 Owner ID |
+| `GATES_ALLOWED_OWNER_NAME` | オーナー名 |
+| `GATES_ALLOWED_OWNER_TYPE` | オーナーの種別（`Organization` または `User`） |
+| `GATES_GITHUB_APP_CLIENT_ID` | GitHub App の Client ID |
+| `GATES_AUDIENCE` | GATES 用 Audience |
+| `GATES_KMS_KEY_ARN` | KMS Key ARN |
+
+Issuer と GitHub API Host は環境変数にしません。
+デプロイごとに変わらない値であり、環境変数にすると、Lambda の設定を変更できる主体が検証の基準を差し替えられるためです。
 
 ## 6. Traceability
 
