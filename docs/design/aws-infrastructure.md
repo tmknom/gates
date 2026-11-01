@@ -50,12 +50,22 @@ IAM はオーナー単位の入口制御です。Lambda での Caller 識別は�
 
 ### 3.2 Lambda Execution Role
 
-Lambda 実行 Role には、指定 KMS Key ARN に対する `kms:Sign` のみを暗号操作として許可します。ログ記録に必要な CloudWatch Logs 権限は対象 Log Group に限定できる範囲で制約します。KMS Key Policy でも実行 Role による署名が成立するよう許可し、IAM Policy だけで鍵の利用が許可されると想定しません。
+Lambda 実行 Role には、指定 KMS Key ARN に対する `kms:Sign` のみを暗号操作として許可します。ログ記録に必要な CloudWatch Logs 権限は対象 Log Group に限定できる範囲で制約します。
 
 KMS Key Policy の変更権限、鍵素材のインポート・削除権限、Alias の更新権限は Lambda 実行 Role へ付与しません。鍵管理を担う主体は Lambda と分離します。
 
 Lambda 実行 Role の Trust Policy は、信頼先を Lambda サービスに限ります。
 `iam:PassRole` を持つ主体が別の関数にこの Role を渡すと、その関数のコードが `kms:Sign` を使えます。
+
+KMS Key Policy では、実行 Role に `kms:Sign` だけを許可し、署名アルゴリズムを `RSASSA_PKCS1_V1_5_SHA_256` に限ります。
+署名の可否を決めるのはこの Key Policy です。
+Key Policy が実行 Role を直接許可するため、署名の成立に IAM ポリシーは要らず、root の管理操作に `kms:Sign` がないため、IAM ポリシーだけでも署名できません。
+実行 Role の IAM ポリシーは、Role の権限を IAM からも確認できるように明示するものです。
+ただし、Key Policy が Role の ARN で許可していても、Permissions Boundary が許可しない操作は拒否されるため、Boundary には `kms:Sign` の許可が要ります（§3.3）。
+鍵の管理操作の Principal にはアカウントの root を置き、操作を列挙します。
+root の Principal は IAM ポリシーへの委任を意味するため、特定の Role を失っても鍵を管理できなくなりません。
+管理操作に `kms:*` を使わず `kms:Sign` を含めないのは、IAM の管理権限を持つ主体が Key Policy を変更せずに署名できる状態を避けるためです。
+この設定で抑えるリスクと受容するリスクの範囲は [Security Design](security.md#51-kms-signing-key-risks) に定めます。
 
 ### 3.3 Deployment Permissions
 
