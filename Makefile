@@ -66,6 +66,62 @@ clean: ## remove build artifacts
 tflint: container-mountpoints ## static analysis by tflint in an isolated container
 	TFLINT_TARGET=$(CURDIR) docker compose -f scripts/tflint/compose.yaml run --build --rm -T --interactive=false lint
 
+# Targets: Terraform in containers
+# 下の 2 つはコンテナにマウントするディレクトリで、接続の確認のときに上書きする
+TF_DIR ?= terraform
+TF_LOCAL_DIR ?= tmp/terraform
+TF_COMPOSE := TF_HOST_DIR=$(abspath $(TF_DIR)) TF_HOST_LOCAL_DIR=$(abspath $(TF_LOCAL_DIR)) TF_HOST_DIST_DIR=$(abspath $(DIST_DIR)) \
+	TF_HOST_UID=$$(id -u) TF_HOST_GID=$$(id -g) docker compose -f scripts/terraform/compose.yaml
+TF_RUN := $(TF_COMPOSE) run --build --rm -T --interactive=false
+
+# proxy は run の終了後も残るため、run の終了コードを保ったまま止める。止めるとログが消えるため、通信した宛先を先に出力する
+define tf_run_with_proxy
+	$(TF_RUN) $(1) $(2); status=$$?; $(TF_COMPOSE) logs --no-log-prefix proxy-$(1); $(TF_COMPOSE) down; exit $$status
+endef
+
+.PHONY: tf-lock
+tf-lock: tf-mountpoints ## update the provider lock file through the registry allowlist proxy
+	@# providers lock は固定中のバージョンから変更できないため、作り直す。ハッシュの変更は Git の差分で確認する
+	rm -f $(TF_DIR)/.terraform.lock.hcl
+	$(call tf_run_with_proxy,lock,providers lock -platform=linux_arm64 -platform=linux_amd64)
+
+.PHONY: tf-init
+tf-init: tf-mountpoints ## initialize terraform with the providers in the image
+	$(TF_RUN) offline init -input=false -lockfile=readonly
+
+.PHONY: tf-fmt
+tf-fmt: tf-mountpoints ## format terraform code
+	$(TF_RUN) fmt fmt -recursive
+
+.PHONY: tf-check
+tf-check: tf-mountpoints ## check format and validate terraform code
+	$(TF_RUN) offline fmt -check -recursive
+	$(TF_RUN) offline validate
+
+.PHONY: tf-show
+tf-show: tf-mountpoints ## show the saved terraform plan
+	$(TF_RUN) offline show ../tmp/terraform/plan.tfplan
+
+.PHONY: tf-plan
+tf-plan: tf-aws-credentials tf-mountpoints ## create a terraform plan with temporary AWS credentials through the AWS allowlist proxy
+	$(call tf_run_with_proxy,aws,plan -var-file=../tmp/terraform/terraform.tfvars -out=../tmp/terraform/plan.tfplan)
+
+# 確認した Plan と違う変更を適用しないよう、保存した Plan の適用だけに絞る
+.PHONY: tf-apply
+tf-apply: tf-aws-credentials tf-mountpoints ## apply the saved terraform plan with temporary AWS credentials through the AWS allowlist proxy
+	$(call tf_run_with_proxy,aws,apply ../tmp/terraform/plan.tfplan)
+
+# AWS_SESSION_TOKEN を必須にして、長期のアクセスキーでは起動できないようにする
+.PHONY: tf-aws-credentials
+tf-aws-credentials:
+	@: "$${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID is required}"
+	@: "$${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY is required}"
+	@: "$${AWS_SESSION_TOKEN:?AWS_SESSION_TOKEN is required: use temporary credentials}"
+
+.PHONY: tf-mountpoints
+tf-mountpoints:
+	@mkdir -p $(DIST_DIR) $(TF_LOCAL_DIR)
+
 # Targets: Security
 .PHONY: trivy
 trivy: container-mountpoints ## scan vulnerabilities, misconfigurations and secrets by trivy in an isolated container
