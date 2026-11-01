@@ -2,21 +2,24 @@
 
 ## 1. Scope and Evidence
 
-この文書は、GitHub.com の GitHub Actions、GitHub App、GitHub REST API の仕様を、GitHub の公式資料だけを根拠に整理したものです。GitHub の公式資料そのものではなく、GitHub の仕様が変更された場合は該当する公式資料を確認します。
+この文書は、GitHub.com の GitHub Actions、GitHub App、GitHub REST API の仕様を、GitHub の公式資料と、GitHub から取得した値の調査記録を根拠に整理したものです。
+GitHub の公式資料そのものではなく、GitHub の仕様が変更された場合は該当する公式資料を確認します。
 [Boundaries with JWT and OpenID Connect Standards](#8-boundaries-with-jwt-and-openid-connect-standards) は、この整理を標準仕様と比較します。
 
 - **対象**：GitHub.com。GitHub Enterprise Server は対象外。
-- **REST API の確認対象版**：`2026-03-10`。以下の REST API 資料と OpenAPI 定義（REST API Description）はこの版を参照します。
-- **バージョン指定の仕様**：REST API は `X-GitHub-Api-Version` で版を指定します。ヘッダーを省略すると `2022-11-28` が使われます。各版は新しい版の公開から24か月サポートされ、`2022-11-28` のサポートは2028年3月10日に終わります。サポート終了後、その版を指定した要求は `410 Gone` になり、ヘッダーを省略した要求の既定の版は変わります。版に依存する記述は、別の版では照合が必要です（[API Versions](https://docs.github.com/en/rest/about-the-rest-api/api-versions)）。
+- **REST API の確認対象版**：`2026-03-10`。以下の REST API 資料と OpenAPI 定義（REST API Description）はこの版を参照する。
+- **バージョン指定の仕様**：REST API は `X-GitHub-Api-Version` で版を指定する。ヘッダーを省略すると `2022-11-28` が使われる。各版は新しい版の公開から24か月サポートされ、`2022-11-28` のサポートは2028年3月10日に終わる。サポート終了後、その版を指定した要求は `410 Gone` になり、ヘッダーを省略した要求の既定の版は変わる。版に依存する記述は、別の版では照合が必要である（[API Versions](https://docs.github.com/en/rest/about-the-rest-api/api-versions)）。
+- **取得した値の調査記録**：[GitHub OIDC Discovery](../research/github/oidc-discovery.md)、[GitHub OIDC JWKS](../research/github/oidc-jwks.md)、[GitHub OIDC JWT](../research/github/oidc-jwt.md)。取得日、取得方法、応答の全体はこれらの記録にある。
 
 根拠の種類は次のように区別します。
 
 | 区分 | 意味 |
 |---|---|
 | 公式仕様 | リンクした GitHub の公式資料に記述された内容。資料の条件・適用範囲を含めて読む |
-| 公開値 | GitHub が公開するエンドポイントから取得した値。取得時点の値であり、将来も同じ値であることの保証ではない |
-| 推論 | 公式仕様や公開値から導いた解釈。GitHub が明示的に保証した事実とは区別する |
-| 未確認 | 公式資料で確定できない動作 |
+| 公開値 | GitHub が公開するエンドポイントから取得し、調査記録に残した値。取得時点の値であり、将来も同じ値であることの保証ではない |
+| 実測値 | GitHub Actions の実環境で発行された JWT から取得し、調査記録に残した値。記録した条件での観測であり、ほかの条件や将来も同じ値であることの保証ではない |
+| 推論 | 公式仕様、公開値、実測値から導いた解釈。GitHub が明示的に保証した事実とは区別する |
+| 未確認 | 公式資料で確定できない動作。公開値や実測値があっても、それだけでは保証とみなさない |
 
 ## 2. Owner and Repository
 
@@ -24,7 +27,7 @@
 
 **公式仕様**：GitHub のリポジトリは個人アカウント（`User`）または Organization に所属します。REST API のリポジトリ表現には `id`、`full_name`、`owner` があり、オーナーの表現には `login`、`id`、`type` が含まれます。`full_name` は `owner/repo` 形式です。OIDC JWT にも `repository_id` と `repository_owner_id` という ID が用意されています（[Creating a new repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-new-repository)、[OIDC reference](https://docs.github.com/en/actions/reference/security/oidc)、[Repositories API](https://docs.github.com/en/rest/repos/repos?apiVersion=2026-03-10)）。
 
-**公式仕様（名前の大文字小文字）**：REST API のパスパラメーターの説明は、`org`、`owner`、`repo` の名前を大文字小文字を区別しないものとしています。
+**公式仕様（名前の大文字小文字）**：REST API のパスパラメーターの説明は、`org`、`owner`、`repo` の名前は大文字小文字を区別しないとしています。
 `username` の説明にはこの記述がありません（[REST API — GitHub Apps](https://docs.github.com/en/rest/apps/apps?apiVersion=2026-03-10)）。
 
 ### 2.2 名前の制約
@@ -33,7 +36,7 @@
 
 **公式仕様（Enterprise Managed Users）**：GitHub.com の Enterprise Managed Users のユーザー名には、GitHub が末尾にアンダースコアと企業のショートコード（3〜8文字の英数字）を加えます。アンダースコアとショートコードを含めて最大39文字です（[Username considerations for external authentication](https://docs.github.com/en/enterprise-cloud@latest/admin/managing-iam/iam-configuration-reference/username-considerations-for-external-authentication)）。このアカウントは、企業のポリシーで許可されていれば private リポジトリに限り所有できます。特権アプリを除き、GitHub App を自身の個人アカウントにはインストールできず、管理者権限を持つリポジトリ単位のインストールは条件付きで可能です。所有するリポジトリでは GitHub-hosted runner を利用できません（[Abilities and restrictions of managed user accounts](https://docs.github.com/en/enterprise-cloud@latest/admin/managing-iam/understanding-iam-for-enterprises/abilities-and-restrictions-of-managed-user-accounts)）。
 
-**未確認**：リポジトリ名の資料だけからは、名前が `.` または `..` である場合や、既存リポジトリへの例外的な命名規則を断定できません。
+**未確認**：リポジトリ名の資料だけからは、名前が `.` または `..` である場合の扱いや、既存リポジトリへの例外的な命名規則を断定できません。
 Enterprise Managed Users の資料には、GitHub のユーザー名は英数字とダッシュ（`-`）だけを含められるという記述があります。
 しかし同じ資料が Enterprise Managed Users のユーザー名にアンダースコアを加えると定めるため、この記述をすべてのユーザー名に当てはまる規則としては扱いません。
 Organization 名の規則もこの資料の対象外であり、`User` と Organization に一様に適用できる文字種・最大長・ハイフンの位置の規則は確定できていません。
@@ -42,12 +45,24 @@ Organization 名の規則もこの資料の対象外であり、`User` と Organ
 
 ### 3.1 Issuer、Audience、Claim
 
-**公式仕様**：GitHub Actions の OIDC Issuer は `https://token.actions.githubusercontent.com` です。OIDC Discovery は同 Issuer の `/.well-known/openid-configuration` で提供され、対応する Claim は Discovery の `claims_supported` から確認できます。Audience (`aud`) は要求時に指定でき、既定値はリポジトリのオーナーの URL です。JOSE ヘッダーとして `alg`、`kid`、`typ` が説明されています（[OIDC reference](https://docs.github.com/en/actions/reference/security/oidc)、[OIDC Discovery](https://token.actions.githubusercontent.com/.well-known/openid-configuration)）。
+**公式仕様**：GitHub Actions の OIDC Issuer は `https://token.actions.githubusercontent.com` です。OIDC Discovery は同 Issuer の `/.well-known/openid-configuration` で提供され、対応する Claim は Discovery の `claims_supported` から確認できます。Audience (`aud`) は要求時に指定でき、既定値はリポジトリのオーナーの URL です。JOSE ヘッダーとして `alg`、`kid`、`typ` が説明されています（[OIDC reference](https://docs.github.com/en/actions/reference/security/oidc)）。
 
-**公開値（Discovery）**：`issuer`、`jwks_uri`、`subject_types_supported`、`response_types_supported`（`id_token`）、`claims_supported`、`id_token_signing_alg_values_supported`（`RS256`）、`scopes_supported` があり、`authorization_endpoint` と `token_endpoint` はありません（[OIDC Discovery](https://token.actions.githubusercontent.com/.well-known/openid-configuration)）。
+**公開値（Discovery）**：応答の Metadata は次の7個で、`authorization_endpoint` と `token_endpoint` はありません（[GitHub OIDC Discovery](../research/github/oidc-discovery.md)）。
 
-**公開値（JWKS）**：各鍵に `kty`（`RSA`）、`n`、`e`、`use`（`sig`）、`alg`（`RS256`）、`kid` があり、`key_ops` はありません。
-`x5c` と `x5t` は、一部の鍵にだけあります（[JWKS](https://token.actions.githubusercontent.com/.well-known/jwks)）。
+| Metadata | 値 |
+|---|---|
+| `issuer` | `https://token.actions.githubusercontent.com` |
+| `jwks_uri` | `https://token.actions.githubusercontent.com/.well-known/jwks` |
+| `subject_types_supported` | `public`、`pairwise` |
+| `response_types_supported` | `id_token` |
+| `claims_supported` | 36個の Claim 名 |
+| `id_token_signing_alg_values_supported` | `RS256` |
+| `scopes_supported` | `openid` |
+
+**公開値（JWKS）**：鍵は4個です。
+すべての鍵に `kty`（`RSA`）、`alg`（`RS256`）、`use`（`sig`）、`kid`、`n`、`e`（`AQAB`）があり、`n` から求めた法の長さは2048 bit で、`key_ops` はありません。
+`x5c`（証明書1個）と `x5t` は、4個のうち3個の鍵にだけあります。
+`kid` の形式は一様でなく、UUID 形式と40桁の16進数字が2個ずつあります（[GitHub OIDC JWKS](../research/github/oidc-jwks.md)）。
 
 主な Claim は次のとおりです。
 
@@ -69,13 +84,25 @@ Organization 名の規則もこの資料の対象外であり、`User` と Organ
 `exp`、`iat`、`nbf` は JSON の数値で、`repository_id`、`repository_owner_id`、`run_attempt` は数字の JSON 文字列です。
 `nbf` は `iat` の10分前、`exp` は `iat` の5分後です（[OpenID Connect](https://docs.github.com/en/actions/concepts/security/openid-connect)）。
 
-**推論**：これらは例の値であり、すべての JWT の型や時刻の差を保証するものとは読めません。
-JWT の標準仕様は `nbf`、`iat`、`exp` の差を定めていないため、実 JWT の差が例と異なっても（確認結果は [Lambda Design](../design/lambda.md)）、それだけでは仕様違反になりません。
+**実測値（JWT）**：個人アカウントの private リポジトリで Audience を指定せずに発行された JWT を、起動イベント、再利用ワークフロー、Environment の条件を変えて6件記録しています。
+次の内容は、この6件から確かめたものです（[GitHub OIDC JWT](../research/github/oidc-jwt.md)）。
+
+- **Header**：6件とも `alg`（`RS256`）、`kid`、`typ`（`JWT`）、`x5t` だけからなり、値も同じである。`kid` と `x5t` は [GitHub OIDC JWKS](../research/github/oidc-jwks.md) の同じ鍵の値と一致する
+- **Claim の型**：`exp`、`iat`、`nbf` は JSON の数値で、ほかの Claim はすべて JSON の文字列である。`repository_id`、`repository_owner_id`、`actor_id`、`run_id`、`run_attempt`、`run_number`、`check_run_id` は数字だけの文字列で、`ref_protected` も真偽値ではなく文字列の `"false"` である
+- **時刻の差**：6件とも `nbf` は `iat` の5分前、`exp` は `iat` の5分後である
+- **`aud`**：リポジトリのオーナーの URL（`https://github.com/octocat`）である
+- **`repository_owner_id`**：個人アカウントが所有するリポジトリの JWT にも含まれる。6件とも `repository_owner` と `actor` は同じアカウントで、値は `actor_id` と同じである
+- **`run_attempt`**：6件とも `"1"` である。各実行が初回かどうかは記録していない
+- **再利用ワークフロー**：`job_workflow_ref` は再利用ワークフローを使わないジョブにも含まれ、値は `workflow_ref` と同じである。再利用ワークフローを使うと、`job_workflow_ref` は再利用ワークフローを指し、`workflow_ref` は呼び出し元のワークフローを指す。別のコミットをコミット SHA で参照した記録では、`job_workflow_ref` の `@` の後がコミット SHA になり、`job_workflow_sha` は `sha`、`workflow_sha` と異なる
+- **Claim の有無**：`environment` と `environment_node_id` は Environment を使う1件にだけ含まれる。`base_ref` と `head_ref` は pull_request 以外でも欠落せず、空文字列である。`claims_supported` のうち `enterprise`、`enterprise_id`、`issuer_scope` は6件のどれにも含まれない
+
+**推論**：公式の例も実測値も、すべての JWT の型や時刻の差を保証するものとは読めません。
+実測値の `nbf` は公式の例と異なり `iat` の5分前ですが、JWT の標準仕様は `nbf`、`iat`、`exp` の差を定めていないため、この違いだけでは仕様違反になりません。
 
 ### 3.2 Immutable subject とカスタマイズ
 
 **公式仕様（導入の理由）**：OpenID Connect の仕様は `sub` に、局所的に一意で再割当てされないことを求めています。
-旧形式の既定の `sub` は名前だけで構成されるため、Organization やリポジトリの名前が再利用されると、別のオーナーが同じ `sub` の JWT を発行させられます。
+旧形式の既定の `sub` は名前だけで構成されるため、Organization やリポジトリの名前が再利用されると、別のオーナーが同じ `sub` の JWT を GitHub に発行させることができます。
 不変形式は、この問題への対策です（[OIDC reference — Immutable subject claims](https://docs.github.com/en/actions/reference/security/oidc#immutable-subject-claims)、[GitHub Changelog — Immutable subject claims](https://github.blog/changelog/2026-04-23-immutable-subject-claims-for-github-actions-oidc-tokens/)）。
 
 **公式仕様（既定の `sub`）**：2026年7月15日より後に作成されたリポジトリは、不変 Owner ID と Repository ID を含む形式を既定で利用します。同日より前に作成されたリポジトリは、Organization またはリポジトリ単位の設定（REST API では `use_immutable_subject`）で切り替えない限り、旧形式を維持します。同日より後にリポジトリ名を変更した場合や、リポジトリを移管した場合も、不変形式へ移行します。名前と ID は `@` で区切られます。この文字は GitHub のユーザー名とリポジトリ名には使えません（[OIDC reference — Immutable subject claims](https://docs.github.com/en/actions/reference/security/oidc#immutable-subject-claims)、[GitHub Changelog — Immutable subject claims](https://github.blog/changelog/2026-04-23-immutable-subject-claims-for-github-actions-oidc-tokens/)）。
@@ -83,6 +110,16 @@ JWT の標準仕様は `nbf`、`iat`、`exp` の差を定めていないため�
 ```text
 旧形式:    repo:octo-org/octo-repo:ref:refs/heads/main
 不変形式:  repo:octo-org@123456/octo-repo@456789:ref:refs/heads/main
+```
+
+**実測値（`sub`）**：記録した6件はすべて不変形式で、リポジトリ ID に続く `:` より後の部分は起動条件によって変わります（[GitHub OIDC JWT](../research/github/oidc-jwt.md)）。
+再利用ワークフローの有無では形式は変わりません。
+リポジトリの作成時期と `use_immutable_subject` の設定は記録していないため、どの条件で不変形式になったかはこの記録からは分かりません。
+
+```text
+push、workflow_dispatch:  repo:octocat@583231/example-repo@1234567890:ref:refs/heads/<branch>
+pull_request:             repo:octocat@583231/example-repo@1234567890:pull_request
+Environment を使うジョブ:  repo:octocat@583231/example-repo@1234567890:environment:testing
 ```
 
 **公式仕様（`sub` のカスタマイズ）**：`include_claim_keys` によるカスタマイズは、既定の `sub` 全体をカスタム形式に置き換えます。
@@ -99,7 +136,7 @@ JWT の標準仕様は `nbf`、`iat`、`exp` の差を定めていないため�
 
 ### 4.1 GitHub App の識別と Private Key
 
-**公式仕様**：GitHub App には App ID と Client ID があり、両者は異なります。GitHub App JWT の `iss` にはいずれも使用できますが、Client ID が推奨されています（[Generating a JWT for a GitHub App](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-json-web-token-jwt-for-a-github-app)）。
+**公式仕様**：GitHub App には App ID と Client ID があり、両者は異なります。GitHub App JWT の `iss` にはいずれも使用できますが、Client ID が推奨されています（[Generating a JWT for a GitHub App](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-json-web-token-jwt-for-a-github-app)、[Generating an installation access token](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app)）。
 
 **公式仕様**：GitHub から取得する Private Key は PEM 形式で、PKCS#1 `RSAPrivateKey` です。1 App につき最大25個を保持でき、Private Key は自動失効せず手動で失効させます。GitHub が保存するのは鍵の公開部分だけです。Fingerprint は Private Key から導出した公開鍵 DER の SHA-256 の Base64 表現で照合できます（[Managing private keys](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps)）。
 
@@ -111,7 +148,7 @@ JWT の標準仕様は `nbf`、`iat`、`exp` の差を定めていないため�
 
 ### 4.2 GitHub App JWT
 
-**公式仕様**：GitHub App として認証する JWT は `RS256` で署名し、`iat`、`exp`、`iss` を含めます。`exp` は現在時刻から最大10分先までです。`iat` を60秒過去にすることは GitHub の推奨であり、必須値ではありません。JWT を GitHub API に渡すときは `Authorization: Bearer` を使用します（[Generating a JWT for a GitHub App](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-json-web-token-jwt-for-a-github-app)）。
+**公式仕様**：GitHub App として認証する JWT は `RS256` で署名し、`iat`、`exp`、`iss` を含めます。`exp` は現在時刻から最大10分先までです。`iat` を60秒過去にすることは GitHub の推奨であり、必須ではありません。JWT を GitHub API に渡すときは `Authorization: Bearer` を使用します（[Generating a JWT for a GitHub App](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-json-web-token-jwt-for-a-github-app)）。
 
 ## 5. Installation
 
@@ -129,7 +166,7 @@ Organization オーナーがリポジトリ管理者によるインストール�
 
 **未確認**：選択対象外の公開リポジトリに対するトークンの振る舞いは、これらの記述だけでは確定できません。
 
-**公式仕様**：GitHub App JWT で認証すると、次の API から Installation 情報を取得できます（[REST API — GitHub Apps](https://docs.github.com/en/rest/apps/apps?apiVersion=2026-03-10)）。公開されている応答コードは、Organization と User の API が `200` だけ、Repository の API が `200`、`301`、`404` です。
+**公式仕様**：GitHub App JWT で認証すると、次の API から Installation 情報を取得できます（[REST API — GitHub Apps](https://docs.github.com/en/rest/apps/apps?apiVersion=2026-03-10)）。資料に示された応答コードは、Organization と User の API が `200` だけ、Repository の API が `200`、`301`、`404` です。
 
 | 対象 | API |
 |---|---|
@@ -137,7 +174,7 @@ Organization オーナーがリポジトリ管理者によるインストール�
 | User | `GET /users/{username}/installation` |
 | Repository | `GET /repos/{owner}/{repo}/installation` |
 
-応答の公開例には `id`（Installation ID）、`account.id`、`account.type`、`target_type`、`repository_selection`（`all` / `selected`）、`permissions`、`suspended_at` などが含まれます。OpenAPI 定義では、`account` は `null`、`User` の表現、Enterprise の表現のいずれかで、Enterprise の表現には `type` がありません。`suspended_at` も `null` を取り得ます（[REST API Description](https://github.com/github/rest-api-description)）。
+資料の応答例には `id`（Installation ID）、`account.id`、`account.type`、`target_type`、`repository_selection`（`all` / `selected`）、`permissions`、`suspended_at` などが含まれます。OpenAPI 定義では、`account` は `null`、`User` の表現、Enterprise の表現のいずれかで、Enterprise の表現には `type` がありません。`suspended_at` も `null` を取り得ます（[REST API Description](https://github.com/github/rest-api-description)）。
 
 **推論**：オーナーを指定して単一の Installation を返す API があることから、GitHub App とオーナーの組で Installation は単一に決まると読めます。ただし、この一意性を明記した公式の記述はありません。
 
@@ -149,18 +186,18 @@ Organization オーナーがリポジトリ管理者によるインストール�
 
 | 要求の要素 | GitHub が定める仕様 |
 |---|---|
-| `repositories` | リポジトリ**名**の配列。公開例は `Hello-World` で、オーナー名を含まない |
+| `repositories` | リポジトリ**名**の配列。資料の例は `Hello-World` で、オーナー名を含まない |
 | `repository_ids` | Repository ID の配列。`repositories` と並ぶ対象の指定方法 |
 | 対象件数 | 一度に指定できる対象は最大500リポジトリ |
 | `permissions` | 権限名から権限水準へのオブジェクト。例：`{"contents":"read"}`。スキーマ「App Permissions」では、権限名と水準（`read`、`write`、`admin`）はどれも ASCII 小文字とアンダースコアで表される。選べる水準は権限ごとに異なる（`workflows` は `write` だけ、`organization_events` は `read` だけなど） |
 | 対象指定の省略 | Installation に許可された全リポジトリへのアクセスを持つ |
 | Permissions 指定の省略 | App に付与された全権限を持つ |
-| 発行上限 | Installation に許可されていないリポジトリへのアクセスと、App に付与されていない権限は付与できない |
+| 付与できる範囲 | Installation に許可されていないリポジトリへのアクセスと、App に付与されていない権限は付与できない |
 | 有効期間 | 発行から1時間。期限切れトークンは再発行が必要 |
 
-**公式仕様（応答コード）**：Installation Access Token の発行 API は `201`（作成）、`401`（認証が必要）、`403`（禁止）、`404`（見つからない）、`422`（検証失敗またはスパム判定）を公開しています（[REST API — GitHub Apps](https://docs.github.com/en/rest/apps/apps?apiVersion=2026-03-10)）。特に **`422` は「対象リポジトリが Installation の範囲外」だけを意味するコードではありません。**
+**公式仕様（応答コード）**：Installation Access Token の発行 API の資料は `201`（作成）、`401`（認証が必要）、`403`（禁止）、`404`（見つからない）、`422`（検証失敗またはスパム判定）を示しています（[REST API — GitHub Apps](https://docs.github.com/en/rest/apps/apps?apiVersion=2026-03-10)）。特に **`422` は「対象リポジトリが Installation の範囲外」だけを意味するコードではありません。**
 
-**未確認**：個々の失敗原因と応答コードの対応は公開されていません。
+**未確認**：個々の失敗原因と応答コードの対応は資料に示されていません。
 
 **公式仕様（レート制限）**：REST API は、プライマリとセカンダリのどちらのレート制限でも `403` または `429` を返します。プライマリでは `x-ratelimit-remaining` が `0` になります。セカンダリでは、制限の超過を示すエラーメッセージが返り、`retry-after` が付く場合があり、`x-ratelimit-remaining` が `0` の場合の扱いも説明されています（[Rate limits for the REST API](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)）。発行 API の応答コードの一覧に `429` はありませんが、レート制限の資料は REST API 全般の応答として `429` を挙げています。
 
@@ -170,13 +207,11 @@ Organization オーナーがリポジトリ管理者によるインストール�
 
 **公式仕様**：発行 API の応答には `token`、`expires_at`、`permissions`、`repositories`（適用される場合）、`repository_selection` などが示されます。`repository_selection` は `all` / `selected` の区別です。応答例には `repositories[].id`、`repositories[].full_name`、`repositories[].owner.id` といったリポジトリ情報が含まれます（[REST API — GitHub Apps](https://docs.github.com/en/rest/apps/apps?apiVersion=2026-03-10)）。
 
-**公式仕様（Permission の表現）**：`permissions` の表現には `contents: read` や `metadata: read` のような権限名と水準があります。
-
 **未確認**：すべての発行で `metadata:read` が無条件に付与されるという保証は、参照した公式資料からは確定できません。
 
 **公式仕様（トークンの形式）**：2026年4月27日に始まった Installation Access Token の新形式（`ghs_APPID_JWT`）への移行は完了しており、新規発行のトークンは既定でこの形式です。
 長さは40文字から約520文字に増え、トークンに格納するデータによって変わります。
-GitHub は、トークンを中身を解釈しない文字列として扱うよう求めており、40文字固定の検証、旧形式だけに合うパターン、短い固定長の保管先、長い `Authorization` ヘッダーを切り詰める中継、旧形式だけに合うログの秘匿ルールを点検の対象に挙げています。
+GitHub は、トークンを、中身を解釈しない文字列として扱うよう求めており、40文字固定の検証、旧形式だけに合うパターン、短い固定長の保管先、長い `Authorization` ヘッダーを切り詰めるか拒否する中継、旧形式だけに合うログの秘匿ルールを点検の対象に挙げています。
 トークン内の JWT はクライアントが検証するものではなく、その内容に依存することも禁じられています。
 形式を切り替える `X-GitHub-Stateless-S2S-Token` ヘッダーは2026年11月30日に廃止されます。
 権限、対象リポジトリ、1時間の有効期間、発行 API は変わりません（[GitHub Changelog — Stateless installation tokens](https://github.blog/changelog/2026-10-02-stateless-github-app-installation-tokens-rolled-out/)、[GitHub Changelog — Notice about the new format](https://github.blog/changelog/2026-04-24-notice-about-upcoming-new-format-for-github-app-installation-tokens/)）。
@@ -190,7 +225,7 @@ GitHub は、トークンを中身を解釈しない文字列として扱うよ�
 
 ### 6.3 失効
 
-**公式仕様**：`DELETE /installation/token` は、その呼び出しを認証した Installation Access Token 自身を失効させます。GitHub App JWT で呼び出す API ではありません。成功の応答は `204` で、失効するとそのトークンは利用できなくなります（[REST API — App installations](https://docs.github.com/en/rest/apps/installations?apiVersion=2026-03-10)）。この資料も新形式の移行の案内も、新形式のトークンでの失効の動作を個別には説明していません。
+**公式仕様**：`DELETE /installation/token` は、その呼び出しを認証した Installation Access Token 自身を失効させます。GitHub App JWT で呼び出す API ではありません。成功の応答は `204` です（[REST API — App installations](https://docs.github.com/en/rest/apps/installations?apiVersion=2026-03-10)）。この資料も新形式への移行の案内も、新形式のトークンでの失効の動作を個別には説明していません。
 
 ## 7. GitHub Actions Integration
 
@@ -198,7 +233,7 @@ GitHub は、トークンを中身を解釈しない文字列として扱うよ�
 
 **公式仕様**：Composite Action では、`GITHUB_OUTPUT` へ書き込んだ値を、`outputs.<output_id>.value` で Action の Output として後続ステップへ公開できます。ログに表示させたくない値は `add-mask` でマスク対象に登録できます（[Workflow commands](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-commands)、[Metadata syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/metadata-syntax)）。
 
-**公式仕様（マスクと Output）**：マスクはジョブごとに値ごとの登録が必要です。
+**公式仕様（マスクと Output）**：マスクは、ジョブごと、値ごとに登録が必要です。
 同じ資料は、マスクした値は Output に設定できないと説明する一方で、同一ジョブ内なら生成、`add-mask`、`GITHUB_OUTPUT` の順で後続ステップへ渡す例を示しています。
 ジョブやワークフローをまたいでマスクした値を渡す場合は、シークレットストアを経由するよう案内しています（[Workflow commands](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-commands)）。
 
@@ -210,7 +245,7 @@ GitHub は、トークンを中身を解釈しない文字列として扱うよ�
 
 GitHub が発行または受理する JWT には、[JWT Constraints](jwt-constraints.md) の規定がすべて同じように適用されるわけではありません。
 GitHub Actions OIDC JWT は通常の OpenID Connect の認証フローとは異なる方法で発行され、GitHub App JWT は GitHub API の認証に使うためです。
-この節の評価はすべて、公式資料と公開値からの推論です。
+この節の評価はすべて、公式資料、公開値、実測値からの推論です。
 
 ### 8.1 GitHub Actions OIDC と OpenID Connect の相違
 
@@ -218,14 +253,14 @@ GitHub Actions OIDC JWT は通常の OpenID Connect の認証フローとは異�
 |---|---|---|---|
 | `authorization_endpoint` | Discovery で **REQUIRED** | Discovery の公開値にない | Discovery が定める Metadata の要件を満たさない。通常の認証フローを実装するクライアントをそのまま適用できる保証はない |
 | `token_endpoint` | Implicit Flow だけを使う場合を除き **REQUIRED** | Discovery の公開値にない。`response_types_supported` は `id_token` だけ | この欠落だけでは標準仕様への違反と断定できない |
-| `sub` の再割当て | OpenID Connect Core は再割当てを禁止 | 旧形式では、名前の再利用で別のオーナーが同じ `sub` を発行させられる。不変形式は Owner ID と Repository ID を含む | 旧形式は再割当ての禁止を満たせない。不変形式は対策だが、旧形式のリポジトリも残る |
+| `sub` の再割当て | OpenID Connect Core は再割当てを禁止 | 旧形式では、名前の再利用で別のオーナーが同じ `sub` の JWT を GitHub に発行させることができる。不変形式は Owner ID と Repository ID を含む | 旧形式は再割当ての禁止を満たせない。不変形式は対策だが、旧形式のリポジトリも残る |
 | `aud` と認証フロー | ID Token の `aud` は登録済みの `client_id` を含む。`nonce` は認証要求で送った場合に照合する | ワークフローが認証要求を介さずに JWT を取得し、Audience を指定する。既定値はオーナーの URL | `client_id` と `nonce` の検証を機械的に適用することは適切でない |
 
 これらの相違は、署名の検証、Issuer と検証鍵の結び付け、`aud` の照合を省略する根拠にはなりません。
-これらは ID Token に限らない JWT の規則に基づくためです（[JWT Constraints — OpenID Connect and Discovery](jwt-constraints.md#5-openid-connect-and-discovery)、[JWT Constraints — JWT Security Considerations](jwt-constraints.md#6-jwt-security-considerations)）。
+これらの検証は ID Token に限らない JWT の規則に基づくためです（[JWT Constraints — OpenID Connect and Discovery](jwt-constraints.md#5-openid-connect-and-discovery)、[JWT Constraints — JWT Security Considerations](jwt-constraints.md#6-jwt-security-considerations)）。
 
-JWT / JWS / JWK の基本規則については、参照した公式資料と公開値の範囲では、GitHub との矛盾は見つかっていません。
-これは実 JWT を網羅して確かめた結果ではなく、確定していない事項は [Outstanding Verification](#9-outstanding-verification) に記録します。
+JWT / JWS / JWK の基本規則については、参照した公式資料、公開値、実測値の範囲では、GitHub との矛盾は見つかっていません。
+実測値は記録した条件の JWT に限られ、確定していない事項は [Outstanding Verification](#9-outstanding-verification) に記録します。
 
 ### 8.2 GitHub App JWT と ID Token の相違
 
@@ -237,12 +272,13 @@ Client ID または App ID を `iss` にすることは、`iss` を文字列と�
 ## 9. Outstanding Verification
 
 公式資料で確定できていない事項を次にまとめます。根拠と確認範囲は各セクションに記載しています。
+公開値や実測値で一部の条件を確かめた事項も、GitHub の保証がないためここに残します。
 
 | 項目 | 確定できていない内容 |
 |---|---|
 | オーナー名 | 一般の `User` / Organization の命名規則と適用上の例外 |
 | リポジトリ名 | `.` と `..` の扱い、既存リポジトリへの例外的な命名規則 |
-| OIDC | カスタマイズ後の `sub` の形式（`repo` を含めないテンプレートを不変形式のリポジトリに適用した場合を含む）、`sub` が OpenID Connect Core の上限255 ASCII 文字に常に収まるか、Claim の JSON の型、Claim が欠落する条件、`nbf`、`iat`、`exp` の時刻の差、JOSE Header に `crit`、`jku`、`jwk` などが現れるか、`User` 所有のリポジトリでの `repository_owner_id`、`run_attempt` の初回の値 |
+| OIDC | カスタマイズ後の `sub` の形式（`repo` を含めないテンプレートを不変形式のリポジトリに適用した場合を含む）、`sub` が OpenID Connect Core の上限255 ASCII 文字に常に収まるか、Claim の JSON の型、Claim が欠落する条件、`nbf`、`iat`、`exp` の時刻の差、JOSE Header に `crit`、`jku`、`jwk` などが現れるか、`User` 所有のリポジトリでの `repository_owner_id`、`run_attempt` の初回の値、Organization が所有するリポジトリで発行された JWT の実測値 |
 | GitHub App の鍵 | 新規生成される RSA 鍵のビット長 |
 | Installation の取得 API | Organization と User の API の `200` 以外の応答（インストールされていない場合を含む）、GitHub App とオーナーの組での一意性 |
 | トークン発行 API | 範囲外リポジトリへの要求、選択対象外の公開リポジトリに対するトークンの振る舞い、500件超の要求、停止中の Installation への要求、`422` の原因、`metadata:read` の付与条件、応答フィールドの有無 |
