@@ -1,46 +1,46 @@
 module gates/issuance_temporal
 
-// GATES Current Scope: abstract one GitHub issue request per Lambda invocation.
+// GATES Current Scope: abstract one GitHub issuance API call per Lambda invocation.
 // This intentionally models TWO invocations so client-controlled retry and
 // duplicate remote issuance can be represented. No idempotency guarantee.
 // Input: docs/spec/requirements.md FR-007, FR-018, QR-003, QR-007, AC-12, AC-30;
 // docs/design/security.md 3.4; docs/design/lambda.md 3.1 and 7.3.
 
 abstract sig Phase {}
-one sig Dormant, Start, Granted, Sent, Ready, NeedRevoke,
+one sig Dormant, Start, Granted, IssueRequested, Returnable, NeedRevoke,
         Revoking, Succeeded, Failed, Interrupted extends Phase {}
 
-// Facts about an attempt. Once recorded, a flag is never cleared.
+// Facts about an invocation. Once recorded, a flag is never cleared.
 // `Issued` is ground-truth remote GitHub state, not necessarily observed by GATES.
 // `TokenKnown` records whether GATES acquired a usable token body.
-// `ResponseVerified` means all issuance response checks passed, not just a 2xx status.
+// `ResultVerified` means all issuance result checks passed, not just a 2xx status.
 // `Delivered` means Lambda produced a successful return; it does NOT prove
 // that the invoker received it. `SuccessObserved` models that separate event.
 // The client may retry without having observed success.
 // `ResponseLost` is the loss of the GitHub API response to Lambda, not of
 // Lambda's response to the invoker.
 abstract sig Flag {}
-one sig GrantOk, RequestSent, Issued, TokenKnown, ResponseVerified, Delivered,
+one sig GrantOk, IssueCallSent, Issued, TokenKnown, ResultVerified, Delivered,
         SuccessObserved, RevokeTried, RevokeConfirmed, ResponseLost,
         InvalidWithoutToken extends Flag {}
 
-abstract sig Attempt {}
-one sig Original, Retry extends Attempt {}
+abstract sig Invocation {}
+one sig Original, Retry extends Invocation {}
 
-// Each Attempt is one Lambda invocation. A retry is NOT the same token.
+// Each Invocation is one Lambda invocation. A retry is NOT the same token.
 one sig State {
-  var phase: Attempt -> one Phase,
-  var flags: Attempt -> Flag
+  var phase: Invocation -> one Phase,
+  var flags: Invocation -> Flag
 }
 
-fun phaseOf[a: Attempt]: Phase { a.(State.phase) }
+fun phaseOf[i: Invocation]: Phase { i.(State.phase) }
 
-pred has[a: Attempt, f: Flag] { f in a.(State.flags) }
+pred has[i: Invocation, f: Flag] { f in i.(State.flags) }
 
-// Moves one attempt to phase `p` and records `added`; nothing else changes.
-pred advance[a: Attempt, p: Phase, added: set Flag] {
-  State.phase' = State.phase ++ (a -> p)
-  State.flags' = State.flags + (a -> added)
+// Moves one invocation to phase `p` and records `added`; nothing else changes.
+pred advance[i: Invocation, p: Phase, added: set Flag] {
+  State.phase' = State.phase ++ (i -> p)
+  State.flags' = State.flags + (i -> added)
 }
 
 pred Init {
@@ -49,107 +49,107 @@ pred Init {
   no State.flags
 }
 
-pred GrantAllow[a: Attempt] {
-  phaseOf[a] = Start
-  advance[a, Granted, GrantOk]
+pred GrantAllow[i: Invocation] {
+  phaseOf[i] = Start
+  advance[i, Granted, GrantOk]
 }
 
-pred GrantDeny[a: Attempt] {
-  phaseOf[a] = Start
-  advance[a, Failed, none]
+pred GrantDeny[i: Invocation] {
+  phaseOf[i] = Start
+  advance[i, Failed, none]
 }
 
-pred Send[a: Attempt] {
-  phaseOf[a] = Granted and has[a, GrantOk]
-  advance[a, Sent, RequestSent]
+pred CallIssueApi[i: Invocation] {
+  phaseOf[i] = Granted and has[i, GrantOk]
+  advance[i, IssueRequested, IssueCallSent]
 }
 
-pred ReceivedValid[a: Attempt] {
-  phaseOf[a] = Sent
-  advance[a, Ready, Issued + TokenKnown + ResponseVerified]
+pred ReceivedValid[i: Invocation] {
+  phaseOf[i] = IssueRequested
+  advance[i, Returnable, Issued + TokenKnown + ResultVerified]
 }
 
-pred ReceivedInvalidKnown[a: Attempt] {
-  phaseOf[a] = Sent
-  advance[a, NeedRevoke, Issued + TokenKnown]
+pred ReceivedInvalidKnown[i: Invocation] {
+  phaseOf[i] = IssueRequested
+  advance[i, NeedRevoke, Issued + TokenKnown]
 }
 
 // An invalid response contains no usable token body. Its remote issuance
 // outcome is not observable in this abstraction: both cases are possible.
-pred ReceivedInvalidWithoutTokenIssued[a: Attempt] {
-  phaseOf[a] = Sent
-  advance[a, Failed, Issued + InvalidWithoutToken]
+pred ReceivedInvalidWithoutTokenIssued[i: Invocation] {
+  phaseOf[i] = IssueRequested
+  advance[i, Failed, Issued + InvalidWithoutToken]
 }
 
-pred ReceivedInvalidWithoutTokenNotIssued[a: Attempt] {
-  phaseOf[a] = Sent
-  advance[a, Failed, InvalidWithoutToken]
+pred ReceivedInvalidWithoutTokenNotIssued[i: Invocation] {
+  phaseOf[i] = IssueRequested
+  advance[i, Failed, InvalidWithoutToken]
 }
 
-pred ResponseLostIssued[a: Attempt] {
-  phaseOf[a] = Sent
-  advance[a, Failed, Issued + ResponseLost]
+pred ResponseLostIssued[i: Invocation] {
+  phaseOf[i] = IssueRequested
+  advance[i, Failed, Issued + ResponseLost]
 }
 
-pred ResponseLostNotIssued[a: Attempt] {
-  phaseOf[a] = Sent
-  advance[a, Failed, ResponseLost]
+pred ResponseLostNotIssued[i: Invocation] {
+  phaseOf[i] = IssueRequested
+  advance[i, Failed, ResponseLost]
 }
 
-pred ApiReject[a: Attempt] {
-  phaseOf[a] = Sent
-  advance[a, Failed, none]
+pred GitHubIssuanceRejected[i: Invocation] {
+  phaseOf[i] = IssueRequested
+  advance[i, Failed, none]
 }
 
-pred Deliver[a: Attempt] {
-  phaseOf[a] = Ready and has[a, TokenKnown] and has[a, ResponseVerified]
-  advance[a, Succeeded, Delivered]
+pred Deliver[i: Invocation] {
+  phaseOf[i] = Returnable and has[i, TokenKnown] and has[i, ResultVerified]
+  advance[i, Succeeded, Delivered]
 }
 
-pred BeginRevoke[a: Attempt] {
-  phaseOf[a] = NeedRevoke and has[a, TokenKnown]
-  advance[a, Revoking, RevokeTried]
+pred BeginRevoke[i: Invocation] {
+  phaseOf[i] = NeedRevoke and has[i, TokenKnown]
+  advance[i, Revoking, RevokeTried]
 }
 
-pred RevocationConfirmed[a: Attempt] {
-  phaseOf[a] = Revoking
-  advance[a, Failed, RevokeConfirmed]
+pred RevocationConfirmed[i: Invocation] {
+  phaseOf[i] = Revoking
+  advance[i, Failed, RevokeConfirmed]
 }
 
-pred RevocationFailed[a: Attempt] {
-  phaseOf[a] = Revoking
-  advance[a, Failed, none]
+pred RevocationFailed[i: Invocation] {
+  phaseOf[i] = Revoking
+  advance[i, Failed, none]
 }
 
-pred Interrupt[a: Attempt] {
-  phaseOf[a] in (Start + Granted + Sent + Ready + NeedRevoke + Revoking)
-  advance[a, Interrupted, none]
+pred Interrupt[i: Invocation] {
+  phaseOf[i] in (Start + Granted + IssueRequested + Returnable + NeedRevoke + Revoking)
+  advance[i, Interrupted, none]
 }
 
-pred InterruptAfterIssue[a: Attempt] {
-  phaseOf[a] = Sent
-  advance[a, Interrupted, Issued]
+pred InterruptAfterIssue[i: Invocation] {
+  phaseOf[i] = IssueRequested
+  advance[i, Interrupted, Issued]
 }
 
 // The retry is a new synchronous Invoke initiated by the caller, not an
-// automatic Lambda retry. Both unobserved success and an overlapping attempt
+// automatic Lambda retry. Both unobserved success and an overlapping invocation
 // are included as abstract possibilities, not verified AWS caller behavior.
 // Overlap is possible at any point while the original invocation is progressing;
 // a completed success is retryable only if the client has not observed it.
 // This covers retries after a lost response or timeout, not repeated issuance
 // in general: GATES does not stop a caller from requesting another token.
-pred StartRetry[a: Attempt] {
-  a = Retry and phaseOf[Retry] = Dormant
+pred StartRetry[i: Invocation] {
+  i = Retry and phaseOf[Retry] = Dormant
   phaseOf[Original] = Succeeded implies not has[Original, SuccessObserved]
-  advance[a, Start, none]
+  advance[i, Start, none]
 }
 
 // A separate observation step captures successful delivery to the caller.
 // Absence of this transition allows a completed Lambda invocation whose
 // successful response was not observed. No transport behavior is guaranteed.
-pred ObserveSuccess[a: Attempt] {
-  phaseOf[a] = Succeeded and not has[a, SuccessObserved]
-  advance[a, Succeeded, SuccessObserved]
+pred ObserveSuccess[i: Invocation] {
+  phaseOf[i] = Succeeded and not has[i, SuccessObserved]
+  advance[i, Succeeded, SuccessObserved]
 }
 
 pred Stutter {
@@ -159,25 +159,25 @@ pred Stutter {
 
 pred Next {
   Stutter or
-  (some a: Attempt |
-    GrantAllow[a] or
-    GrantDeny[a] or
-    Send[a] or
-    ReceivedValid[a] or
-    ReceivedInvalidKnown[a] or
-    ReceivedInvalidWithoutTokenIssued[a] or
-    ReceivedInvalidWithoutTokenNotIssued[a] or
-    ResponseLostIssued[a] or
-    ResponseLostNotIssued[a] or
-    ApiReject[a] or
-    Deliver[a] or
-    BeginRevoke[a] or
-    RevocationConfirmed[a] or
-    RevocationFailed[a] or
-    Interrupt[a] or
-    InterruptAfterIssue[a] or
-    StartRetry[a] or
-    ObserveSuccess[a]
+  (some i: Invocation |
+    GrantAllow[i] or
+    GrantDeny[i] or
+    CallIssueApi[i] or
+    ReceivedValid[i] or
+    ReceivedInvalidKnown[i] or
+    ReceivedInvalidWithoutTokenIssued[i] or
+    ReceivedInvalidWithoutTokenNotIssued[i] or
+    ResponseLostIssued[i] or
+    ResponseLostNotIssued[i] or
+    GitHubIssuanceRejected[i] or
+    Deliver[i] or
+    BeginRevoke[i] or
+    RevocationConfirmed[i] or
+    RevocationFailed[i] or
+    Interrupt[i] or
+    InterruptAfterIssue[i] or
+    StartRetry[i] or
+    ObserveSuccess[i]
   )
 }
 
@@ -186,42 +186,42 @@ fact Execution { Init and always Next }
 // Safety properties within this abstraction, not statements about GitHub's
 // actual access enforcement, physical execution or post-return freshness.
 assert NoUnverifiedReturn {
-  always (all a: Attempt |
-    has[a, Delivered] implies
-    (has[a, ResponseVerified] and has[a, TokenKnown] and
-     has[a, GrantOk] and has[a, RequestSent]))
+  always (all i: Invocation |
+    has[i, Delivered] implies
+    (has[i, ResultVerified] and has[i, TokenKnown] and
+     has[i, GrantOk] and has[i, IssueCallSent]))
 }
 assert NoIssueBeforeExplicitGrant {
-  always (all a: Attempt |
-    has[a, Issued] implies (has[a, GrantOk] and has[a, RequestSent]))
+  always (all i: Invocation |
+    has[i, Issued] implies (has[i, GrantOk] and has[i, IssueCallSent]))
 }
 assert NoReturnAfterLostResponse {
-  always (all a: Attempt |
-    has[a, ResponseLost] implies not has[a, Delivered])
+  always (all i: Invocation |
+    has[i, ResponseLost] implies not has[i, Delivered])
 }
 assert NoRevokeWithoutKnownToken {
-  always (all a: Attempt |
-    has[a, RevokeTried] implies has[a, TokenKnown])
+  always (all i: Invocation |
+    has[i, RevokeTried] implies has[i, TokenKnown])
 }
-// An interrupted attempt is excluded: see InterruptedBeforeRevokeWitness.
+// An interrupted invocation is excluded: see InterruptedBeforeRevokeWitness.
 assert NoFailureWithoutRevokeAttempt {
-  always (all a: Attempt |
-    (phaseOf[a] = Failed and has[a, TokenKnown] and not has[a, ResponseVerified])
-    implies has[a, RevokeTried])
+  always (all i: Invocation |
+    (phaseOf[i] = Failed and has[i, TokenKnown] and not has[i, ResultVerified])
+    implies has[i, RevokeTried])
 }
 assert NoConfirmedRevocationWithoutAttempt {
-  always (all a: Attempt |
-    has[a, RevokeConfirmed] implies has[a, RevokeTried])
+  always (all i: Invocation |
+    has[i, RevokeConfirmed] implies has[i, RevokeTried])
 }
-assert NoAbortedAttemptReturns {
-  always (all a: Attempt |
-    phaseOf[a] = Interrupted implies not has[a, Delivered])
+assert NoInterruptedInvocationReturns {
+  always (all i: Invocation |
+    phaseOf[i] = Interrupted implies not has[i, Delivered])
 }
 
 assert NoObservedSuccessWithoutReturn {
-  always (all a: Attempt |
-    has[a, SuccessObserved] implies
-    (has[a, Delivered] and phaseOf[a] = Succeeded))
+  always (all i: Invocation |
+    has[i, SuccessObserved] implies
+    (has[i, Delivered] and phaseOf[i] = Succeeded))
 }
 
 // Executable witness predicates; evaluate their outcomes in Alloy Analyzer.
@@ -245,7 +245,7 @@ pred RevokeFailureWitness {
 }
 pred InterruptedBeforeRevokeWitness {
   eventually (phaseOf[Original] = Interrupted and
-    has[Original, TokenKnown] and not has[Original, ResponseVerified] and
+    has[Original, TokenKnown] and not has[Original, ResultVerified] and
     not has[Original, RevokeTried])
 }
 pred DuplicateIssueAfterRetryWitness {
@@ -263,7 +263,7 @@ pred InvalidWithoutTokenIssuedWitness {
 pred InvalidWithoutTokenNotIssuedWitness {
   eventually (phaseOf[Original] = Failed and
     not has[Original, Issued] and not has[Original, TokenKnown] and
-    not has[Original, ResponseLost] and has[Original, RequestSent] and
+    not has[Original, ResponseLost] and has[Original, IssueCallSent] and
     has[Original, InvalidWithoutToken])
 }
 
@@ -275,15 +275,15 @@ pred RetryAfterUnobservedSuccessWitness {
     after (phaseOf[Retry] = Start and eventually has[Retry, Issued]))
 }
 
-// Both Invokes may be in progress: a retry can start while Original is Sent.
+// Both Invokes may be in progress: a retry can start while Original is IssueRequested.
 pred ConcurrentRetryDuplicateIssueWitness {
-  eventually (phaseOf[Original] = Sent and phaseOf[Retry] = Start and
+  eventually (phaseOf[Original] = IssueRequested and phaseOf[Retry] = Start and
     eventually (has[Original, Issued] and has[Retry, Issued]))
 }
 
 // A retry can overtake an original that has not yet reached GitHub.
-pred RetrySentBeforeOriginalWitness {
-  eventually (has[Retry, RequestSent] and not has[Original, RequestSent])
+pred RetryCallsBeforeOriginalWitness {
+  eventually (has[Retry, IssueCallSent] and not has[Original, IssueCallSent])
 }
 
 check NoUnverifiedReturn for 14 steps expect 0
@@ -292,7 +292,7 @@ check NoReturnAfterLostResponse for 14 steps expect 0
 check NoRevokeWithoutKnownToken for 14 steps expect 0
 check NoFailureWithoutRevokeAttempt for 14 steps expect 0
 check NoConfirmedRevocationWithoutAttempt for 14 steps expect 0
-check NoAbortedAttemptReturns for 14 steps expect 0
+check NoInterruptedInvocationReturns for 14 steps expect 0
 check NoObservedSuccessWithoutReturn for 14 steps expect 0
 run SuccessfulIssueWitness for 14 steps expect 1
 run ObservedSuccessWitness for 14 steps expect 1
@@ -305,4 +305,4 @@ run InvalidWithoutTokenIssuedWitness for 14 steps expect 1
 run InvalidWithoutTokenNotIssuedWitness for 14 steps expect 1
 run RetryAfterUnobservedSuccessWitness for 14 steps expect 1
 run ConcurrentRetryDuplicateIssueWitness for 14 steps expect 1
-run RetrySentBeforeOriginalWitness for 14 steps expect 1
+run RetryCallsBeforeOriginalWitness for 14 steps expect 1

@@ -13,8 +13,8 @@ func Grant(caller Caller, req request.TokenRequest, owner AllowedOwner, inst Ins
 	if err := Authorize(caller, req, owner); err != nil {
 		return TokenGrant{}, err
 	}
-	if inst.accountID != owner.ID() {
-		return TokenGrant{}, fmt.Errorf("%w: installation account id does not match allowed owner id", ErrInstallationUnavailable)
+	if inst.installationOwnerID != owner.ID() {
+		return TokenGrant{}, fmt.Errorf("%w: installation owner id does not match allowed owner id", ErrInstallationUnavailable)
 	}
 	if !inst.suspendedAt.IsZero() {
 		return TokenGrant{}, fmt.Errorf("%w: installation is suspended", ErrInstallationUnavailable)

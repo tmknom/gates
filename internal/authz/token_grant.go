@@ -7,7 +7,7 @@ import (
 	"github.com/tmknom/gates/internal/repository"
 )
 
-// TokenGrant は、認可が成立した結果として、GitHub API への発行要求の内容を定める発行許可である。
+// TokenGrant は、認可が成立した結果として、発行 API の呼び出しの内容を定める発行許可である。
 // フィールドを非公開にし、ゼロ値以外は Grant でしか作れないようにする。
 type TokenGrant struct {
 	installationID int64

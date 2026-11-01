@@ -116,7 +116,7 @@ Client ID、KMS Key ARN、Audience、Issuer、API Host は、認証、署名、I
 | **付随権限** | Implied Permissions | 値 | 要求にかかわらず GitHub が付与する Permission Entry。`metadata:read` だけを許容する | 事実：Requirements FR-018 が除外の枠を定める。`metadata:read` だけを許容するのは GATES の判断。未確認：`metadata:read` が実際に付与されるか（GitHub Constraints §6.2）。語は候補 |
 | **Caller** | Caller | 値 | 検証済み GATES 用 OIDC JWT から確定した呼び出し元。不変 Owner ID と Repository ID で識別し、ワークフロー実行 ID と試行番号、およびワークフロー起動属性を監査のためだけに添える | 事実：Requirements FR-002 |
 | **ワークフロー起動属性** | Workflow Trigger Attributes | 値 | ワークフロー実行の起動と、GATES 用 OIDC JWT を取得したジョブを示す属性の組。誰が起動したか（行為者の名前と ID）、どのイベントか、どの ref とコミットか、どのワークフロー定義か、どの environment か。どれも欠落し得る | 事実：GitHub Constraints §3.1、Lambda Design §7.1 |
-| **発行許可** | Token Grant | 値 | Installation ID、対象の完全名の集合、許可権限。認可が成立した結果であり、GitHub API への発行要求の内容を定める | 事実：Lambda Design §5 の TokenGrant、Security Design §3.1 |
+| **発行許可** | Token Grant | 値 | Installation ID、対象の完全名の集合、許可権限。認可が成立した結果であり、発行 API の呼び出しの内容を定める | 事実：Lambda Design §5 の TokenGrant、Security Design §3.1 |
 
 発行要求と Caller は、同じ Invoke Payload から取り出す別の概念です。
 Payload に含まれる GATES 用 OIDC JWT は Caller を確定するための資格情報であり、発行要求の一部ではありません（事実：Lambda Design §5）。
@@ -180,6 +180,7 @@ GATES 用 OIDC JWT は、Payload から取り出した時点では未検証で�
 | 失効の成否 | 照合に失敗し、発行済みのトークンを失効させようとした場合 | 事実：Lambda Design §3.1 |
 
 監査記録の単位は発行処理 1 回です。
+中断した発行処理では残らない場合があります（[4.3](#43-lifecycle-of-an-issuance)）。
 相関 ID は成功応答と失敗応答の両方に含め、ワークフローのログから監査記録へ、監査記録からワークフロー実行 ID でワークフロー実行へ、双方向にたどれるようにします（事実：Requirements FR-016、FR-021）。
 
 ### 3.7 Relationships
@@ -256,7 +257,7 @@ flowchart LR
 | Verify | 照合失敗 |
 | Revoke | なし。失効に失敗しても照合失敗のまま終わる |
 
-どの段階にも属さない想定外の障害も内部障害で終わります。
+どの段階にも属さない想定外の障害も、Handler が応答を書ける限り内部障害で終わります。
 
 最後の 2 つの操作は GATES の外で行われますが、発行できる範囲を変えるため、モデルに含めます。
 認可の境界は GATES の設定だけでは決まらず、Installation の対象に依存します。
@@ -311,7 +312,7 @@ stateDiagram-v2
   state "署名済み" as signed
   state "Installation 解決済み" as resolved
   state "発行許可済み" as granted
-  state "発行 API 応答取得済み" as issued
+  state "発行 API 応答取得済み" as issue_responded
   state "発行 API 呼出中" as issue_requested
   state "返却可能" as returnable
   state "入力不正" as rej_request
@@ -339,18 +340,25 @@ stateDiagram-v2
   resolved --> granted : 発行許可の確定
   resolved --> rej_installation : 停止、インストール先 Owner ID の不一致
   granted --> issue_requested : 発行 API 呼出し
-  issue_requested --> issued : 発行応答を受信
+  issue_requested --> issue_responded : 発行応答を受信
   issue_requested --> rej_issue : 発行 API が要求を拒否
   issue_requested --> rej_transient : 応答喪失を含む一時的な障害（発行有無は不明）
   issue_requested --> rej_installation : その他の失敗
-  issued --> returnable : 発行結果の照合
-  issued --> rej_verify : 発行許可との不一致（取得済みトークンを失効試行）
+  issue_responded --> returnable : 発行結果の照合
+  issue_responded --> rej_verify : 発行許可との不一致（取得済みトークンを失効試行）
   returnable --> [*]
 ```
 
 内部障害への遷移は認証の段階のものだけを描き、どの段階でも起き得る想定外の失敗は描きません。
 
 照合失敗は GitHub の発行応答を取得した後の拒否です。空でないトークン文字列を取得した場合は失効を試みます。発行 API への要求後に通信が断たれた場合は、GitHub 側で発行が成功していてもトークン文字列を取得できないことがあります。返却しないことは保証しますが、GitHub 側でトークンが残らないことは保証しません（事実：Requirements FR-018、QR-003）。
+
+発行処理は、失敗の種別で終わらずに打ち切られることもあります。
+タイムアウト、メモリ不足、初期化の失敗のように Handler が応答を書けない場合で、これを **中断**（Interruption）と呼びます（事実：Lambda Design §3.2。語は候補）。
+中断を失敗の種別に含めないのは、種別は発行処理が判定して応答で表すものであり、中断ではどちらもできないためです（推論）。
+どの段階でも起き得るため、状態図には描きません。
+中断した発行処理は利用者にトークンを返しませんが、監査記録が残らない場合があります。
+トークン文字列を取得した後に中断すると、失効を試みられず、GitHub 側でトークンが有効なまま残り得ます（推論：Handler が処理を続けられないため）。
 
 認可が事前認可と発行許可の確定の二段に分かれるのは、Installation を取得しないとインストール先 Owner ID を照合できず、Installation の取得には署名済みの GitHub App JWT が要るためです（推論：Lambda Design §6 手順 3 から 5 の順序から）。
 事前認可は、KMS と GitHub API を呼ぶ前に、認可の見込みがない要求を落とすための段階です（事実：Lambda Design §6）。
@@ -391,7 +399,7 @@ stateDiagram-v2
 | 認可条件 | 事前認可、発行許可の確定 | Caller の Owner ID が許可オーナーの Owner ID と一致し、要求の各完全名のオーナー名が許可オーナー名と一致し、Permissions が許可権限と等しい。満たさなければ認可拒否 | なし | 事実：Security Design §3.1 |
 | Installation の有効性 | 発行許可の確定 | 取得した Installation のインストール先 Owner ID が許可オーナーの Owner ID と一致し、停止していない。満たさなければ Installation 利用不可 | なし | 事実：Security Design §3.1 |
 | 全件成立 | 複数対象の発行要求 | すべての対象が条件を満たすときだけ発行する。一部だけの発行や対象の縮小をしない | なし | 事実：Requirements FR-011 |
-| 明示の要求 | GitHub API への発行要求 | 対象と権限を必ず明示し、省略による全対象・全権限の継承を起こさない | なし | 事実：Requirements FR-015、GitHub Constraints §6.1 の省略時の継承 |
+| 明示の要求 | 発行 API の呼び出し | 対象と権限を必ず明示し、省略による全対象・全権限の継承を起こさない | なし | 事実：Requirements FR-015、GitHub Constraints §6.1 の省略時の継承 |
 | 付随権限の許容 | 発行結果の照合 | 実効権限は許可権限に等しいこと | 付随権限 `metadata:read` が含まれる場合だけ許容する | 事実：Requirements FR-018、Lambda Design §3.1 |
 | 有効期限 | 発行結果 | GitHub が定めた有効期限をそのまま返し、延長しない | なし | 事実：Requirements FR-014 |
 | 対象の上限 | 発行要求 | 対象は 500 件以下 | なし | 事実：Lambda Design §2.1、GitHub Constraints §6.1 |
@@ -401,8 +409,8 @@ stateDiagram-v2
 | 資格情報の非記録 | 監査記録、エラー本文 | 5 種類の資格情報と Private Key を含めない | なし | 事実：Requirements QR-004 |
 
 Installation に対象リポジトリが含まれることを、GATES は発行前に確認しません（事実：Security Design §2 の Authorization の行）。
-含まれない対象は、GitHub API が発行要求を受け付けないか、発行結果の対象一覧が要求と一致しないかのどちらかで検出します（推論）。
-失敗の種別は GitHub の応答で決まり、発行要求の `422` なら GitHub 発行拒否、その他の失敗なら Installation 利用不可、発行応答が発行許可と一致しなければ照合失敗です。
+含まれない対象は、発行 API が呼び出しを受け付けないか、発行結果の対象一覧が要求と一致しないかのどちらかで検出します（推論）。
+失敗の種別は GitHub の応答で決まり、発行 API の `422` なら GitHub 発行拒否、その他の失敗なら Installation 利用不可、発行応答が発行許可と一致しなければ照合失敗です。
 種別からは、対象が Installation に含まれなかったことを断定できません。
 どの場合も利用者にトークンを返しません。
 
@@ -422,7 +430,7 @@ Installation に対象リポジトリが含まれることを、GATES は発行�
 | Installation | 取得した応答から作った時点 | Installation ID とインストール先 Owner ID が正の整数である。インストール先 Owner ID が許可オーナーの Owner ID と一致することと停止していないことは含まず、発行許可の確定が [5.2 Rules](#52-rules) の Installation の有効性として判定する | 推論：GitHub の ID は 1 から始まる。一致しない、または停止している Installation も GitHub 上に実在する値であり、作れない値ではなく発行に使えない値であるため |
 | 発行許可 | 確定した時点 | [5.2 Rules](#52-rules) の認可条件をすべて満たす。対象は発行要求の対象と同じ集合で、各完全名の表記と並びも発行要求のままである（GitHub API に渡すリポジトリ名と監査記録の要求対象を、利用者の要求と一致させるため）。Permissions は許可権限に等しい。Installation ID は、インストール先 Owner ID が許可オーナーの Owner ID と一致し、停止していない Installation のものである | 事実：Security Design §3.1 |
 | 返却可能な発行結果 | 照合を通った時点 | トークンが空でなく、有効期限が将来である。実効対象の完全名の集合が発行許可の対象と一致し、件数が同じで、余分・欠落・重複がない。各実効対象の Repository ID が有効で一意であり、所有オーナーの Owner ID が許可オーナーの Owner ID と一致する。実効権限が許可権限に付随権限を加えた範囲内で、`contents:read` を含む。対象の選び方が、選択したリポジトリに限られている | 事実：Lambda Design §3.1、Requirements FR-018 |
-| 発行処理 | 全体 | 返却可能な発行結果がなければトークンを返さない。照合を通らず、空でないトークン文字列を取得できた場合は、実行可能な範囲で失効 API の呼び出しを試みる。失効成功と、応答を取得できなかったトークンの不存在は保証しない。固定設定は処理中に変わらない。資格情報をログとエラー本文に出さない | 事実：Requirements QR-003、FR-007、FR-018、FR-024、QR-004 |
+| 発行処理 | 全体 | 返却可能な発行結果がなければトークンを返さない。照合を通らず、空でないトークン文字列を取得できた場合は、実行可能な範囲で失効 API の呼び出しを試みる。失効成功、応答を取得できなかったトークンの不存在、中断した場合の失効の試行は保証しない。固定設定は処理中に変わらない。資格情報をログとエラー本文に出さない | 事実：Requirements QR-003、FR-007、FR-018、FR-024、QR-004 |
 
 「返却可能な発行結果」の条件のうち対象の全件一致は、GitHub が要求外の対象を黙って除いた場合も、余分な対象を加えた場合も検出します。
 この条件があるため、FR-007 と FR-010 のうち「トークンを返さない」ことは GitHub の拒否の振る舞いに依存しません（推論）。
@@ -480,7 +488,7 @@ AWS 一時認証情報と GATES 用 OIDC JWT が同じジョブで取得され�
 どちらもトークンを返すかどうかは変えないため、裏取りを前提にしません。
 確定できていない事項の一覧は [GitHub Constraints](../spec/github-constraints.md#9-outstanding-verification) にあります。
 
-- 範囲外の対象を含む発行要求への応答。失敗の種別の分類だけが変わる（[5.2 Rules](#52-rules)）
+- 範囲外の対象を含む発行 API の呼び出しへの応答。失敗の種別の分類だけが変わる（[5.2 Rules](#52-rules)）
 - 要求にかかわらず `metadata:read` が付与されるかどうか。付与されなくても照合は通る（[3.3 Request and Decision](#33-request-and-decision)）
 
 ## 8. Sources

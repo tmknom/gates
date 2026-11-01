@@ -8,18 +8,20 @@ module gates/authorization
 // Cryptographic verification, HTTP outcomes, time, revocation, retry and
 // configuration changes are outside this model.
 // All Caller atoms represent already-verified GitHub OIDC identities.
+// Names follow docs/design/domain.md. An Owner atom stands for one Owner ID and
+// a Repository atom for one Repository ID, so field names omit the "ID" suffix.
 
 sig Owner {}
 sig OwnerName {}
-sig RepoName { writtenOwner: one OwnerName }
-sig Repository { actualOwner: one Owner, fullName: one RepoName }
+sig FullName { ownerName: one OwnerName }
+sig Repository { owner: one Owner, fullName: one FullName }
 
-abstract sig Permission {}
-one sig ContentsRead, MetadataRead, ContentsWrite extends Permission {}
-sig OtherPermission extends Permission {}
+abstract sig PermissionEntry {}
+one sig ContentsRead, MetadataRead, ContentsWrite extends PermissionEntry {}
+sig OtherPermissionEntry extends PermissionEntry {}
 
-abstract sig InstallationStatus {}
-one sig Active, Suspended extends InstallationStatus {}
+fun allowedPermissions: set PermissionEntry { ContentsRead }
+fun impliedPermissions: set PermissionEntry { MetadataRead }
 
 abstract sig RepositorySelection {}
 one sig Selected, AllRepositories extends RepositorySelection {}
@@ -27,60 +29,56 @@ one sig Selected, AllRepositories extends RepositorySelection {}
 abstract sig Answer {}
 one sig Yes, No extends Answer {}
 
-sig Caller { signedOwner: one Owner, sourceRepository: one Repository }
+sig Caller { owner: one Owner, repository: one Repository }
 
 sig Installation {
-  installedFor: one Owner,
-  status: one InstallationStatus,
+  installationOwner: one Owner,
+  suspended: one Answer,
   coveredRepositories: set Repository,
-  installedPermissions: set Permission
+  installedPermissions: set PermissionEntry
 }
 
 one sig Config {
   allowedOwner: one Owner,
-  allowedName: one OwnerName,
-  selectedInstallation: one Installation
+  allowedOwnerName: one OwnerName
 }
 
 sig TokenRequest {
-  caller: one Caller,
-  requestedNames: some RepoName,
-  requestedPermissions: some Permission
+  repositories: some FullName,
+  permissions: some PermissionEntry
 }
 
+// `caller` and `request` trace where the grant came from; they are not part of
+// its content, which is the installation, repositories and permissions.
 sig TokenGrant {
+  caller: one Caller,
   request: one TokenRequest,
   installation: one Installation,
-  names: some RepoName,
-  permissions: some Permission
+  repositories: some FullName,
+  permissions: some PermissionEntry
 }
 
-sig IssueAttempt {
+// One invocation of the GitHub issuance API.
+sig IssueCall {
   grant: one TokenGrant,
-  sentNames: some RepoName,
-  sentPermissions: some Permission,
-  selection: one RepositorySelection
+  repositories: some FullName,
+  permissions: some PermissionEntry
 }
 
-// One element of the response's repository list. Separate atoms can refer to
-// the same repository, so duplicates are representable. A Repository atom
-// stands for one Repository ID.
-sig ResponseEntry { repository: one Repository }
+// One element of the result's repository list. Separate atoms can refer to
+// the same repository, so duplicates are representable.
+sig EffectiveRepository { repository: one Repository }
 
-sig IssuanceResponse {
-  attempt: one IssueAttempt,
+sig IssuanceResult {
+  call: one IssueCall,
   nonemptyToken: one Answer,
   futureExpiry: one Answer,
-  entries: set ResponseEntry,
-  effectivePermissions: set Permission,
-  selection: one RepositorySelection
+  effectiveRepositories: set EffectiveRepository,
+  effectivePermissions: set PermissionEntry,
+  repositorySelection: one RepositorySelection
 }
 
-fun effectiveRepositories[r: IssuanceResponse]: set Repository {
-  r.entries.repository
-}
-
-sig ReturnedToken { response: one IssuanceResponse }
+sig InstallationToken { result: one IssuanceResult }
 
 // The baseline policy is used by the original checks and witnesses.
 // The other policies deliberately disable exactly one return-time check.
@@ -93,127 +91,136 @@ one sig ModelConfiguration { policy: one VerificationPolicy }
 pred baseline { ModelConfiguration.policy = Baseline }
 
 // A single GitHub issuance API invocation can yield at most one modeled
-// response, and one response can result in at most one returned token.
-fact ResponseCardinality {
-  all a: IssueAttempt | lone a.~attempt
-  all r: IssuanceResponse | lone r.~response
+// result, and one result can become at most one installation token.
+fact ResultCardinality {
+  all c: IssueCall | lone c.~call
+  all r: IssuanceResult | lone r.~result
 }
 
 // Identity consistency comes from successful OIDC verification; it is not
-// checked again by authorization. The source repository is NOT an ACL key.
-fact VerifiedCallerSource {
-  all c: Caller | c.sourceRepository.actualOwner = c.signedOwner
+// checked again by authorization. The caller's repository is NOT an ACL key.
+fact VerifiedCallerRepository {
+  all c: Caller | c.repository.owner = c.owner
 }
 
-// The owner ID, written owner name and installation are fixed configuration;
-// the owner name is modeled separately from the immutable owner ID.
-pred authorize[r: TokenRequest, i: Installation] {
-  r.caller.signedOwner = Config.allowedOwner
-  all n: r.requestedNames | n.writtenOwner = Config.allowedName
-  r.requestedPermissions = ContentsRead
-  i = Config.selectedInstallation
-  i.installedFor = Config.allowedOwner
-  i.status = Active
+// The installation is derived from the fixed GitHub App and the allowed owner,
+// not configured. Every Installation atom belongs to that one GitHub App, and
+// at most one exists per owner: an *external GitHub behavior assumption*
+// inferred in docs/design/domain.md 3.1, not a guarantee stated by GitHub.
+fact OneInstallationPerOwner {
+  all disj x, y: Installation | x.installationOwner != y.installationOwner
+}
+
+// The conditions of the Grant operation: the authorization rule and the
+// validity of the installation. The owner ID and owner name are fixed
+// configuration; the owner name is modeled separately from the immutable
+// owner ID.
+pred grantable[c: Caller, r: TokenRequest, i: Installation] {
+  c.owner = Config.allowedOwner
+  all n: r.repositories | n.ownerName = Config.allowedOwnerName
+  r.permissions = allowedPermissions
+  i.installationOwner = Config.allowedOwner
+  i.suspended = No
 }
 
 // Represents the checks before the GitHub issuance API call. In particular,
 // actual repo ownership / installation coverage is NOT a precondition here.
 fact GrantsRespectAuthorization {
   all g: TokenGrant |
-    authorize[g.request, g.installation] and
-    g.names = g.request.requestedNames and
-    g.permissions = g.request.requestedPermissions
+    grantable[g.caller, g.request, g.installation] and
+    g.repositories = g.request.repositories and
+    g.permissions = g.request.permissions
 }
 
 // The API call always specifies exact requested names and permissions;
 // it never inherits all repositories or all permissions by omission.
-fact ExplicitIssueAttempts {
-  all a: IssueAttempt |
-    a.sentNames = a.grant.names and
-    a.sentPermissions = a.grant.permissions and
-    a.selection = Selected
+fact ExplicitIssueCalls {
+  all c: IssueCall |
+    c.repositories = c.grant.repositories and
+    c.permissions = c.grant.permissions
 }
 
 // Represents return-time checks, NOT a guarantee about the actual GitHub
 // token's authorization outside a trustworthy GitHub response.
-pred verifiedResponse[r: IssuanceResponse] {
+pred verifiedResult[r: IssuanceResult] {
   r.nonemptyToken = Yes
   r.futureExpiry = Yes
-  r.selection = Selected
+  r.repositorySelection = Selected
   ContentsRead in r.effectivePermissions
 
   // Equal count and equal name set leave no room for a repeated name or ID.
   (ModelConfiguration.policy != WithoutCountCheck) implies
-    #(r.entries) = #(r.attempt.grant.names)
+    #(r.effectiveRepositories) = #(r.call.grant.repositories)
   (ModelConfiguration.policy != WithoutNameCheck) implies
-    effectiveRepositories[r].fullName = r.attempt.grant.names
+    r.effectiveRepositories.repository.fullName = r.call.grant.repositories
   (ModelConfiguration.policy != WithoutOwnerCheck) implies
-    (all x: effectiveRepositories[r] | x.actualOwner = Config.allowedOwner)
+    (all x: r.effectiveRepositories.repository | x.owner = Config.allowedOwner)
   (ModelConfiguration.policy != WithoutPermissionCheck) implies
-    r.effectivePermissions in (ContentsRead + MetadataRead)
+    r.effectivePermissions in (allowedPermissions + impliedPermissions)
 }
 
-fact OnlyVerifiedTokensAreReturned {
-  all t: ReturnedToken | verifiedResponse[t.response]
+fact OnlyVerifiedResultsBecomeTokens {
+  all t: InstallationToken | verifiedResult[t.result]
 }
 
 // The following is an *external GitHub behavior assumption*, deliberately
 // not a fact: GitHub must enforce installation coverage and app permissions.
 // GATES does not prevalidate the requested names against coverage.
-pred githubResponseRespectsInstallation[r: IssuanceResponse] {
-  effectiveRepositories[r] in r.attempt.grant.installation.coveredRepositories
-  r.effectivePermissions in (r.attempt.grant.installation.installedPermissions + MetadataRead)
+pred githubResultRespectsInstallation[r: IssuanceResult] {
+  r.effectiveRepositories.repository in r.call.grant.installation.coveredRepositories
+  r.effectivePermissions in (r.call.grant.installation.installedPermissions + impliedPermissions)
 }
 
-pred entriesAreUnique[r: IssuanceResponse] {
-  all disj x, y: r.entries |
+pred effectiveRepositoriesAreUnique[r: IssuanceResult] {
+  all disj x, y: r.effectiveRepositories |
     x.repository != y.repository and x.repository.fullName != y.repository.fullName
 }
 
 assert NoForeignOwnerGrant {
-  all g: TokenGrant | g.request.caller.signedOwner = Config.allowedOwner
+  all g: TokenGrant | g.caller.owner = Config.allowedOwner
 }
 assert NoOtherInstallationGrant {
-  all g: TokenGrant | g.installation = Config.selectedInstallation and
-    g.installation.installedFor = Config.allowedOwner and g.installation.status = Active
+  lone TokenGrant.installation
+  all g: TokenGrant |
+    g.installation.installationOwner = Config.allowedOwner and g.installation.suspended = No
 }
 assert OnlyCurrentPermissionGranted {
-  all g: TokenGrant | g.permissions = ContentsRead
+  all g: TokenGrant | g.permissions = allowedPermissions
 }
 assert AllOrNothingGrant {
-  all g: TokenGrant | g.names = g.request.requestedNames
+  all g: TokenGrant | g.repositories = g.request.repositories
 }
-assert AllIssueAttemptsExplicit {
-  all a: IssueAttempt |
-    a.sentNames = a.grant.request.requestedNames and
-    a.sentPermissions = ContentsRead and a.selection = Selected
+assert AllIssueCallsExplicit {
+  all c: IssueCall |
+    c.repositories = c.grant.request.repositories and
+    c.permissions = allowedPermissions
 }
 assert NoOverbroadTokenReturned {
-  baseline implies (all t: ReturnedToken |
-    t.response.effectivePermissions in (ContentsRead + MetadataRead) and
-    ContentsRead in t.response.effectivePermissions and
-    t.response.selection = Selected)
+  baseline implies (all t: InstallationToken |
+    t.result.effectivePermissions in (allowedPermissions + impliedPermissions) and
+    ContentsRead in t.result.effectivePermissions and
+    t.result.repositorySelection = Selected)
 }
 assert ExactNamesReturned {
-  baseline implies (all t: ReturnedToken |
-    effectiveRepositories[t.response].fullName = t.response.attempt.grant.request.requestedNames and
-    #(t.response.entries) = #(t.response.attempt.grant.request.requestedNames))
+  baseline implies (all t: InstallationToken |
+    t.result.effectiveRepositories.repository.fullName = t.result.call.grant.request.repositories and
+    #(t.result.effectiveRepositories) = #(t.result.call.grant.request.repositories))
 }
-assert NoDuplicateEntriesReturned {
-  baseline implies (all t: ReturnedToken | entriesAreUnique[t.response])
+assert NoDuplicateEffectiveRepositoriesReturned {
+  baseline implies (all t: InstallationToken | effectiveRepositoriesAreUnique[t.result])
 }
 assert ReturnedReposOwnedByAllowedOwner {
-  baseline implies (all t: ReturnedToken |
-    all r: effectiveRepositories[t.response] | r.actualOwner = Config.allowedOwner)
+  baseline implies (all t: InstallationToken |
+    all r: t.result.effectiveRepositories.repository | r.owner = Config.allowedOwner)
 }
 // Conditional on the external assumption: GATES does not prevalidate coverage,
-// and its full-name check rejects a response that omits an uncovered name.
+// and its full-name check rejects a result that omits an uncovered name.
 assert CoverageHoldsWhenGitHubEnforces {
-  baseline implies (all t: ReturnedToken |
-    githubResponseRespectsInstallation[t.response] implies
-    (all n: t.response.attempt.grant.names |
-      some r: t.response.attempt.grant.installation.coveredRepositories |
-        r.fullName = n and r.actualOwner = Config.allowedOwner))
+  baseline implies (all t: InstallationToken |
+    githubResultRespectsInstallation[t.result] implies
+    (all n: t.result.call.grant.repositories |
+      some r: t.result.call.grant.installation.coveredRepositories |
+        r.fullName = n and r.owner = Config.allowedOwner))
 }
 
 // Mutation checks intentionally evaluate the same returned-token properties
@@ -221,101 +228,101 @@ assert CoverageHoldsWhenGitHubEnforces {
 // counterexamples; they are not assertions about the baseline implementation.
 assert WithoutOwnerCheckPreservesOwnerBoundary {
   ModelConfiguration.policy = WithoutOwnerCheck implies
-    (all t: ReturnedToken |
-      all r: effectiveRepositories[t.response] | r.actualOwner = Config.allowedOwner)
+    (all t: InstallationToken |
+      all r: t.result.effectiveRepositories.repository | r.owner = Config.allowedOwner)
 }
 assert WithoutNameCheckPreservesExactNames {
   ModelConfiguration.policy = WithoutNameCheck implies
-    (all t: ReturnedToken |
-      effectiveRepositories[t.response].fullName = t.response.attempt.grant.request.requestedNames and
-      #(t.response.entries) = #(t.response.attempt.grant.request.requestedNames))
+    (all t: InstallationToken |
+      t.result.effectiveRepositories.repository.fullName = t.result.call.grant.request.repositories and
+      #(t.result.effectiveRepositories) = #(t.result.call.grant.request.repositories))
 }
-assert WithoutCountCheckPreservesUniqueEntries {
+assert WithoutCountCheckPreservesUniqueEffectiveRepositories {
   ModelConfiguration.policy = WithoutCountCheck implies
-    (all t: ReturnedToken | entriesAreUnique[t.response])
+    (all t: InstallationToken | effectiveRepositoriesAreUnique[t.result])
 }
 assert WithoutPermissionCheckPreservesPermissionBoundary {
   ModelConfiguration.policy = WithoutPermissionCheck implies
-    (all t: ReturnedToken |
-      t.response.effectivePermissions in (ContentsRead + MetadataRead) and
-      ContentsRead in t.response.effectivePermissions and
-      t.response.selection = Selected)
+    (all t: InstallationToken |
+      t.result.effectivePermissions in (allowedPermissions + impliedPermissions) and
+      ContentsRead in t.result.effectivePermissions and
+      t.result.repositorySelection = Selected)
 }
 assert ReturnedResultsHaveValidTokenAndExpiry {
-  all t: ReturnedToken |
-    t.response.nonemptyToken = Yes and t.response.futureExpiry = Yes
+  all t: InstallationToken |
+    t.result.nonemptyToken = Yes and t.result.futureExpiry = Yes
 }
 
 // Positive witness: successful issuance must be satisfiable, or assertions
 // could pass vacuously in an inconsistent model.
 pred SuccessfulReturn {
   baseline
-  some t: ReturnedToken |
-    githubResponseRespectsInstallation[t.response]
+  some t: InstallationToken |
+    githubResultRespectsInstallation[t.result]
 }
 
-// Intended residual risk: a caller's source repository is DIFFERENT from the
+// Intended residual risk: a caller's repository is DIFFERENT from the
 // requested target, but both are within the same allowed owner. No per-caller
 // access control is modeled, by design for Current Scope.
 pred CrossRepositoryWithinOwner {
   baseline
-  some t: ReturnedToken, target: Repository |
-    githubResponseRespectsInstallation[t.response] and
-    target in effectiveRepositories[t.response] and
-    target != t.response.attempt.grant.request.caller.sourceRepository and
-    target.fullName != t.response.attempt.grant.request.caller.sourceRepository.fullName
+  some t: InstallationToken, target: Repository |
+    githubResultRespectsInstallation[t.result] and
+    target in t.result.effectiveRepositories.repository and
+    target != t.result.call.grant.caller.repository and
+    target.fullName != t.result.call.grant.caller.repository.fullName
 }
 
 // Exploration of the trust boundary: without assuming GitHub validates the
-// installation's coverage, response fields could appear self-consistent to
+// installation's coverage, result fields could appear self-consistent to
 // GATES even when coverage is not proved by GATES. Such a witness does not
 // establish exploitable GitHub API behavior.
-pred AttemptMayContainUncoveredNames {
+pred IssueCallMayContainUncoveredNames {
   baseline
-  some a: IssueAttempt |
-    some n: a.sentNames |
-      no r: a.grant.installation.coveredRepositories | r.fullName = n
+  some c: IssueCall |
+    some n: c.repositories |
+      no r: c.grant.installation.coveredRepositories | r.fullName = n
 }
 
 pred CoverageNotIndependentlyProved {
   baseline
-  some t: ReturnedToken |
-    effectiveRepositories[t.response] not in t.response.attempt.grant.installation.coveredRepositories
+  some t: InstallationToken |
+    t.result.effectiveRepositories.repository not in t.result.call.grant.installation.coveredRepositories
 }
 
-// Witness that an invalid response can exist independently of return.
-// Non-return of overbroad responses is checked by NoOverbroadTokenReturned.
-pred InvalidResponseCanExist {
+// Witness that an invalid result can exist independently of return.
+// Non-return of overbroad results is checked by NoOverbroadTokenReturned.
+pred InvalidResultCanExist {
   baseline
-  some r: IssuanceResponse |
+  some r: IssuanceResult |
     ContentsWrite in r.effectivePermissions and
-    no t: ReturnedToken | t.response = r
+    no t: InstallationToken | t.result = r
 }
 
 // All commands use a finite scope; absence of counterexamples is NOT
 // an unbounded proof.
-// Permission is 4 so that one unknown permission exists besides the three named ones.
-check NoForeignOwnerGrant for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 Permission expect 0
-check NoOtherInstallationGrant for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 Permission expect 0
-check OnlyCurrentPermissionGranted for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 Permission expect 0
-check AllOrNothingGrant for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 Permission expect 0
-check AllIssueAttemptsExplicit for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 Permission expect 0
-check NoOverbroadTokenReturned for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 Permission expect 0
-check ExactNamesReturned for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 Permission expect 0
-check NoDuplicateEntriesReturned for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 Permission expect 0
-check ReturnedReposOwnedByAllowedOwner for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 Permission expect 0
-check CoverageHoldsWhenGitHubEnforces for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 Permission expect 0
-check ReturnedResultsHaveValidTokenAndExpiry for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 Permission expect 0
+// PermissionEntry is 4 so that one unknown entry exists besides the three named ones.
+check NoForeignOwnerGrant for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 0
+check NoOtherInstallationGrant for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 0
+check OnlyCurrentPermissionGranted for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 0
+check AllOrNothingGrant for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 0
+check AllIssueCallsExplicit for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 0
+check NoOverbroadTokenReturned for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 0
+check ExactNamesReturned for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 0
+check NoDuplicateEffectiveRepositoriesReturned for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 0
+check ReturnedReposOwnedByAllowedOwner for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 0
+check CoverageHoldsWhenGitHubEnforces for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 0
+check ReturnedResultsHaveValidTokenAndExpiry for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 0
 
 // These checks use a different verification policy from the baseline.
 // A counterexample is expected: it shows that the removed check matters.
-check WithoutOwnerCheckPreservesOwnerBoundary for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 Permission expect 1
-check WithoutNameCheckPreservesExactNames for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 Permission expect 1
-check WithoutPermissionCheckPreservesPermissionBoundary for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 Permission expect 1
-check WithoutCountCheckPreservesUniqueEntries for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 Permission expect 1
+check WithoutOwnerCheckPreservesOwnerBoundary for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 1
+check WithoutNameCheckPreservesExactNames for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 1
+check WithoutPermissionCheckPreservesPermissionBoundary for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 1
+check WithoutCountCheckPreservesUniqueEffectiveRepositories for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 1
 
-run SuccessfulReturn for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 Permission expect 1
-run CrossRepositoryWithinOwner for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 Permission expect 1
-run AttemptMayContainUncoveredNames for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 Permission expect 1
-run CoverageNotIndependentlyProved for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 Permission expect 1
-run InvalidResponseCanExist for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 Permission expect 1
+run SuccessfulReturn for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 1
+run CrossRepositoryWithinOwner for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 1
+run IssueCallMayContainUncoveredNames for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 1
+run CoverageNotIndependentlyProved for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 1
+run InvalidResultCanExist for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 1

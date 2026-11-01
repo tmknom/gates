@@ -111,7 +111,7 @@ Lambda は Installation ID を設定として持たず、固定したオーナ�
 
 対象の全件一致を照合するため、[Requirements](../spec/requirements.md) FR-007 のうち範囲外の対象を含む要求にトークンを返さないことは、GitHub が範囲外の対象を拒否するかどうかに依存しません。
 GitHub が範囲外の対象を黙って除いて発行した場合は、応答の対象と `TokenGrant` の不一致を検出し、トークンを返さず、取得したトークンの失効を試みます。
-GitHub が発行要求を `422` で拒否した場合は `github_issuance_rejected`、発行応答を取得して照合が失敗した場合は `issuance_verification_failed` とします。GATES が発行前の認可条件により拒否する `authorization_denied` と区別します。
+発行 API が呼び出しを `422` で拒否した場合は `github_issuance_rejected`、発行応答を取得して照合が失敗した場合は `issuance_verification_failed` とします。GATES が発行前の認可条件により拒否する `authorization_denied` と区別します。
 GitHub 側での失効成功や、応答喪失で取得できなかったトークンの不存在は保証せず、GitHub 側で有効なまま残る可能性があります。
 
 GitHub API の要求・応答形式と具体的な照合条件は [Lambda Design](lambda.md) に記述します。

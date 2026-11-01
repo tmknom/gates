@@ -352,7 +352,7 @@ func jwksOf(keys ...string) string {
 
 func TestAuthenticate_UnusableJWK(t *testing.T) {
 	const unusableKeyID = "unusable"
-	shortKey, err := rsa.GenerateKey(rand.Reader, 2047)
+	shortKey, err := rsa.GenerateKey(rand.Reader, 2047) //nolint:gosec // G403: 使える鍵の下限のすぐ下で JWK を拒否することを確かめるため、短い鍵を意図して作る
 	if err != nil {
 		t.Fatalf("GenerateKey returned error: %v", err)
 	}
