@@ -34,7 +34,7 @@ GitHub の公式資料そのものではなく、GitHub の仕様が変更され
 
 **公式仕様（リポジトリ名）**：新規リポジトリ名の長さは最大100文字、許容される文字は ASCII 英数字と `.`, `-`, `_` です（[Creating a new repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-new-repository)）。
 
-**公式仕様（Enterprise Managed Users）**：GitHub.com の Enterprise Managed Users のユーザー名には、GitHub が末尾にアンダースコアと企業のショートコード（3〜8文字の英数字）を加えます。アンダースコアとショートコードを含めて最大39文字です（[Username considerations for external authentication](https://docs.github.com/en/enterprise-cloud@latest/admin/managing-iam/iam-configuration-reference/username-considerations-for-external-authentication)）。このアカウントは、企業のポリシーで許可されていれば private リポジトリに限り所有できます。特権アプリを除き、GitHub App を自身の個人アカウントにはインストールできず、管理者権限を持つリポジトリ単位のインストールは条件付きで可能です。所有するリポジトリでは GitHub-hosted runner を利用できません（[Abilities and restrictions of managed user accounts](https://docs.github.com/en/enterprise-cloud@latest/admin/managing-iam/understanding-iam-for-enterprises/abilities-and-restrictions-of-managed-user-accounts)）。
+**公式仕様（Enterprise Managed Users）**：GitHub.com の Enterprise Managed Users のユーザー名には、GitHub が末尾にアンダースコアと企業のショートコード（3〜8文字の英数字）を加えます。アンダースコアとショートコードを含めて最大39文字です。正規化したユーザー名は、ダッシュで始まることも終わることもできず、連続したダッシュも含められません（[Username considerations for external authentication](https://docs.github.com/en/enterprise-cloud@latest/admin/managing-iam/iam-configuration-reference/username-considerations-for-external-authentication)）。このアカウントは、企業のポリシーで許可されていれば private リポジトリに限り所有できます。特権アプリを除き、GitHub App を自身の個人アカウントにはインストールできず、管理者権限を持つリポジトリ単位のインストールは条件付きで可能です。所有するリポジトリでは GitHub-hosted runner を利用できません（[Abilities and restrictions of managed user accounts](https://docs.github.com/en/enterprise-cloud@latest/admin/managing-iam/understanding-iam-for-enterprises/abilities-and-restrictions-of-managed-user-accounts)）。
 
 **未確認**：リポジトリ名の資料だけからは、名前が `.` または `..` である場合の扱いや、既存リポジトリへの例外的な命名規則を断定できません。
 Enterprise Managed Users の資料には、GitHub のユーザー名は英数字とダッシュ（`-`）だけを含められるという記述があります。
@@ -72,8 +72,8 @@ Organization 名の規則もこの資料の対象外であり、`User` と Organ
 | `exp`, `iat`, `nbf` | 有効期限、発行時刻、利用開始可能時刻 |
 | `repository_id` | ワークフロー実行元のリポジトリの ID |
 | `repository_owner_id` | 公式の説明は、リポジトリを格納する Organization の ID である。環境変数 `GITHUB_REPOSITORY_OWNER_ID` はリポジトリ所有者のアカウント ID とされるが、User 所有のリポジトリでのこの Claim の値は明記されていない |
-| `run_id` | ワークフロー実行の ID |
-| `run_attempt` | 公式の説明は、ワークフロー実行が再試行された回数である。環境変数 `GITHUB_RUN_ATTEMPT` は初回を `1` とするが、この Claim との一致は明記されていない |
+| `run_id` | ワークフロー実行の ID。環境変数 `GITHUB_RUN_ID` は再実行で変わらないとされるが、この Claim との一致は明記されていない |
+| `run_attempt` | 公式の説明は、ワークフロー実行が再試行された回数である。環境変数 `GITHUB_RUN_ATTEMPT` は初回を `1` とし再実行ごとに増やすが、この Claim との一致は明記されていない |
 | `actor`, `actor_id`, `event_name`, `ref` | 実行を開始した個人アカウントとその ID、起動イベント、起動した Git の参照 |
 | `sha` | コミット SHA。Token claims の表にはなく、Discovery の `claims_supported` に含まれる。表にある `workflow_sha` はワークフローファイルのコミットを指す別の Claim である |
 | `workflow_ref`, `job_workflow_ref`, `environment` | ワークフローの参照パス、再利用ワークフローを使うジョブの参照パス、ジョブが使う Environment の名前 |
@@ -82,6 +82,7 @@ Organization 名の規則もこの資料の対象外であり、`User` と Organ
 
 **公式仕様（JWT の例）**：公式の JWT の例では、Header に `typ`、`alg`、`x5t`、`kid` があります。
 `exp`、`iat`、`nbf` は JSON の数値で、`repository_id`、`repository_owner_id`、`run_attempt` は数字の JSON 文字列です。
+この例の `sub` は旧形式で、`repository_owner_id` も含まれています。
 `nbf` は `iat` の10分前、`exp` は `iat` の5分後です（[OpenID Connect](https://docs.github.com/en/actions/concepts/security/openid-connect)）。
 
 **実測値（JWT）**：個人アカウントの private リポジトリで Audience を指定せずに発行された JWT を、起動イベント、再利用ワークフロー、Environment の条件を変えて6件記録しています。
