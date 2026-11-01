@@ -5,7 +5,7 @@ GATES は、許可された単一のオーナー配下の GitHub Actions ワー�
 
 ## 1. Purpose and Scope
 
-本ドキュメントの目的は、Lambda 上の Go アプリケーション、Composite Action、Terraform の設計・実装・レビューが、概念の意味と判定のルールを一つのモデルから参照できるようにすることです。現在の権限上限と認可の粒度は [Project Scope](../spec/project-scope.md) に基づくもので、恒久的な機能上限を意味しません。
+本ドキュメントの目的は、Lambda 上の Go アプリケーション、Composite Action、Terraform の設計・実装・レビューが、概念の意味と判定のルールを一つのモデルから参照できるようにすることです。
 中心に置くのは、Lambda が担う発行の判定です。
 Composite Action、AWS IAM、KMS の鍵管理は、発行の判定と語の意味が異なる範囲として境界を示すにとどめます。
 
@@ -112,7 +112,7 @@ Client ID、KMS Key ARN、Audience、Issuer、API Host は、認証、署名、I
 | **オーナー名** | Owner Name | 値 | 完全名のオーナー部分と許可オーナー名の二か所に現れるオーナーの名前。どちらも同じ文字種の規則に従う。比較は ASCII の範囲で大文字小文字を区別しない | 事実：Lambda Design §2.2 |
 | **Permission Entry** | Permission Entry | 値 | 権限名と水準の組（`contents:read` など） | 事実：Requirements FR-008 |
 | **Permissions** | Permissions | 値 | Permission Entry の集合。権限名ごとに水準を一つ持つ（GitHub の権限の表現が権限名をキーに持つため）。要求では `{contents:read}` だけが許可される。GitHub REST API のスキーマ「App Permissions」に対応する | 事実：Requirements FR-008、Security Design §3.1、GitHub Constraints §6.1、REST API endpoints for GitHub Apps のスキーマ「App Permissions」 |
-| **許可権限** | Allowed Permissions | 値 | 現在のスコープで GATES が発行を許可する Permissions。`{contents:read}` に固定 | 事実：Requirements §2.1 |
+| **許可権限** | Allowed Permissions | 値 | GATES が発行を許可する Permissions。`{contents:read}` に固定 | 事実：Requirements §2.1 |
 | **付随権限** | Implied Permissions | 値 | 要求にかかわらず GitHub が付与する Permission Entry。`metadata:read` だけを許容する | 事実：Requirements FR-018 が除外の枠を定める。`metadata:read` だけを許容するのは GATES の判断。未確認：`metadata:read` が実際に付与されるか（GitHub Constraints §6.2）。語は候補 |
 | **Caller** | Caller | 値 | 検証済み GATES 用 OIDC JWT から確定した呼び出し元。不変 Owner ID と Repository ID で識別し、ワークフロー実行 ID と試行番号、およびワークフロー起動属性を監査のためだけに添える | 事実：Requirements FR-002 |
 | **ワークフロー起動属性** | Workflow Trigger Attributes | 値 | ワークフロー実行の起動と、GATES 用 OIDC JWT を取得したジョブを示す属性の組。誰が起動したか（行為者の名前と ID）、どのイベントか、どの ref とコミットか、どのワークフロー定義か、どの environment か。どれも欠落し得る | 事実：GitHub Constraints §3.1、Lambda Design §7.1 |
@@ -371,7 +371,7 @@ stateDiagram-v2
 |---|---|---|
 | オーナーの名前変更 | IAM Role の引き受けとオーナー名の照合が失敗し、設定を更新するまで発行が止まる | 事実：AWS Infrastructure Design §3.1 |
 | リポジトリの名前変更 | 旧名で要求すると、GitHub が拒否するか実効対象の完全名が一致せず返却できない場合がある。同一の許可オーナー・Installation の対象に残り、ほかの条件も成立するなら、新しい完全名で要求できる | 推論：Lambda Design §3.1 の照合条件から。旧名への GitHub の応答は未確認 |
-| リポジトリの移管 | 所有オーナーと Installation の対象範囲が変わり得る。異なるオーナーへの移管後は、名前を変えて要求するだけでは現在の単一オーナー認可を満たさない | 推論：Requirements FR-006・FR-007、Security Design §3.1 の Owner ID と Installation の確認から |
+| リポジトリの移管 | 所有オーナーと Installation の対象範囲が変わり得る。異なるオーナーへの移管後は、名前を変えて要求するだけでは単一オーナー認可を満たさない | 推論：Requirements FR-006・FR-007、Security Design §3.1 の Owner ID と Installation の確認から |
 | Installation の対象の追加・削除 | 読み取り可能範囲の上限が変わる。Organization では、制限していなければリポジトリ管理者も追加できる | 事実：Security Design §3.2 |
 | GitHub App の再インストール | Installation ID が変わるが、設定変更なしに新しい Installation を導出する | 事実：Security Design §3.2 |
 | Installation の停止 | 取得した Installation が停止状態のため、発行許可を作らず Installation 利用不可で閉じる。GitHub の発行 API を呼ばない | 事実：Security Design §3.1、Lambda Design §6 手順 5 |
@@ -505,3 +505,10 @@ AWS 一時認証情報と GATES 用 OIDC JWT が同じジョブで取得され�
 - [GitHub — REST API endpoints for GitHub Apps](https://docs.github.com/en/rest/apps/apps)
 - [OpenID Connect Discovery 1.0](https://openid.net/specs/openid-connect-discovery-1_0.html)
 - [RFC 7517 — JSON Web Key (JWK)](https://www.rfc-editor.org/rfc/rfc7517)
+
+## Appendix: Impact of Future Scope
+
+[Future Scope](../spec/future-scope.md) が想定する機能を取り込む場合、本ドキュメントには次の影響が及びます。
+
+- **細粒度の認可**：認可条件（§5.2）と発行許可の不変条件（§5.3）が変わる。Caller の Repository ID を認可に使うなら、監査のためだけに添えるという Caller の定義（§3.3）も変わる
+- **発行可能な権限の拡大**：許可権限と付随権限（§3.3）、付随権限の許容（§5.2）、返却可能な発行結果（§5.3）が変わる。Account / Organization に関係する権限を扱うなら、リポジトリを対象とする発行要求の概念も見直す

@@ -2,7 +2,7 @@
 
 ## 1. Responsibility and Invocation
 
-Lambda は GitHub OIDC JWT の検証、GitHub App Installation への対象解決、現在のスコープでの `contents:read` の発行認可、KMS 署名、GitHub App Installation Access Token の発行を実行します。スコープの判断理由と将来の検討対象は [Project Scope](../spec/project-scope.md) に置きます。Go のパッケージやインターフェースは責務とテスト容易性に応じて設け、必要性のない抽象化を避けます。
+Lambda は GitHub OIDC JWT の検証、GitHub App Installation への対象解決、`contents:read` の発行認可、KMS 署名、GitHub App Installation Access Token の発行を実行します。Go のパッケージやインターフェースは責務とテスト容易性に応じて設け、必要性のない抽象化を避けます。
 
 Lambda は AWS IAM により認証・認可された同期 Invoke を受け付けます。Invoke の Payload に含まれる GATES 用 OIDC JWT の署名と Claim を検証し、要求を処理します。
 
@@ -599,3 +599,10 @@ Caller を作るのは `internal/authn` とテストだけとし、ほかの pac
 - [Go — coreos/go-oidc/v3/oidc](https://pkg.go.dev/github.com/coreos/go-oidc/v3/oidc)
 - [OpenID Foundation — OpenID Connect Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html)
 - [IETF — RFC 7519 JSON Web Token](https://www.rfc-editor.org/rfc/rfc7519)
+
+## Appendix: Impact of Future Scope
+
+[Future Scope](../spec/future-scope.md) が想定する機能を取り込む場合、本ドキュメントには次の影響が及びます。
+
+- **細粒度の認可**：処理フロー（§6）の手順 3 の照合と Grant が判定する認可条件が変わる
+- **発行可能な権限の拡大**：`permissions` の値（§2.1）、入力不正と認可拒否の分け方（§2.2）、発行結果の照合（§3.1）、手順 3 の権限の確認（§6）が変わる。許可する権限名が増えると、権限名と水準の文字種の規則（§2.2）が GitHub の権限名に合うかも確かめ直す
