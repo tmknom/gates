@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-本ドキュメントは現在のシステム構成を示します。オーナー単位の認可と `contents:read` の制限を採用する段階的なスコープ判断は [Project Scope](../spec/project-scope.md) を参照します。
+本ドキュメントはシステム構成を示します。
 
 GATES（GitHub App Token Exchange System）は、GitHub Actions から指定したリポジトリを読み取るために、短命な GitHub App Installation Access Token を発行するシステムです。利用者は Composite Action を通じてアクセス先リポジトリと `contents:read` 権限を指定します。Lambda は要求を処理し、対象を限定したトークンを GitHub Actions に返します。
 
@@ -123,3 +123,10 @@ GitHub が定める仕様は GitHub Constraints に、標準仕様の規定は J
 - [AWS — AssumeRoleWithWebIdentity](https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRoleWithWebIdentity.html)
 - [AWS — Lambda Invoke API](https://docs.aws.amazon.com/lambda/latest/api/API_Invoke.html)
 - [AWS — KMS Sign API](https://docs.aws.amazon.com/kms/latest/APIReference/API_Sign.html)
+
+## Appendix: Impact of Future Scope
+
+[Future Scope](../spec/future-scope.md) が想定する機能を取り込む場合、本ドキュメントには次の影響が及びます。
+
+- **細粒度の認可**：認可ポリシーの管理が必要になれば、コンポーネント（§3）と、Lambda が要求を処理する流れ（§5）が変わり得る
+- **発行可能な権限の拡大**：利用者が指定する権限の説明（§1）が変わる。Account / Organization に関係する権限を扱うなら、リポジトリを対象とする要求の流れ（§5）も見直す

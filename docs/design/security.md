@@ -2,7 +2,7 @@
 
 ## 1. Security Model
 
-本システムでは、AWS IAM による Lambda Invoke の入口制御と、Lambda 内で検証した GitHub OIDC JWT に基づくトークン発行認可を分離します。GitHub App Private Key は AWS KMS に置き、Lambda は署名操作を KMS に依頼します。現在のスコープでは、返却する Installation Access Token を要求されたリポジトリと `contents:read`（許可された付随権限を除く）に限定します。スコープ判断の理由と将来の検討事項は [Project Scope](../spec/project-scope.md) に置きます。
+本システムでは、AWS IAM による Lambda Invoke の入口制御と、Lambda 内で検証した GitHub OIDC JWT に基づくトークン発行認可を分離します。GitHub App Private Key は AWS KMS に置き、Lambda は署名操作を KMS に依頼します。返却する Installation Access Token は、要求されたリポジトリと `contents:read`（許可された付随権限を除く）に限定します。
 
 コンポーネントの全体構成、JWT の生成元、正常系の処理順序は [System Architecture](architecture.md) に記述します。本ドキュメントは各境界が保証する内容と、認可・資格情報保護・拒否条件を定義します。
 
@@ -76,13 +76,13 @@ Caller の `repository_id` とワークフロー起動属性は監査のため�
 
 ### 3.2 Installation Scope as Authorization Boundary
 
-許可オーナーの有効なワークフローは、呼び出し元リポジトリ／チーム別の認可を経ず、GATES が許可する権限の範囲で GitHub App の Installation 対象リポジトリに横断的なトークン発行を要求できます。この権限は GitHub App / Installation 自体の権限上限にも拘束されます。**現在のスコープ**では GATES が許可するのは `contents:read` のみです。権限拡大を将来検討することと、細粒度認可を今は導入しない理由は [Project Scope](../spec/project-scope.md) に置きます。
+許可オーナーの有効なワークフローは、呼び出し元リポジトリ／チーム別の認可を経ず、GATES が許可する権限の範囲で GitHub App の Installation 対象リポジトリに横断的なトークン発行を要求できます。この権限は GitHub App / Installation 自体の権限上限にも拘束されます。GATES が許可するのは `contents:read` のみです。
 
 GitHub App のインストール対象が読み取り可能範囲の上限となります。`Only select repositories` により対象を限定できます。`All repositories` を使用すると、そのオーナーにインストールされた App の対象リポジトリ全体が読み取り可能範囲に含まれます。インストール対象の変更は認可境界の変更として扱います。
 
 許可オーナーが Organization の場合、この変更は Organization オーナーだけの操作ではありません。
 既定では、リポジトリ管理者が自身の管理するリポジトリをインストール済みの App の対象に追加でき、`installation_repositories:write` を持つ呼び出し元も、そのリポジトリを Installation に追加または削除できます（[GitHub Constraints](../spec/github-constraints.md#5-installation)）。
-追加されたリポジトリは、GATES と Installation が許可する権限の範囲で、許可オーナーの有効なワークフローから横断的にアクセスされ得ます。現在は `contents:read` のため、非公開コードや設定、誤って格納された秘密情報の読み取りが主な懸念です。
+追加されたリポジトリは、GATES と Installation が許可する権限の範囲で、許可オーナーの有効なワークフローから横断的にアクセスされ得ます。許可する権限は `contents:read` のため、非公開コードや設定、誤って格納された秘密情報の読み取りが主な懸念です。
 このため、Organization の許可オーナーには、リポジトリ管理者によるインストールを Organization オーナーが制限していることと、`installation_repositories:write` の付与先を管理していることを、運用の前提として求めます。
 GATES はこの設定を実行時に確認しません。
 
@@ -98,7 +98,7 @@ Lambda は Installation ID を設定として持たず、固定したオーナ�
 
 ### 3.3 Permission Boundary
 
-現在のスコープで Lambda が許可する権限は `contents:read` に固定します。要求された Permissions が許可条件と異なる場合は拒否します。GitHub App / Installation の付与権限が GATES の許可範囲より広くても、発行するトークンの権限は拡大しません。付随する `metadata:read` のみ、§3.4 の条件で照合時に許容します。将来のスコープ選択は [Project Scope](../spec/project-scope.md) を参照します。
+Lambda が許可する権限は `contents:read` に固定します。要求された Permissions が許可条件と異なる場合は拒否します。GitHub App / Installation の付与権限が GATES の許可範囲より広くても、発行するトークンの権限は拡大しません。付随する `metadata:read` のみ、§3.4 の条件で照合時に許容します。
 
 ### 3.4 Issuance Result Verification
 
@@ -125,7 +125,7 @@ KMS Key の構成・IAM 権限は Terraform で管理します。GitHub App Priv
 | GitHub App Private Key | KMS インポート前は運用者が別の運用境界で扱う。Lambda と Runner には渡さない。インポート後、インポート前のコピーは運用者の手元から削除する。KMS にインポートした鍵素材は取り出せないため、KMS Key を失った場合は GitHub 側で新しい秘密鍵を発行して切り替える |
 | AWS KMS Key | インポート済みの非対称署名鍵。Lambda 実行 Role に当該キーの `kms:Sign` のみ許可。鍵更新時は新 KMS Key を用意 |
 | GitHub App JWT | KMS 署名で Lambda が短時間生成し、GitHub API 呼び出しにのみ使用。外部返却・ログ出力禁止 |
-| Installation Access Token | 現在は要求・認可された対象と `contents:read`（付随する `metadata:read` を許容）に限定して Runner へ返す。短命でも窃取リスクは残る。照合に失敗したものは返さず、文字列を取得できた場合に失効を試みる |
+| Installation Access Token | 要求・認可された対象と `contents:read`（付随する `metadata:read` を許容）に限定して Runner へ返す。短命でも窃取リスクは残る。照合に失敗したものは返さず、文字列を取得できた場合に失効を試みる |
 | AWS 一時認証情報・GATES 用 OIDC JWT | Runner で短時間だけ保持し、ログやデバッグ出力に含めない |
 
 署名アルゴリズムと JWT の組み立ては [Lambda Design](lambda.md#72-kms-signing) に記述します。
@@ -167,3 +167,12 @@ KMS Key の構成・IAM 権限は Terraform で管理します。GitHub App Priv
 - [AWS — KMS Sign API](https://docs.aws.amazon.com/kms/latest/APIReference/API_Sign.html)
 - [AWS — Imported key material](https://docs.aws.amazon.com/kms/latest/developerguide/importing-keys-import-key-material.html)
 - [AWS — KMS key policies](https://docs.aws.amazon.com/kms/latest/developerguide/key-policies.html)
+
+## Appendix: Impact of Future Scope
+
+[Future Scope](../spec/future-scope.md) が想定する機能を取り込む場合、本ドキュメントには次の影響が及びます。
+
+- **細粒度の認可**：Caller や対象に応じた条件が認可条件（§3.1）に加わり、横断的な要求を前提とする §3.2 の残留リスクを見直す。監査のためだけに用いている `repository_id` とワークフロー起動属性を認可に使うなら、認可の根拠にできるかを評価する
+- **発行可能な権限の拡大**：認可条件 3（§3.1）、権限の境界（§3.3）、発行結果の照合（§3.4）が変わる。読み取り以外の権限を許可すると、§3.2 の懸念は読み取りにとどまらなくなる。Account / Organization に関係する権限は、リポジトリを単位とする認可条件と照合をそのまま一般化しない
+
+スコープを変更するときは、先に本ドキュメントで脅威と緩和策を評価し、その結果を踏まえて [Requirements](../spec/requirements.md) と各設計書を変更します。

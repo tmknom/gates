@@ -4,7 +4,7 @@ GATES は、GitHub Actions ワークフローに GitHub App Installation Access 
 
 ## 1. Purpose
 
-現在のスコープ選択とその理由、後続段階で検討する能力は [Project Scope](project-scope.md) に記述します。本ドキュメントは、現在実現すべき要求と受け入れ条件を定めます。
+本ドキュメントは、現在実現すべき要求と受け入れ条件を定めます。
 
 GitHub Actions が `GITHUB_TOKEN` だけでは実現できないリポジトリ間の読み取りに対し、短命な GitHub App Installation Access Token を発行します。
 GitHub App Private Key を GitHub Secrets や Actions Runner に置かず、署名を AWS KMS に委譲します。
@@ -22,7 +22,7 @@ GitHub App Private Key を GitHub Secrets や Actions Runner に置かず、署�
 - GitHub App Private Key は GitHub が発行するため、AWS KMS に鍵素材としてインポートして使う。
 - KMS にインポートした鍵素材は、KMS から平文で取得できない。ただし、インポート前の秘密鍵コピーは KMS によって自動的に消去されない。
 - AWS リソースの管理に Terraform を使う。
-- 現在のスコープで発行を許可する権限は `contents:read` に固定する。GitHub App / Installation に付与された権限が広くても、GATES の許可条件を超えて発行しない。GitHub が要求とは別に付与する権限の扱いは FR-018 に従う。スコープの判断理由は [Project Scope](project-scope.md) に置く。
+- 現在のスコープで発行を許可する権限は `contents:read` に固定する。GitHub App / Installation に付与された権限が広くても、GATES の許可条件を超えて発行しない。GitHub が要求とは別に付与する権限の扱いは FR-018 に従う。
 
 ### 2.2 Out of Scope
 
@@ -40,7 +40,7 @@ GitHub App Private Key を GitHub Secrets や Actions Runner に置かず、署�
 
 現在のスコープでは、許可オーナーのワークフローは、同一の GitHub App Installation に含まれるリポジトリへの `contents:read` を要求できます。Caller 別・チーム別にアクセス先を限定する認可は設けません。対象と権限は要求に明示させ、GATES の許可条件と Installation の上限で制限します。
 
-この境界に伴う横断アクセスの残留リスクと緩和策は [Security Design](../design/security.md#32-installation-scope-as-authorization-boundary) に記述します。細粒度認可を現在のスコープから外した判断理由と、発行可能権限を将来拡大する可能性は [Project Scope](project-scope.md) を正本とします。
+この境界に伴う横断アクセスの残留リスクと緩和策は [Security Design](../design/security.md#32-installation-scope-as-authorization-boundary) に記述します。
 
 ## 3. Stakeholders and Responsibilities
 

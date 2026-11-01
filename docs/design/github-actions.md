@@ -4,7 +4,7 @@
 
 Composite Action は、GitHub Actions の利用者にトークン取得手段を提供します。AWS 用 GitHub OIDC JWT による一時認証情報の取得、GATES 用 OIDC JWT の取得、Lambda の同期 Invoke、応答の処理と同一ジョブ内の後続ステップへのトークン出力を担当します。発行許可の判定は Lambda 側が行います。
 
-Composite Action は GATES 運用者が提供し、利用者向けの安定した境界とします。利用者に求めるのは、ワークフローでの `permissions: id-token: write` の宣言、対象リポジトリおよび権限の指定、運用者が用意した接続情報の参照だけです。現在の `contents:read` 制限の判断理由は [Project Scope](../spec/project-scope.md) に置きます。
+Composite Action は GATES 運用者が提供し、利用者向けの安定した境界とします。利用者に求めるのは、ワークフローでの `permissions: id-token: write` の宣言、対象リポジトリおよび権限の指定、運用者が用意した接続情報の参照だけです。
 
 Composite Action は、Lambda と同じこのリポジトリの `.github/actions/<ACTION-NAME>/action.yml` に置きます。
 Lambda の入出力契約と Composite Action を同じ PR で変更でき、両者の食い違いを防げるためです。
@@ -133,3 +133,10 @@ jobs:
 - [AWS — configure-aws-credentials](https://github.com/aws-actions/configure-aws-credentials)
 - [AWS — AWS CLI Lambda Invoke](https://docs.aws.amazon.com/cli/latest/reference/lambda/invoke.html)
 - [GitHub — REST API endpoints for repository contents](https://docs.github.com/en/rest/repos/contents)
+
+## Appendix: Impact of Future Scope
+
+[Future Scope](../spec/future-scope.md) が想定する機能を取り込む場合、本ドキュメントには次の影響が及びます。
+
+- **細粒度の認可**：発行許可の判定は Lambda 側が行う（§1）ため、利用者が指定する入力が増えない限り、Composite Action は変わらない
+- **発行可能な権限の拡大**：`permissions` 入力の値（§2.1）と利用例（§4.1）が変わる。許可条件の判定を Lambda の認可に委ねる方針（§2.2）は変わらない。Account / Organization に関係する権限の対象を `repositories` 入力で表せないなら、入力も見直す
