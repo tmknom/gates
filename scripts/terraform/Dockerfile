@@ -15,9 +15,23 @@ USER root
 COPY versions.tf .terraform.lock.hcl /build/
 COPY --from=config terraformrc /opt/terraform/terraformrc
 
-# 実行時は認証情報を持つプロセスに Provider を取得させないため、ビルド時に入れる
+# 実行時は認証情報を持つプロセスに Provider を取得させないため、ビルド時に入れる。
+# zip のままだと init が .terraform/ へ展開してコピーを作るため、展開しておき、シンボリックリンクで参照させる。
+# リンク先はイメージの中のパスなので、ホストからはリンク切れに見えるが、異常ではない
 RUN set -eux; \
   terraform -chdir=/build providers mirror -platform="linux_${TARGETARCH}" /opt/terraform/providers; \
+  cd /opt/terraform/providers; \
+  for package in */*/*/*.zip; do \
+    file="${package##*/}"; \
+    version="${file#*_}"; \
+    version="${version%%_*}"; \
+    target="${package%/*}/${version}/linux_${TARGETARCH}"; \
+    mkdir -p "${target}"; \
+    unzip "${package}" -d "${target}"; \
+    chmod 0555 "${target}"/terraform-provider-*; \
+    rm "${package}"; \
+  done; \
+  rm ./*/*/*/*.json; \
   chmod -R a+rX /opt/terraform
 
 ENV TF_CLI_CONFIG_FILE=/opt/terraform/terraformrc

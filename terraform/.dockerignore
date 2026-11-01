@@ -1,0 +1,4 @@
+# terraform/local/ の State と値をビルドに渡さないよう、scripts/terraform/Dockerfile が COPY するファイルだけを許可する
+*
+!versions.tf
+!.terraform.lock.hcl

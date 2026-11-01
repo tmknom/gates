@@ -2,7 +2,7 @@
 #
 # 環境変数は Makefile が設定する。
 #   TF_HOST_DIR        terraform/ にあたるディレクトリの絶対パス
-#   TF_HOST_LOCAL_DIR  tmp/terraform/ にあたるディレクトリの絶対パス
+#   TF_HOST_LOCAL_DIR  terraform/local/ にあたるディレクトリの絶対パス
 #   TF_HOST_DIST_DIR   dist/ の絶対パス
 #   TF_HOST_UID        コンテナを実行するユーザーの UID
 #   TF_HOST_GID        コンテナを実行するユーザーの GID
@@ -40,7 +40,7 @@ x-terraform: &terraform
   working_dir: /src/terraform
   environment: &terraform-environment
     HOME: /tmp
-    TF_DATA_DIR: ../tmp/terraform/.terraform
+    TF_DATA_DIR: local/.terraform
     TF_INPUT: "0"
     CHECKPOINT_DISABLE: "1"
   volumes:
@@ -52,7 +52,7 @@ x-terraform: &terraform
     - &local-dir
       type: bind
       source: ${TF_HOST_LOCAL_DIR:?TF_HOST_LOCAL_DIR is required}
-      target: /src/tmp/terraform
+      target: /src/terraform/local
     - &dist-dir
       type: bind
       source: ${TF_HOST_DIST_DIR:?TF_HOST_DIST_DIR is required}
@@ -86,16 +86,25 @@ services:
     <<: *terraform
     network_mode: none
 
-  # terraform/ を書き換える処理を offline と分ける
+  # fmt -recursive が手元の値を検査しないよう、local/ を空の tmpfs で覆う
+  fmt-check:
+    <<: *terraform
+    network_mode: none
+    tmpfs: &fmt-tmpfs
+      - /tmp:rw,noexec,nosuid,nodev,size=1g
+      - /src/terraform/local:ro,noexec,nosuid,nodev,size=1m
+    volumes:
+      - *terraform-dir-read-only
+
+  # terraform/ を書き換える処理を fmt-check と分ける。fmt -recursive が手元の値を書き換えないよう、local/ を覆う
   fmt:
     <<: *terraform
     network_mode: none
+    tmpfs: *fmt-tmpfs
     volumes:
       - &terraform-dir-writable
         <<: *terraform-dir-read-only
         read_only: false
-      - *local-dir
-      - *dist-dir
 
   aws:
     <<: *terraform
@@ -126,7 +135,7 @@ services:
       <<: *terraform-environment
       HTTPS_PROXY: http://proxy-lock:3128
       # providers lock は全プラットフォームの Provider を一時ディレクトリへ展開し、/tmp の tmpfs に収まらない
-      TMPDIR: /src/tmp/terraform
+      TMPDIR: /src/terraform/local
     volumes:
       - *terraform-dir-writable
       - *local-dir

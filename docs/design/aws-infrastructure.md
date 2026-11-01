@@ -62,7 +62,7 @@ Terraform は運用者の手元から適用し、CI からは Plan も Apply も
 CI に適用権限を与えると、IAM と KMS Key Policy を変更できる強い権限を CI に置くことになるためです。
 
 State は当面、適用する運用者の手元に置きます（ローカルバックエンド）。
-State に秘密鍵素材は入りませんが、IAM と Lambda の構成が入るため、Git には含めません。
+State に秘密鍵素材は入りませんが、IAM と Lambda の構成が入るため、Git には含めず、静的解析のコンテナからも読めない場所に置きます。
 S3 バックエンドの設定はコメントアウトした状態で置いておき、S3 バックエンドへ移行するまで State 用のバケットは作りません。
 
 ## 4. KMS Resource and Import Boundary

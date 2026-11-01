@@ -1,5 +1,5 @@
-# 機密ファイルをここに足すときは、scripts/golangci-lint/compose.yaml、scripts/tflint/compose.yaml、scripts/trivy/compose.yaml でもコンテナから隠す。
-# 隠すパスはそれぞれの compose.yaml に列挙していて、ここに足しても自動では隠れない
+# 機密ファイルは、scripts/golangci-lint/compose.yaml と scripts/trivy/compose.yaml がコンテナから隠している tmp/ か terraform/local/ に置く。
+# 隠すパスはそれぞれの compose.yaml に列挙していて、ここに足しても自動では隠れないため、ほかの場所に置くときは両方でも隠す
 
 # Binaries for programs and plugins
 *.exe
@@ -33,6 +33,15 @@ dist/
 
 # macOS
 .DS_Store
+
+# Terraform: 手元の値は terraform/local/ に置く
+terraform/local/
+# ほかの場所に誤って作ったときの備え
+*.tfvars
+*.tfstate
+*.tfstate.*
+*.tfplan
+.terraform/
 
 # General
 tmp/
