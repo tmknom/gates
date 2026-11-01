@@ -1,14 +1,12 @@
 # Alloy を隔離して実行するサービス定義
 #
-# 環境変数は実行時に設定する。
+# 環境変数は Makefile が設定する。
 #   ALLOY_TARGET  モデルを置いたディレクトリの絶対パス。リポジトリのルートではなく、モデルのディレクトリに絞る
-#
-# 実行例
-#   ALLOY_TARGET="$PWD/models" docker compose -f scripts/alloy/compose.yaml run --build --rm -T --interactive=false alloy exec -c '*' -o /tmp/out -t none model.als
 #
 # exec の出力先は既定でモデルと同じディレクトリのため、読み取り専用の /src では -o で /tmp に向ける。
 # -o - は解を標準出力に出す代わりに、コマンドごとの判定の表を出さない。
-# 反例が見つかっても終了コードは 0 のため、検証の成否は表の判定で読む。check は UNSAT が反例なし、SAT が反例ありを表す
+# 表の判定は、check では UNSAT が反例なし、SAT が反例ありを表す。
+# 反例が見つかっても終了コードは 0 のため、終了コードで判定するときはモデルの各コマンドに expect を書く。期待と異なるコマンドがあると終了コードは 1 になる
 
 name: alloy
 
