@@ -18,11 +18,12 @@ services:
       - /tmp:rw,noexec,nosuid,nodev,size=1g
       # lint に不要なディレクトリを空の tmpfs で覆い、コンテナから隠す。
       # 隠すパスは .gitignore と連動せず、ここに列挙していないものはコンテナから読める。
-      # 追加するときは Makefile の container-mountpoints と scripts/tflint/compose.yaml、scripts/trivy/compose.yaml も更新する
+      # 追加するときは Makefile の container-mountpoints と scripts/trivy/compose.yaml も更新する
       - /src/.claude:ro,noexec,nosuid,nodev,size=1m
       - /src/.git:ro,noexec,nosuid,nodev,size=1m
       - /src/.makefiles:ro,noexec,nosuid,nodev,size=1m
       - /src/dist:ro,noexec,nosuid,nodev,size=1m
+      - /src/terraform/local:ro,noexec,nosuid,nodev,size=1m
       - /src/tmp:ro,noexec,nosuid,nodev,size=1m
     network_mode: none
     mem_limit: 2g

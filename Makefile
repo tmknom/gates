@@ -34,7 +34,7 @@ vet: ## static analysis by vet
 
 # Docker を使うため all には含めない
 .PHONY: lint
-lint: container-mountpoints ## static analysis by golangci-lint in an isolated container
+lint: container-mountpoints tf-misplaced-values ## static analysis by golangci-lint in an isolated container
 	LINT_MODULE=$(CURDIR) LINT_GOMODCACHE="$$(go env GOMODCACHE)" \
 		docker compose -f scripts/golangci-lint/compose.yaml run --rm -T --interactive=false lint
 
@@ -63,13 +63,19 @@ clean: ## remove build artifacts
 
 # Targets: Terraform
 .PHONY: tflint
-tflint: container-mountpoints ## static analysis by tflint in an isolated container
-	TFLINT_TARGET=$(CURDIR) docker compose -f scripts/tflint/compose.yaml run --build --rm -T --interactive=false lint
+tflint: tf-local-dir tf-misplaced-values ## static analysis by tflint in an isolated container
+	TFLINT_TARGET=$(abspath $(TF_DIR)) docker compose -f scripts/tflint/compose.yaml run --build --rm -T --interactive=false lint
 
 # Targets: Terraform in containers
-# 下の 2 つはコンテナにマウントするディレクトリで、接続の確認のときに上書きする
+# コンテナにマウントするディレクトリで、接続の確認のときに上書きする
 TF_DIR ?= terraform
-TF_LOCAL_DIR ?= tmp/terraform
+# 手元の値の置き場所は TF_DIR から決まる。別の場所を指定したつもりで本物の State を使わないよう、上書きを拒否する
+ifneq ($(origin TF_LOCAL_DIR),undefined)
+$(error TF_LOCAL_DIR cannot be overridden: override TF_DIR instead)
+endif
+# 名前を変えるときは terraform/backend.tf、.gitignore、scripts/ の terraform、tflint、golangci-lint、trivy の compose.yaml も変更する
+TF_LOCAL_NAME := local
+TF_LOCAL_DIR := $(TF_DIR)/$(TF_LOCAL_NAME)
 TF_COMPOSE := TF_HOST_DIR=$(abspath $(TF_DIR)) TF_HOST_LOCAL_DIR=$(abspath $(TF_LOCAL_DIR)) TF_HOST_DIST_DIR=$(abspath $(DIST_DIR)) \
 	TF_HOST_UID=$$(id -u) TF_HOST_GID=$$(id -g) docker compose -f scripts/terraform/compose.yaml
 TF_RUN := $(TF_COMPOSE) run --build --rm -T --interactive=false
@@ -90,26 +96,26 @@ tf-init: tf-mountpoints ## initialize terraform with the providers in the image
 	$(TF_RUN) offline init -input=false -lockfile=readonly
 
 .PHONY: tf-fmt
-tf-fmt: tf-mountpoints ## format terraform code
+tf-fmt: tf-mountpoints tf-misplaced-values ## format terraform code
 	$(TF_RUN) fmt fmt -recursive
 
 .PHONY: tf-check
-tf-check: tf-mountpoints ## check format and validate terraform code
-	$(TF_RUN) offline fmt -check -recursive
+tf-check: tf-mountpoints tf-misplaced-values ## check format and validate terraform code
+	$(TF_RUN) fmt-check fmt -check -recursive
 	$(TF_RUN) offline validate
 
 .PHONY: tf-show
 tf-show: tf-mountpoints ## show the saved terraform plan
-	$(TF_RUN) offline show ../tmp/terraform/plan.tfplan
+	$(TF_RUN) offline show $(TF_LOCAL_NAME)/plan.tfplan
 
 .PHONY: tf-plan
 tf-plan: tf-aws-credentials tf-mountpoints ## create a terraform plan with temporary AWS credentials through the AWS allowlist proxy
-	$(call tf_run_with_proxy,aws,plan -var-file=../tmp/terraform/terraform.tfvars -out=../tmp/terraform/plan.tfplan)
+	$(call tf_run_with_proxy,aws,plan -var-file=$(TF_LOCAL_NAME)/terraform.tfvars -out=$(TF_LOCAL_NAME)/plan.tfplan)
 
 # 確認した Plan と違う変更を適用しないよう、保存した Plan の適用だけに絞る
 .PHONY: tf-apply
 tf-apply: tf-aws-credentials tf-mountpoints ## apply the saved terraform plan with temporary AWS credentials through the AWS allowlist proxy
-	$(call tf_run_with_proxy,aws,apply ../tmp/terraform/plan.tfplan)
+	$(call tf_run_with_proxy,aws,apply $(TF_LOCAL_NAME)/plan.tfplan)
 
 # AWS_SESSION_TOKEN を必須にして、長期のアクセスキーでは起動できないようにする
 .PHONY: tf-aws-credentials
@@ -119,12 +125,23 @@ tf-aws-credentials:
 	@: "$${AWS_SESSION_TOKEN:?AWS_SESSION_TOKEN is required: use temporary credentials}"
 
 .PHONY: tf-mountpoints
-tf-mountpoints:
-	@mkdir -p $(DIST_DIR) $(TF_LOCAL_DIR)
+tf-mountpoints: tf-local-dir
+	@mkdir -p $(DIST_DIR)
+
+.PHONY: tf-local-dir
+tf-local-dir:
+	@mkdir -p $(TF_LOCAL_DIR)
+
+# compose.yaml が隠すのは手元の値の置き場所だけで、ほかの場所のファイルは静的解析のコンテナから読める
+.PHONY: tf-misplaced-values
+tf-misplaced-values:
+	@! find $(TF_DIR) -path $(TF_LOCAL_DIR) -prune -o \( -name '*.tfvars' -o -name '*.tfstate' -o -name '*.tfstate.*' -o -name '*.tfplan' \
+		-o -name .terraform -o -name .envrc -o -name .env \) -print | grep . \
+		|| (echo "move the files above to $(TF_LOCAL_DIR)/: containers can read them" && exit 1)
 
 # Targets: Security
 .PHONY: trivy
-trivy: container-mountpoints ## scan vulnerabilities, misconfigurations and secrets by trivy in an isolated container
+trivy: container-mountpoints tf-misplaced-values ## scan vulnerabilities, misconfigurations and secrets by trivy in an isolated container
 	TRIVY_TARGET=$(CURDIR) docker compose -f scripts/trivy/compose.yaml run --rm -T --interactive=false scan
 
 .PHONY: trivy-update
@@ -140,7 +157,7 @@ alloy: ## verify formal models by Alloy in an isolated container
 # 読み取り専用の /src にはマウントポイントを作れないため、compose.yaml が隠すパスをホスト側で用意する。既存の .envrc と .env は変更しない
 .PHONY: container-mountpoints
 container-mountpoints:
-	@mkdir -p .claude .makefiles $(DIST_DIR) tmp
+	@mkdir -p .claude .makefiles $(DIST_DIR) terraform/$(TF_LOCAL_NAME) tmp
 	@[ -e .envrc ] || touch .envrc
 	@[ -e .env ] || touch .env
 

@@ -1,0 +1,3 @@
+# terraform/local/terraform.tfvars にコピーして値を設定する
+
+region = "ap-northeast-1"
