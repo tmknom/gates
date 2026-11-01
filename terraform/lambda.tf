@@ -72,6 +72,7 @@ resource "aws_lambda_function" "gates" {
       GATES_ALLOWED_OWNER_TYPE   = var.allowed_owner_type
       GATES_GITHUB_APP_CLIENT_ID = var.github_app_client_id
       GATES_AUDIENCE             = var.gates_audience
+      GATES_KMS_KEY_ARN          = aws_kms_external_key.signing.arn
     }
   }
 

@@ -16,6 +16,12 @@ mock_provider "aws" {
       arn = "arn:aws:iam::123456789012:policy/gates-lambda-logs"
     }
   }
+
+  mock_resource "aws_kms_external_key" {
+    defaults = {
+      arn = "arn:aws:kms:ap-northeast-1:123456789012:key/11111111-2222-3333-4444-555555555555"
+    }
+  }
 }
 
 variables {
@@ -24,6 +30,7 @@ variables {
   allowed_owner_type   = "Organization"
   github_app_client_id = "Iv23example"
   gates_audience       = "gates-test"
+  kms_key_spec         = "RSA_2048"
   lambda_package_path  = "tests/testdata/package.txt"
 }
 
@@ -60,6 +67,7 @@ run "function_configuration" {
       GATES_ALLOWED_OWNER_TYPE   = "Organization"
       GATES_GITHUB_APP_CLIENT_ID = "Iv23example"
       GATES_AUDIENCE             = "gates-test"
+      GATES_KMS_KEY_ARN          = "arn:aws:kms:ap-northeast-1:123456789012:key/11111111-2222-3333-4444-555555555555"
     })
     error_message = "the environment variables must carry the input values"
   }

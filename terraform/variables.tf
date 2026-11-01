@@ -56,6 +56,17 @@ variable "gates_audience" {
   }
 }
 
+# 既定値を持たせないのは、実測を忘れて適用すると、鍵長の異なる鍵がインポート時に初めて失敗するため
+variable "kms_key_spec" {
+  description = "KMS Key の key_spec。インポートする鍵の鍵長を実測して決める"
+  type        = string
+
+  validation {
+    condition     = contains(["RSA_2048", "RSA_3072", "RSA_4096"], var.kms_key_spec)
+    error_message = "kms_key_spec must be RSA_2048, RSA_3072 or RSA_4096."
+  }
+}
+
 variable "log_retention_in_days" {
   description = "Lambda のログの保持期間（日）。組織の監査方針に合わせて変更する"
   type        = number
