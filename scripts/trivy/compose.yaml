@@ -10,7 +10,7 @@ services:
     # 脆弱性 DB をイメージに持つため、実行のたびにはビルドしない。イメージがなければ Compose がビルドし、更新は Makefile の trivy-update が行う。
     # localhost/ を付け、Docker Hub の同名のイメージを取ってこないようにする
     build: .
-    image: localhost/gates-trivy:latest
+    image: localhost/gates/trivy:latest
     pull_policy: never
     user: "65534:65534"
     cap_drop: [ALL]
