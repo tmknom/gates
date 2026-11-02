@@ -14,7 +14,7 @@ data "aws_iam_openid_connect_provider" "github_actions" {
 # sub の先頭をオーナー名と不変 Owner ID の組に固定し、名前だけの旧形式の sub を一致させない
 resource "aws_iam_role" "github_actions" {
   name                 = "${local.lambda_function_name}-github-actions"
-  permissions_boundary = var.iam_permissions_boundary_arn
+  permissions_boundary = aws_iam_policy.permissions_boundary.arn
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"

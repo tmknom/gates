@@ -11,6 +11,5 @@ gates_audience       = "gates"
 # インポートする鍵の鍵長を実測してから設定する。RSA_2048、RSA_3072、RSA_4096 のいずれか
 # kms_key_spec = ""
 
-# log_retention_in_days        = 7
-# lambda_reserved_concurrency  = -1
-# iam_permissions_boundary_arn = "arn:aws:iam::123456789012:policy/example"
+# log_retention_in_days       = 7
+# lambda_reserved_concurrency = -1

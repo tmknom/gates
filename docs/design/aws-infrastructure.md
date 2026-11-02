@@ -16,6 +16,7 @@ Terraform の State / Plan、Git、CI の成果物、Lambda の環境変数に G
 | GitHub Actions IAM Role | 許可オーナーのワークフローに `AssumeRoleWithWebIdentity` を許可 | Trust Policy で Audience と不変 ID 入りの `sub` を制限。Permissions Policy は対象 Lambda の `lambda:InvokeFunction` に限定 |
 | Lambda 実行 IAM Role | Go アプリケーションから必要な AWS API を呼び出す | 対象 KMS Key への `kms:Sign` と必要な CloudWatch Logs 操作のみを基本とする。`kms:ImportKeyMaterial` 等の鍵管理操作は付与しない |
 | Lambda Function | JWT 検証、発行認可、KMS 署名依頼、GitHub API 通信 | Go の `provided.al2023` と ZIP 形式で配布し、IAM 認証付き Lambda Invoke API からだけ呼び出す。Function URL、API Gateway などの別の呼び出し口を設けず、他アカウントや匿名主体を許可するリソースベースポリシーを付与しない。利用者管理 VPC には接続しない |
+| Permissions Boundary | 2 つの IAM Role の権限の上限を示す | GATES の Terraform で管理し、Role の権限に必要な操作だけを許可する。名前は `gates-permissions-boundary` に固定する |
 | KMS Key | GitHub App Private Key（RSA）の鍵素材を外部からインポートするための署名鍵のメタデータを管理 | `origin=EXTERNAL`、`key_usage=SIGN_VERIFY`、実鍵長に一致する `key_spec=RSA_*`。インポート処理は Terraform の対象外 |
 | KMS Key Policy | 鍵の管理・利用主体を制限 | 署名権限と鍵管理権限を分離。Lambda 実行 Role に署名権限のみ許可し、鍵の管理権限は運用者の管理主体に残す |
 | KMS Alias（任意） | 運用者が署名鍵を識別するための補助 | Lambda と IAM は明示的な Key ARN を使用する。Alias を追加しても署名鍵は自動切り替えしない |
@@ -71,13 +72,29 @@ root の Principal は IAM ポリシーへの委任を意味するため、特�
 
 Terraform を適用する主体には、リソース作成・ポリシー更新・コード配布に必要な権限を与えます。KMS 鍵素材のインポートに必要な権限は通常の Terraform 適用から分離します。Terraform の適用主体に強い管理権限が必要になる点は、実行主体と変更レビューによって制御します。
 
-IAM Role に付ける Permissions Boundary は、Terraform の入力で任意に指定できます。
-Boundary はアカウントの方針によって異なるため、GATES として値を定めません。
-指定する Boundary は次の条件を満たす必要があります。
+2 つの IAM Role には、GATES の Terraform が作成する Permissions Boundary `gates-permissions-boundary` を付けます。
+Role の権限に必要な操作を GATES が知っているため、Role のポリシーと Boundary を同じ変更で更新できるようにします。
 
-- Lambda 実行 Role の Boundary は `kms:Sign` とログの出力を許可する
-- GitHub Actions IAM Role の Boundary は `lambda:InvokeFunction` を許可する
-- 送信元 IP で拒否する Boundary は使えない。Lambda と GitHub のランナーの送信元 IP を固定できないため
+Boundary は次の操作だけを許可します。
+
+- 対象 Lambda への `lambda:InvokeFunction`
+- 対象 Log Group への `logs:CreateLogStream` と `logs:PutLogEvents`
+- 同じアカウントとリージョンの、鍵素材をインポートした KMS Key への `RSASSA_PKCS1_V1_5_SHA_256` の `kms:Sign`
+
+KMS の Resource を Key の ARN に絞らないのは、Key Policy が実行 Role を、実行 Role が Boundary を参照するため、Boundary が Key を参照すると Terraform の依存が循環するからです。
+Boundary では、Key を参照しない Condition（`kms:KeyOrigin` と `kms:SigningAlgorithm`）で対象を狭めます。
+また、1 つの Boundary を 2 つの Role で共有するため、GitHub Actions IAM Role の上限にも `kms:Sign` が含まれますが、この Role の IAM ポリシーと GATES の署名鍵の Key Policy のどちらも `kms:Sign` を許可しないため、この Role は GATES の署名鍵で署名できません。
+
+Boundary は Role のポリシーと同じ適用主体が管理するため、適用主体に対する独立した歯止めにはなりません。
+Boundary が抑えるのは、Terraform の管理外で Role に追加されたポリシーのうち、上の操作の範囲を超える権限です。
+同じアカウントとリージョンで鍵素材をインポートした別の KMS Key への `kms:Sign` はこの範囲に含まれるため抑えられません（[Security Design](security.md#51-kms-signing-key-risks)）。
+
+Role の作成に特定の Boundary を求めるアカウントでは、`gates-permissions-boundary` の ARN を許可の対象に加えてから GATES を適用します。
+アカウント側は、データソースで参照せず名前から ARN を組み立てます。
+データソースで参照すると、Boundary の作成より先にアカウント側を適用できず、GATES の適用とのあいだで順序が循環するためです。
+許可の対象に加えたアカウントは、Boundary の内容を GATES の適用主体に委ねることになります。
+許可の対象に加えてから GATES を適用するまでは、別の主体が同じ名前のポリシーを任意の内容で作れます。
+GATES の適用が `EntityAlreadyExists` で失敗したら、そのポリシーと、それを付けた Role を調べます。
 
 Terraform は運用者の手元から適用し、CI からは Plan も Apply も実行しません。
 CI に適用権限を与えると、IAM と KMS Key Policy を変更できる強い権限を CI に置くことになるためです。
@@ -177,6 +194,7 @@ Issuer と GitHub API Host は環境変数にしません。
 - [AWS — Importing key material](https://docs.aws.amazon.com/kms/latest/developerguide/importing-keys-import-key-material.html)
 - [AWS — Rotate AWS KMS keys](https://docs.aws.amazon.com/kms/latest/developerguide/rotate-keys.html)
 - [AWS — KMS key policies](https://docs.aws.amazon.com/kms/latest/developerguide/key-policies.html)
+- [AWS — KMS condition keys](https://docs.aws.amazon.com/kms/latest/developerguide/conditions-kms.html)
 - [AWS — KMS Sign](https://docs.aws.amazon.com/kms/latest/APIReference/API_Sign.html)
 - [AWS — Lambda Go deployment](https://docs.aws.amazon.com/lambda/latest/dg/lambda-golang.html)
 - [AWS — Lambda network troubleshooting](https://docs.aws.amazon.com/lambda/latest/dg/troubleshooting-networking.html)
