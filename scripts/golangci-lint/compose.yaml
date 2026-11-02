@@ -26,10 +26,13 @@ services:
       - /src/terraform/local:ro,noexec,nosuid,nodev,size=1m
       - /src/tmp:ro,noexec,nosuid,nodev,size=1m
     network_mode: none
+    ipc: none
     mem_limit: 2g
     memswap_limit: 2g
     pids_limit: 256
     cpus: 2
+    ulimits:
+      core: 0
     init: true
     working_dir: /src
     environment:
