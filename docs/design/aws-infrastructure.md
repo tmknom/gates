@@ -28,7 +28,7 @@ GitHub App の作成とインストール対象は GitHub 側で管理し、Terr
 
 ### 3.1 GitHub Actions IAM Role
 
-Trust Policy は `aud` と `sub` の条件で引き受けを制限します。AWS IAM は `repository_owner_id` などの GitHub 固有 Claim も条件キーとして評価できますが、これらの Claim は名前だけの旧形式の `sub` を持つ OIDC JWT にも含まれるため、旧形式の拒否には使えません。不変 Owner ID の制約と旧形式の拒否は、不変 ID 入りの `sub` 形式 `repo:OWNER@OWNER-ID/REPO@REPO-ID:<ref や environment など>` に対する次のパターンで表現します。
+Trust Policy は `aud` と `sub` の条件で引き受けを制限します。AWS 用 OIDC JWT の Claim に課す条件と、入口制御が保証する範囲は [JWT Design](jwt.md#3-aws-用-oidc-jwt) に定め、本節では IAM の条件としての表現方法を定めます。AWS IAM は `repository_owner_id` などの GitHub 固有 Claim も条件キーとして評価できますが、これらの Claim は名前だけの旧形式の `sub` を持つ OIDC JWT にも含まれるため、旧形式の拒否には使えません。不変 Owner ID の制約と旧形式の拒否は、不変 ID 入りの `sub` 形式 `repo:OWNER@OWNER-ID/REPO@REPO-ID:<ref や environment など>` に対する次のパターンで表現します。
 
 ```json
 {
@@ -188,6 +188,7 @@ Issuer と GitHub API Host は環境変数にしません。
 ## 7. Sources
 
 - [GitHub Constraints](../spec/github-constraints.md)
+- [JWT Design](jwt.md)
 - [AWS — IAM and AWS STS condition context keys](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_iam-condition-keys.html)
 - [AWS — Creating KMS keys with imported key material](https://docs.aws.amazon.com/kms/latest/developerguide/importing-keys-create-cmk.html)
 - [AWS — Requirements for imported key material](https://docs.aws.amazon.com/kms/latest/developerguide/importing-keys-conceptual.html)

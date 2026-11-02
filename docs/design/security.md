@@ -18,11 +18,10 @@
 
 ### 2.1 AWS IAM / STS
 
-IAM Role の Trust Policy は、GitHub OIDC Provider を信頼先とし、`aud` と `sub` の条件で引き受けを制限します。AWS IAM は `repository_owner_id` のような GitHub 固有の Claim も条件キーとして評価できますが、この Claim は名前だけの旧形式の `sub` を持つ OIDC JWT にも含まれるため、旧形式の拒否には使えません。そのため不変 Owner ID の制約と旧形式の拒否は、不変 ID 入りの `sub`（`repo:OWNER@OWNER-ID/REPO@REPO-ID:...`）に対するパターン条件として表現します。
-不変 ID 入りの `sub` の形式と、それが適用されるリポジトリの条件は GitHub が定める仕様であり、[GitHub Constraints](../spec/github-constraints.md#32-immutable-subject-とカスタマイズ) を参照します。
+IAM Role の Trust Policy は、GitHub OIDC Provider を信頼先とし、`aud` と `sub` の条件で引き受けを制限します。
+AWS 用 OIDC JWT の Claim に課す条件と、この入口制御が保証しない範囲は [JWT Design](jwt.md#3-aws-用-oidc-jwt) に定めます。
 
-- `aud` を `sts.amazonaws.com` に固定する。
-- `sub` は、許可オーナーの名前と不変 Owner ID の組で始まる不変 ID 入りの形式だけを受け付け、名前だけの旧形式を拒否する。オーナー配下での共通利用を前提とし、`sub` の後半部分（`ref`、`pull_request`、`environment` など）による追加制限は設けない。
+- オーナー配下での共通利用を前提とし、`sub` の後半部分（`ref`、`pull_request`、`environment` など）による追加制限は設けない。
 - 引き受けた IAM Role の権限は対象 Lambda への `lambda:InvokeFunction` のみとし、KMS `Sign`、IAM 管理、鍵インポートを許可しない。
 - 許可オーナーのワークフローは共通の一つの IAM Role を引き受ける。
 
@@ -32,12 +31,14 @@ IAM は認証情報の由来となるオーナーに対する入口制限であ�
 
 ### 2.2 GATES 用 OIDC JWT
 
-STS 用 JWT とは別に、GATES 用 Audience の OIDC JWT を取得します。Lambda は固定された GitHub Issuer の Discovery / JWKS を利用し、許容アルゴリズム、署名、Issuer、Audience、有効期限、必須 Claim を検証します。Caller は `repository_owner_id` と `repository_id` の Claim から確定し、`sub` が不変 ID 入りの形式で、含まれる ID がこれらの Claim と一致することも確認します。外部から指定された任意の Issuer / JWKS URL を使用しません。
-GitHub OIDC の Issuer と Claim の仕様は [GitHub Constraints](../spec/github-constraints.md#31-issueraudienceclaim)、JWT の署名、鍵、Claim の標準仕様の規定は [JWT Constraints](../spec/jwt-constraints.md) を参照します。
-署名方式は `RS256` だけを許し、Audience は GATES 用 Audience の 1 要素だけである JWT を受け付けます。
-JWT の `aud` は複数の値を持てますが、ほかの受け手にも宛てた JWT を GATES の資格情報にしないため、GATES の判断として拒否します。
+AWS 用 OIDC JWT とは別に、GATES 用 Audience の OIDC JWT を取得します。
+Lambda はこの JWT を検証し、Caller を確定します。
+署名と検証鍵、Issuer、Audience、時間条件、必須 Claim、`sub` と個別の ID の Claim の整合の受理条件は [JWT Design](jwt.md) に定めます。
 検証鍵は固定した Issuer の JWKS からだけ得ます。
 JWT の発行者と署名検証鍵を結び付け、JWT や要求の内容で鍵の取得先を変えられないようにするためです。
+
+JWT が受理条件を満たしても、発行要求を認可したことにはなりません。
+発行の可否は、§3 の認可条件で別に判定します。
 
 AWS 一時認証情報と GATES 用 OIDC JWT が同じジョブで取得されたことを、暗号学的に検証しません。AWS IAM による Invoke の許可と、GATES 用 OIDC JWT に基づく発行認可は独立した境界です。トークンの発行可否は GATES 用 OIDC JWT と固定された許可条件から判断し、Composite Action 側の自己申告による照合を認可根拠としません。
 
@@ -133,7 +134,7 @@ KMS Key の構成・IAM 権限は Terraform で管理します。GitHub App Priv
 - AWS Invoke の成功と Lambda の業務成功を区別し、Composite Action は `FunctionError` と応答の両方を確認する。
 - 許可オーナー配下のリポジトリであることは、ワークフロー内のコードの信頼性を保証しない。`pull_request_target` などで信頼できない Pull Request のコードを実行すると、正当な JWT と AWS 認証情報を取得できるジョブの権限を悪用され得る。利用者は資格情報を取得するジョブで信頼できないコードを実行しない。
 - JWT、AWS 認証情報、Installation Access Token の漏えい・再利用を完全には防止しない。許可範囲、期限、権限とインストール対象の限定で影響を抑える。
-- 保持した Issuer の公開鍵に有効期限を設けず、次のリスクを受容する。Issuer が JWKS から鍵を取り下げても、保持した鍵で検証できない `kid` のある JWT が届いて JWKS の取得に成功するか、実行環境が入れ替わるまで、取り下げた鍵で検証できる JWT を受理し続ける。ただし、Lambda は呼び出しが続く関数でも実行環境を数時間ごとに終了するため、受理し続ける期間はその程度に収まる見込みである（AWS は正確な間隔を公開していない）。悪用には取り下げられた鍵の秘密鍵が必要で、まれな事象である。期限を設けると、期限切れのたびに取得が発生し、Issuer の障害で正当な JWT まで拒否し得る。この可用性の低下を避ける。Issuer の鍵の漏えいが判明したときは、運用者が関数のコードか設定を更新する。AWS は更新の完了まで呼び出しが更新前のコードと設定を使うと定めており、完了後の呼び出しが保持した鍵を持たない実行環境で動くことは、この定めからの推論である（公式文書に明記はなく、実環境では未確認）。
+- 保持した Issuer の公開鍵に有効期限を設けず、次のリスクを受容する。Issuer が JWKS から鍵を取り下げても、保持した鍵で検証できない `kid` のある JWT が届いて JWKS の取得に成功するか、実行環境が入れ替わるまで、取り下げた鍵で検証できる JWT を受理し続ける。Lambda は呼び出しが続く関数でも実行環境を数時間ごとに終了するため、受理し続ける期間はその程度に収まる見込みだが、AWS は正確な間隔を公開しておらず、GATES はこの期間の上限を保証しない。取り下げた鍵で新しい JWT を偽造するには、対応する秘密鍵が必要である。一方、取り下げ前に発行された JWT の再提示には秘密鍵が要らず、その JWT の `exp` までは受理され得る。どちらの悪用にも、Lambda の Invoke を許可された IAM 認証情報が別に必要である。期限を設けると、期限切れのたびに取得が発生し、Issuer の障害で正当な JWT まで拒否し得る。この可用性の低下を避ける。Issuer の鍵の漏えいが判明したときは、運用者が関数のコードか設定を更新する。AWS は更新の完了まで呼び出しが更新前のコードと設定を使うと定めており、完了後の呼び出しが保持した鍵を持たない実行環境で動くことは、この定めからの推論である（公式文書に明記はなく、実環境では未確認）。
 - Discovery と JWKS の再取得の上限は実行環境ごとであり、関数全体の上限を設けず、次のリスクを受容する。IAM の認可を得た呼び出し元は、手元の鍵で検証できない JWT を送ることで、実行環境ごとに、再取得の上限が許す頻度まで取得を起こせる。署名の検証には鍵が要るため、取得の前に不正な JWT を見分けることはできない。Issuer がレート制限を返すと、鍵を持たない実行環境とローテーション後の鍵を要する JWT は、再試行できる失敗で拒否され続け得る（Issuer のレート制限の有無は未確認）。影響は可用性にとどまり、この場合も GATES はトークンを返さない。実行環境をまたいで上限を共有すると、そのためだけに外部の状態、権限、障害の経路が増えるため採らない。同時に動く実行環境の数は Reserved Concurrency で抑えられるが、実行環境が入れ替わると新しい環境は取得の履歴を持たないため、厳密な上限にはならない。
 
 ### 5.1 KMS Signing Key Risks
@@ -196,6 +197,7 @@ GATES は不正な変更や署名を通知する仕組みを持たないため�
 ## 7. Sources
 
 - [GitHub Constraints](../spec/github-constraints.md)
+- [JWT Design](jwt.md)
 - [JWT Constraints](../spec/jwt-constraints.md)
 - [GitHub — Securely using pull_request_target](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target)
 - [AWS — IAM and AWS STS condition context keys](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_iam-condition-keys.html)

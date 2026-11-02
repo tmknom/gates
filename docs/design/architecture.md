@@ -119,6 +119,7 @@ Composite Action は応答を処理し、発行されたトークン、有効期
 | 文書 | 主題 |
 |---|---|
 | [Security Design](security.md) | 信頼境界、認証・認可、資格情報の保護、失敗時の扱い |
+| [JWT Design](jwt.md) | JWT の Claim・JOSE・JWK の受理・生成条件 |
 | [AWS Infrastructure Design](aws-infrastructure.md) | AWS リソースの構成 |
 | [Lambda Design](lambda.md) | Lambda の入出力契約、コンポーネント、外部連携 |
 | [GitHub Actions Design](github-actions.md) | Composite Action の入出力と処理手順 |

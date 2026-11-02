@@ -48,7 +48,7 @@ Secrets と Variables を置く単位は、許可オーナーの種別で決ま�
 
 `GATES_AWS_REGION` には、Lambda と KMS Key を置くリージョン（Terraform の入力の値）と同じ値を設定します（[AWS Infrastructure Design](aws-infrastructure.md#5-lambda-deployment-and-operation)）。
 
-接続情報を利用者が入力しても、発行範囲は広がりません。IAM Role の引き受けは Trust Policy が不変 Owner ID 入りの `sub` で制限し、引き受けた Role に許可されるのは GATES 用 Lambda の Invoke だけです（[AWS Infrastructure Design](aws-infrastructure.md#31-github-actions-iam-role)）。Audience は Lambda が GATES 用の値との完全一致を検証します（[Lambda Design](lambda.md#71-oidc-validation)）。別の値を渡した要求は、いずれかの境界で失敗します。
+接続情報を利用者が入力しても、発行範囲は広がりません。IAM Role の引き受けは Trust Policy が不変 Owner ID 入りの `sub` で制限し、引き受けた Role に許可されるのは GATES 用 Lambda の Invoke だけです（[AWS Infrastructure Design](aws-infrastructure.md#31-github-actions-iam-role)）。Audience は Lambda が GATES 用の値との完全一致を検証します（[JWT Design](jwt.md#23-aud)）。別の値を渡した要求は、いずれかの境界で失敗します。
 
 | Output | 意味 |
 |---|---|

@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// 値の理由は Lambda Design の取得の上限に置く。
+// 値の理由は Lambda Design の「取得の制限」に記述する。
 const (
 	keyRetrievalTimeout   = 5 * time.Second
 	keyRetrievalSizeLimit = 64 * 1024
