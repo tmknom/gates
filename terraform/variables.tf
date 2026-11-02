@@ -100,14 +100,3 @@ variable "lambda_package_path" {
     error_message = "lambda_package_path must not be empty."
   }
 }
-
-variable "iam_permissions_boundary_arn" {
-  description = "IAM Role に付ける Permissions Boundary の ARN。null なら付けない"
-  type        = string
-  default     = null
-
-  validation {
-    condition     = var.iam_permissions_boundary_arn == null || can(regex("^arn:aws[a-z-]*:iam::([0-9]{12}|aws):policy/.+$", var.iam_permissions_boundary_arn))
-    error_message = "iam_permissions_boundary_arn must be null or the ARN of an IAM policy."
-  }
-}

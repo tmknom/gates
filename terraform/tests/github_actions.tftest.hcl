@@ -121,24 +121,6 @@ run "invoke_policy_is_attached_to_role" {
   }
 }
 
-run "permissions_boundary_is_optional" {
-  assert {
-    condition     = aws_iam_role.github_actions.permissions_boundary == null
-    error_message = "the role must have no boundary by default"
-  }
-}
-
-run "permissions_boundary_is_passed_to_role" {
-  variables {
-    iam_permissions_boundary_arn = "arn:aws:iam::123456789012:policy/boundary"
-  }
-
-  assert {
-    condition     = aws_iam_role.github_actions.permissions_boundary == "arn:aws:iam::123456789012:policy/boundary"
-    error_message = "the boundary must be passed to the role"
-  }
-}
-
 run "connection_values_are_output" {
   assert {
     condition     = output.github_actions_role_name == "gates-github-actions"

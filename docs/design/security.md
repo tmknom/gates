@@ -163,6 +163,7 @@ KMS Key の署名能力は、GitHub App として認証する手段そのもの�
 - **`kms:PutKeyPolicy` を持つ主体**：Key Policy を書き換えて、自身に署名を許可できる。`kms:CreateGrant` を一時的に許可して作った Grant は、Key Policy を元に戻しても残る。この Grant を確認して取り消せるように、root に `kms:ListGrants` と `kms:RevokeGrant` を許可する
 - **Lambda の更新権限を持つ主体**：関数のコードや設定を変更して、実行 Role の権限で署名させられる。`iam:PassRole` を持つ主体は、実行 Role を別の関数に渡して同じことができる
 - **`iam:UpdateAssumeRolePolicy` を持つ主体**：実行 Role の Trust Policy を書き換えて Role を引き受け、署名できる
+- **Permissions Boundary を通る別の鍵での署名**：Boundary は同じアカウントとリージョンの KMS Key のうち、鍵素材をインポートした鍵への `RSASSA_PKCS1_V1_5_SHA_256` の `kms:Sign` を許可する。GitHub Actions が引き受ける IAM Role と Lambda 実行 Role のどちらかが、この条件に合う別の鍵で署名できる経路は 2 つある。Role に `kms:Sign` を許可するポリシーが追加され、その鍵の Key Policy が IAM ポリシーへ委任している経路と、その鍵の Key Policy が Role を Principal として直接許可する経路である。後者は Role 側のポリシーが変わらない。GATES の署名鍵は Key Policy が root に `kms:Sign` を許可しないため、前者の経路では署名できない。Boundary を GATES の署名鍵に絞ると Terraform の依存が循環するため、この範囲を受容する
 - **適用とインポートを同じ主体が担う構成**：Key Policy は鍵素材のインポートを許可する主体を区別しない。鍵素材のインポートの権限を通常の Terraform 適用から分離することは IAM の権限の割り当てに依存し、Key Policy では保証しない
 - **インポート前の秘密鍵のコピー**：運用者の手元のコピーを削除することは手順で定めるだけで、設定では強制できない
 - **Terraform の設定の除去による鍵の削除**：`prevent_destroy` はリソースの設定自体を取り除いた場合の削除を防がない。Plan に現れた鍵の削除を運用者が確認して止める

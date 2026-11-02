@@ -149,24 +149,6 @@ run "execution_role_trusts_only_lambda" {
   }
 }
 
-run "permissions_boundary_is_optional" {
-  assert {
-    condition     = aws_iam_role.lambda.permissions_boundary == null
-    error_message = "the role must have no boundary by default"
-  }
-}
-
-run "permissions_boundary_is_passed_to_role" {
-  variables {
-    iam_permissions_boundary_arn = "arn:aws:iam::123456789012:policy/boundary"
-  }
-
-  assert {
-    condition     = aws_iam_role.lambda.permissions_boundary == "arn:aws:iam::123456789012:policy/boundary"
-    error_message = "the boundary must be passed to the role"
-  }
-}
-
 run "rejects_zero_owner_id" {
   command = plan
 
@@ -285,16 +267,6 @@ run "rejects_blank_package_path" {
   }
 
   expect_failures = [var.lambda_package_path]
-}
-
-run "rejects_permissions_boundary_that_is_not_a_policy_arn" {
-  command = plan
-
-  variables {
-    iam_permissions_boundary_arn = "arn:aws:iam::123456789012:role/boundary"
-  }
-
-  expect_failures = [var.iam_permissions_boundary_arn]
 }
 
 run "rejects_empty_github_app_client_id" {

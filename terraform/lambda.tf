@@ -11,7 +11,7 @@ resource "aws_cloudwatch_log_group" "lambda" {
 
 resource "aws_iam_role" "lambda" {
   name                 = "${local.lambda_function_name}-lambda"
-  permissions_boundary = var.iam_permissions_boundary_arn
+  permissions_boundary = aws_iam_policy.permissions_boundary.arn
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
