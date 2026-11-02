@@ -27,7 +27,7 @@ x-terraform: &terraform
       config: .
     target: provider
   # Makefile が実行のたびにビルドする。localhost/ を付け、Docker Hub の同名のイメージを取ってこないようにする
-  image: localhost/gates-terraform:latest
+  image: localhost/gates/terraform:latest
   pull_policy: never
   # State と lock ファイルを運用者のファイルとして残すため、65534 ではなく手元のユーザーで実行する
   user: "${TF_HOST_UID:?TF_HOST_UID is required}:${TF_HOST_GID:?TF_HOST_GID is required}"
@@ -62,7 +62,7 @@ x-terraform: &terraform
 x-proxy: &proxy
   <<: *isolation
   build: ./proxy
-  image: localhost/gates-terraform-proxy:latest
+  image: localhost/gates/terraform-proxy:latest
   pull_policy: never
   user: "65534:65534"
   # squid は起動時に /dev/shm の共有メモリを作るため、ipc: none では動かない
@@ -126,7 +126,7 @@ services:
     build:
       <<: *terraform-build
       target: base
-    image: localhost/gates-terraform-base:latest
+    image: localhost/gates/terraform-base:latest
     depends_on:
       proxy-lock:
         condition: service_healthy

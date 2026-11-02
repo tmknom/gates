@@ -14,7 +14,7 @@ services:
   alloy:
     # localhost/ を付け、Docker Hub の同名のイメージを取ってこないようにする
     build: .
-    image: localhost/gates-alloy:latest
+    image: localhost/gates/alloy:latest
     pull_policy: never
     user: "65534:65534"
     cap_drop: [ALL]
