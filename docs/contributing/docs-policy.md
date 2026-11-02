@@ -92,6 +92,14 @@ flowchart TD
 `docs/contributing/` は他のドキュメントに依存してよく、`docs/spec/` と `docs/design/` は `docs/contributing/` に依存しません。
 手順の変更が仕様や設計の変更を求めないようにするためです。
 
+### 2.5 README.md
+
+`docs/` と、その配下の各ディレクトリに置く `README.md` は、配下のドキュメントを案内します。
+
+- 配下のドキュメントと下位ディレクトリの `README.md` へのファイル単位のリンクと主題だけで構成し、節へのリンクや各ドキュメントの内容を書かない
+- `README.md` 以外のドキュメントは `README.md` に依存しない
+- ドキュメントを追加、削除、改名したときや、主題が変わったときは、案内している `README.md` も変更する
+
 ## 3. Dependencies within docs/design
 
 相互依存をなくせない箇所が残ることは、`architecture.md` からの依存を除いて許容し、その箇所も含めて、`docs/design/` 内の依存は次の向きを基準にします。
