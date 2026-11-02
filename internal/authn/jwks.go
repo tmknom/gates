@@ -77,7 +77,7 @@ func decodeKeyOperations(raw jsontext.Value) ([]string, error) {
 	return operations, nil
 }
 
-// isUsableKey は、復号できた RSA の鍵が Lambda Design の JWK の受理条件を満たすかを判定する。
+// isUsableKey は、復号できた RSA の鍵が JWT Design の「JWK と JWK Set の受理条件」を満たすかを判定する。
 // go-jose は use、key_ops、alg を署名の検証で確かめない。
 // crypto/rsa が拒否する法の下限は 1024 bit のため、2048 bit の判定を GATES が持つ。
 func isUsableKey(key jose.JSONWebKey, operations []string) bool {

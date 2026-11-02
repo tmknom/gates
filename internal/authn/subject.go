@@ -8,7 +8,7 @@ import (
 // 解析は復号の時点で行わない。行うと、形式の誤りが decodeClaims の文言に一本化され、ID の Claim より先に判定される。
 type subject string
 
-// 名前を照合せず、リポジトリ部の後を解釈しない理由は Lambda Design の「OIDC Validation」に記述する。
+// 名前を照合せず、リポジトリ部の後を解釈しない理由は JWT Design の「`sub`」に記述する。
 func (s subject) parse() (ownerID, repositoryID int64, err error) {
 	rest, ok := strings.CutPrefix(string(s), "repo:")
 	if !ok {

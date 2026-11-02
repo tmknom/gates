@@ -31,7 +31,7 @@ func checkClaimSet(rawClaims []byte) error {
 	return nil
 }
 
-// isClaimAlias は、設計文書の別名かを判定する。
+// isClaimAlias は、JWT Design の「JSON と Claim 名の一貫した解釈」が拒否する、既知の Claim 名と大文字小文字だけが異なる名前 (別名) かを判定する。
 // go-oidc の encoding/json (v1) は別名も正しい名前の Claim として読み、後に現れた値で上書きする。
 // strings.EqualFold を使うのは、v1 の名前の照合が bytes.EqualFold と同じ範囲で、U+017F のような ASCII 以外の文字にも一致するため。
 func isClaimAlias(name string) bool {

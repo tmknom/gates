@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// checkJOSEHeader は、Lambda Design の JOSE Header の受理条件を確かめる。
+// checkJOSEHeader は、JWT Design の「JOSE Header」の受理条件を確かめる。
 // go-jose は b64 を対応済みの crit として受理し、空の crit も通すため、判定を任せず、解析済みの jwt の Protected Header を読み直す。
 // go-jose と同じ base64.RawURLEncoding で復号する。どちらも CR と LF を読み飛ばすため、判定する Header と署名の入力が食い違わない。
 // jwt は解析を通っており復号は失敗しない。失敗しても header が空のまま json.Unmarshal が拒否する。

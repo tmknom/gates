@@ -73,6 +73,7 @@ flowchart TD
 | `architecture.md` | コンポーネントの全体構成と処理の流れ |
 | `domain.md` | 概念の名前、意味、ルール、不変条件 |
 | `security.md` | 信頼境界、認証・認可、資格情報の保護、失敗時の扱い |
+| `jwt.md` | JWT の Claim・JOSE・JWK の受理・生成条件 |
 | `lambda.md` | Lambda の入出力契約、コンポーネント、外部連携 |
 | `aws-infrastructure.md` | AWS リソースの構成 |
 | `github-actions.md` | Composite Action の入出力と処理手順 |
@@ -116,6 +117,11 @@ flowchart TD
     security --> domain
     actions --> domain
     infra --> domain
+    lambda --> jwt["jwt.md"]
+    infra --> jwt
+    security --> jwt
+    actions --> jwt
+    jwt --> domain
 ```
 
 依存するときは、次の規則を守ります。
@@ -160,6 +166,7 @@ flowchart TD
 | GATES が満たす要求 | `requirements.md` | `future-scope.md`、`docs/design/` |
 | コンポーネントの全体構成と処理の流れ | `architecture.md` | `docs/design/` の他のドキュメント |
 | 概念の名前と意味 | `domain.md` | `requirements.md`、`future-scope.md`、`docs/design/` の他のドキュメント、コード、`formal/` |
+| JWT の Claim・JOSE・JWK の受理・生成条件 | `jwt.md` | `docs/design/` の他のドキュメント、コード |
 
 外部仕様の事実は GATES の文書では決められないため、事実と食い違う要求は `requirements.md` の側を直します。
 `domain.md` の定義が要求の内容と食い違うときも、`domain.md` の側を直します。
