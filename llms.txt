@@ -1,0 +1,65 @@
+# GATES
+
+An index of the GATES repository for Coding Agents. GATES (GitHub App Token Exchange System) issues short-lived, repository-scoped GitHub App installation access tokens to GitHub Actions workflows, using GitHub OIDC, AWS Lambda, and AWS KMS.
+
+## Usage
+
+Identify and read task-related sections below when the "Use when" trigger matches your situation:
+
+- Deciding how a component should behave, or where a responsibility belongs → read **Design**
+- Deciding what GATES must do, what is out of scope, or what may be added later → read **Specification**
+- Implementing, changing, or reviewing Go code → read the Domain Model and Lambda Design in **Design**
+- Touching authentication, authorization, credentials, or tokens → read the Security Design in **Design**
+- Running a build, test, lint, scan, or Terraform command, or changing how they run → read **Tooling**
+- Creating, editing, or moving a document under `docs/`, or resolving a conflict between documents → read **Documentation Rules**
+- Changing AWS resources → read the AWS Infrastructure Design in **Design**, then **Infrastructure**
+- Changing an authorization or issuance rule → read **Specification** and **Design**, then **Formal Verification**
+- Running `make alloy` or interpreting its verdicts → read **Formal Verification**
+- Checking what GitHub or the JWT and OpenID Connect standards specify → read **Specification**
+- Checking the values GitHub OIDC actually returned → read **Research**
+- Preparing a GitHub App to try GATES against → read **Environment Setup**
+
+## Design
+
+- [Domain Model](docs/design/domain.md): Names, meanings, operations, failure kinds, lifecycle, rules, invariants, and bounded contexts of the domain concepts - Use when naming a type or term in code, documents, or `formal/` models, deciding what a concept means or which rule must always hold, classifying a failure, telling apart a word such as token or owner whose meaning changes across contexts, or judging how an event outside GATES such as a rename changes the outcome
+- [System Architecture](docs/design/architecture.md): System context, components, information and credentials, and end-to-end data flow - Use when starting work without knowing the overall structure, or when a change affects which component does what or the order of processing
+- [Lambda Design](docs/design/lambda.md): Lambda request and response contract, validation, error codes, logical components, processing flow, OIDC acceptance rules, KMS signing, GitHub API usage, libraries, Go packages, and test cases - Use when implementing or reviewing the Lambda code, changing its input, output, or error responses, integrating with OIDC, KMS, or the GitHub API, or deciding which package or dependency a change belongs to
+- [Security Design](docs/design/security.md): Trust boundaries, authorization, issuance result verification, secret and token lifecycle, failure handling, audit, and accepted risks including KMS signing key risks - Use when a change touches authentication, authorization, credentials, tokens, logging of sensitive values, or a failure path, or when assessing whether a risk is already accepted
+- [AWS Infrastructure Design](docs/design/aws-infrastructure.md): AWS resource model, IAM design, deployment permissions and State placement, KMS key and import boundary, Lambda settings, and environment variable contract - Use when adding or changing an AWS resource, IAM permission, or Lambda environment variable, deciding what Terraform may handle around key material, or planning a deployment
+- [GitHub Actions Design](docs/design/github-actions.md): Composite Action location, inputs and outputs, connection information, list syntax, processing flow, workflow usage, and test cases - Use when implementing or changing the Composite Action, setting up its connection information, or writing a workflow that requests a token from GATES
+
+## Specification
+
+- [Requirements](docs/spec/requirements.md): Purpose, scope, technical constraints, responsibilities, functional and quality requirements, and acceptance criteria - Use when deciding whether a behavior is required or out of scope, looking up an ID such as FR-006, QR-003, or AC-30, or checking a change against acceptance criteria
+- [GitHub Constraints](docs/spec/github-constraints.md): GitHub specifications for owners and repositories, Actions OIDC, GitHub App JWTs, Installations, installation access tokens, and Actions integration, with differences from the standards and items still unverified - Use when a design or implementation depends on GitHub behavior, such as interpreting a claim, calling the issuance API, or interpreting its response, or when checking whether that behavior has been verified
+- [JWT Constraints](docs/spec/jwt-constraints.md): What the JWT, JWS, JWK, and OpenID Connect standards prescribe for signatures, keys, claims, and Discovery - Use when you need the standard's rule rather than GitHub's behavior or GATES's own acceptance rules, such as when judging whether an acceptance rule differs from the standard
+- [Future Scope](docs/spec/future-scope.md): Why the current scope is limited, and capabilities planned for later - Use when a request exceeds the current scope, such as finer-grained authorization or more permissions, or when judging whether a current limit is permanent before relying on it
+
+## Tooling
+
+- [Makefile](Makefile): Targets for Go checks, the Lambda package, Terraform in containers, Trivy, Alloy, and GitHub Actions lint - Use when looking for the command to run a build, test, coverage check, lint, scan, or Terraform operation, or when checking the prerequisites of `tf-plan` or `tf-apply` before running them
+- [.github/workflows/](.github/workflows/): Pull request labeling and a lint triggered by YAML changes - Use when a pull request check fails, when changing what runs on GitHub, or when deciding what to run locally, because Go and Terraform checks do not run here
+- [scripts/](scripts/): Container definitions and configuration for golangci-lint, tflint, Trivy, Alloy, and Terraform, including the allowlists of the Terraform proxy - Use when changing a lint or scan rule, a tool version, or what a container or the Terraform proxy may access
+
+## Documentation Rules
+
+- [Documentation Policy](docs/contributing/docs-policy.md): Responsibility of each document, allowed dependencies between documents, how concept names apply, and the source of truth per kind of content - Use when creating, editing, or moving a document under `docs/` and you must decide which document owns a statement and whether a reference is allowed, or when two documents disagree and you must decide which one to fix
+
+## Infrastructure
+
+- [terraform/](terraform/): Terraform code for the Lambda function, its execution role and log group, and the external KMS signing key, with tests under `terraform/tests/` - Use when adding or changing an AWS resource, or checking what is already managed as code
+- [Terraform Example Variables](terraform/terraform.tfvars.example): Template to copy to `terraform/local/terraform.tfvars` - Use when preparing local values before `make tf-plan`, or when adding a Terraform variable that needs an example value
+
+## Formal Verification
+
+- [Formal Models](formal/README.md): What the Alloy models check and do not guarantee, the command tables with related requirements, how to read results, and how to update the models - Use when changing `formal/`, when a `docs/spec/` or `docs/design/` change affects authorization or issuance rules, when `make alloy` reports an unexpected verdict, or when citing the models as evidence of safety
+
+## Research
+
+- [GitHub OIDC JWT](docs/research/github/oidc-jwt.md): JWT Header and Payload values observed per event, reusable workflow, and Environment on a personal account's private repository, with the workflow that fetched them - Use when you need the actual value of a claim for a given trigger, such as for test data or claim validation, rather than what the documentation says
+- [GitHub OIDC Discovery](docs/research/github/oidc-discovery.md): Observed response of the GitHub OIDC Discovery endpoint and the command that fetches it - Use when implementing or testing Discovery retrieval, or when checking the fields GitHub actually returns
+- [GitHub OIDC JWKS](docs/research/github/oidc-jwks.md): Observed response of the GitHub OIDC JWKS endpoint and the command that fetches it - Use when implementing or testing key retrieval or JWK acceptance, or when checking the keys GitHub actually publishes
+
+## Environment Setup
+
+- [Testing Environment Setup](docs/contributing/setup-environment.md): Creating and installing a testing GitHub App on a personal account and issuing its Private Key, without any AWS setup - Use when a human or agent needs a real GitHub App and Private Key to verify GATES, or when checking the settings the testing GitHub App is expected to have
