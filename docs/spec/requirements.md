@@ -98,7 +98,7 @@ GitHub App Private Key を GitHub Secrets や Actions Runner に置かず、署�
 | FR-019 | Composite Action が AWS の認証情報の取得、認証、トークン取得の手順を利用者から隠蔽する。利用者に求める作業は、責任分界（§3）に定めたものだけとする。 |
 | FR-020 | 入力不正、認証失敗、GATES による認可拒否、Installation 利用不可（発行に使える Installation を得られない）、原因が未確定の GitHub 発行拒否、発行結果の照合失敗、外部 API・KMS の一時的な障害を区別したエラーを返す。 |
 | FR-021 | 認証済み Caller（Owner ID と Repository ID、ワークフロー実行 ID と試行番号、ワークフロー起動属性）、要求対象、要求権限、結果、相関 ID を資格情報を含めず監査可能にする。ワークフロー起動属性は JWT に含まれる範囲で記録する。相関 ID は成功・失敗のどちらの応答にも含め、呼び出し元が監査記録と突き合わせられるようにする。 |
-| FR-022 | AWS リソースの設定と変更を Terraform で管理する。秘密鍵素材の取得・変換・インポートは Terraform 管理外とする。 |
+| FR-022 | AWS リソースの設定と変更を Terraform で管理する。秘密鍵素材の取得・変換・インポートと、IAM OIDC Provider の用意は Terraform 管理外とする。 |
 | FR-023 | 新しい鍵への切り替えでは KMS Key の意図しない置換・削除を防ぐ。 |
 | FR-024 | 許可オーナー（不変 Owner ID で指定）、GitHub App、署名に用いる KMS Key は、GATES 運用者が管理するデプロイ時の設定として固定する。Installation は、固定した GitHub App と許可オーナーから一意に導出する。これらは実行時に外部入力から変更できない。 |
 | FR-025 | GATES の呼び出し口は、AWS IAM で許可された主体だけが呼び出せるものとし、認証なしでインターネットに公開された呼び出し口を設けない。IAM で許可する主体は、FR-005 の不変 Owner ID で特定した許可オーナーの GitHub Actions ワークフローに限る。許可されていない主体の呼び出しは、関数が実行される前に拒否される。 |

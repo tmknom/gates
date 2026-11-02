@@ -11,6 +11,12 @@ mock_provider "aws" {
     }
   }
 
+  mock_data "aws_iam_openid_connect_provider" {
+    defaults = {
+      client_id_list = ["sts.amazonaws.com"]
+    }
+  }
+
   mock_resource "aws_iam_role" {
     defaults = {
       arn = "arn:aws:iam::123456789012:role/gates-lambda"
@@ -25,8 +31,15 @@ mock_provider "aws" {
 
   mock_resource "aws_iam_policy" {
     defaults = {
-      arn = "arn:aws:iam::123456789012:policy/gates-lambda-sign"
+      arn = "arn:aws:iam::123456789012:policy/other"
     }
+  }
+}
+
+override_resource {
+  target = aws_iam_policy.lambda_sign
+  values = {
+    arn = "arn:aws:iam::123456789012:policy/gates-lambda-sign"
   }
 }
 

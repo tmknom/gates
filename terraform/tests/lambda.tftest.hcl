@@ -1,4 +1,10 @@
 mock_provider "aws" {
+  mock_data "aws_iam_openid_connect_provider" {
+    defaults = {
+      client_id_list = ["sts.amazonaws.com"]
+    }
+  }
+
   mock_resource "aws_cloudwatch_log_group" {
     defaults = {
       arn = "arn:aws:logs:ap-northeast-1:123456789012:log-group:/aws/lambda/gates"
@@ -13,7 +19,7 @@ mock_provider "aws" {
 
   mock_resource "aws_iam_policy" {
     defaults = {
-      arn = "arn:aws:iam::123456789012:policy/gates-lambda-logs"
+      arn = "arn:aws:iam::123456789012:policy/other"
     }
   }
 
@@ -21,6 +27,13 @@ mock_provider "aws" {
     defaults = {
       arn = "arn:aws:kms:ap-northeast-1:123456789012:key/11111111-2222-3333-4444-555555555555"
     }
+  }
+}
+
+override_resource {
+  target = aws_iam_policy.lambda_logs
+  values = {
+    arn = "arn:aws:iam::123456789012:policy/gates-lambda-logs"
   }
 }
 

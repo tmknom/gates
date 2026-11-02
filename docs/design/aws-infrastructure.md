@@ -2,7 +2,7 @@
 
 ## 1. Scope and Responsibility
 
-AWS のリソース設定は Terraform で管理します。GitHub App Private Key の取得、変換、KMS への鍵素材インポートは Terraform の対象外とし、独立した運用手順に従います。
+AWS のリソース設定は、IAM OIDC Provider 以外を Terraform で管理します。GitHub App Private Key の取得、変換、KMS への鍵素材インポートは Terraform の対象外とし、独立した運用手順に従います。
 
 AWS 側は GitHub OIDC → AWS STS → IAM 認証付き Lambda 直接 Invoke → KMS `Sign` を提供します。GitHub の OIDC JWT によるリポジトリ単位の本人確認と Installation Access Token の発行認可は、Lambda 内の Go アプリケーションが行います。
 
@@ -12,7 +12,7 @@ Terraform の State / Plan、Git、CI の成果物、Lambda の環境変数に G
 
 | 対象 | 構成・責務 | 設計上の制約 |
 |---|---|---|
-| IAM OIDC Provider | `https://token.actions.githubusercontent.com` を AWS STS の信頼先として設定 | 対象 AWS アカウントに既存の Provider がある場合は再利用し、重複作成しない |
+| IAM OIDC Provider | `https://token.actions.githubusercontent.com` を AWS STS の信頼先として設定 | Terraform の管理外で用意し、参照する。この URL の Provider はアカウントで一つだけの共有リソースであり、GATES の State に入れると、GATES の削除が他の用途の OIDC 連携を壊すため。Client ID に Trust Policy の Audience `sts.amazonaws.com` を含める |
 | GitHub Actions IAM Role | 許可オーナーのワークフローに `AssumeRoleWithWebIdentity` を許可 | Trust Policy で Audience と不変 ID 入りの `sub` を制限。Permissions Policy は対象 Lambda の `lambda:InvokeFunction` に限定 |
 | Lambda 実行 IAM Role | Go アプリケーションから必要な AWS API を呼び出す | 対象 KMS Key への `kms:Sign` と必要な CloudWatch Logs 操作のみを基本とする。`kms:ImportKeyMaterial` 等の鍵管理操作は付与しない |
 | Lambda Function | JWT 検証、発行認可、KMS 署名依頼、GitHub API 通信 | Go の `provided.al2023` と ZIP 形式で配布し、IAM 認証付き Lambda Invoke API からだけ呼び出す。Function URL、API Gateway などの別の呼び出し口を設けず、他アカウントや匿名主体を許可するリソースベースポリシーを付与しない。利用者管理 VPC には接続しない |
