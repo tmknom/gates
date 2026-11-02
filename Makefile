@@ -165,7 +165,7 @@ tf-local-dir:
 .PHONY: tf-misplaced-values
 tf-misplaced-values:
 	@! find $(TF_DIR) -path $(TF_LOCAL_DIR) -prune -o \( -name '*.tfvars' -o -name '*.tfstate' -o -name '*.tfstate.*' -o -name '*.tfplan' \
-		-o -name .terraform -o -name .envrc -o -name .env \) -print | grep . \
+		-o -name .terraform -o -name .envrc \) -print | grep . \
 		|| (echo "move the files above to $(TF_LOCAL_DIR)/: containers can read them" && exit 1)
 
 # Targets: Security
@@ -183,12 +183,11 @@ alloy: ## verify formal models by Alloy in an isolated container
 	ALLOY_TARGET=$(CURDIR)/formal docker compose -f scripts/alloy/compose.yaml run --build --rm -T --interactive=false alloy exec -c '*' -o /tmp/out -t none authorization.als
 	ALLOY_TARGET=$(CURDIR)/formal docker compose -f scripts/alloy/compose.yaml run --rm -T --interactive=false alloy exec -c '*' -o /tmp/out -t none issuance-temporal.als
 
-# 読み取り専用の /src にはマウントポイントを作れないため、compose.yaml が隠すパスをホスト側で用意する。既存の .envrc と .env は変更しない
+# 読み取り専用の /src にはマウントポイントを作れないため、compose.yaml が隠すパスをホスト側で用意する。既存の .envrc は変更しない
 .PHONY: container-mountpoints
 container-mountpoints:
 	@mkdir -p .claude .makefiles $(DIST_DIR) terraform/$(TF_LOCAL_NAME) tmp
 	@[ -e .envrc ] || touch .envrc
-	@[ -e .env ] || touch .env
 
 # Targets: GitHub Actions
 .PHONY: lint-gha
