@@ -9,7 +9,7 @@ GitHub の公式資料そのものではなく、GitHub の仕様が変更され
 - **対象**：GitHub.com。GitHub Enterprise Server は対象外。
 - **REST API の確認対象版**：`2026-03-10`。以下の REST API 資料と OpenAPI 定義（REST API Description）はこの版を参照する。
 - **バージョン指定の仕様**：REST API は `X-GitHub-Api-Version` で版を指定する。ヘッダーを省略すると `2022-11-28` が使われる。各版は新しい版の公開から24か月サポートされ、`2022-11-28` のサポートは2028年3月10日に終わる。サポート終了後、その版を指定した要求は `410 Gone` になり、ヘッダーを省略した要求の既定の版は変わる。版に依存する記述は、別の版では照合が必要である（[API Versions](https://docs.github.com/en/rest/about-the-rest-api/api-versions)）。
-- **取得した値の調査記録**：[GitHub OIDC Discovery](../research/github/oidc-discovery.md)、[GitHub OIDC JWKS](../research/github/oidc-jwks.md)、[GitHub OIDC JWT](../research/github/oidc-jwt.md)。取得日、取得方法、応答の全体はこれらの記録にある。
+- **取得した値の調査記録**：[GitHub OIDC Discovery](../research/github/oidc-discovery.md)、[GitHub OIDC JWKS](../research/github/oidc-jwks.md)、[GitHub OIDC JWT](../research/github/oidc-jwt.md)、[GitHub App Installation](../research/github/app-installation.md)、[GitHub Installation Access Token](../research/github/installation-access-token.md)。取得日、取得方法、応答の全体はこれらの記録にある。
 
 根拠の種類は次のように区別します。
 
@@ -17,7 +17,7 @@ GitHub の公式資料そのものではなく、GitHub の仕様が変更され
 |---|---|
 | 公式仕様 | リンクした GitHub の公式資料に記述された内容。資料の条件・適用範囲を含めて読む |
 | 公開値 | GitHub が公開するエンドポイントから取得し、調査記録に残した値。取得時点の値であり、将来も同じ値であることの保証ではない |
-| 実測値 | GitHub Actions の実環境で発行された JWT から取得し、調査記録に残した値。記録した条件での観測であり、ほかの条件や将来も同じ値であることの保証ではない |
+| 実測値 | GitHub Actions の実環境で発行された JWT と、GitHub API の実際の応答から取得し、調査記録に残した値。記録した条件での観測であり、ほかの条件や将来も同じ値であることの保証ではない |
 | 推論 | 公式仕様、公開値、実測値から導いた解釈。GitHub が明示的に保証した事実とは区別する |
 | 未確認 | 公式資料で確定できない動作。公開値や実測値があっても、それだけでは保証とみなさない |
 
@@ -167,6 +167,8 @@ Organization オーナーがリポジトリ管理者によるインストール�
 
 **未確認**：選択対象外の公開リポジトリに対するトークンの振る舞いは、これらの記述だけでは確定できません。
 
+**実測値（選択対象外の公開リポジトリ）**：インストール先のアカウントが所有し、Installation で選択していない公開リポジトリを含む発行の要求は、`422` で拒否されました（[GitHub Installation Access Token](../research/github/installation-access-token.md#発行が拒否された要求)）。
+
 **公式仕様**：GitHub App JWT で認証すると、次の API から Installation 情報を取得できます（[REST API — GitHub Apps](https://docs.github.com/en/rest/apps/apps?apiVersion=2026-03-10)）。資料に示された応答コードは、Organization と User の API が `200` だけ、Repository の API が `200`、`301`、`404` です。
 
 | 対象 | API |
@@ -176,6 +178,9 @@ Organization オーナーがリポジトリ管理者によるインストール�
 | Repository | `GET /repos/{owner}/{repo}/installation` |
 
 資料の応答例には `id`（Installation ID）、`account.id`、`account.type`、`target_type`、`repository_selection`（`all` / `selected`）、`permissions`、`suspended_at` などが含まれます。OpenAPI 定義では、`account` は `null`、`User` の表現、Enterprise の表現のいずれかで、Enterprise の表現には `type` がありません。`suspended_at` も `null` を取り得ます（[REST API Description](https://github.com/github/rest-api-description)）。
+
+**実測値（Installation の取得）**：User の API の記録では、`id` と `account.id` は JSON の数値で、停止していない Installation の `suspended_at` は欠落せず `null` で現れました。
+署名の不正な App JWT には `401` が返りました（[GitHub App Installation](../research/github/app-installation.md)）。
 
 **推論**：オーナーを指定して単一の Installation を返す API があることから、GitHub App とオーナーの組で Installation は単一に決まると読めます。ただし、この一意性を明記した公式の記述はありません。
 
@@ -204,6 +209,8 @@ Organization オーナーがリポジトリ管理者によるインストール�
 
 **推論**：`x-ratelimit-remaining` が `0` になる場合はプライマリとセカンダリの両方にあるため、このヘッダーだけでは両者を区別できません。
 
+**実測値（レート制限のヘッダー）**：レート制限に達していない記録では、GitHub App JWT で認証した Installation の取得と発行 API の応答に `x-ratelimit-*` のヘッダーがありませんでした（[GitHub App Installation](../research/github/app-installation.md#installation-の取得)、[GitHub Installation Access Token](../research/github/installation-access-token.md#レート制限のヘッダー)）。
+
 ### 6.2 発行応答・Permission
 
 **公式仕様**：発行 API の応答には `token`、`expires_at`、`permissions`、`repositories`（適用される場合）、`repository_selection` などが示されます。`repository_selection` は `all` / `selected` の区別です。応答例には `repositories[].id`、`repositories[].full_name`、`repositories[].owner.id` といったリポジトリ情報が含まれます（[REST API — GitHub Apps](https://docs.github.com/en/rest/apps/apps?apiVersion=2026-03-10)）。
@@ -217,16 +224,27 @@ GitHub は、トークンを、中身を解釈しない文字列として扱う�
 形式を切り替える `X-GitHub-Stateless-S2S-Token` ヘッダーは2026年11月30日に廃止されます。
 権限、対象リポジトリ、1時間の有効期間、発行 API は変わりません（[GitHub Changelog — Stateless installation tokens](https://github.blog/changelog/2026-10-02-stateless-github-app-installation-tokens-rolled-out/)、[GitHub Changelog — Notice about the new format](https://github.blog/changelog/2026-04-24-notice-about-upcoming-new-format-for-github-app-installation-tokens/)）。
 
+**実測値（発行応答）**：`Only select repositories` の Installation で、対象と `{"contents":"read"}` を明示して発行した記録では、次のとおりでした（[GitHub Installation Access Token](../research/github/installation-access-token.md)）。
+
+- **応答のフィールド**：`token`、`expires_at`、`permissions`、`repository_selection`（`selected`）、`repositories` がすべてあった
+- **`permissions`**：要求していない `metadata:read` が加わった
+- **`repositories`**：要求した件数のリポジトリが返った。対象 2 件の要求では、要求の並びを入れ替えても応答の並びは同じだった。`full_name` は要求の表記ではなく GitHub 上の表記だった
+- **本文の大きさ**：対象1件ごとにリポジトリの完全な表現が入り、1件あたり数 KB だった
+- **拒否**：Installation で選択していない同じアカウントの公開リポジトリ、存在しない名前、`.`、`..` のどれかを含む要求は、同じ本文の `422` で、どのリポジトリが原因かを示さなかった。対象を縮小した応答はなかった
+
 **未確認**：次の振る舞いは、参照した公式資料に記述がありません。
 
-- Installation 範囲外のリポジトリを要求したとき、発行を拒否するか、対象を縮小した応答を返すか
+- Installation 範囲外のリポジトリを要求したとき、発行を拒否するか、対象を縮小した応答を返すか。実測したのは Installation で選択していない同じアカウントの公開リポジトリだけで、private のもの、別のアカウントのもの、archived のものは試していない
 - 500件を超えて指定したときの応答
 - 停止中の Installation に対する発行 API の応答。App 停止の API の説明は、停止するとそのアカウントに対する App の API アクセスが遮断されるとするが、発行 API の応答コードは示していない（[REST API — GitHub Apps](https://docs.github.com/en/rest/apps/apps?apiVersion=2026-03-10)）
 - 発行応答の各フィールドの存在条件。OpenAPI 定義で必須なのは `token` と `expires_at` だけで、`permissions`、`repositories`、`repository_selection` は必須ではない（[REST API Description](https://github.com/github/rest-api-description)）
+- 発行応答の `repositories` の並び
 
 ### 6.3 失効
 
 **公式仕様**：`DELETE /installation/token` は、その呼び出しを認証した Installation Access Token 自身を失効させます。GitHub App JWT で呼び出す API ではありません。成功の応答は `204` です（[REST API — App installations](https://docs.github.com/en/rest/apps/installations?apiVersion=2026-03-10)）。この資料も新形式への移行の案内も、新形式のトークンでの失効の動作を個別には説明していません。
+
+**実測値（失効）**：発行したトークンの失効は `204` を返し、失効したトークンによる要求は `401` で拒否されました（[GitHub Installation Access Token](../research/github/installation-access-token.md#失効の前後のトークン)）。
 
 ## 7. GitHub Actions Integration
 
@@ -281,6 +299,6 @@ Client ID または App ID を `iss` にすることは、`iss` を文字列と�
 | リポジトリ名 | `.` と `..` の扱い、既存リポジトリへの例外的な命名規則 |
 | OIDC | カスタマイズ後の `sub` の形式（`repo` を含めないテンプレートを不変形式のリポジトリに適用した場合を含む）、`sub` が OpenID Connect Core の上限255 ASCII 文字に常に収まるか、Claim の JSON の型、Claim が欠落する条件、`nbf`、`iat`、`exp` の時刻の差、JOSE Header に `crit`、`jku`、`jwk` などが現れるか、`User` 所有のリポジトリでの `repository_owner_id`、`run_attempt` の初回の値、Organization が所有するリポジトリで発行された JWT の実測値 |
 | GitHub App の鍵 | 新規生成される RSA 鍵のビット長 |
-| Installation の取得 API | Organization と User の API の `200` 以外の応答（インストールされていない場合を含む）、GitHub App とオーナーの組での一意性 |
-| トークン発行 API | 範囲外リポジトリへの要求、選択対象外の公開リポジトリに対するトークンの振る舞い、500件超の要求、停止中の Installation への要求、`422` の原因、`metadata:read` の付与条件、応答フィールドの有無 |
+| Installation の取得 API | Organization と User の API の `200` 以外の応答（インストールされていない場合を含む）、Organization の API の応答の形、GitHub App とオーナーの組での一意性 |
+| トークン発行 API | 範囲外リポジトリへの要求、選択対象外の公開リポジトリに対するトークンの振る舞い、500件超の要求、停止中の Installation への要求、`422` の原因、`metadata:read` の付与条件、応答フィールドの有無、`repositories` の並び |
 | トークン失効 API | 新形式のトークンでの失効の動作 |
