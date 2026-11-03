@@ -217,12 +217,12 @@ Handler は処理中の panic を回復し、`internal_error` の失敗応答と
 | `invalid_id_token` | 認証失敗 | GATES 用 OIDC JWT が [JWT Design](jwt.md) の受理条件を満たさない。JWT の形式・署名、Issuer、Audience、時間条件、必須 Claim、再取得後も一意に選べる使用可能な鍵がない `kid` などを含む |
 | `authorization_denied` | 認可拒否 | Caller の Owner ID が許可オーナーと不一致、要求した権限が許可条件外、または要求したリポジトリのオーナー名が許可オーナー名と不一致。Installation の対象外であることが GitHub API の呼び出し後に判明した場合は、その処理段階の失敗として扱う |
 | `identity_verification_unavailable` | 一時的な障害 | OIDC Discovery / JWKS の取得が一時的に失敗した。通信の失敗、タイムアウト、5xx、403 / 429 で、再試行で解消し得る |
-| `signing_unavailable` | 一時的な障害 | KMS 署名に失敗 |
+| `signing_unavailable` | 一時的な障害 | KMS 署名が一時的に失敗した。要求を送った後の通信の失敗、タイムアウト、呼び出し元の ctx の期限切れと中断、5xx、スロットリングで、再試行で解消し得る |
 | `installation_resolution_failed` | Installation 利用不可 | 固定した GitHub App と許可オーナーから、発行に使える Installation を得られない。一時的な障害を除く GitHub API の失敗（App JWT が受け付けられない 401、GitHub App が許可オーナーにインストールされていないときに想定する 404 など）、Installation の応答に必要な項目がない、Installation が停止している（`suspended_at` が空でない）、`account.id` が許可オーナーの Owner ID と一致しない |
 | `token_issuance_failed` | 一時的な障害 | GitHub API の一時的な障害。通信の失敗、タイムアウト、5xx、レート制限による 403 / 429 で、Installation の取得と発行 API の呼び出しの両方を含む。再試行で解消し得る |
 | `github_issuance_rejected` | GitHub 発行拒否 | GATES の認可が成立した後、GitHub の発行 API が `422` で要求を拒否した。検証失敗やスパム判定など、原因は応答コードから特定できない |
 | `issuance_verification_failed` | 照合失敗 | GitHub API の発行応答が [Success](#31-success) の照合条件に適合しない。空でないトークン文字列を取得できた場合は失効を試みる |
-| `internal_error` | 内部障害 | Handler の panic、Discovery / JWKS の非一時的な取得・構造異常、JWKS に使用可能な鍵がない場合などを含む |
+| `internal_error` | 内部障害 | Handler の panic、Discovery / JWKS の非一時的な取得・構造異常、JWKS に使用可能な鍵がない場合、KMS が再試行では解消しない失敗を返した場合（鍵の無効化、鍵の状態、権限の不足など）、KMS に要求を送る前の AWS SDK の失敗を含む |
 
 GitHub API の失敗は、HTTP 応答から次のように分類します。
 通信の失敗、タイムアウト、5xx、レート制限による 403 / 429 は `token_issuance_failed` にします。
@@ -240,6 +240,17 @@ Installation の取得に使う Organization と User の API も、公開して
 発行 API の `422` を、GATES の認可条件で拒否したことを示す `authorization_denied` と分けるのは、`422` だけでは権限不足や悪意の有無を確定できないためです。
 どの失敗でもトークンを返さないことは変わりません。
 
+403 と 429 のうちレート制限によるものは、応答のヘッダーで判定します。
+429 は常にレート制限とします。
+403 は、`x-ratelimit-remaining` が `0` か、`retry-after` のヘッダーがあるときだけレート制限とし、ほかの 403 はレート制限としません。
+本文のメッセージは判定に使いません。
+GitHub はセカンダリのレート制限を本文のメッセージだけで示す場合があり（[GitHub Constraints](../spec/github-constraints.md#61-発行-api-の呼び出しと有効期限)）、文言に頼ると、GitHub が文言を変えたときに分類が変わるためです。
+この判定は二通りに誤り得ます。
+ヘッダーのないレート制限の 403 は、再試行で解消し得る失敗を、運用者の対応を要する `installation_resolution_failed` として伝えます。
+レート制限でない 403 にこれらのヘッダーが付くと、運用者の対応を要する失敗を `token_issuance_failed` として伝えます。
+GitHub App JWT で認証した要求の応答は、レート制限に達していない記録では `x-ratelimit-*` を含まず（同節）、制限に達したときに付くかは確かめていません。
+どちらの誤りでもトークンは返さず、誤りが変えるのは、利用者に再実行を促すかどうかです。
+
 Discovery と JWKS の取得の失敗は、次のように分類します。
 通信の失敗、タイムアウト、本文の受信途中の切断、5xx、403 / 429 は `identity_verification_unavailable` にします。
 403 を区別せずに含めるのは、Discovery と JWKS が認証を要しない公開の文書で、GATES に起因する 403 が想定できず、レート制限と見なすためです。
@@ -252,6 +263,14 @@ JWKS を取得できたうえで、`kid` で一意に選べる使用可能な鍵
 再取得の上限の間に返す種別は、[JWKS の再取得の上限](#jwks-の再取得の上限)に従います。
 分類は公開鍵の取得が返した失敗の種別で行い、検証ライブラリのエラー文言には頼りません。
 文言はライブラリの更新で変わり得るためです。
+
+KMS の署名の失敗は、次のように分類します。
+KMS に要求を送った後で応答を受け取れなかった失敗（通信の失敗、タイムアウト）、呼び出し元の ctx の期限切れと中断、5xx、`ThrottlingException` は `signing_unavailable` にします。
+`ThrottlingException` を名前で挙げるのは、KMS がスロットリングを 5xx ではなく 400 で返すためです（[AWS — KMS Common Error Types](https://docs.aws.amazon.com/kms/latest/APIReference/CommonErrors.html)）。
+それ以外の KMS のエラー応答と、KMS の応答を署名として解釈できない場合は `internal_error` にします。
+鍵の無効化（`DisabledException`）、`PendingImport` などの署名できない鍵の状態（`KMSInvalidStateException`）、権限の不足（`AccessDeniedException`）、鍵が見つからない（`NotFoundException`）が、ここに入ります。
+KMS に要求を送る前に AWS SDK の中で起きた失敗（リージョンや認証情報を解決できない、パラメーターの検証に失敗したなど）も `internal_error` にします。
+分類は KMS のエラーコードと HTTP ステータスで行い、エラーの文言には頼りません。
 
 外部エラーをそのまま応答へ転記しません。認証情報を含む詳細を公開せず、相関 ID によってログと突き合わせます。Lambda の処理結果は `ok` で示し、Invoke 自体の結果と区別します。
 
@@ -293,6 +312,8 @@ flowchart LR
 | 許可オーナー | AllowedOwner | Lambda Handler が固定設定から作り、Authorization と Token Issuer が読む | 不変 Owner ID、オーナー名（OwnerName）、種別（OwnerType） |
 | 許可オーナーの種別 | OwnerType | Token Issuer が Installation の取得 API の選択に読む | Organization かユーザーアカウントか |
 | GATES 用 OIDC JWT（ID Token）、未検証 | RawIDToken | Lambda Handler が作り、OIDC Verifier が読む | Payload の `id_token` を認証前に運ぶ。資格情報のため、ログやエラーにどう出力しても値を伏せる。値を取り出すのは OIDC Verifier だけ |
+| GitHub App JWT | AppJWT | KMS Signer が作り、GitHub Client が読む | Token Issuer の外に出さない（[KMS Signing](#72-kms-signing)）。RawIDToken と同じく値を伏せる。値を取り出すのは GitHub Client だけ |
+| Installation Access Token | InstallationAccessToken | GitHub Client が発行応答から作り、InstallationToken が持ち、Lambda Handler が成功応答に入れる | RawIDToken と同じく値を伏せる。値を取り出すのは、成功応答を書く Lambda Handler と、失効を要求する GitHub Client だけ |
 | Discovery | discoveryDocument | OIDC Verifier | Issuer の値と JWKS の取得先（`jwks_uri`）だけを読む |
 | Issuer の公開鍵集合 | issuerKeySet | OIDC Verifier が取得して保持する | JWK Set（JWKS）として取得し、検証ライブラリの `oidc.KeySet` として使う。OIDC Verifier の外に出さない |
 | Permissions | Permissions | Lambda Handler、Authorization、Token Issuer が共用 | 要求の `permissions` と応答の `permissions` の両方をこの型で扱う |
@@ -320,7 +341,7 @@ Claim や Payload を復号する入れ物と、復号した値を解析する�
 1. Handler が Payload を形式検証し（[Validation](#22-validation)）、資格情報をログに残さない。
 2. OIDC Verifier が固定 Issuer / JWKS と GATES 用 Audience で JWT を認証し、`repository_owner_id` と `repository_id` の Claim、および不変 ID 入り `sub` との一致から Caller を確定する。`run_id`、`run_attempt`、ワークフロー起動属性は監査のために Caller に添える。Discovery / JWKS の取得の失敗は [Failure](#32-failure) の分類に従い、一時的な障害なら `identity_verification_unavailable`、それ以外なら `internal_error` として拒否する。
 3. Authorization が Caller の Owner ID を固定した許可オーナーの Owner ID と照合し、要求された各 `owner/repo` のオーナー名を固定した許可オーナー名と照合し、Permissions が `contents:read` のみであることを確認する。不一致なら外部呼び出しに進まず拒否する。
-4. Token Issuer が KMS Signer で GitHub App JWT を生成し、GitHub Client で許可オーナーの Installation を取得する。取得の失敗は [Failure](#32-failure) の分類に従い、一時的な障害なら `token_issuance_failed`、それ以外なら `installation_resolution_failed` として拒否する。
+4. Token Issuer が KMS Signer で GitHub App JWT を生成し、GitHub Client で許可オーナーの Installation を取得する。署名の失敗は [Failure](#32-failure) の分類に従い、一時的な障害なら `signing_unavailable`、それ以外なら `internal_error` として拒否する。取得の失敗は [Failure](#32-failure) の分類に従い、一時的な障害なら `token_issuance_failed`、それ以外なら `installation_resolution_failed` として拒否する。
 5. Authorization が Installation の `account.id` を許可オーナーの Owner ID と照合し、`suspended_at` が空であることを確認して、Installation ID、要求した完全名、許可権限から TokenGrant を確定する。停止している、または `account.id` が一致しなければ `installation_resolution_failed` として拒否し、発行 API を呼ばない。
 6. Token Issuer が TokenGrant の各 `owner/repo` からオーナーを除いたリポジトリ名の配列と `permissions` を GitHub API に明示してトークンを取得する。GitHub 応答の `full_name` は TokenGrant の元の `owner/repo` と全件照合し、Owner ID、Repository ID の有効性・一意性、実効権限が許可範囲内であることを照合する。必要な一覧・権限の欠落や不一致があれば、`issuance_verification_failed` として返却せず、空でないトークン文字列を取得できた場合は失効を試みる。発行 API の `422` は `github_issuance_rejected` として拒否する。
 7. Handler が必要最小限の成功応答を返す。いずれかに失敗した場合は安全なエラーコードと相関 ID を返し、トークンは返さない。
@@ -353,7 +374,7 @@ OIDC Verifier は、GATES 用 OIDC JWT を [JWT Design](jwt.md) の受理条件�
 - **ローテーションへの追従**：保持した集合に、JWT の `kid` で一意に選べて署名が一致する使用可能な鍵がない場合（未知の `kid`、除外した JWK だけに一致する `kid`、使用可能な鍵の複数一致、署名不一致）は JWKS の再取得を試みる。同一実行環境内の並行した再取得は一つにまとめ、頻度を下記の上限で制御する。再取得が完了しても受理条件を満たさない JWT は認証しない。JWK の受理条件自体は [JWT Design §5.4](jwt.md#54-jwk-と-jwk-set-の受理条件) に従う。
 - **取得方式と検証器の分担**：Discovery / JWKS の HTTP 通信、構造検証、鍵の採否・`kid` の一意選択、キャッシュの更新と再取得制限は GATES が担当する。署名検証には選定した暗号ライブラリを使い、Claim の検証には OIDC ライブラリの処理と GATES 固有の検証を組み合わせる。ライブラリのエラー文言やレスポンス本文を外部応答へ直接転記しない。
 - **除外した JWK の記録**：JWK の受理条件を満たさず除外した JWK は、`keys` 内の位置、`kid`、除外の理由を、運用者向けのログに WARN で記録する。鍵の値、応答本文、ライブラリのエラー文言は記録しない。運用者は位置と `kid` から Issuer の JWKS を直接確かめられるためである。logger は Handler が OIDC Verifier に渡す。
-- **取得の制限**：Discovery と JWKS の各取得のタイムアウトは5秒、応答サイズは各64 KiB。64 KiB は、調査時の応答（[Discovery](../research/github/oidc-discovery.md) が約1.2 KB、[JWKS](../research/github/oidc-jwks.md) が4鍵で約5.5 KB）に対して JWKS が約10倍に増えても収まり、想定外に大きい応答を読み込み続けない大きさとする。5秒は遅延の実測から導いた値ではなく、無限には待てないため置いた初期値である。超えた取得は一時的な障害に分類されるため、短すぎても誤った拒否ではなく再実行を促す結果になる。初回認証で取得する文書は最大2つ、取得の合計待ち時間は最大10秒。Lambda 全体のタイムアウトは、これに KMS と GitHub API の処理時間を足した値より十分長くする。短いと取得の途中で Lambda がタイムアウトし、Handler が応答を書けない `FunctionError` になる。
+- **取得の制限**：Discovery と JWKS の各取得の応答サイズは各64 KiB。64 KiB は、調査時の応答（[Discovery](../research/github/oidc-discovery.md) が約1.2 KB、[JWKS](../research/github/oidc-jwks.md) が4鍵で約5.5 KB）に対して JWKS が約10倍に増えても収まり、想定外に大きい応答を読み込み続けない大きさとする。各取得のタイムアウトは [Call Time Budget](#74-call-time-budget) に置く。
 
 この方式は初期化時の取得失敗を Handler が相関 ID 付きのエラーとして返せるようにするためです。保持した鍵が Issuer の JWKS から削除されても直ちには失効扱いにしないこと、および実行環境ごとの再取得上限に起因するリスクは [Security Design §5](security.md#5-failure-audit-and-security-risks) に定めます。
 
@@ -388,6 +409,8 @@ GitHub App JWT の `iss`、`iat`、`exp`、JOSE Header、署名方式の生成�
 - Header と Payload を Base64URL（padding なし）で結合し、署名入力を SHA-256 でハッシュする。
 - AWS KMS `Sign` に `SigningAlgorithm=RSASSA_PKCS1_V1_5_SHA_256`、`MessageType=DIGEST`、計算済みダイジェストを渡す。二重ハッシュをしない。
 - 署名結果を Base64URL で連結し、内部 GitHub App JWT を作成する。
+- GitHub App JWT は要求ごとに 1 回だけ作り、Installation の取得（[Processing Flow](#6-processing-flow) の手順 4）と発行（手順 6）の両方に使う。要求をまたいで保持しない。保持すると、有効期限の管理と、期限の近い GitHub App JWT を使って GitHub に拒否される失敗が加わる。保持しなければ、要求ごとに KMS の署名を 1 回呼ぶだけで済む。
+- Token Issuer は手順 4 から手順 6 までを一つの操作として行い、その間の手順 5（Grant）を Lambda Handler から関数として受け取る。GitHub App JWT を Lambda Handler に渡さないためである。渡すと、Lambda Handler のログやエラーに出し得る値が一つ増え、手順 4 と手順 6 の間で GitHub App JWT を持ち回る経路が Token Issuer の外にできる。
 - Lambda が保持するのは GitHub App の Client ID、KMS Key ARN、必要な設定だけであり、秘密鍵の平文は受け取らない。KMS Key の設定は Terraform、鍵素材インポートは独立した運用手順で行い、実行時の責務外とする。
 
 ### 7.3 GitHub Client
@@ -396,11 +419,14 @@ GitHub API の仕様は、Installation の取得を [GitHub Constraints](../spec
 本節は、GATES がどのエンドポイントをどう使うかを定めます。
 
 - App JWT で許可オーナーの Installation を取得し、Installation ID、`account.id`、`suspended_at` を得る。取得に使うエンドポイントは、デプロイ時に固定したオーナーの種別で選ぶ。Organization なら `GET /orgs/{org}/installation`、ユーザーアカウントなら `GET /users/{username}/installation` を呼び出す。失敗の分類は [Failure](#32-failure) に従う。`suspended_at` は Installation に含めて返し、停止の判定は Authorization が行う（[Processing Flow](#6-processing-flow) の手順 5）。トークン発行には `POST /app/installations/{installation_id}/access_tokens` を使用する。
-- 照合に失敗したトークンの失効には `DELETE /installation/token` を使用する。このエンドポイントは App JWT ではなく、失効させる Installation Access Token 自体で認証する。失効の要求にもタイムアウトを設け、失敗しても再試行せずに監査記録へ残す。
+- 照合に失敗したトークンの失効には `DELETE /installation/token` を使用する。このエンドポイントは App JWT ではなく、失効させる Installation Access Token 自体で認証する。`204` だけを失効の成功とする。失効の要求にもタイムアウトを設け（[Call Time Budget](#74-call-time-budget)）、失敗しても再試行せずに監査記録へ残す。
 - `GET /repos/{owner}/{repo}/installation` はどちらの種別にも使えるが、採用しない。要求されたリポジトリから Installation を引くことになり、固定した設定から Installation を導出する [Requirements](../spec/requirements.md) FR-024 から外れるためである。
 - GATES の要求は `owner/repo` 形式とする。GitHub のトークン発行 API の `repositories` はリポジトリ名だけを受け取るため、オーナー名が許可オーナー名に一致することを確認してリポジトリ名の配列へ変換する。変換前の完全名と API 応答の `full_name` を照合する。
 - GitHub API に変換後の `repositories` と `permissions` を必ず指定する。応答照合の期待値と欠落時の扱いは本ドキュメントの [Responses](#3-responses) を正本とする。
-- API Host、API バージョン、HTTP Header は信頼済み設定で固定する。採用する API バージョンの値は未確定で、実装時に決める（[GitHub Constraints](../spec/github-constraints.md#1-scope-and-evidence)）。タイムアウト・レスポンスサイズ上限を設け、API エラー本文に含まれる資格情報をログへ転記しない。
+- API Host、API バージョン、HTTP Header は信頼済み設定で固定する。リダイレクトには従わず、`3xx` は [Failure](#32-failure) の分類で成功以外の応答として扱う。リダイレクト先は GATES が選んだエンドポイントではなく、その応答を Installation や発行応答として読む根拠がないためである。API エラー本文に含まれる資格情報をログへ転記しない。
+- すべての要求に `X-GitHub-Api-Version: 2026-03-10` を付ける。GitHub Constraints が REST API を確認した版であり、[調査記録](../research/github/installation-access-token.md)もこの版で取得している。ヘッダーを省略すると `2022-11-28` が使われ、その版のサポートが終わると既定の版が変わる（[GitHub Constraints](../spec/github-constraints.md#1-scope-and-evidence)）。省略すると、GATES のコードを変えずに応答の形が変わり得るため、省略しない。この版のサポートが終わると、GitHub はこの版を指定した要求に `410 Gone` を返し、[Failure](#32-failure) の分類で `installation_resolution_failed` になる。再試行では解消せず、運用者が版を更新するまで発行が止まる。版を更新するときは、GitHub Constraints と調査記録を新しい版で確かめ直す。
+- 応答の本文の大きさに上限を設ける。Installation の取得と失効の応答は 64 KiB、発行応答は 16 MiB とする。Installation の応答は[調査記録](../research/github/app-installation.md)で約 1.6 KB であり、64 KiB は Discovery と JWKS の上限（§7.1）と同じく、増えても収まり、想定外に大きい応答を読み込み続けない大きさとする。発行応答は対象 1 件ごとにリポジトリの完全な表現を持ち、[調査記録](../research/github/installation-access-token.md)では 12 文字のリポジトリ名で 1 件あたり約 6 KB だった。この表現はリポジトリ名を約 40 回、オーナー名を約 50 回繰り返すため、100 文字のリポジトリ名と 39 文字のオーナー名では 1 件あたり約 12 KB になる。説明文やトピックのような自由記述のフィールドの最大長は確かめていない。16 MiB は、対象 500 件で 1 件あたり約 33 KB まで収まる大きさとする。
+- 上限を超えた Installation の応答は、形式が想定と異なる応答として `installation_resolution_failed` にする。上限を超えた発行応答は、形式が想定と異なる発行応答として `issuance_verification_failed` にし、失効を試みない。トークン文字列は、完全に受信して解釈できた発行応答からだけ取り出す。途中までの本文からトークン文字列を探すと、壊れた JSON の解釈という別の規則が要るためである。この場合、GitHub 側で発行されたトークンは有効期限まで残り得る（[Success](#31-success) の、トークンを取得できない場合と同じ）。
 
 [Domain Model](domain.md) の概念は、GitHub API の応答の次のフィールドから得ます。
 
@@ -419,6 +445,46 @@ GitHub API の仕様は、Installation の取得を [GitHub Constraints](../spec
 許可オーナーの種別は応答から読まず、固定設定の値を使います。
 値は `Organization` か `User` で、Domain Model の「ユーザーアカウント」は `User` を指します。
 
+### 7.4 Call Time Budget
+
+1 回の発行処理が外部の呼び出しで待つ時間には、呼び出しごとに上限を設けます。
+上限に達した呼び出しは、失効を除き、タイムアウトとして [Failure](#32-failure) の一時的な障害に分類します。
+
+| 呼び出し | タイムアウト |
+|---|---|
+| Discovery と JWKS の取得 | 取得ごとに 5 秒、1 回の認証で最大 2 つ取得するため最大 10 秒 |
+| KMS の署名 | 5 秒 |
+| Installation の取得 | 5 秒 |
+| トークンの発行 | 10 秒 |
+| トークンの失効 | 5 秒 |
+| 合計 | 35 秒 |
+
+5 秒の値は、遅延の実測から導いた値ではなく、無限には待てないために置いた初期値です。
+短すぎると一時的な障害が増えて利用者に再実行を促しますが、トークンを誤って返すことはありません。
+発行だけを 10 秒にするのは、短すぎることの代償がほかの呼び出しより大きいためです。
+発行 API が GitHub 側でトークンを発行した後にタイムアウトすると、トークン文字列を取得できず失効も試みられないため、有効なトークンが GitHub 側に残ります（[Success](#31-success)）。
+対象 500 件の発行応答は数 MB になり得ることも、他の呼び出しより長く待つ理由です（[GitHub Client](#73-github-client)）。
+
+GATES はどの呼び出しも再試行しません。
+AWS SDK for Go v2 は既定で KMS の呼び出しを最大 3 回試み、試行の間に待つため、KMS の署名でもこの再試行を止めます。
+再試行を残すと、1 回の署名の上限がタイムアウトの数倍に待ち時間を足した値になり、合計を見積もれなくなるためです。
+一時的な障害は利用者に返し、呼び出し元の再実行に任せます。
+
+Lambda の関数のタイムアウトは、合計より、外部の呼び出し以外の処理と応答を書く時間の分だけ長くし、Terraform で設定します。
+関数がタイムアウトすると Handler は応答を書けず、トークン文字列を取得した後なら失効も試みられません（[Domain Model](domain.md#43-lifecycle-of-an-issuance) の中断）。
+
+GitHub App JWT を生成してから発行の応答を受け取るまでは、署名、Installation の取得、発行のタイムアウトの合計で最大 20 秒です。
+この時間は、GitHub App JWT の `exp`（[JWT Design §4.4](jwt.md#44-exp) の 5 分）より短く、同じ GitHub App JWT を手順 4 と手順 6 に使えます（[KMS Signing](#72-kms-signing)）。
+
+失効は、発行の呼び出しの ctx から作らず、要求の ctx の中断を引き継がない ctx で行います。
+発行の呼び出しの ctx から作ると、発行がそのタイムアウトの直前に応答を返したとき、残りの時間では失効を送れないためです。
+要求の ctx の中断を引き継がないのは、照合に失敗して取得したトークンの失効を、要求が中断されても試みるためです。
+失効の期限は要求の ctx から引き継がず、次のタイムアウトで決めます。
+失効のタイムアウトは、5 秒と、関数の残り時間から応答を書くための 1 秒を除いた時間の短いほうとします。
+関数の残り時間を超えて待つと、失効を待つ間に関数がタイムアウトし、照合失敗の応答を書けなくなるためです。
+残り時間が 1 秒以下でも失効は試み、すぐにタイムアウトした失効は失敗として監査記録に残します。
+試みなかったことにすると、照合に失敗してトークン文字列を取得できたのに失効を試みない経路が、中断のほかにできるためです（[Domain Model](domain.md#53-invariants) の発行処理の不変条件）。
+
 ## 8. Technology Decisions
 
 | 用途 | 採用技術・方針 | 理由 |
@@ -435,7 +501,20 @@ GitHub API の仕様は、Installation の取得を [GitHub Constraints](../spec
 ### 8.1 Go Packages
 
 入力と認可の処理の package は、どれも通信と外部ライブラリを持ちません。
-Token Issuer、KMS Signer、GitHub Client の package は、それぞれを実装するときに加えます。
+KMS Signer は `internal/signer`、GitHub Client は `internal/github`、Token Issuer は `internal/issuer` に置きます。
+
+AWS SDK を import するのは `internal/signer` だけにします。
+GitHub Client と Token Issuer のテストが AWS SDK に依存せず、KMS の API 境界のテストダブルが一つの package に閉じるためです。
+package の名前を `kms` にしないのは、AWS SDK の package の名前と重なり、import のたびに別名が要るためです。
+
+発行結果（IssuanceResult）は、発行応答を復号する `internal/github` に置きます。
+`internal/issuer` に置くと、`internal/github` が `internal/issuer` を import し、手順 4 から手順 6 の組み立てで `internal/issuer` が `internal/github` を import したときに循環します。
+照合（Verify）と失効の要否の判定は `internal/issuer` に置き、`internal/github` には HTTP の扱い（応答コードの分類、本文の復号、上限）だけを置きます。
+照合は発行結果と発行許可だけから判定でき、HTTP の扱いと分けると、照合の規則を `httptest` なしで確かめられるためです。
+
+外部の依存を呼ぶ package は、それぞれが自分の失敗の種別を sentinel error として持ち、Lambda Handler がエラーコードに写します。
+一時的な障害のエラーコードは依存先ごとに分かれるため（[Failure](#32-failure)）、共通の sentinel error にまとめると、Handler が依存先を別の手段で見分けることになるためです。
+Token Issuer は、KMS Signer と GitHub Client の失敗を、依存先が分かる種別のまま返します。
 
 完全名とオーナー名の比較規則は、一つの package（`internal/repository`）に閉じます。
 要求の重複判定、オーナー名の照合、発行応答の `full_name` の照合が、同じ比較規則を使うためです。
@@ -448,6 +527,12 @@ OIDC Verifier と Token Issuer の package が `internal/authz` を import し�
 
 Caller を作るのは `internal/authn` とテストだけとし、ほかの package が Caller を組み立てないことをレビューで確かめます。
 `NewCaller` は公開関数で、呼び出せる package を型で限定できないため、「Caller は検証済みの GATES 用 OIDC JWT だけから作られる」不変条件はこの規則で守ります。
+
+GitHub App JWT の型（AppJWT）は、使う側の `internal/github` に置き、値を取り出すメソッドを package の外に公開しません。
+作る側の `internal/signer` は、`internal/github` が公開する関数で AppJWT を作ります。
+「値を取り出すのは GitHub Client だけ」（[Domain Model](#5-domain-model)）を、レビューではなく型で守れるためです。
+`internal/signer` に置くと、`internal/github` が `internal/signer` を import して AWS SDK を引き込み、GitHub Client のテストが AWS SDK に依存します。
+`internal/github` は AWS SDK を持たないため、`internal/signer` が `internal/github` を import しても、循環も AWS SDK の流入も起きません。
 
 実装で概念の過不足や名前のずれが分かったときは、コードと本ドキュメントを同じ変更で直します。
 
@@ -477,6 +562,13 @@ JWT の形式、Claim、JOSE Header、JWK / JWKS の受理条件と境界値は 
 - JWKS の前回取得が成功・失敗のそれぞれについて、時計が前回試行開始より前へ戻った場合は再取得を許可する。同時刻と59秒後は再取得せず、60秒後は再取得する。旧キャッシュで署名検証できる JWT は前回の取得結果にかかわらず再取得しない
 - Discovery が示す Issuer が固定した Issuer と異なるとき `internal_error` になり、JWT の `iss` が固定値と異なるときは `invalid_id_token` になる
 - Discovery / JWKS の取得が 5xx やタイムアウトのとき `identity_verification_unavailable`、404 や応答サイズの超過のとき `internal_error` になる
+- KMS の署名が 5xx、`ThrottlingException`、タイムアウト、ctx の中断のとき `signing_unavailable`、`DisabledException`、`KMSInvalidStateException`、`AccessDeniedException`、`NotFoundException`、要求を送る前の AWS SDK の失敗（空の KMS Key ARN など）のとき `internal_error` になり、どれも Installation の取得に進まない
+- GitHub API の 403 は、`x-ratelimit-remaining` が `0` か `retry-after` があれば `token_issuance_failed`、どちらもなければ本文がレート制限の文言でも `installation_resolution_failed` になる。429 はヘッダーがなくても `token_issuance_failed` になる
+- GitHub API の `410` と `3xx` は `installation_resolution_failed` になり、リダイレクト先を要求しない
+- 16 MiB を超える発行応答は `issuance_verification_failed` になり、失効を要求しない
+- 発行応答が発行の呼び出しのタイムアウトの直前に届いて照合に失敗した場合も、失効を要求する
+- 要求の ctx が中断された後に照合に失敗した場合も、失効を要求する
+- Installation の取得と発行に、同じ GitHub App JWT と、[GitHub Client](#73-github-client) で固定した `X-GitHub-Api-Version` が使われる
 
 受け入れ条件は [Requirements](../spec/requirements.md) を正本とします。
 
@@ -487,6 +579,7 @@ JWT の形式、Claim、JOSE Header、JWK / JWKS の受理条件と境界値は 
 - [AWS — aws-lambda-go](https://github.com/aws/aws-lambda-go)
 - [AWS — AWS SDK for Go v2](https://docs.aws.amazon.com/sdk-for-go/v2/developer-guide/)
 - [AWS — KMS Sign](https://docs.aws.amazon.com/kms/latest/APIReference/API_Sign.html)
+- [AWS — KMS Common Error Types](https://docs.aws.amazon.com/kms/latest/APIReference/CommonErrors.html)
 - [GitHub Constraints](../spec/github-constraints.md)
 - [JWT Design](jwt.md)
 - [JWT Constraints](../spec/jwt-constraints.md)

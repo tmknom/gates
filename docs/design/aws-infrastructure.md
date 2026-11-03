@@ -19,7 +19,6 @@ Terraform の State / Plan、Git、CI の成果物、Lambda の環境変数に G
 | Permissions Boundary | 2 つの IAM Role の権限の上限を示す | GATES の Terraform で管理し、Role の権限に必要な操作だけを許可する。名前は `gates-permissions-boundary` に固定する |
 | KMS Key | GitHub App Private Key（RSA）の鍵素材を外部からインポートするための署名鍵のメタデータを管理 | `origin=EXTERNAL`、`key_usage=SIGN_VERIFY`、実鍵長に一致する `key_spec=RSA_*`。インポート処理は Terraform の対象外 |
 | KMS Key Policy | 鍵の管理・利用主体を制限 | 署名権限と鍵管理権限を分離。Lambda 実行 Role に署名権限のみ許可し、鍵の管理権限は運用者の管理主体に残す |
-| KMS Alias（任意） | 運用者が署名鍵を識別するための補助 | Lambda と IAM は明示的な Key ARN を使用する。Alias を追加しても署名鍵は自動切り替えしない |
 | CloudWatch Logs | Lambda の実行結果と監査記録を保管 | 保持期間とアクセス制限を設定。JWT、App JWT、Installation Access Token、AWS 一時認証情報は記録しない |
 
 GitHub App の作成とインストール対象は GitHub 側で管理し、Terraform は AWS リソースの構成を管理します。
@@ -53,7 +52,7 @@ IAM はオーナー単位の入口制御です。Lambda での Caller 識別は�
 
 Lambda 実行 Role には、指定 KMS Key ARN に対する `kms:Sign` のみを暗号操作として許可します。ログ記録に必要な CloudWatch Logs 権限は対象 Log Group に限定できる範囲で制約します。
 
-KMS Key Policy の変更権限、鍵素材のインポート・削除権限、Alias の更新権限は Lambda 実行 Role へ付与しません。鍵管理を担う主体は Lambda と分離します。
+KMS Key Policy の変更権限と、鍵素材のインポート・削除権限は Lambda 実行 Role へ付与しません。鍵管理を担う主体は Lambda と分離します。
 
 Lambda 実行 Role の Trust Policy は、信頼先を Lambda サービスに限ります。
 `iam:PassRole` を持つ主体が別の関数にこの Role を渡すと、その関数のコードが `kms:Sign` を使えます。
@@ -125,7 +124,8 @@ KMS Key の `key_spec` は、RSA_2048 / RSA_3072 / RSA_4096 のうち GitHub App
 
 ### 4.2 Terraform and Key Material Lifecycle
 
-- Terraform は KMS Key の設定、Key Policy、IAM 権限の正本とする。Alias を採用する場合はその設定も管理する。
+- Terraform は KMS Key の設定、Key Policy、IAM 権限の正本とする。
+- Lambda は KMS Key を Key ARN の環境変数で参照し、KMS Alias を使わない。Alias で参照すると、Alias を更新できる主体が Lambda の設定を変えずに署名鍵を差し替えられ、Key Policy とは別に守る対象が増えるためである。
 - 秘密鍵の取得、PKCS#8 への変換、インポート用ラッピング、`ImportKeyMaterial` は独立した手順で行う。インポート後、インポート前の秘密鍵のコピーは運用者の手元から削除する。
 - 秘密鍵の平文、暗号化途中の鍵素材、インポート用トークンは Terraform の State / Plan に渡さない。
 - 鍵素材のインポートで鍵の状態が `PendingImport` から `Enabled` に変わっても、Terraform の変更で鍵を意図せず再作成・無効化しない。
@@ -149,7 +149,7 @@ Lambda の設定では次を扱います。
 | 設定 | 設計方針 |
 |---|---|
 | ネットワーク | 利用者管理 VPC に接続せず、GitHub API と OIDC JWKS への HTTPS 通信を確保 |
-| タイムアウト・メモリ | JWT 検証と GitHub API / KMS の外部呼び出しに必要な処理時間・メモリを確保 |
+| タイムアウト・メモリ | JWT 検証と GitHub API / KMS の外部呼び出しに必要な処理時間・メモリを確保。タイムアウトは、外部呼び出しの待ち時間の上限の合計より長くする |
 | 同時実行数 | Reserved Concurrency による実行数の上限を設定可能とする |
 | 環境変数 | 非秘密設定。実行時の要求からは変更できない |
 | ログと監査記録 | ログ保持期間、アクセス権限、相関 ID、非秘密の認証・発行結果。保持期間は Terraform の入力で受け取り、既定値を7日とする |

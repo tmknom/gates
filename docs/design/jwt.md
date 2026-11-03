@@ -401,7 +401,7 @@ GitHub App JWT は、GitHub API に GitHub App として認証するために GA
 |---|---|---|
 | `iss` | GitHub App の App ID または Client ID。Client ID 推奨 | 固定設定の GitHub App Client ID |
 | `iat` | 発行時刻。60秒過去への設定を推奨 | 生成時刻から60秒前の NumericDate |
-| `exp` | 失効時刻。現在から最大10分先 | 生成時刻から10分を超えない NumericDate |
+| `exp` | 失効時刻。現在から最大10分先 | 生成時刻の5分後の NumericDate |
 
 ### 4.2 `iss`
 
@@ -423,11 +423,15 @@ GitHub App JWT は、GitHub API に GitHub App として認証するために GA
 
 **GitHub 公式仕様**：現在時刻から最大10分先まで。
 
-**GATES の生成条件**：生成時刻から10分以内の JSON 数値の整数を設定します。`iat` を60秒過去にしても「`iat` + 10分」を上限計算の根拠にはしません。GitHub に渡すときの有効期限は GitHub が検証するもので、GATES が利用者に返す Installation Access Token の有効期限とは別です。
+**GATES の生成条件**：生成時刻の5分後を JSON 数値の整数として設定します。GitHub に渡すときの有効期限は GitHub が検証するもので、GATES が利用者に返す Installation Access Token の有効期限とは別です。
+
+5分は GitHub の上限の10分より短い値です。Lambda の時計が GitHub の時計より進んでいると、GitHub からは `exp` が5分より先に見えて10分の上限に近づき、遅れていると期限が早く来ます。5分はどちらの向きにも数分のずれを許します。生成から使い終えるまでの時間がこれより短いことは、GitHub App JWT を使うコンポーネントの設計が確かめます。
 
 ### 4.5 Header と署名
 
-JOSE Header の `alg` は `RS256` に固定し、Base64URL（paddingなし）の JWS Compact Serialization として生成します。`RS256` は SHA-256 と RSA PKCS#1 v1.5 署名の組です。
+JOSE Header は `alg` と `typ` の2つだけとし、`alg` は `RS256`、`typ` は `JWT` に固定します。Base64URL（paddingなし）の JWS Compact Serialization として生成します。`RS256` は SHA-256 と RSA PKCS#1 v1.5 署名の組です。
+
+`typ` は RFC 7519 §5.1 で任意ですが、置きます。GitHub が Installation の取得を受け付けた調査記録の GitHub App JWT がこの Header だったためです（[GitHub App Installation](../research/github/app-installation.md)）。`typ` のない GitHub App JWT を GitHub が受け付けるかは確かめていません。
 
 ## 5. Common Serialization, Header, Keys and Discovery
 
@@ -536,7 +540,7 @@ GitHub の Discovery 公開値は `issuer`、`jwks_uri`、`subject_types_support
 | JOSE Header | 未知 Header、`crit`、`b64`、`cty=JWT` / `cty=jwt` / その他の `cty`、`alg=none`、`kid` 欠落、改行入り JWT | 未知 Header は無視し、`cty` を含む未対応の形式・拡張を拒否 |
 | JWKS | `kid` 不在、除外した JWK だけが一致、複数一致、公開指数の境界、`x5c`・Key Usage の不整合、鍵ゼロ、秘密情報混入、取得障害 | §5.4 のエラー分類に一致し、すべて Fail Closed |
 | IAM の境界 | 不変 Owner ID 入りの `sub`、旧形式、別オーナーの `sub` | 許可オーナーの接頭部分を制限し、全構文の検証とは区別 |
-| GitHub App JWT | Client ID、`iat=now-60`、`exp<=now+600`、RS256/KMS | GitHub 公式上限を満たす JWT を生成 |
+| GitHub App JWT | Client ID、`iat=now-60`、`exp=now+300`、`alg=RS256` と `typ=JWT` だけの Header、RS256/KMS | GitHub 公式上限を満たす JWT を生成 |
 
 ケースの詳細なテスト実装とモック方式はコンポーネント設計が担当します。この表は受理条件のテスト可能性の索引であり、コードのテスト一覧の正本を二重に設けるものではありません。
 
