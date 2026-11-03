@@ -62,7 +62,7 @@ GATES が所有する概念は、発行要求、Caller、発行許可、発行�
 | **GitHub App** | GitHub App | Client ID | 権限の上限（GitHub 側で設定）、Private Key（複数持てる。上限は GitHub Constraints §4.1） | 事実：Requirements §2.1、Lambda Design §7.2、GitHub Constraints §4.1 |
 | **Installation** | Installation | Installation ID | インストール先 Owner ID、対象の選び方、付与された権限、停止状態 | 事実：GitHub Constraints §5 |
 | **ワークフロー実行** | Workflow Run | ワークフロー実行 ID と試行番号 | 実行元のリポジトリとオーナー、起動のイベントと ref など。GATES 用 OIDC JWT の主体は実行元とワークフロー起動属性の一部を表し、実行そのものは識別しない | 事実：GitHub Constraints §3.1 |
-| **Issuer の公開鍵集合** | JWK Set（JWKS） | 固定 Issuer に対応する公開鍵集合（取得先は Discovery の `jwks_uri`） | 署名検証用の個々の JWK の集合。ローテーションによって内容が変わり得る。GATES は Discovery で取得先を確認し、実行環境内で保持する。個々の鍵の選択には JWK の `kid` を使う | 事実：Lambda Design §7.1、RFC 7517 §4.5・§5。日本語の概念名は本ドキュメントの表現 |
+| **Issuer の公開鍵集合** | JWK Set（JWKS） | 固定 Issuer に対応する公開鍵集合（取得先は Discovery の `jwks_uri`） | 署名検証用の個々の JWK の集合。ローテーションによって内容が変わり得る。GATES は Discovery で取得先を確認し、使用可能な鍵だけを実行環境内で保持する。個々の鍵の選択には JWK の `kid` を使う。秘密鍵か対称鍵の値を含む集合は、全体を受け入れない | 事実：Lambda Design §7.1、RFC 7517 §4.5・§5。日本語の概念名は本ドキュメントの表現 |
 | **Discovery** | Discovery | Issuer | Issuer が公開する設定。GATES はそこから Issuer の値と公開鍵の取得先だけを読む。成功した内容は実行環境の中で再利用し、失敗した内容は保持しない | 事実：Lambda Design §7.1、OpenID Connect Discovery |
 
 オーナーとリポジトリは、どちらも不変 ID と名前の二つの表現を持ちます。
@@ -78,6 +78,11 @@ Installation には、GATES が参照する次の属性があります。
 
 Installation は、GitHub App とオーナーの組に対して高々一つ存在します（推論：GitHub Constraints §5 の、オーナーを指定して単一の Installation を返すエンドポイントが Organization とユーザーアカウントのそれぞれにあることから。GitHub が一意性を明示的に保証したものとは扱わない）。
 この性質があるため、GATES は Installation ID を設定に持たず、固定した GitHub App と許可オーナーから実行時に導出します（事実：Requirements FR-024）。
+
+Issuer の公開鍵集合の JWK は、GATES の受理条件で次の二つに分かれます。
+
+- **使用可能な鍵**（Usable Key）：JWK の受理条件を満たし、RSA 公開鍵として署名の検証に使える JWK。署名の一致は意味しない（事実：JWT Design §5.4）
+- **除外した JWK**（Excluded JWK）：受理条件を満たさず保持しない JWK。`kid` も保持しないため、JWT の判定では存在しない鍵と同じに扱う。運用者が Issuer の鍵情報の不整合に気付けるよう記録するが、監査記録の項目ではない（事実：JWT Design §5.4.2。英語名は候補。監査記録は発行処理 1 回の単位で、除外は取得 1 回の単位のため）
 
 ワークフロー実行は、**ワークフロー実行 ID**（Run ID）と **試行番号**（Run Attempt）の組で特定します。
 再実行は同じワークフロー実行 ID のもとで試行番号を増やすため、両方を持って初めて一回の実行を指せます（事実：GitHub Constraints §3.1）。
@@ -274,7 +279,7 @@ flowchart LR
 | **GitHub 発行拒否** | GitHub Issuance Rejected | GATES の認可が成立したが、GitHub 発行 API が `422` で要求を拒否した。原因は応答コードから確定できない | 利用者の許可外要求とは断定せず、運用者が GitHub の発行条件・状態・応答を調べる。トークン文字列は未取得 | 事実：Lambda Design §3.2 |
 | **照合失敗** | Verification Failure | GitHub 発行 API の応答を取得したが、発行結果が発行許可と一致しない | 運用者が設定か GitHub 側の仕様変更を調べる。トークン文字列を取得できた場合は失効を試みる | 事実：Requirements FR-018、Lambda Design §3.1 |
 | **一時的な障害** | Transient Failure | Discovery / JWKS の取得、KMS の署名、GitHub API の呼び出しのいずれかが一時的に失敗した。通信の失敗、タイムアウト、サーバー側のエラー、レート制限を指す | 呼び出し元の再試行で解消し得る | 事実：Lambda Design §3.2 |
-| **内部障害** | Internal Failure | 想定外の失敗。どの段階にも属さない失敗と、GitHub OIDC Provider の応答が想定と異なる失敗（Discovery が示す Issuer が固定した Issuer と異なる、公開鍵の取得先が Issuer と異なるホストかポートを指す、応答を解釈できない、使用可能な鍵が一つもない、応答が上限より大きい、再試行では解消しない失敗の応答が返る）を含む | 運用者が調べる。再試行では解消しない | 事実：Lambda Design §3.2 |
+| **内部障害** | Internal Failure | 想定外の失敗。どの段階にも属さない失敗と、GitHub OIDC Provider の応答が想定と異なる失敗（Discovery が示す Issuer が固定した Issuer と異なる、公開鍵の取得先が Issuer と異なるホストかポートを指す、応答を解釈できない、公開鍵集合に秘密鍵か対称鍵の値が含まれる、使用可能な鍵が一つもない、応答が上限より大きい、再試行では解消しない失敗の応答が返る）を含む | 運用者が調べる。再試行では解消しない | 事実：Lambda Design §3.2 |
 
 Installation 利用不可を認可拒否と分けるのは、利用者の要求に起因しない失敗だからです。
 認可拒否に含めると、監査記録では利用者の要求が許可外だったように見えます。
@@ -392,7 +397,10 @@ stateDiagram-v2
 
 | ルール | 適用対象 | 成立条件 | 例外 | 根拠 |
 |---|---|---|---|---|
-| 認証条件 | 認証 | GATES 用 OIDC JWT が、Issuer の公開する鍵で GATES が許可した署名方式により署名され、Issuer が固定設定の Issuer と一致し、Audience が GATES 用 Audience の一つだけであり、現在時刻が失効時刻より前であり、有効期間の開始と発行時刻が現在時刻に許容時計差を足した時刻より後でなく、属性を一意に読み取れ、発行時刻、失効時刻、Caller の確定に要る属性がそろい、[5.1 Identity Rules](#51-identity-rules) の ID の整合を満たす。一つでも満たさなければ認証失敗 | 有効期間の開始は欠落を許す | 事実：Requirements FR-002、FR-003、JWT Design §2・§5、Security Design §2.2 |
+| 認証条件 | 認証 | GATES 用 OIDC JWT が、JWS Compact Serialization で表され、JOSE Header が未対応の拡張や Nested JWT を示さず、`kid` で一意に選べる Issuer の使用可能な鍵で GATES が許可した署名方式により署名され、Issuer が固定設定の Issuer と一致し、Audience が GATES 用 Audience の一つだけであり、現在時刻が失効時刻より前であり、有効期間の開始と発行時刻が現在時刻に許容時計差を足した時刻より後でなく、属性を一意に読み取れ、発行時刻、失効時刻、Caller の確定に要る属性がそろい、[5.1 Identity Rules](#51-identity-rules) の ID の整合を満たす。一つでも満たさなければ認証失敗 | 有効期間の開始は欠落を許す | 事実：Requirements FR-002、FR-003、JWT Design §2・§5、Security Design §2.2 |
+| 取得前の拒否 | 認証 | 直列化、JSON と Claim 名、NumericDate の型と範囲、JOSE Header の条件（`kid` の存在を含む）は Issuer の公開鍵に依存しないため、公開鍵集合を取得する前に判定する。満たさなければ取得せずに認証失敗とし、再取得の上限を消費しない | なし | 事実：Lambda Design §7.1 |
+| 鍵の選択と再取得 | 認証 | 保持した集合から `kid` で一意に選べる使用可能な鍵で署名を検証する。選べない（未知の `kid`、除外した JWK だけに一致、使用可能な鍵の複数一致）か署名が一致しなければ、再取得の上限の範囲で集合を取り直して判定し直し、それでも満たさなければ認証失敗。複数の鍵を総当たりで試さない | 上限の間は取り直さず、前回の取得が失敗していれば前回の失敗の種別を返す | 事実：Lambda Design §7.1、JWT Design §5.4.2 |
+| JWK の除外 | 公開鍵集合の取得 | 受理条件を満たさない JWK は、その JWK だけを除外して記録し、残りの使用可能な鍵で集合を作る。秘密鍵か対称鍵の値を含む JWK が一つでもあれば、`kty` や JWK として読めるかを問わず、集合全体を受け入れず内部障害 | なし | 事実：JWT Design §5.4.2 |
 | 認可条件 | 事前認可、発行許可の確定 | Caller の Owner ID が許可オーナーの Owner ID と一致し、要求の各完全名のオーナー名が許可オーナー名と一致し、Permissions が許可権限と等しい。満たさなければ認可拒否 | なし | 事実：Security Design §3.1 |
 | Installation の有効性 | 発行許可の確定 | 取得した Installation のインストール先 Owner ID が許可オーナーの Owner ID と一致し、停止していない。満たさなければ Installation 利用不可 | なし | 事実：Security Design §3.1 |
 | 全件成立 | 複数対象の発行要求 | すべての対象が条件を満たすときだけ発行する。一部だけの発行や対象の縮小をしない | なし | 事実：Requirements FR-011 |
@@ -423,7 +431,7 @@ Installation に対象リポジトリが含まれることを、GATES は発行�
 | 認証の固定設定 | 検証器を作った時点 | Issuer が `https` のホストと、あれば空でないポートだけからなり、解析しても文字列が変わらない URL で、Audience が空でなく、AWS 用 OIDC JWT の Audience `sts.amazonaws.com` と異なる | 推論：空の Audience はすべての JWT を拒否し、空の Issuer は Issuer の値のない署名済み JWT を通す。`sts.amazonaws.com` を拒否するのは、同じジョブで取得する AWS 用 OIDC JWT で認証を通せるようにしないため。`https` に限るのは、平文の通信を設定から有効にできる形にしないため。ポートを許すのは、`httptest` の Issuer で取得と失敗の分類を確かめるため |
 | 固定設定 | 固定設定を読んだ時点 | GATES 用 Audience が、許可オーナーの URL（`https://github.com/` にオーナー名を続けた値）と、大文字小文字を区別せずに比べて異なる | 事実：JWT Design §2.3（GitHub の既定の Audience はオーナーの URL）。推論：Audience を指定せずに取得した OIDC JWT を手にした Action が、認証を通せるようにしないため。オーナー名は大文字小文字を区別しない |
 | 保持した Discovery | 保持した時点 | Issuer が固定設定の Issuer と一致し、公開鍵の取得先が Issuer と同じ `https` のホストとポートを指す | 事実：OpenID Connect Discovery、Lambda Design §7.1。ホストとポートの限定は推論：固定した Issuer の外から鍵を読まないため |
-| 保持した公開鍵 | 保持した時点 | 完全に受信して解釈できた固定 Issuer の応答の、JWK の受理条件を満たす鍵だけからなり、1 つ以上ある。取得に失敗しても前回の鍵が残り、未知の鍵で検証に成功したとは扱わない | 事実：JWT Design §5.4 の鍵受理条件。保持・更新の方式は Lambda Design §7.1 |
+| 保持した公開鍵 | 保持した時点 | 完全に受信して解釈でき、秘密鍵か対称鍵の値を含まない固定 Issuer の応答の、使用可能な鍵だけからなり、1 つ以上ある。除外した JWK は `kid` を含めて保持しない。同じ `kid` の使用可能な鍵が複数あっても保持し、一意に選べるかは JWT ごとに判定する。取得に失敗しても前回の鍵が残り、未知の鍵で検証に成功したとは扱わない | 事実：JWT Design §5.4 の鍵受理条件。保持・更新の方式は Lambda Design §7.1 |
 | Caller | 認証を通った時点 | [5.2 Rules](#52-rules) の認証条件を満たした GATES 用 OIDC JWT だけから作られ、Owner ID と Repository ID が [5.1 Identity Rules](#51-identity-rules) の ID の整合を満たす。Owner ID、Repository ID、ワークフロー実行 ID、試行番号はどれも正の整数である。いずれかが欠落していれば Caller は確定しない。ワークフロー実行 ID と試行番号は監査用の属性であり、認可には使用しない | 事実：Requirements FR-002、FR-004、JWT Design §2。正の整数は推論：GitHub の ID は 1 から始まる。試行番号の Claim が初回に `1` になることは未確認で、`0` を拒否するのは GATES の判断 |
 | Installation | 取得した応答から作った時点 | Installation ID とインストール先 Owner ID が正の整数である。インストール先 Owner ID が許可オーナーの Owner ID と一致することと停止していないことは含まず、発行許可の確定が [5.2 Rules](#52-rules) の Installation の有効性として判定する | 推論：GitHub の ID は 1 から始まる。一致しない、または停止している Installation も GitHub 上に実在する値であり、作れない値ではなく発行に使えない値であるため |
 | 発行許可 | 確定した時点 | [5.2 Rules](#52-rules) の認可条件をすべて満たす。対象は発行要求の対象と同じ集合で、各完全名の表記と並びも発行要求のままである（GitHub API に渡すリポジトリ名と監査記録の要求対象を、利用者の要求と一致させるため）。Permissions は許可権限に等しい。Installation ID は、インストール先 Owner ID が許可オーナーの Owner ID と一致し、停止していない Installation のものである | 事実：Security Design §3.1 |

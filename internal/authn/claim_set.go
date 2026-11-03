@@ -9,8 +9,8 @@ import (
 
 const maxAcceptedNumericDate = 253402300799
 
-// checkClaimSet は、go-oidc の検証結果を受理の判定に使ってよい Claim の組かを確かめる。
-// go-oidc の Config にこれらの判定を有効にする設定はなく、encoding/json (v1) で読むため、Payload を encoding/json/v2 で読み直す。
+// checkClaimSet は、go-oidc が読む Claim を受理の判定に使ってよい Claim の組かを、go-oidc が読む前に確かめる。
+// go-oidc の Config にこれらの判定を有効にする設定はなく、encoding/json (v1) で読むため、Payload を encoding/json/v2 で読む。
 // encoding/json/v2 のエラー文言は入力の断片を含むため包まない。
 func checkClaimSet(rawClaims []byte) error {
 	var claimSet map[string]jsontext.Value
