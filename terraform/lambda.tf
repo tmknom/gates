@@ -58,8 +58,8 @@ resource "aws_lambda_function" "gates" {
   filename         = var.lambda_package_path
   source_code_hash = filebase64sha256(var.lambda_package_path)
 
-  # Discovery と JWKS の最大 10 秒に、KMS と GitHub API の呼び出しを足しても余裕を残す
-  timeout = 30
+  # 外部呼び出しの上限の合計より長くする。内訳は Lambda Design の「Call Time Budget」にある
+  timeout = 45
   # 実測前の仮の値
   memory_size                    = 256
   reserved_concurrent_executions = var.lambda_reserved_concurrency

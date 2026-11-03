@@ -69,6 +69,11 @@ run "function_configuration" {
   }
 
   assert {
+    condition     = aws_lambda_function.gates.timeout == 45
+    error_message = "the timeout must be 45 seconds, longer than the total of the Call Time Budget"
+  }
+
+  assert {
     condition     = aws_lambda_function.gates.reserved_concurrent_executions == -1
     error_message = "the function must not reserve concurrency by default"
   }
