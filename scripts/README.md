@@ -14,6 +14,7 @@
 | [Terraform](terraform/README.md) | AWS のインフラを管理する |
 | [tflint](tflint/README.md) | Terraform のコードを静的解析する |
 | [trivy](trivy/README.md) | リポジトリの脆弱性、設定の不備、シークレットを検査する |
+| [Z3](z3/README.md) | SMT-LIB の制約を解く |
 
 各コンテナの README は、`docker compose` での実行を記述しています。
 
