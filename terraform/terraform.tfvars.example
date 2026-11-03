@@ -6,7 +6,7 @@ allowed_owner_id     = "12345678"
 allowed_owner_name   = "example-owner"
 allowed_owner_type   = "Organization"
 github_app_client_id = "Iv23example"
-gates_audience       = "gates"
+gates_audience       = "https://github.com/example-owner/example-repo"
 
 # インポートする鍵の鍵長を実測してから設定する。RSA_2048、RSA_3072、RSA_4096 のいずれか
 # kms_key_spec = ""

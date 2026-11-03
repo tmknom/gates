@@ -61,13 +61,14 @@ cover: ## measure test coverage excluding main.go and require 100% under interna
 
 .PHONY: clean
 clean: ## remove build artifacts
-	rm -rf $(DIST_DIR)
+	[ ! -e $(DIST_DIR) ] || rm -r $(DIST_DIR)
 
 # コードが同じなら ZIP のハッシュを同じにし、変更のない関数の更新を Plan に出さない。
 # そのため、コミットごとに変わる VCS の情報をバイナリに入れず、ZIP に入る権限と更新時刻を固定する。zip は更新時刻をローカル時刻で記録するため、TZ も固定する
 .PHONY: lambda-package
 lambda-package: ## build the deployment package for Lambda
-	rm -rf $(LAMBDA_BUILD_DIR) $(LAMBDA_PACKAGE)
+	[ ! -e $(LAMBDA_BUILD_DIR) ] || rm -r $(LAMBDA_BUILD_DIR)
+	[ ! -e $(LAMBDA_PACKAGE) ] || rm $(LAMBDA_PACKAGE)
 	mkdir -p $(LAMBDA_BUILD_DIR)
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -buildvcs=false -o $(LAMBDA_BUILD_DIR)/bootstrap .
 	chmod 755 $(LAMBDA_BUILD_DIR)/bootstrap
@@ -102,7 +103,7 @@ endef
 .PHONY: tf-lock
 tf-lock: tf-mountpoints ## update the provider lock file through the registry allowlist proxy
 	@# providers lock は固定中のバージョンから変更できないため、作り直す。ハッシュの変更は Git の差分で確認する
-	rm -f $(TF_DIR)/.terraform.lock.hcl
+	[ ! -e $(TF_DIR)/.terraform.lock.hcl ] || rm $(TF_DIR)/.terraform.lock.hcl
 	$(call tf_run_with_proxy,lock,providers lock -platform=linux_arm64 -platform=linux_amd64)
 
 .PHONY: tf-init
@@ -124,9 +125,11 @@ tf-show: tf-mountpoints ## show the saved terraform plan
 	$(TF_RUN) offline show $(TF_LOCAL_NAME)/plan.tfplan
 
 # 古いコードを配布しないよう、Plan のたびにデプロイパッケージを作り直す
+# Terraform はエラーで止まった Plan も保存するため、失敗したら捨てる。prevent_destroy で止めた鍵の置換を含む Plan が残るのを防ぐ
 .PHONY: tf-plan
 tf-plan: tf-aws-credentials tf-mountpoints tf-package-checksum ## create a terraform plan with temporary AWS credentials through the AWS allowlist proxy
-	$(call tf_run_with_proxy,aws,plan -var-file=$(TF_LOCAL_NAME)/terraform.tfvars -var=lambda_package_path=../$(LAMBDA_PACKAGE) -out=$(TF_LOCAL_NAME)/plan.tfplan)
+	($(call tf_run_with_proxy,aws,plan -var-file=$(TF_LOCAL_NAME)/terraform.tfvars -var=lambda_package_path=../$(LAMBDA_PACKAGE) -out=$(TF_LOCAL_NAME)/plan.tfplan)) \
+		|| ([ ! -e $(TF_LOCAL_DIR)/plan.tfplan ] || rm $(TF_LOCAL_DIR)/plan.tfplan; exit 1)
 
 # 確認した Plan と違う変更を適用しないよう、保存した Plan の適用だけに絞る。Apply は Plan の後のデプロイパッケージを読むため、Plan のときと同じかも確かめる
 .PHONY: tf-apply
@@ -140,7 +143,7 @@ tf-package-checksum: tf-plan-discard lambda-package tf-local-dir
 # Plan が失敗すると前回の Plan が残り、新しいチェックサムと組み合わさって Apply できてしまうため、先に捨てる
 .PHONY: tf-plan-discard
 tf-plan-discard:
-	rm -f $(TF_LOCAL_DIR)/plan.tfplan
+	[ ! -e $(TF_LOCAL_DIR)/plan.tfplan ] || rm $(TF_LOCAL_DIR)/plan.tfplan
 
 .PHONY: tf-package-unchanged
 tf-package-unchanged:

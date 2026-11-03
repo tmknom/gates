@@ -229,6 +229,49 @@ run "rejects_gates_audience_with_surrounding_whitespace" {
   expect_failures = [var.gates_audience]
 }
 
+run "rejects_gates_audience_of_aws_sts" {
+  command = plan
+
+  variables {
+    gates_audience = "sts.amazonaws.com"
+  }
+
+  expect_failures = [var.gates_audience]
+}
+
+run "rejects_gates_audience_of_github_default" {
+  command = plan
+
+  variables {
+    gates_audience = "https://github.com/Example-Owner"
+  }
+
+  expect_failures = [var.gates_audience]
+}
+
+run "rejects_gates_audience_of_github_default_in_other_case" {
+  command = plan
+
+  variables {
+    gates_audience = "https://github.com/example-owner"
+  }
+
+  expect_failures = [var.gates_audience]
+}
+
+run "accepts_gates_audience_of_repository_under_owner" {
+  command = plan
+
+  variables {
+    gates_audience = "https://github.com/Example-Owner/gates"
+  }
+
+  assert {
+    condition     = aws_lambda_function.gates.environment[0].variables["GATES_AUDIENCE"] == "https://github.com/Example-Owner/gates"
+    error_message = "the audience must carry the input value"
+  }
+}
+
 run "rejects_log_retention_unsupported_by_cloudwatch_logs" {
   command = plan
 

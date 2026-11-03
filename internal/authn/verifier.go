@@ -18,6 +18,9 @@ import (
 // clockSkew は iat の判定に使う許容時計差である。go-oidc の nbf の猶予は固定値で、テストがこの値との一致を確かめる。
 const clockSkew = 5 * time.Minute
 
+// awsAudience は AWS 用 OIDC JWT の Audience で、Domain Model の認証の固定設定が GATES 用 Audience に禁じる値である。
+const awsAudience = "sts.amazonaws.com"
+
 // Verifier は、固定設定と公開鍵の集合に照らして GATES 用 OIDC JWT を認証する。
 type Verifier struct {
 	issuer string
@@ -34,6 +37,9 @@ func NewVerifier(issuer, audience string, now func() time.Time, opts ...Option) 
 	}
 	if audience == "" {
 		return nil, fmt.Errorf("%w: must not be empty", ErrInvalidAudience)
+	}
+	if audience == awsAudience {
+		return nil, fmt.Errorf("%w: must differ from the audience of the OIDC JWT for AWS", ErrInvalidAudience)
 	}
 	return newVerifier(issuer, audience, newIssuerKeySet(issuerURL, now, opts...), now), nil
 }
