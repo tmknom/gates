@@ -8,6 +8,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -30,6 +31,9 @@ const (
 var testNow = time.Unix(1700000000, 0)
 
 func testClock() time.Time { return testNow }
+
+// discardLog は、ログを確かめないテストが Verifier に渡す logger である。
+var discardLog = slog.New(slog.DiscardHandler)
 
 // testKey は、鍵の生成が遅いため 1 回だけ作る。
 var testKey = sync.OnceValue(generateKey)
@@ -136,7 +140,7 @@ func TestNewVerifier_InvalidConfig(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := NewVerifier(tt.issuer, tt.audience, testClock)
+			got, err := NewVerifier(tt.issuer, tt.audience, testClock, discardLog)
 			if !errors.Is(err, tt.want) {
 				t.Fatalf("NewVerifier error = %v, want %v", err, tt.want)
 			}
@@ -159,6 +163,7 @@ func TestVerifierAuthenticate(t *testing.T) {
 		{"nbf missing", claimsWithout("nbf")},
 		{"nbf at clock skew limit", claimsWith(map[string]any{"nbf": unixAfter(5 * time.Minute)})},
 		{"iat at clock skew limit", claimsWith(map[string]any{"iat": unixAfter(5 * time.Minute)})},
+		{"unknown claims", claimsWith(map[string]any{"repo_property_pci_compliant": "true", "unknown": map[string]any{"nested": []int{1}}})},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name+" returns Caller", func(t *testing.T) {

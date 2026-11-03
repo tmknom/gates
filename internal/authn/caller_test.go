@@ -82,6 +82,12 @@ func newCaller(t *testing.T, ownerID, repositoryID, runID, runAttempt int64, att
 	return caller
 }
 
+// subjectOfLength は、validClaims の ID と一致する不変形式の sub を、ref を伸ばして length 文字にする。
+func subjectOfLength(length int) string {
+	const prefix = "repo:octo@11/app@22:ref:refs/heads/"
+	return prefix + strings.Repeat("a", length-len(prefix))
+}
+
 func TestCallerFromClaims(t *testing.T) {
 	defaultCaller := newCaller(t, 11, 22, 33, 2, validAttributes())
 	withAttributes := func(change func(*authz.WorkflowTriggerAttributes)) authz.Caller {
@@ -136,6 +142,11 @@ func TestCallerFromClaims(t *testing.T) {
 			want:   withAttributes(func(a *authz.WorkflowTriggerAttributes) { a.Environment = "line1\nline2\"quoted\"" }),
 		},
 		{
+			name:   "sub of 255 characters returns caller",
+			claims: claimsWith(map[string]any{"sub": subjectOfLength(255)}),
+			want:   defaultCaller,
+		},
+		{
 			name: "ids at the int64 limit return caller",
 			claims: claimsWith(map[string]any{
 				"sub":                 "repo:octo@" + maxInt64 + "/app@" + maxInt64 + ":pull_request",
@@ -166,6 +177,10 @@ func TestCallerFromClaims_InvalidClaims(t *testing.T) {
 		claims map[string]any
 	}{
 		{name: "missing sub returns ErrAuthenticationFailure", claims: claimsWithout("sub")},
+		{name: "number sub returns ErrAuthenticationFailure", claims: claimsWith(map[string]any{"sub": 11})},
+		{name: "sub of 256 characters returns ErrAuthenticationFailure", claims: claimsWith(map[string]any{"sub": subjectOfLength(256)})},
+		// 255 バイトに収まる長さで、文字数ではなく文字種で拒否されることを確かめる
+		{name: "sub with a non ASCII character returns ErrAuthenticationFailure", claims: claimsWith(map[string]any{"sub": "repo:octo@11/app@22:environment:é"})},
 		{name: "name only sub returns ErrAuthenticationFailure", claims: claimsWith(map[string]any{"sub": "repo:octo/app:ref:refs/heads/main"})},
 		{name: "sub without repo prefix returns ErrAuthenticationFailure", claims: claimsWith(map[string]any{"sub": "repository:octo@11/app@22:ref:refs/heads/main"})},
 		{name: "sub without slash returns ErrAuthenticationFailure", claims: claimsWith(map[string]any{"sub": "repo:octo@11:pull_request"})},

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"sync"
@@ -22,6 +23,7 @@ type issuerKeySet struct {
 	client *http.Client
 	issuer *url.URL
 	now    func() time.Time
+	log    *slog.Logger
 
 	// mu を取得の通信中も保持する。同時の呼び出しで取得が重複せず、待っていた呼び出しが前の呼び出しの取得結果で検証するため。
 	// 待つ側は ctx の中断に反応しないが、Lambda は同時に一つの要求しか処理せず、待ちが起きない。
@@ -42,7 +44,7 @@ func WithTransport(transport http.RoundTripper) Option {
 	return func(keySet *issuerKeySet) { keySet.client.Transport = transport }
 }
 
-func newIssuerKeySet(issuer *url.URL, now func() time.Time, opts ...Option) *issuerKeySet {
+func newIssuerKeySet(issuer *url.URL, now func() time.Time, log *slog.Logger, opts ...Option) *issuerKeySet {
 	keySet := &issuerKeySet{
 		client: &http.Client{
 			// 固定した Issuer の外から文書を読まないよう、リダイレクトに従わず 200 以外として分類する
@@ -50,6 +52,7 @@ func newIssuerKeySet(issuer *url.URL, now func() time.Time, opts ...Option) *iss
 		},
 		issuer: issuer,
 		now:    now,
+		log:    log,
 	}
 	for _, opt := range opts {
 		opt(keySet)
@@ -57,21 +60,11 @@ func newIssuerKeySet(issuer *url.URL, now func() time.Time, opts ...Option) *iss
 	return keySet
 }
 
-// VerifySignature は、kid のある JWT を保持している公開鍵で検証できなければ、再取得の上限の範囲で取得し直して、もう一度だけ検証する。
+// VerifySignature は、JWT を保持している公開鍵で検証できなければ、再取得の上限の範囲で取得し直して、もう一度だけ検証する。
 // 取得の失敗は失敗の種別を包んで返し、それ以外の拒否は種別を包まずに返す。
+// この KeySet に渡る jwt は、直列化と JOSE Header の受理条件を満たしたもので、解析は失敗せず kid を持つ。
 func (k *issuerKeySet) VerifySignature(ctx context.Context, jwt string) ([]byte, error) {
-	// go-oidc の解析は JSON 形式と空白を含む JWT を通すため、受理する形をここで限る
-	signature, err := jose.ParseSignedCompact(jwt, []jose.SignatureAlgorithm{jose.RS256})
-	if err != nil {
-		return nil, fmt.Errorf("parse signature: %w", err)
-	}
-	if err := checkJOSEHeader(jwt); err != nil {
-		return nil, err
-	}
-	// 取得しても結果が変わらない
-	if signature.Signatures[0].Header.KeyID == "" {
-		return nil, errors.New("jwt has no key id")
-	}
+	signature, _ := jose.ParseSignedCompact(jwt, []jose.SignatureAlgorithm{jose.RS256})
 
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -114,7 +107,7 @@ func retrievalFailureKind(err error) error {
 // go-jose は同じ kid の先頭の鍵を使うため、一意に選べない JWT を先に拒否する。
 // JWKS の取得は同じ kid の鍵を拒否しない。選択できるかは JWT ごとに決まり、ほかの kid の JWT の検証を止めないため。
 func (k *issuerKeySet) verify(signature *jose.JSONWebSignature) ([]byte, error) {
-	// 取得が使えない鍵を除いてあるため、件数は使える鍵の数である
+	// 取得が除外した JWK を保持しないため、件数は使用可能な鍵の数である
 	if len(k.keys.Key(signature.Signatures[0].Header.KeyID)) > 1 {
 		return nil, errors.New("key id does not identify a single key")
 	}
@@ -130,7 +123,7 @@ func (k *issuerKeySet) retrieve(ctx context.Context) error {
 		}
 		k.jwksURL = jwksURL
 	}
-	keys, err := retrieveJWKS(ctx, k.client, k.jwksURL)
+	keys, err := retrieveJWKS(ctx, k.client, k.jwksURL, k.log)
 	if err != nil {
 		return err
 	}

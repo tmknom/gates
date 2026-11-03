@@ -1,17 +1,20 @@
 package authn
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"maps"
 	"math/big"
 	"net/http"
@@ -43,6 +46,8 @@ type issuerStub struct {
 	jwksRequests      atomic.Int32
 	discovery         atomic.Pointer[http.HandlerFunc]
 	jwks              atomic.Pointer[http.HandlerFunc]
+	// logs は verifier が作る Verifier のログの出力先である。slog の Handler が書き込みを直列にする
+	logs bytes.Buffer
 }
 
 func newIssuerStub(t *testing.T, key *rsa.PrivateKey, keyID string) *issuerStub {
@@ -85,7 +90,7 @@ func (s *issuerStub) verifier(t *testing.T) *Verifier {
 
 func (s *issuerStub) verifierWithClock(t *testing.T, now func() time.Time) *Verifier {
 	t.Helper()
-	verifier, err := NewVerifier(s.issuer(), testAudience, now, WithTransport(s.server.Client().Transport))
+	verifier, err := NewVerifier(s.issuer(), testAudience, now, slog.New(slog.NewJSONHandler(&s.logs, nil)), WithTransport(s.server.Client().Transport))
 	if err != nil {
 		t.Fatalf("NewVerifier returned error: %v", err)
 	}
@@ -276,20 +281,18 @@ func TestAuthenticate_UnacceptableDiscovery(t *testing.T) {
 	}
 }
 
+// 集合として解釈できない JWKS は使用可能な鍵が含まれていても、使用可能な鍵のない JWKS も、集合全体を拒否する。
 func TestAuthenticate_UnacceptableJWKS(t *testing.T) {
+	usable := jwkWith(t, testKey(), testKeyID, nil)
 	tests := []struct {
 		name string
 		body string
 	}{
-		{"keys empty", `{"keys":[]}`},
-		{"only non RSA keys", `{"keys":[{"kty":"EC","kid":"ec"}]}`},
-		{"key not an object", `{"keys":["` + responseMarker + `"]}`},
-		{"RSA key with invalid modulus", `{"keys":[{"kty":"RSA","kid":"` + testKeyID + `","n":"!` + responseMarker + `","e":"AQAB"}]}`},
-		{"RSA key without key ID", jwksBody(t, testKey(), "")},
-		{"RSA key that is not public", jwksBodyOf(t, jose.JSONWebKey{Key: testKey(), KeyID: testKeyID})},
-		{"RSA key with exponent 1", jwksOf(jwkWith(t, testKey(), testKeyID, map[string]any{"e": "AQ"}))},
-		{"key_ops that is null", jwksOf(jwkWith(t, testKey(), testKeyID, map[string]any{"key_ops": nil}))},
-		{"key_ops with a non string element", jwksOf(jwkWith(t, testKey(), testKeyID, map[string]any{"key_ops": []any{1}}))},
+		{"keys not an array", `{"keys":{"` + responseMarker + `":` + usable + `}}`},
+		{"duplicate keys at the root", `{"keys":[` + usable + `],"keys":[` + usable + `]}`},
+		{"duplicate unknown name at the root", `{"keys":[` + usable + `],"unknown":1,"unknown":2}`},
+		{"invalid UTF-8 in a key", jwksOf(usable, "{\"kty\":\"RSA\",\"kid\":\"\xff\"}")},
+		{"only an excluded key", jwksOf(`{"kty":"EC","kid":"` + testKeyID + `","crv":"P-256"}`)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name+" returns ErrInternalFailure", func(t *testing.T) {
@@ -304,27 +307,58 @@ func TestAuthenticate_UnacceptableJWKS(t *testing.T) {
 	}
 }
 
-func TestAuthenticate_JWKSSkipsUnusableKeys(t *testing.T) {
-	singleKey := func(body string) string {
-		return strings.TrimSuffix(strings.TrimPrefix(body, `{"keys":[`), `]}`)
-	}
+// 秘密鍵か対称鍵の値を含む JWK は、使用可能な鍵の後にあっても集合全体を拒否させ、ほかの JWK も除外として記録しない。
+func TestAuthenticate_JWKSWithSecretKeyMaterial(t *testing.T) {
 	tests := []struct {
-		name     string
-		unusable string
+		name   string
+		secret string
 	}{
-		{"non RSA key", `{"kty":"EC","kid":"ec","crv":"unknown"}`},
-		{"non RSA key with key_ops that is a string", `{"kty":"EC","kid":"ec","crv":"unknown","key_ops":"verify"}`},
-		{"RSA key without key ID", singleKey(jwksBody(t, generateKey(), ""))},
-		{"RSA key that is not public", singleKey(jwksBodyOf(t, jose.JSONWebKey{Key: generateKey(), KeyID: "private"}))},
+		{"RSA private key", strings.TrimSuffix(strings.TrimPrefix(jwksBodyOf(t, jose.JSONWebKey{Key: generateKey(), KeyID: "secret"}), `{"keys":[`), `]}`)},
+		{"RSA public key with a prime", jwkWith(t, generateKey(), "secret", map[string]any{"p": "AQ"})},
+		{"symmetric key", `{"kty":"oct","kid":"secret","k":"` + responseMarker + `"}`},
+		{"EC private key", `{"kty":"EC","kid":"secret","crv":"P-256","d":"` + responseMarker + `"}`},
+		{"RSA key with a symmetric key value", jwkWith(t, generateKey(), "secret", map[string]any{"k": responseMarker})},
+		// 名前の重複で JWK として読めなくても、秘密鍵の値があれば除外ではなく集合全体を拒否する
+		{"private key with a duplicate member name", `{"kid":"secret",` + jwkWith(t, generateKey(), "secret", map[string]any{"d": responseMarker})[1:]},
+		// 重複した kty のどれかが oct なら、並び順によらず集合全体を拒否する
+		{"oct before a duplicate kty without a key value", `{"kty":"oct","kty":"RSA","kid":"secret"}`},
+		{"oct after a duplicate kty without a key value", `{"kty":"RSA","kty":"oct","kid":"secret"}`},
 	}
+	// 秘密鍵の値の前に除外される JWK を置き、鍵ごとの判定より先に集合全体を確かめることを確かめる
+	excluded := `{"kty":"EC","kid":"excluded","crv":"P-256"}`
 	for _, tt := range tests {
-		t.Run(tt.name+" next to a usable key returns Caller", func(t *testing.T) {
+		t.Run(tt.name+" returns ErrInternalFailure", func(t *testing.T) {
 			stub := newIssuerStub(t, testKey(), testKeyID)
-			stub.respondJWKS(respondBody(jwksOf(tt.unusable, jwkWith(t, testKey(), testKeyID, nil))))
+			stub.respondJWKS(respondBody(jwksOf(excluded, jwkWith(t, testKey(), testKeyID, nil), tt.secret)))
+			token := stub.token(t, testKey(), testKeyID)
 
-			assertAuthenticated(t, stub.verifier(t), stub.token(t, testKey(), testKeyID))
+			got, err := stub.verifier(t).Authenticate(t.Context(), rawIDToken(t, token))
+
+			assertRejected(t, got, err, ErrInternalFailure, token)
+			if records := excludedRecords(t, &stub.logs); len(records) != 0 {
+				t.Errorf("excluded records = %v, want none", records)
+			}
+			if strings.Contains(stub.logs.String(), responseMarker) {
+				t.Errorf("logs %q contain the secret value", stub.logs.String())
+			}
 		})
 	}
+}
+
+// excludedRecords は、ログから除外した JWK の記録だけを取り出す。
+func excludedRecords(t *testing.T, logs *bytes.Buffer) []map[string]any {
+	t.Helper()
+	var records []map[string]any
+	for line := range strings.Lines(logs.String()) {
+		var record map[string]any
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			t.Fatalf("Unmarshal returned error: %v", err)
+		}
+		if record["msg"] == "jwk excluded" {
+			records = append(records, record)
+		}
+	}
+	return records
 }
 
 // jwkWith は key の公開鍵の JWK を、members のメンバーで上書きした JSON で返す。
@@ -350,39 +384,121 @@ func jwksOf(keys ...string) string {
 	return `{"keys":[` + strings.Join(keys, ",") + `]}`
 }
 
-func TestAuthenticate_UnusableJWK(t *testing.T) {
-	const unusableKeyID = "unusable"
-	shortKey, err := rsa.GenerateKey(rand.Reader, 2047) //nolint:gosec // G403: 使える鍵の下限のすぐ下で JWK を拒否することを確かめるため、短い鍵を意図して作る
+// selfSignedCertificate は subject の公開鍵の自己署名の証明書を作る。
+func selfSignedCertificate(t *testing.T, subject *rsa.PrivateKey, keyUsage x509.KeyUsage) *x509.Certificate {
+	t.Helper()
+	template := &x509.Certificate{SerialNumber: big.NewInt(1), KeyUsage: keyUsage}
+	return createCertificate(t, template, template, subject, subject)
+}
+
+// issuedCertificate は subject の公開鍵の証明書を、発行者の証明書 parent の鍵 signer で署名して作る。
+func issuedCertificate(t *testing.T, subject *rsa.PrivateKey, parent *x509.Certificate, signer *rsa.PrivateKey) *x509.Certificate {
+	t.Helper()
+	return createCertificate(t, &x509.Certificate{SerialNumber: big.NewInt(1)}, parent, subject, signer)
+}
+
+func createCertificate(t *testing.T, template, parent *x509.Certificate, subject, signer *rsa.PrivateKey) *x509.Certificate {
+	t.Helper()
+	der, err := x509.CreateCertificate(rand.Reader, template, parent, &subject.PublicKey, signer)
+	if err != nil {
+		t.Fatalf("CreateCertificate returned error: %v", err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("ParseCertificate returned error: %v", err)
+	}
+	return cert
+}
+
+// x5cOf は証明書を JWK の x5c の値にする。
+func x5cOf(certs ...*x509.Certificate) []string {
+	var encoded []string
+	for _, cert := range certs {
+		encoded = append(encoded, base64.StdEncoding.EncodeToString(cert.Raw))
+	}
+	return encoded
+}
+
+// 除外される JWK のうち鍵の値を使うものは、2047 bit の法を除き key の公開鍵から作り、keyID は除外の記録に残る kid である。
+func TestAuthenticate_ExcludedJWK(t *testing.T) {
+	const keyID = "excluded"
+	key := generateKey()
+	shortKey, err := rsa.GenerateKey(rand.Reader, 2047) //nolint:gosec // G403: 使用可能な鍵の下限のすぐ下で JWK を除外することを確かめるため、短い鍵を意図して作る
 	if err != nil {
 		t.Fatalf("GenerateKey returned error: %v", err)
 	}
-	otherKey := generateKey()
+	issuer := generateKey()
+	issuerCert := selfSignedCertificate(t, issuer, x509.KeyUsageCertSign)
+	unrelatedCert := selfSignedCertificate(t, generateKey(), x509.KeyUsageCertSign)
+	jwk := func(members map[string]any) string { return jwkWith(t, key, keyID, members) }
 	tests := []struct {
-		name    string
-		key     *rsa.PrivateKey
-		members map[string]any
+		name  string
+		jwk   string
+		keyID string
 	}{
-		{"modulus of 2047 bits", shortKey, nil},
-		{"use for encryption", otherKey, map[string]any{"use": "enc"}},
-		{"key_ops without verify", otherKey, map[string]any{"key_ops": []string{"sign"}}},
-		{"empty key_ops", otherKey, map[string]any{"key_ops": []string{}}},
-		{"alg other than RS256", otherKey, map[string]any{"alg": "RS384"}},
-		{"use and key_ops that disagree", otherKey, map[string]any{"use": "sig", "key_ops": []string{"verify", "encrypt"}}},
+		{"key not an object", `"` + responseMarker + `"`, ""},
+		{"duplicate member name", `{"kid":"` + keyID + `",` + jwk(nil)[1:], ""},
+		{"non RSA key", `{"kty":"EC","kid":"` + keyID + `","crv":"P-256"}`, keyID},
+		{"kty that is not a string", jwk(map[string]any{"kty": 1}), keyID},
+		{"no kid", jwkWith(t, key, "", nil), ""},
+		{"modulus that is not Base64urlUInt", jwk(map[string]any{"n": "!" + responseMarker}), keyID},
+		{"modulus with a leading zero octet", jwk(map[string]any{"n": base64.RawURLEncoding.EncodeToString(append([]byte{0}, key.N.Bytes()...))}), keyID},
+		{"exponent with a leading zero octet", jwk(map[string]any{"e": "AAEAAQ"}), keyID},
+		{"modulus of 2047 bits", jwkWith(t, shortKey, keyID, nil), keyID},
+		{"even modulus", jwk(map[string]any{"n": base64.RawURLEncoding.EncodeToString(new(big.Int).Lsh(key.N, 1).Bytes())}), keyID},
+		{"exponent 1", jwk(map[string]any{"e": "AQ"}), keyID},
+		{"even exponent", jwk(map[string]any{"e": "AQAA"}), keyID},
+		// 2^31 + 1 は奇数のため、上限だけが除外できる
+		{"exponent above 2^31 - 1", jwk(map[string]any{"e": "gAAAAQ"}), keyID},
+		{"use for encryption", jwk(map[string]any{"use": "enc"}), keyID},
+		{"empty use", jwk(map[string]any{"use": ""}), keyID},
+		{"empty alg", jwk(map[string]any{"alg": ""}), keyID},
+		{"key_ops without verify", jwk(map[string]any{"key_ops": []string{"sign"}}), keyID},
+		{"empty key_ops", jwk(map[string]any{"key_ops": []string{}}), keyID},
+		{"key_ops that is null", jwk(map[string]any{"key_ops": nil}), keyID},
+		{"key_ops with a non string element", jwk(map[string]any{"key_ops": []any{1}}), keyID},
+		{"key_ops with a duplicate", jwk(map[string]any{"key_ops": []string{"verify", "verify"}}), keyID},
+		{"alg other than RS256", jwk(map[string]any{"alg": "RS384"}), keyID},
+		{"use and key_ops that disagree", jwk(map[string]any{"use": "sig", "key_ops": []string{"verify", "encrypt"}}), keyID},
+		{"empty x5c", jwk(map[string]any{"x5c": []string{}}), keyID},
+		{"x5c that is not a certificate", jwk(map[string]any{"x5c": []string{base64.StdEncoding.EncodeToString([]byte(responseMarker))}}), keyID},
+		{"x5c of another key", jwk(map[string]any{"x5c": x5cOf(issuerCert)}), keyID},
+		{"x5c whose key usage excludes digital signatures", jwk(map[string]any{"x5c": x5cOf(selfSignedCertificate(t, key, x509.KeyUsageKeyEncipherment))}), keyID},
+		{"x5c whose second certificate is not the issuer", jwk(map[string]any{"x5c": x5cOf(issuedCertificate(t, key, issuerCert, issuer), unrelatedCert)}), keyID},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name+" next to a usable key rejects its token with ErrAuthenticationFailure", func(t *testing.T) {
+		t.Run(tt.name+" next to a usable key is excluded and recorded", func(t *testing.T) {
 			stub := newIssuerStub(t, testKey(), testKeyID)
-			stub.respondJWKS(respondBody(jwksOf(jwkWith(t, testKey(), testKeyID, nil), jwkWith(t, tt.key, unusableKeyID, tt.members))))
-			token := stub.token(t, tt.key, unusableKeyID)
+			stub.respondJWKS(respondBody(jwksOf(tt.jwk, jwkWith(t, testKey(), testKeyID, nil))))
+			verifier := stub.verifier(t)
 
-			got, err := stub.verifier(t).Authenticate(t.Context(), rawIDToken(t, token))
-
+			assertAuthenticated(t, verifier, stub.token(t, testKey(), testKeyID))
+			// 除外した JWK の kid は保持しないため、その kid の JWT は鍵の値によらず拒否される
+			token := stub.token(t, key, keyID)
+			got, err := verifier.Authenticate(t.Context(), rawIDToken(t, token))
 			assertRejected(t, got, err, ErrAuthenticationFailure, token)
+
+			records := excludedRecords(t, &stub.logs)
+			if len(records) == 0 {
+				t.Fatalf("logs %q have no excluded record", stub.logs.String())
+			}
+			record := records[0]
+			if record["level"] != "WARN" || record["index"] != float64(0) || record["kid"] != tt.keyID || record["reason"] == "" {
+				t.Errorf("excluded record = %v, want WARN with index 0, kid %q, and a reason", record, tt.keyID)
+			}
+			modulus := base64.RawURLEncoding.EncodeToString(key.N.Bytes())
+			for _, value := range []string{responseMarker, "go-jose", modulus} {
+				if strings.Contains(stub.logs.String(), value) {
+					t.Errorf("logs %q contain %q", stub.logs.String(), value)
+				}
+			}
 		})
 	}
 }
 
 func TestAuthenticate_UsableJWK(t *testing.T) {
+	issuer := generateKey()
+	issuerCert := selfSignedCertificate(t, issuer, x509.KeyUsageCertSign)
 	tests := []struct {
 		name    string
 		members map[string]any
@@ -390,6 +506,9 @@ func TestAuthenticate_UsableJWK(t *testing.T) {
 		{"no use, key_ops, or alg", nil},
 		{"key_ops with verify and an operation outside signatures but no use", map[string]any{"key_ops": []string{"verify", "encrypt"}}},
 		{"use and key_ops limited to signature operations", map[string]any{"use": "sig", "key_ops": []string{"sign", "verify"}}},
+		{"x5c of a self-signed certificate without key usage", map[string]any{"x5c": x5cOf(selfSignedCertificate(t, testKey(), 0))}},
+		{"x5c of a certificate for digital signatures", map[string]any{"x5c": x5cOf(selfSignedCertificate(t, testKey(), x509.KeyUsageDigitalSignature))}},
+		{"x5c with its issuer", map[string]any{"x5c": x5cOf(issuedCertificate(t, testKey(), issuerCert, issuer), issuerCert)}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name+" returns Caller", func(t *testing.T) {
@@ -401,20 +520,20 @@ func TestAuthenticate_UsableJWK(t *testing.T) {
 	}
 }
 
-func TestAuthenticate_KeyRejectedByCryptoRSA(t *testing.T) {
-	const exponent65536 = "AQAA"
-	evenModulus := new(big.Int).Lsh(testKey().N, 1)
+// 指数の境界の鍵を JWT の署名に使う鍵として作らずに、保持されたことを確かめる。
+// 保持された鍵で署名が一致しなければ認証失敗になり、除外されれば使用可能な鍵がなく内部障害になる。
+func TestAuthenticate_ExponentAtBoundaryIsKept(t *testing.T) {
 	tests := []struct {
-		name    string
-		members map[string]any
+		name     string
+		exponent string
 	}{
-		{"even exponent", map[string]any{"e": exponent65536}},
-		{"even modulus", map[string]any{"n": base64.RawURLEncoding.EncodeToString(evenModulus.Bytes())}},
+		{"exponent 3", "Aw"},
+		{"exponent 2^31 - 1", "f____w"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name+" returns ErrAuthenticationFailure", func(t *testing.T) {
 			stub := newIssuerStub(t, testKey(), testKeyID)
-			stub.respondJWKS(respondBody(jwksOf(jwkWith(t, testKey(), testKeyID, tt.members))))
+			stub.respondJWKS(respondBody(jwksOf(jwkWith(t, testKey(), testKeyID, map[string]any{"e": tt.exponent}))))
 			token := stub.token(t, testKey(), testKeyID)
 
 			got, err := stub.verifier(t).Authenticate(t.Context(), rawIDToken(t, token))
@@ -425,16 +544,6 @@ func TestAuthenticate_KeyRejectedByCryptoRSA(t *testing.T) {
 }
 
 func TestAuthenticate_SameKeyID(t *testing.T) {
-	t.Run("two usable keys return ErrAuthenticationFailure", func(t *testing.T) {
-		stub := newIssuerStub(t, testKey(), testKeyID)
-		// 先頭の鍵で署名する。一意性を判定しなければ go-jose が先頭の鍵を選んで受理する
-		stub.respondJWKS(respondBody(jwksOf(jwkWith(t, testKey(), testKeyID, nil), jwkWith(t, generateKey(), testKeyID, nil))))
-		token := stub.token(t, testKey(), testKeyID)
-
-		got, err := stub.verifier(t).Authenticate(t.Context(), rawIDToken(t, token))
-
-		assertRejected(t, got, err, ErrAuthenticationFailure, token)
-	})
 	t.Run("two usable keys under another key ID return Caller", func(t *testing.T) {
 		stub := newIssuerStub(t, testKey(), testKeyID)
 		stub.respondJWKS(respondBody(jwksOf(
@@ -445,10 +554,27 @@ func TestAuthenticate_SameKeyID(t *testing.T) {
 
 		assertAuthenticated(t, stub.verifier(t), stub.token(t, testKey(), testKeyID))
 	})
-	t.Run("an unusable key before a usable key returns Caller", func(t *testing.T) {
+	t.Run("two usable keys are rejected, retrieved again, and the key left after rotation returns Caller", func(t *testing.T) {
 		stub := newIssuerStub(t, testKey(), testKeyID)
-		unusable := jwkWith(t, generateKey(), testKeyID, map[string]any{"use": "enc"})
-		stub.respondJWKS(respondBody(jwksOf(unusable, jwkWith(t, testKey(), testKeyID, nil))))
+		clock := &movableClock{}
+		verifier := stub.verifierWithClock(t, clock.now)
+		// 先頭の鍵で署名する。一意性を判定しなければ go-jose が先頭の鍵を選んで受理する
+		stub.respondJWKS(respondBody(jwksOf(jwkWith(t, testKey(), testKeyID, nil), jwkWith(t, generateKey(), testKeyID, nil))))
+		token := stub.token(t, testKey(), testKeyID)
+		got, err := verifier.Authenticate(t.Context(), rawIDToken(t, token))
+		assertRejected(t, got, err, ErrAuthenticationFailure, token)
+
+		stub.respondJWKS(respondBody(jwksOf(jwkWith(t, testKey(), testKeyID, nil))))
+		clock.advance(keyRetrievalInterval)
+		assertAuthenticated(t, verifier, token)
+		if requests := stub.jwksRequests.Load(); requests != 2 {
+			t.Errorf("JWKS requests = %d, want 2", requests)
+		}
+	})
+	t.Run("an excluded JWK before a usable key returns Caller", func(t *testing.T) {
+		stub := newIssuerStub(t, testKey(), testKeyID)
+		excluded := jwkWith(t, generateKey(), testKeyID, map[string]any{"use": "enc"})
+		stub.respondJWKS(respondBody(jwksOf(excluded, jwkWith(t, testKey(), testKeyID, nil))))
 
 		assertAuthenticated(t, stub.verifier(t), stub.token(t, testKey(), testKeyID))
 	})
@@ -488,6 +614,11 @@ func TestAuthenticate_UnacceptableHeaderIsRejectedWithoutRetrieval(t *testing.T)
 		{"duplicate name", `{` + base + `,"kid":"` + testKeyID + `"}`},
 		{"duplicate name after unescaping", `{` + base + `,` + escapedName("kid") + `:"` + testKeyID + `"}`},
 		{"invalid UTF-8", `{` + base + `,"unknown":"` + "\xff" + `"}`},
+		// cty の拒否は値によらないため、Nested JWT を示す値で確かめる
+		{"cty", `{` + base + `,"cty":"JWT"}`},
+		{"alg none", `{"alg":"none","kid":"` + testKeyID + `"}`},
+		{"no kid", `{"alg":"RS256"}`},
+		{"empty kid", `{"alg":"RS256","kid":""}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name+" returns ErrAuthenticationFailure", func(t *testing.T) {
@@ -524,7 +655,7 @@ func TestAuthenticate_KeyHeadersDoNotChangeRetrievalOrVerificationKey(t *testing
 		requested = append(requested, req.URL.String())
 		return stub.server.Client().Transport.RoundTrip(req)
 	})
-	verifier, err := NewVerifier(stub.issuer(), testAudience, testClock, WithTransport(transport))
+	verifier, err := NewVerifier(stub.issuer(), testAudience, testClock, discardLog, WithTransport(transport))
 	if err != nil {
 		t.Fatalf("NewVerifier returned error: %v", err)
 	}
@@ -624,7 +755,7 @@ func (d *deadlineRecorder) RoundTrip(req *http.Request) (*http.Response, error) 
 func TestAuthenticate_EachRetrievalHasItsOwnTimeout(t *testing.T) {
 	stub := newIssuerStub(t, testKey(), testKeyID)
 	recorder := &deadlineRecorder{transport: stub.server.Client().Transport}
-	verifier, err := NewVerifier(stub.issuer(), testAudience, testClock, WithTransport(recorder))
+	verifier, err := NewVerifier(stub.issuer(), testAudience, testClock, discardLog, WithTransport(recorder))
 	if err != nil {
 		t.Fatalf("NewVerifier returned error: %v", err)
 	}
@@ -659,7 +790,7 @@ func TestAuthenticate_CommunicationFailureKeepsResponseValuesOutOfError(t *testi
 		}
 		return nil, errors.New("malformed HTTP response " + responseMarker)
 	})
-	verifier, err := NewVerifier(stub.issuer(), testAudience, testClock, WithTransport(transport))
+	verifier, err := NewVerifier(stub.issuer(), testAudience, testClock, discardLog, WithTransport(transport))
 	if err != nil {
 		t.Fatalf("NewVerifier returned error: %v", err)
 	}
@@ -694,7 +825,7 @@ func TestAuthenticate_RequestsDocumentsWithoutCache(t *testing.T) {
 
 func TestAuthenticate_DefaultClientRejectsUntrustedCertificate(t *testing.T) {
 	stub := newIssuerStub(t, testKey(), testKeyID)
-	verifier, err := NewVerifier(stub.issuer(), testAudience, testClock)
+	verifier, err := NewVerifier(stub.issuer(), testAudience, testClock, discardLog)
 	if err != nil {
 		t.Fatalf("NewVerifier returned error: %v", err)
 	}
@@ -955,18 +1086,6 @@ func TestAuthenticate_RetrievedKeysRejectInvalidToken(t *testing.T) {
 	}
 }
 
-func TestAuthenticate_NoKeyIDIsRejectedWithoutRetrieval(t *testing.T) {
-	stub := newIssuerStub(t, testKey(), testKeyID)
-	token := stub.token(t, testKey(), "")
-
-	got, err := stub.verifier(t).Authenticate(t.Context(), rawIDToken(t, token))
-
-	assertRejected(t, got, err, ErrAuthenticationFailure, token)
-	if requests := stub.documentRequests(); requests != 0 {
-		t.Errorf("retrieved documents %d times, want 0", requests)
-	}
-}
-
 func TestAuthenticate_ConcurrentCallsShareRetrieval(t *testing.T) {
 	stub := newIssuerStub(t, testKey(), testKeyID)
 	verifier := stub.verifier(t)
@@ -1039,14 +1158,36 @@ func TestAuthenticate_ConcurrentRetrievalFailureDoesNotReachCallsRejectedWithout
 	calls.Wait()
 }
 
-func TestAuthenticate_CompactWithLineBreakIsAuthenticated(t *testing.T) {
-	stub := newIssuerStub(t, testKey(), testKeyID)
-	token := strings.Replace(stub.token(t, testKey(), testKeyID), ".", ".\r\n", 1)
+// 名前の判定と NumericDate の判定は、鍵情報に依存しないため取得の前に行う。
+func TestAuthenticate_UnacceptableClaimSetIsRejectedWithoutRetrieval(t *testing.T) {
+	tests := []struct {
+		name    string
+		leading string
+		omitted string
+	}{
+		{"duplicate claim name", `"jti":"a","jti":"b"`, "jti"},
+		{"claim name differing only by case", `"EXP":1700000300`, "exp"},
+		{"numeric date as a string", `"exp":"1700000300"`, "exp"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name+" returns ErrAuthenticationFailure", func(t *testing.T) {
+			stub := newIssuerStub(t, testKey(), testKeyID)
+			claims := claimsWith(map[string]any{"iss": stub.issuer()})
+			delete(claims, tt.omitted)
+			payload := append([]byte("{"+tt.leading+","), marshalClaims(t, claims)[1:]...)
+			token := signWithKeyID(t, jose.RS256, testKey(), testKeyID, payload)
 
-	assertAuthenticated(t, stub.verifier(t), token)
+			got, err := stub.verifier(t).Authenticate(t.Context(), rawIDToken(t, token))
+
+			assertRejected(t, got, err, ErrAuthenticationFailure, token)
+			if requests := stub.documentRequests(); requests != 0 {
+				t.Errorf("retrieved documents %d times, want 0", requests)
+			}
+		})
+	}
 }
 
-// go-oidc の解析は JSON 形式と空白を含む JWT を通すため、正当な署名でも issuerKeySet の解析で拒否することを確かめる。
+// go-oidc の解析は JSON 形式と空白を含む JWT を通し、go-jose の解析は CR と LF を読み飛ばすため、正当な署名でも拒否することを確かめる。
 func TestAuthenticate_NonCompactSerializationIsRejectedWithoutRetrieval(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -1062,6 +1203,12 @@ func TestAuthenticate_NonCompactSerializationIsRejectedWithoutRetrieval(t *testi
 		}},
 		{"compact with whitespace returns ErrAuthenticationFailure", func(_ *testing.T, compact string) string {
 			return strings.Replace(compact, ".", ". ", 1)
+		}},
+		{"compact with CR returns ErrAuthenticationFailure", func(_ *testing.T, compact string) string {
+			return strings.Replace(compact, ".", ".\r", 1)
+		}},
+		{"compact with LF returns ErrAuthenticationFailure", func(_ *testing.T, compact string) string {
+			return strings.Replace(compact, ".", ".\n", 1)
 		}},
 	}
 	for _, tt := range tests {

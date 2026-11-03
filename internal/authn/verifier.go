@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 	"time"
@@ -29,8 +30,8 @@ type Verifier struct {
 }
 
 // NewVerifier は固定設定を確かめ、Issuer の Discovery と JWKS から公開鍵を取得する Verifier を作る。
-// 通信は最初の Authenticate まで行わない。
-func NewVerifier(issuer, audience string, now func() time.Time, opts ...Option) (*Verifier, error) {
+// 通信は最初の Authenticate まで行わない。log は除外した JWK の記録に使う。
+func NewVerifier(issuer, audience string, now func() time.Time, log *slog.Logger, opts ...Option) (*Verifier, error) {
 	issuerURL, err := parseIssuer(issuer)
 	if err != nil {
 		return nil, err
@@ -41,7 +42,7 @@ func NewVerifier(issuer, audience string, now func() time.Time, opts ...Option) 
 	if audience == awsAudience {
 		return nil, fmt.Errorf("%w: must differ from the audience of the OIDC JWT for AWS", ErrInvalidAudience)
 	}
-	return newVerifier(issuer, audience, newIssuerKeySet(issuerURL, now, opts...), now), nil
+	return newVerifier(issuer, audience, newIssuerKeySet(issuerURL, now, log, opts...), now), nil
 }
 
 // parseIssuer は Domain Model の認証の固定設定の条件を Issuer について確かめる。
@@ -85,24 +86,36 @@ func (r *retrievalRecorder) VerifySignature(ctx context.Context, jwt string) ([]
 
 // Authenticate は、未検証の GATES 用 OIDC JWT から Caller を確定する。
 func (v *Verifier) Authenticate(ctx context.Context, rawIDToken request.RawIDToken) (authz.Caller, error) {
+	jwt := rawIDToken.Expose()
+
+	// Lambda Design の「取得前の拒否」に当たる条件を、公開鍵を取得する前に判定する
+	signature, err := parseCompact(jwt)
+	if err != nil {
+		return authz.Caller{}, err
+	}
+	if err := checkJOSEHeader(jwt); err != nil {
+		return authz.Caller{}, err
+	}
+	// 署名を検証する前の Payload は拒否の判定だけに使い、Caller は検証済みの Payload から作る
+	if err := checkClaimSet(signature.UnsafePayloadWithoutVerification()); err != nil {
+		return authz.Caller{}, err
+	}
+
 	// 記録先を呼び出しごとに分けるため、呼び出しごとに組み立てる。go-oidc の検証器は値を持つだけで、組み立ては軽い
 	recorder := &retrievalRecorder{keys: v.keys}
-	idToken, err := oidc.NewVerifier(v.issuer, recorder, v.config).Verify(ctx, rawIDToken.Expose())
+	idToken, err := oidc.NewVerifier(v.issuer, recorder, v.config).Verify(ctx, jwt)
 	if err != nil {
 		if recorder.failure != nil {
 			return authz.Caller{}, recorder.failure
 		}
 		// ErrAuthenticationFailure の文言の規則に従い、error を包まない
-		return authz.Caller{}, fmt.Errorf("%w: jose header, key selection, signature, issuer, audience, or time condition is not satisfied", ErrAuthenticationFailure)
+		return authz.Caller{}, fmt.Errorf("%w: key selection, signature, issuer, audience, or time condition is not satisfied", ErrAuthenticationFailure)
 	}
 
-	// Claims は encoding/json (v1) で復号するため、重複したキーを拒否する checkClaimSet と callerFromClaims に生の JSON を渡す。
-	// Verify が同じ Payload を復号済みで失敗しない。失敗しても raw が空のまま checkClaimSet が拒否する
+	// Claims は encoding/json (v1) で復号するため、重複したキーを拒否する callerFromClaims に生の JSON を渡す。
+	// Verify が同じ Payload を復号済みで失敗しない。失敗しても raw が空のまま callerFromClaims が拒否する
 	var raw json.RawMessage
 	_ = idToken.Claims(&raw)
-	if err := checkClaimSet(raw); err != nil {
-		return authz.Caller{}, err
-	}
 
 	// go-oidc は aud の含有だけを確かめるため、ここでは要素数だけを判定する
 	if len(idToken.Audience) != 1 {

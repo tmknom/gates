@@ -3,13 +3,24 @@ package authn
 import (
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 // 解析は復号の時点で行わない。行うと、形式の誤りが decodeClaims の文言に一本化され、ID の Claim より先に判定される。
 type subject string
 
+// maxSubjectLength の値の理由は JWT Design の「`sub`」に記述する。
+const maxSubjectLength = 255
+
 // 名前を照合せず、リポジトリ部の後を解釈しない理由は JWT Design の「`sub`」に記述する。
 func (s subject) parse() (ownerID, repositoryID int64, err error) {
+	// ASCII に限ったあとはバイト数が文字数に等しいため、len で文字数の上限を判定できる
+	if strings.ContainsFunc(string(s), func(r rune) bool { return r > unicode.MaxASCII }) {
+		return 0, 0, fmt.Errorf("%w: sub must consist of ASCII characters", ErrAuthenticationFailure)
+	}
+	if len(s) > maxSubjectLength {
+		return 0, 0, fmt.Errorf("%w: sub exceeds the maximum length", ErrAuthenticationFailure)
+	}
 	rest, ok := strings.CutPrefix(string(s), "repo:")
 	if !ok {
 		return 0, 0, fmt.Errorf("%w: sub must start with the repo prefix", ErrAuthenticationFailure)
