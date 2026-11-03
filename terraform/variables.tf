@@ -54,6 +54,18 @@ variable "gates_audience" {
     condition     = var.gates_audience != "" && var.gates_audience == trimspace(var.gates_audience)
     error_message = "gates_audience must not be empty or have surrounding whitespace."
   }
+
+  # AWS 用 OIDC JWT と同じ Audience にすると、AWS 用 OIDC JWT で GATES の認証を通せるようになる
+  validation {
+    condition     = var.gates_audience != "sts.amazonaws.com"
+    error_message = "gates_audience must differ from sts.amazonaws.com, the audience of the OIDC JWT for AWS."
+  }
+
+  # Audience を指定せずに取得した OIDC JWT にはオーナーの URL が入る。同じ値にすると、その JWT を手にした Action が GATES の認証を通せる
+  validation {
+    condition     = lower(var.gates_audience) != lower("https://github.com/${var.allowed_owner_name}")
+    error_message = "gates_audience must differ from https://github.com/<allowed_owner_name>, the default audience of GitHub OIDC JWTs."
+  }
 }
 
 # 既定値を持たせないのは、実測を忘れて適用すると、鍵長の異なる鍵がインポート時に初めて失敗するため

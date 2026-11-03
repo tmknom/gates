@@ -166,7 +166,7 @@ Lambda の設定では次を扱います。
 | `GATES_ALLOWED_OWNER_NAME` | オーナー名 |
 | `GATES_ALLOWED_OWNER_TYPE` | オーナーの種別（`Organization` または `User`） |
 | `GATES_GITHUB_APP_CLIENT_ID` | GitHub App の Client ID |
-| `GATES_AUDIENCE` | GATES 用 Audience |
+| `GATES_AUDIENCE` | GATES 用 Audience。[Domain Model](domain.md#53-invariants) の不変条件が拒否する値を、Terraform の変数の検証でも Plan の時点で拒否する |
 | `GATES_KMS_KEY_ARN` | KMS Key ARN |
 
 Issuer と GitHub API Host は環境変数にしません。

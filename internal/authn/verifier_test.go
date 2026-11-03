@@ -132,6 +132,7 @@ func TestNewVerifier_InvalidConfig(t *testing.T) {
 		{"issuer with empty query returns ErrInvalidIssuer", "https://issuer.example?", testAudience, ErrInvalidIssuer},
 		{"issuer with empty port returns ErrInvalidIssuer", "https://issuer.example:", testAudience, ErrInvalidIssuer},
 		{"empty audience returns ErrInvalidAudience", testIssuer, "", ErrInvalidAudience},
+		{"aws sts audience returns ErrInvalidAudience", testIssuer, "sts.amazonaws.com", ErrInvalidAudience},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

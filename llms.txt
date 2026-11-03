@@ -17,7 +17,7 @@ Identify and read task-related sections below when the "Use when" trigger matche
 - Running `make alloy` or interpreting its verdicts → read **Formal Verification**
 - Checking what GitHub or the JWT and OpenID Connect standards specify → read **Specification**
 - Checking the values GitHub OIDC actually returned → read **Research**
-- Preparing a GitHub App to try GATES against → read **Environment Setup**
+- Preparing a GitHub App to try GATES against, or deploying GATES to AWS → read **Environment Setup**
 
 ## Design
 
@@ -62,4 +62,4 @@ Identify and read task-related sections below when the "Use when" trigger matche
 
 ## Environment Setup
 
-- [Testing Environment Setup](docs/contributing/setup-environment.md): Creating and installing a testing GitHub App on a personal account and issuing its Private Key, without any AWS setup - Use when a human or agent needs a real GitHub App and Private Key to verify GATES, or when checking the settings the testing GitHub App is expected to have
+- [Testing Environment Setup](docs/contributing/setup-environment.md): Creating and installing a testing GitHub App on a personal account, issuing its Private Key, and deploying the AWS resources with Terraform, including prerequisites, the values to decide in `terraform.tfvars`, Plan and Apply, and keeping `terraform/local/` - Use when a human or agent needs a real GitHub App and Private Key to verify GATES, when checking the settings the testing GitHub App is expected to have, or when deploying or redeploying GATES to AWS
