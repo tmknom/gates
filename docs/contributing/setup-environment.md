@@ -1,7 +1,7 @@
 # Testing Environment Setup
 
 GATES の動作を検証するには、トークンの発行元となる GitHub App と、その Private Key、GATES の AWS リソースが必要です。
-本ドキュメントでは、検証用の GitHub App を個人アカウントに作成し、インストールして、Private Key を発行するまでと、AWS リソースを Terraform で適用する手順を扱います。
+本ドキュメントでは、検証用の GitHub App を個人アカウントに作成してインストールする手順と、AWS リソースを Terraform で適用する手順を扱います。
 
 ## 1. GitHub App
 
@@ -34,15 +34,9 @@ GATES の動作を検証するには、トークンの発行元となる GitHub 
 
 ## 2. GitHub App Private Key
 
-GitHub App の設定ページ（[1.2](#12-installing-the-github-app) と同じページ）で、`Credentials` → `Key pairs` → `New key` をクリックします。
-`<app-name>.<date>.private-key.pem` という名前のファイルがダウンロードされるので、リポジトリの外のディレクトリに保存します。
-
-ダウンロードした鍵が正しいかは、次のコマンドで出力される SHA256 フィンガープリントを、設定ページに表示されたフィンガープリントと比べて確かめます。
-
-```bash
-openssl rsa -in /path/to/private-key.pem -pubout -outform DER \
-  | openssl sha256 -binary | openssl base64
-```
+GitHub App Private Key は、AWS リソースを適用した後に、[Key Material Import](import-key-material.md) の手順の中で生成します。
+生成した鍵は KMS Key にインポートし、手元のコピーは削除します。
+先に生成すると、インポートするまでのあいだ、秘密鍵が手元に残り続けるためです。
 
 ## 3. AWS Infrastructure Deployment
 
@@ -61,7 +55,7 @@ Plan の前に次を満たしておきます。
 `terraform.tfvars` の値のうち、次の 3 つは適用の前に確かめて決めます。
 
 - **`gates_audience`**：運用者が持つ名前空間の、GATES 専用だと分かる URI にする（例：GATES のコードを置くリポジトリの URL `https://github.com/<owner>/<repo>`）。呼び出し元のリポジトリの URL にはしない。Audience はすべての呼び出し元に共通の固定値であるため。AWS 用 OIDC JWT の Audience `sts.amazonaws.com` と、GitHub の既定の Audience（`https://github.com/<owner>`）は、それぞれの Audience の OIDC JWT で GATES の認証を通せるようになるため、変数の検証で拒否される
-- **`kms_key_spec`**：インポートする GitHub App Private Key の鍵長に合わせる。鍵長は `openssl rsa -in /path/to/private-key.pem -text -noout` の先頭行で確かめる
+- **`kms_key_spec`**：インポートする GitHub App Private Key の鍵長に合わせる。秘密鍵は適用の後に生成するため、検証用 App で生成した鍵の鍵長（2048 bit）から `RSA_2048` とする。生成した鍵の鍵長が異なれば、[Key Material Import](import-key-material.md) の手順で KMS Key を作り直す
 - **`lambda_reserved_concurrency`**：`aws lambda get-account-settings` の `UnreservedConcurrentExecutions` から予約する数を引いても、Lambda が求める未予約の下限（100）を下回らない値にする
 
 `lambda_package_path` は `terraform.tfvars` に書きません。
@@ -94,6 +88,8 @@ make tf-apply
 ```bash
 aws kms describe-key --key-id <kms_key_arn>
 ```
+
+続けて、[Key Material Import](import-key-material.md) の手順で、GitHub App Private Key を生成して KMS Key にインポートします。
 
 ### 3.3 Local Terraform Files
 

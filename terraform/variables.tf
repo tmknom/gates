@@ -68,9 +68,9 @@ variable "gates_audience" {
   }
 }
 
-# 既定値を持たせないのは、実測を忘れて適用すると、鍵長の異なる鍵がインポート時に初めて失敗するため
+# 既定値を持たせないのは、GitHub が Private Key の鍵長を文書で約束しておらず、見込みの鍵長を運用者に選ばせるため
 variable "kms_key_spec" {
-  description = "KMS Key の key_spec。インポートする鍵の鍵長を実測して決める"
+  description = "KMS Key の key_spec。インポートする鍵の見込みの鍵長に合わせる。鍵は適用の後に生成し、鍵長が異なれば KMS Key を作り直す"
   type        = string
 
   validation {

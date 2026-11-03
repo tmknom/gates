@@ -17,7 +17,7 @@ Identify and read task-related sections below when the "Use when" trigger matche
 - Running `make alloy` or interpreting its verdicts → read **Formal Verification**
 - Checking what GitHub or the JWT and OpenID Connect standards specify → read **Specification**
 - Checking the values GitHub OIDC actually returned → read **Research**
-- Preparing a GitHub App to try GATES against, or deploying GATES to AWS → read **Environment Setup**
+- Preparing a GitHub App to try GATES against, deploying GATES to AWS, or importing the GitHub App Private Key into KMS → read **Environment Setup**
 
 ## Design
 
@@ -62,4 +62,5 @@ Identify and read task-related sections below when the "Use when" trigger matche
 
 ## Environment Setup
 
-- [Testing Environment Setup](docs/contributing/setup-environment.md): Creating and installing a testing GitHub App on a personal account, issuing its Private Key, and deploying the AWS resources with Terraform, including prerequisites, the values to decide in `terraform.tfvars`, Plan and Apply, and keeping `terraform/local/` - Use when a human or agent needs a real GitHub App and Private Key to verify GATES, when checking the settings the testing GitHub App is expected to have, or when deploying or redeploying GATES to AWS
+- [Testing Environment Setup](docs/contributing/setup-environment.md): Creating and installing a testing GitHub App on a personal account, and deploying the AWS resources with Terraform, including prerequisites, the values to decide in `terraform.tfvars`, Plan and Apply, and keeping `terraform/local/` - Use when a human or agent needs a real GitHub App to verify GATES, when checking the settings the testing GitHub App is expected to have, or when deploying or redeploying GATES to AWS
+- [Key Material Import](docs/contributing/import-key-material.md): Generating a GitHub App Private Key and importing it into the `PendingImport` KMS Key, including the working environment, the wrapping algorithm and OpenSSL commands, the checks before and after the import, deleting the local copies, and what to do when the key length differs, the import fails, the work is suspended, or the public key does not match - Use when importing key material into a new KMS Key, when preparing or reviewing that work, or when a `KeyState`, wrapping, or fingerprint result differs from what the procedure expects

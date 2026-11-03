@@ -9,4 +9,5 @@
 | ファイル | 内容 |
 |---|---|
 | [Documentation Policy](docs-policy.md) | `docs/` 配下の各ドキュメントの責務、依存してよい範囲、記述が食い違ったときに正とするドキュメントを定める |
-| [Testing Environment Setup](setup-environment.md) | GATES の動作の検証に使う GitHub App を個人アカウントに作成し、インストールして、Private Key を発行し、GATES の AWS リソースを Terraform で適用する手順 |
+| [Testing Environment Setup](setup-environment.md) | GATES の動作の検証に使う GitHub App を個人アカウントに作成してインストールし、GATES の AWS リソースを Terraform で適用する手順 |
+| [Key Material Import](import-key-material.md) | GitHub App Private Key を生成し、鍵素材として KMS Key にインポートする手順と、失敗したときの扱い |
