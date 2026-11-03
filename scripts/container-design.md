@@ -111,6 +111,7 @@ Makefile からは `docker compose run --rm -T --interactive=false` で実行し
 | tflint の AWS ruleset | リリースの `checksums.txt` の値を Dockerfile に固定する |
 | Alloy の JAR | リリースにハッシュの公開がないため、取得した JAR から計算した値を固定する |
 | squid | バージョンを Dockerfile に固定し、内容は Alpine のパッケージの署名で検証する |
+| Z3 | バージョンを Dockerfile に固定し、内容は Debian のパッケージの署名で検証する |
 | trivy の脆弱性 DB とチェック | 内容が更新され続けるため固定せず、`make trivy-update` の再ビルドで更新する |
 
 ## 方針から外れるサービス
@@ -131,7 +132,7 @@ Makefile からは `docker compose run --rm -T --interactive=false` で実行し
 - 許可リストの宛先を使った持ち出し。通信の中身は検査しないため、たとえば別の AWS アカウントの認証情報で `logs` の宛先へデータを送る通信は止まらない
 - コンテナに渡した認証情報の悪用。そのコンテナのプロセスは認証情報を読めるため、被害は認証情報の権限と有効期限の範囲に収める
 - 書き込み可能なマウントの改ざん。ホスト側のファイルをコンテナから書き換えられる
-- 取り込み元の汚染。trivy の DB は内容を固定せず、squid はハッシュを固定しないため、取得元を信頼している
+- 取り込み元の汚染。trivy の DB は内容を固定せず、squid と Z3 はハッシュを固定しないため、取得元を信頼している
 
 ## イメージを追加するときの確認項目
 

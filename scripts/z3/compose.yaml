@@ -1,0 +1,36 @@
+# Z3 を隔離して実行するサービス定義
+#
+# 環境変数は呼び出し側が設定する。
+#   Z3_TARGET  SMT-LIB のファイルを置いたディレクトリの絶対パス。リポジトリのルートではなく、そのディレクトリに絞る
+
+name: z3
+
+services:
+  z3:
+    # localhost/ を付け、Docker Hub の同名のイメージを取ってこないようにする
+    build: .
+    image: localhost/gates/z3:latest
+    pull_policy: never
+    user: "65534:65534"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    network_mode: none
+    ipc: none
+    mem_limit: 2g
+    memswap_limit: 2g
+    pids_limit: 64
+    cpus: 2
+    ulimits:
+      core: 0
+    init: true
+    working_dir: /src
+    environment:
+      HOME: /tmp
+    volumes:
+      - type: bind
+        source: ${Z3_TARGET:?Z3_TARGET is required}
+        target: /src
+        read_only: true
