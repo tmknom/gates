@@ -55,7 +55,7 @@ Plan の前に次を満たしておきます。
 `terraform.tfvars` の値のうち、次の 3 つは適用の前に確かめて決めます。
 
 - **`gates_audience`**：運用者が持つ名前空間の、GATES 専用だと分かる URI にする（例：GATES のコードを置くリポジトリの URL `https://github.com/<owner>/<repo>`）。呼び出し元のリポジトリの URL にはしない。Audience はすべての呼び出し元に共通の固定値であるため。AWS 用 OIDC JWT の Audience `sts.amazonaws.com` と、GitHub の既定の Audience（`https://github.com/<owner>`）は、それぞれの Audience の OIDC JWT で GATES の認証を通せるようになるため、変数の検証で拒否される
-- **`kms_key_spec`**：インポートする GitHub App Private Key の鍵長に合わせる。秘密鍵は適用の後に生成するため、検証用 App で生成した鍵の鍵長（2048 bit）から `RSA_2048` とする。生成した鍵の鍵長が異なれば、[Key Material Import](import-key-material.md) の手順で KMS Key を作り直す
+- **`kms_key_spec`**：インポートする GitHub App Private Key の鍵長に合わせる。秘密鍵は適用の後に生成するため、検証用 App で生成した鍵の鍵長（2048 bit）から `RSA_2048` とする
 - **`lambda_reserved_concurrency`**：`aws lambda get-account-settings` の `UnreservedConcurrentExecutions` から予約する数を引いても、Lambda が求める未予約の下限（100）を下回らない値にする
 
 `lambda_package_path` は `terraform.tfvars` に書きません。
