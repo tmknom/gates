@@ -19,6 +19,12 @@ type InstallationAccessToken struct {
 	value *string
 }
 
+// Expose は、成功応答に入れる値を返す。成功応答を書くために Lambda Handler だけが呼ぶ。ゼロ値で呼ぶと panic する。
+// bearer の expose と分けるのは、bearer のメソッドを公開すると GitHub App JWT の値まで package の外から読めるためである。
+func (t InstallationAccessToken) Expose() string {
+	return t.expose()
+}
+
 // expose は、GitHub API の認証に使う値を返す。ゼロ値で呼ぶと panic する。
 func (t InstallationAccessToken) expose() string {
 	return *t.value

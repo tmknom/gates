@@ -200,6 +200,10 @@ func TestValidate_Invalid(t *testing.T) {
 					t.Errorf("Validate error = %v, want %v", err, want)
 				}
 			}
+			// どの規則で拒否しても、失敗の種別は入力不正である
+			if !errors.Is(err, request.ErrInvalidRequest) {
+				t.Errorf("Validate error = %v, want %v", err, request.ErrInvalidRequest)
+			}
 		})
 	}
 }
