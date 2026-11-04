@@ -148,6 +148,12 @@ Caller の Owner ID は認可に使い、Repository ID、ワークフロー実�
 Installation Access Token はトークン文字列そのもの、Installation Token はそれに有効期限・対象・実効権限を添えた応答で、どちらも GitHub の名前です。
 照合の条件は [5.3 Invariants](#53-invariants) に置きます。
 
+発行結果は照合の前の値であり、不変条件を持ちません。
+各項目は発行応答から独立に読み取り、読み取れなかった項目は、読み取れなかったことが分かる形で発行結果に残します（事実：Lambda Design §2.2、§6.3）。
+照合は、読み取れなかった項目に関わる条件を満たさないものとして扱います。
+こうすると、トークン文字列以外の項目を読み取れたかどうかは照合の結果だけを変え、トークン文字列の取り出しと、失効を試みられるかどうかを変えません。
+実効対象の集合は、すべての要素について Repository ID、所有オーナーの Owner ID、完全名を読み取れた場合にだけ、読み取れたものとします（推論：一部の要素だけを持っても、全件の一致を求める照合の結果は変わらないため）。
+
 ### 3.5 Credentials
 
 GATES の処理には 5 種類の資格情報が現れ、どれも「トークン」と呼ばれ得ます（事実：System Architecture §4）。
@@ -277,7 +283,7 @@ flowchart LR
 | **認可拒否** | Authorization Denied | Caller と要求は読み取れたが、GATES の認可条件を満たさない | 利用者が要求の対象か権限を直す。監査記録には、GATES の認可で拒否したことが残る | 事実：Security Design §3.1、Lambda Design §3.2 |
 | **Installation 利用不可** | Installation Unavailable | 固定した GitHub App と許可オーナーから、発行に使える Installation を得られない。一時的な障害を除く成功以外の応答、応答を解釈できない、必須項目の欠落、停止状態を読み取れない、停止、インストール先 Owner ID の不一致、発行の間に Installation か App の状態が変わった場合 | GATES 運用者かオーナーの管理者が、GitHub 側か固定設定を直す。再試行では解消しない | 事実：Lambda Design §3.2 |
 | **GitHub 発行拒否** | GitHub Issuance Rejected | GATES の認可が成立したが、GitHub 発行 API が `422` で要求を拒否した。原因は応答コードから確定できない | 利用者の許可外要求とは断定せず、運用者が GitHub の発行条件・状態・応答を調べる。トークン文字列は未取得 | 事実：Lambda Design §3.2 |
-| **照合失敗** | Verification Failure | GitHub 発行 API の応答を取得したが、発行結果が発行許可と一致しない | 運用者が設定か GitHub 側の仕様変更を調べる。トークン文字列を取得できた場合は失効を試みる | 事実：Requirements FR-018、Lambda Design §3.1 |
+| **照合失敗** | Verification Failure | GitHub 発行 API の応答を取得したが、発行結果が発行許可と一致しない。発行結果に読み取れなかった項目がある場合を含む | 運用者が設定か GitHub 側の仕様変更を調べる。トークン文字列を取得できた場合は失効を試みる | 事実：Requirements FR-018、Lambda Design §3.1 |
 | **一時的な障害** | Transient Failure | Discovery / JWKS の取得、KMS の署名、GitHub API の呼び出しのいずれかが一時的に失敗した。通信の失敗、タイムアウト、サーバー側のエラー、レート制限を指す | 呼び出し元の再試行で解消し得る | 事実：Lambda Design §3.2 |
 | **内部障害** | Internal Failure | 想定外の失敗。どの段階にも属さない失敗と、GitHub OIDC Provider の応答が想定と異なる失敗（Discovery が示す Issuer が固定した Issuer と異なる、公開鍵の取得先が Issuer と異なるホストかポートを指す、応答を解釈できない、公開鍵集合に秘密鍵か対称鍵の値が含まれる、使用可能な鍵が一つもない、応答が上限より大きい、再試行では解消しない失敗の応答が返る）と、署名の要求を送る前に失敗した場合、KMS が再試行では解消しない失敗を返した場合（鍵の無効化、署名できない鍵の状態、権限の不足など）、KMS の応答を署名として解釈できない場合を含む | 運用者が調べる。再試行では解消しない | 事実：Lambda Design §3.2 |
 

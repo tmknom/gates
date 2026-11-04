@@ -47,7 +47,7 @@ func (c *Client) ResolveInstallation(ctx context.Context, appJWT AppJWT, owner a
 
 // fetchInstallation は、Installation の応答のうち 200 の本文と、GitHub の request ID を返す。
 func (c *Client) fetchInstallation(ctx context.Context, appJWT AppJWT, owner authz.AllowedOwner) ([]byte, string, error) {
-	response, err := c.httpClient.Do(c.newAppJWTGetRequest(ctx, installationPath(owner), appJWT))
+	response, err := c.httpClient.Do(c.newAppJWTRequest(ctx, http.MethodGet, installationPath(owner), appJWT))
 	if err != nil {
 		// 通信の error は要求の URL（許可オーナー名を含む）を文言に含めるため包まない
 		return nil, "", fmt.Errorf("%w: request failed", ErrTransientFailure)
@@ -67,15 +67,6 @@ func (c *Client) fetchInstallation(ctx context.Context, appJWT AppJWT, owner aut
 		return nil, "", fmt.Errorf("%w: response exceeds %d bytes, request id %q", authz.ErrInstallationUnavailable, installationSizeLimit, requestID)
 	}
 	return body, requestID, nil
-}
-
-// statusFailure は Installation の取得の 200 以外の応答を、Lambda Design の「GitHub API の失敗の分類」に従って分類する。
-func statusFailure(response *http.Response, requestID string) error {
-	kind := authz.ErrInstallationUnavailable
-	if response.StatusCode >= http.StatusInternalServerError || isRateLimited(response) {
-		kind = ErrTransientFailure
-	}
-	return fmt.Errorf("%w: status %d, request id %q", kind, response.StatusCode, requestID)
 }
 
 // 許可オーナー名は Lambda Design の「名前の文字種と比較規則」の文字種を満たし、パスの要素としてエスケープを要しない。

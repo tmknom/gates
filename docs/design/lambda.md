@@ -349,6 +349,7 @@ GitHub API は SDK を使わず、Go 標準ライブラリの HTTP クライア�
 - **`User-Agent`**：すべての要求に、GATES を示す固定の値 `gates` を付ける。GitHub は `User-Agent` のない要求を拒否し、値にアプリケーションの名前を推奨する（[GitHub Constraints](../spec/github-constraints.md#1-scope-and-evidence)）。
 - **応答サイズの上限**：Installation の取得と失効の応答は 64 KiB、発行応答は 16 MiB とする。Installation の応答は[調査記録](../research/github/app-installation.md)で約 1.6 KB であり、64 KiB は Discovery と JWKS の上限（[§6.1](#61-oidc-validation)）と同じく、増えても収まり、想定外に大きい応答を読み込み続けない大きさとする。発行応答は対象 1 件ごとにリポジトリの完全な表現を持ち、[調査記録](../research/github/installation-access-token.md)では 12 文字のリポジトリ名で 1 件あたり約 6 KB だった。この表現はリポジトリ名を約 40 回、オーナー名を約 50 回繰り返すため、100 文字のリポジトリ名と 39 文字のオーナー名では 1 件あたり約 12 KB になる。説明文やトピックのような自由記述のフィールドの最大長は確かめていない。16 MiB は、対象 500 件で 1 件あたり約 33 KB まで収まる大きさとする。
 - **上限を超えた応答**：Installation の応答は、形式が想定と異なる応答として `installation_resolution_failed` にする。発行応答は、形式が想定と異なる発行応答として `issuance_verification_failed` にし、失効を試みない。トークン文字列は、完全に受信して解釈できた発行応答からだけ取り出す。途中までの本文からトークン文字列を探すと、壊れた JSON の解釈という別の規則が要るためである。この場合、GitHub 側で発行されたトークンは有効期限まで残り得る。
+- **発行応答の読み取り**：`201` の本文は、`token` とほかのフィールドを独立に読む。`token` を読み取れれば、ほかのフィールドが欠落しているか読み取れなくても発行結果にし、読み取れなかったことを発行結果に残す。本文を JSON のオブジェクトとして解釈できない場合（JSON でない、読まないフィールドの中を含めて本文のどこかに同じ名前の重複がある、UTF-8 として正しくない文字列がある）は、`token` を含めてどのフィールドも読み取らない。読み取れなかったフィールドは `issuance_verification_failed` になり、どの読み取りも失敗の種別を変えないため、GitHub Client は `201` をエラーにしない。
 - **名前の重複**：同じ名前を重複して持つ Installation の応答は、形式が想定と異なる応答として `installation_resolution_failed` にする。重複した名前のどちらの値を読むかが決まらず、Installation ID やインストール先 Owner ID を一つに定められないためである。
 
 [Domain Model](domain.md) の概念は、GitHub API の応答の次のフィールドから得ます。
@@ -358,12 +359,15 @@ GitHub API は SDK を使わず、Go 標準ライブラリの HTTP クライア�
 | Installation ID | Installation | `id` | |
 | インストール先 Owner ID | Installation | `account.id` | 許可オーナーの Owner ID との照合は Authorization が行う |
 | 停止状態 | Installation | `suspended_at` | `null` なら停止していない。時刻なら停止している。キーの欠落と、`null` でも時刻でもない値は、停止状態を読み取れない応答として `installation_resolution_failed` にする。Go の時刻のゼロ値と同じ時刻（`0001-01-01T00:00:00Z`）も、停止していないことの表現と区別できないため、読み取れない値として扱う |
-| 対象の選び方 | Installation、発行応答 | `repository_selection` | `selected` が選択したリポジトリに限る、`all` が全リポジトリ |
-| 実効権限 | 発行応答 | `permissions` | |
+| 対象の選び方 | Installation、発行応答 | `repository_selection` | `selected` が選択したリポジトリに限る、`all` が全リポジトリ。発行応答では文字列でなければ読み取れない。ほかの文字列も読み取り、照合が `selected` 以外として拒否する |
+| Installation Access Token | 発行応答 | `token` | 空でない文字列だけを読み取る。空文字列は失効 API の認証に使えないため、読み取れないものとする |
+| 実効権限 | 発行応答 | `permissions` | [権限名と水準の文字種](#権限名と水準の文字種)に合わない、空、またはオブジェクトでない値は読み取れない |
 | 実効対象の Repository ID | 発行応答 | `repositories[].id` | |
 | 実効対象の所有オーナーの Owner ID | 発行応答 | `repositories[].owner.id` | |
 | 実効対象の完全名 | 発行応答 | `repositories[].full_name` | 要求の完全名と照合する |
-| 有効期限 | 発行応答 | `expires_at` | RFC 3339 形式 |
+| 有効期限 | 発行応答 | `expires_at` | RFC 3339 形式。時刻として読めなければ読み取れない |
+
+実効対象の集合は、`repositories` が配列で、どの要素も `null` でなく、`id` と `owner.id` が整数で、`full_name` が完全名の形式であるときだけ読み取ります。
 
 許可オーナーの種別は応答から読まず、固定設定の値を使います。
 値は `Organization` か `User` で、Domain Model の「ユーザーアカウント」は `User` を指します。
