@@ -72,7 +72,7 @@ func (s *Signer) Sign(ctx context.Context) (github.AppJWT, error) {
 // Sign から分けるのは、AppJWT の値をこの package から取り出せず、署名の結果をこの関数の戻り値で検証するためである。
 func (s *Signer) sign(ctx context.Context) (string, error) {
 	input := signingInput(s.encodedClientID, s.now())
-	// 計算済みのダイジェストを DIGEST で渡し、KMS にハッシュさせない方式は Lambda Design の KMS Signing にある
+	// 計算済みのダイジェストを MessageType の DIGEST で渡し、KMS に署名入力をもう一度ハッシュさせない
 	digest := sha256.Sum256([]byte(input))
 
 	ctx, cancel := context.WithTimeout(ctx, signTimeout)

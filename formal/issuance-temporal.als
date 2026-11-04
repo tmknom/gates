@@ -4,7 +4,8 @@ module gates/issuance_temporal
 // This intentionally models TWO invocations so client-controlled retry and
 // duplicate remote issuance can be represented. No idempotency guarantee.
 // Input: docs/spec/requirements.md FR-007, FR-018, QR-003, QR-007, AC-12, AC-30;
-// docs/design/security.md 3.4; docs/design/lambda.md 3.1 and 7.3.
+// docs/design/security.md 3.4; docs/design/domain.md 5.3;
+// docs/design/lambda.md 3.1 and 6.3.
 
 abstract sig Phase {}
 one sig Dormant, Start, Granted, IssueRequested, Returnable, NeedRevoke,

@@ -57,6 +57,18 @@ linters:
         linters:
           - forbidigo
         text: "use of `time\\.(Now|Since|Until)`"
+      - path: _test\.go
+        linters:
+          - forbidigo
+        text: "use of `((authz\\.)?NewCaller|(github\\.)?NewAppJWT)`"
+      - path: ^internal/authn/
+        linters:
+          - forbidigo
+        text: "use of `authz\\.NewCaller`"
+      - path: ^internal/signer/
+        linters:
+          - forbidigo
+        text: "use of `github\\.NewAppJWT`"
   settings:
     depguard:
       rules:
@@ -65,6 +77,43 @@ linters:
           deny:
             - pkg: gopkg.in/yaml.v3
               desc: archived; use go.yaml.in/yaml/v3
+        # 入力と認可の処理は、通信と外部ライブラリを持たない。副作用をこれらの package に入れず、テストを通信なしで書けるようにするため
+        no-communication:
+          list-mode: lax
+          files:
+            - "**/internal/authz/**"
+            - "**/internal/permission/**"
+            - "**/internal/repository/**"
+            - "**/internal/request/**"
+          allow:
+            - github.com/tmknom/gates/internal
+          deny:
+            - pkg: net
+              desc: input and authorization packages must not communicate
+            - pkg: crypto/tls
+              desc: input and authorization packages must not communicate
+            - pkg: github.com/
+              desc: input and authorization packages must not depend on external libraries
+        # AWS SDK は KMS Signer だけが使う。ほかのコンポーネントのテストが AWS SDK に依存せず、KMS のテストダブルが一つの package に閉じるようにするため
+        aws-sdk:
+          list-mode: lax
+          files:
+            - "!**/internal/signer/**"
+          deny:
+            - pkg: github.com/aws/aws-sdk-go-v2
+              desc: only internal/signer may use the AWS SDK
+            - pkg: github.com/aws/smithy-go
+              desc: only internal/signer may use the AWS SDK
+        # GitHub Client は KMS Signer と Token Issuer に依存しない。AppJWT と発行結果を GitHub Client に置き、循環と AWS SDK の間接的な流入を防ぐため
+        github-client:
+          list-mode: lax
+          files:
+            - "**/internal/github/**"
+          deny:
+            - pkg: github.com/tmknom/gates/internal/signer
+              desc: internal/github must not depend on internal/signer
+            - pkg: github.com/tmknom/gates/internal/issuer
+              desc: internal/github must not depend on internal/issuer
     exhaustive:
       default-signifies-exhaustive: true
     forbidigo:
@@ -75,6 +124,14 @@ linters:
         - pattern: ^time\.(Now|Since|Until)$
         - pattern: ^os\.(Getenv|LookupEnv|Environ)$
         - pattern: ^slog\.(SetDefault|Default|With|Log|LogAttrs|Debug|Info|Warn|Error|DebugContext|InfoContext|WarnContext|ErrorContext)$
+        # Caller は検証済みの GATES 用 OIDC JWT だけから作る（Domain Model の Caller の不変条件）。NewCaller は公開関数で、呼び出せる package を型で限定できないため
+        - pattern: ^authz\.NewCaller$
+          pkg: ^github\.com/tmknom/gates/internal/authz$
+          msg: only internal/authn may create a Caller
+        # AppJWT は KMS Signer だけが作る。NewAppJWT は公開関数で、呼び出せる package を型で限定できないため
+        - pattern: ^github\.NewAppJWT$
+          pkg: ^github\.com/tmknom/gates/internal/github$
+          msg: only internal/signer may create an AppJWT
     gocritic:
       disable-all: true
       enabled-checks:
