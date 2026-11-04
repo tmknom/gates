@@ -217,12 +217,12 @@ Handler は処理中の panic を回復し、`internal_error` の失敗応答と
 | `invalid_id_token` | 認証失敗 | GATES 用 OIDC JWT が [JWT Design](jwt.md) の受理条件を満たさない。JWT の形式・署名、Issuer、Audience、時間条件、必須 Claim、再取得後も一意に選べる使用可能な鍵がない `kid` などを含む |
 | `authorization_denied` | 認可拒否 | Caller の Owner ID が許可オーナーと不一致、要求した権限が許可条件外、または要求したリポジトリのオーナー名が許可オーナー名と不一致。Installation の対象外であることが GitHub API の呼び出し後に判明した場合は、その処理段階の失敗として扱う |
 | `identity_verification_unavailable` | 一時的な障害 | OIDC Discovery / JWKS の取得が一時的に失敗した。通信の失敗、タイムアウト、5xx、403 / 429 で、再試行で解消し得る |
-| `signing_unavailable` | 一時的な障害 | KMS 署名が一時的に失敗した。要求を送った後の通信の失敗、タイムアウト、呼び出し元の ctx の期限切れと中断、5xx、スロットリングで、再試行で解消し得る |
+| `signing_unavailable` | 一時的な障害 | KMS 署名が一時的に失敗した。通信の失敗、タイムアウト、呼び出し元の ctx の期限切れと中断、5xx、スロットリングで、再試行で解消し得る |
 | `installation_resolution_failed` | Installation 利用不可 | 固定した GitHub App と許可オーナーから、発行に使える Installation を得られない。一時的な障害を除く GitHub API の失敗（App JWT が受け付けられない 401、GitHub App が許可オーナーにインストールされていないときに想定する 404 など）、Installation の応答に必要な項目がない、Installation が停止している（`suspended_at` が空でない）、`account.id` が許可オーナーの Owner ID と一致しない |
 | `token_issuance_failed` | 一時的な障害 | GitHub API の一時的な障害。通信の失敗、タイムアウト、5xx、レート制限による 403 / 429 で、Installation の取得と発行 API の呼び出しの両方を含む。再試行で解消し得る |
 | `github_issuance_rejected` | GitHub 発行拒否 | GATES の認可が成立した後、GitHub の発行 API が `422` で要求を拒否した。検証失敗やスパム判定など、原因は応答コードから特定できない |
 | `issuance_verification_failed` | 照合失敗 | GitHub API の発行応答が [Success](#31-success) の照合条件に適合しない。空でないトークン文字列を取得できた場合は失効を試みる |
-| `internal_error` | 内部障害 | Handler の panic、Discovery / JWKS の非一時的な取得・構造異常、JWKS に使用可能な鍵がない場合、KMS が再試行では解消しない失敗を返した場合（鍵の無効化、鍵の状態、権限の不足など）、KMS に要求を送る前の AWS SDK の失敗を含む |
+| `internal_error` | 内部障害 | Handler の panic、Discovery / JWKS の非一時的な取得・構造異常、JWKS に使用可能な鍵がない場合、KMS が再試行では解消しない失敗を返した場合（鍵の無効化、鍵の状態、権限の不足など）、KMS の応答を署名として解釈できない場合、KMS に要求を送る前の AWS SDK の失敗を含む |
 
 GitHub API の失敗は、HTTP 応答から次のように分類します。
 通信の失敗、タイムアウト、5xx、レート制限による 403 / 429 は `token_issuance_failed` にします。
@@ -265,11 +265,19 @@ JWKS を取得できたうえで、`kid` で一意に選べる使用可能な鍵
 文言はライブラリの更新で変わり得るためです。
 
 KMS の署名の失敗は、次のように分類します。
-KMS に要求を送った後で応答を受け取れなかった失敗（通信の失敗、タイムアウト）、呼び出し元の ctx の期限切れと中断、5xx、`ThrottlingException` は `signing_unavailable` にします。
+KMS との通信の失敗（接続できない場合、要求を送った後に応答を受け取れない場合、本文の受信途中の切断）、タイムアウト、呼び出し元の ctx の期限切れと中断、5xx、`ThrottlingException` は `signing_unavailable` にします。
+接続できない失敗には、経路の一時的な障害と、ネットワークの設定の誤りのように再試行では解消しない失敗の両方があり、区別できません。
+一時的な障害に含めるのは、Discovery / JWKS の取得の通信の失敗と同じ扱いにするためです。
+設定の誤りは、デプロイ後の試験で発行が一度も成功しないことから気付けます。
+本文の受信途中の切断は、通信の失敗として報告されたものだけを `signing_unavailable` にします。
+通信の失敗として報告されない切断は、完全に受信して解釈できない本文と区別できず、`internal_error` になります。
+この誤りは、再試行で解消し得る失敗を、運用者の対応を要する失敗として伝えます。
+どちらでもトークンは返さず、変わるのは利用者に再実行を促すかどうかです。
 `ThrottlingException` を名前で挙げるのは、KMS がスロットリングを 5xx ではなく 400 で返すためです（[AWS — KMS Common Error Types](https://docs.aws.amazon.com/kms/latest/APIReference/CommonErrors.html)）。
 それ以外の KMS のエラー応答と、KMS の応答を署名として解釈できない場合は `internal_error` にします。
 鍵の無効化（`DisabledException`）、`PendingImport` などの署名できない鍵の状態（`KMSInvalidStateException`）、権限の不足（`AccessDeniedException`）、鍵が見つからない（`NotFoundException`）が、ここに入ります。
 KMS に要求を送る前に AWS SDK の中で起きた失敗（リージョンや認証情報を解決できない、パラメーターの検証に失敗したなど）も `internal_error` にします。
+KMS が `200` を返しても署名が空なら、署名として解釈できない場合に含めて `internal_error` にします。
 分類は KMS のエラーコードと HTTP ステータスで行い、エラーの文言には頼りません。
 
 外部エラーをそのまま応答へ転記しません。認証情報を含む詳細を公開せず、相関 ID によってログと突き合わせます。Lambda の処理結果は `ok` で示し、Invoke 自体の結果と区別します。
@@ -292,7 +300,7 @@ flowchart LR
 | OIDC Verifier | GitHub OIDC JWT の署名・Issuer・Audience・時間・Claim 検証と Caller の確定、Issuer の Discovery / JWKS の取得と保持 |
 | Authorization | Caller、要求（対象、権限）、取得済み Installation、固定設定から発行可否を判定し、TokenGrant を確定。ネットワーク通信を行わない |
 | Token Issuer | KMS Signer による App JWT の作成、GitHub Client を使った Installation の取得とトークン発行、GitHub 応答の TokenGrant への照合、照合に失敗したトークンの失効 |
-| KMS Signer | 固定された非対称 KMS Key とアルゴリズムで署名 |
+| KMS Signer | 固定設定の Client ID と現在時刻から GitHub App JWT を組み立て、固定された非対称 KMS Key とアルゴリズムで署名 |
 | GitHub Client | GitHub API（Installation の取得、トークン発行、トークンの失効）に対する HTTP 通信と応答の復号 |
 
 このコンポーネント区分は責務のモデルであり、Go パッケージへの一対一の対応を要求しません。
@@ -533,6 +541,8 @@ GitHub App JWT の型（AppJWT）は、使う側の `internal/github` に置き�
 「値を取り出すのは GitHub Client だけ」（[Domain Model](#5-domain-model)）を、レビューではなく型で守れるためです。
 `internal/signer` に置くと、`internal/github` が `internal/signer` を import して AWS SDK を引き込み、GitHub Client のテストが AWS SDK に依存します。
 `internal/github` は AWS SDK を持たないため、`internal/signer` が `internal/github` を import しても、循環も AWS SDK の流入も起きません。
+一方、AppJWT を作るのは `internal/signer` とテストだけとし、ほかの package が作らないことはレビューで確かめます。
+作る関数は公開関数で、呼び出せる package を型で限定できないためです。
 
 実装で概念の過不足や名前のずれが分かったときは、コードと本ドキュメントを同じ変更で直します。
 
@@ -562,7 +572,7 @@ JWT の形式、Claim、JOSE Header、JWK / JWKS の受理条件と境界値は 
 - JWKS の前回取得が成功・失敗のそれぞれについて、時計が前回試行開始より前へ戻った場合は再取得を許可する。同時刻と59秒後は再取得せず、60秒後は再取得する。旧キャッシュで署名検証できる JWT は前回の取得結果にかかわらず再取得しない
 - Discovery が示す Issuer が固定した Issuer と異なるとき `internal_error` になり、JWT の `iss` が固定値と異なるときは `invalid_id_token` になる
 - Discovery / JWKS の取得が 5xx やタイムアウトのとき `identity_verification_unavailable`、404 や応答サイズの超過のとき `internal_error` になる
-- KMS の署名が 5xx、`ThrottlingException`、タイムアウト、ctx の中断のとき `signing_unavailable`、`DisabledException`、`KMSInvalidStateException`、`AccessDeniedException`、`NotFoundException`、要求を送る前の AWS SDK の失敗（空の KMS Key ARN など）のとき `internal_error` になり、どれも Installation の取得に進まない
+- KMS の署名が 5xx、`ThrottlingException`、通信の失敗、本文の受信途中の切断、タイムアウト、ctx の中断のとき `signing_unavailable`、`DisabledException`、`KMSInvalidStateException`、`AccessDeniedException`、`NotFoundException`、要求を送る前の AWS SDK の失敗（リージョンを解決できないなど）、`200` で署名が空のとき `internal_error` になり、どれも Installation の取得に進まない。Client ID が空か UTF-8 として正しくないか、KMS Key ARN が空なら KMS Signer を作らない
 - GitHub API の 403 は、`x-ratelimit-remaining` が `0` か `retry-after` があれば `token_issuance_failed`、どちらもなければ本文がレート制限の文言でも `installation_resolution_failed` になる。429 はヘッダーがなくても `token_issuance_failed` になる
 - GitHub API の `410` と `3xx` は `installation_resolution_failed` になり、リダイレクト先を要求しない
 - 16 MiB を超える発行応答は `issuance_verification_failed` になり、失効を要求しない
