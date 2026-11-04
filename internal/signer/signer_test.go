@@ -23,6 +23,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/kms/types"
 	"github.com/go-jose/go-jose/v4"
+
+	"github.com/tmknom/gates/internal/authz"
+	"github.com/tmknom/gates/internal/github"
 )
 
 const (
@@ -315,6 +318,45 @@ func TestSigner_Sign_BoundsKMSCallTo5Seconds(t *testing.T) {
 		t.Errorf("remaining time of the request to KMS = %v, want in (0, 5s]", remaining)
 	}
 }
+
+// AppJWT は値を取り出す口を持たないため、Sign が署名した GitHub App JWT を AppJWT に包むことは、GitHub Client が送る Authorization で確かめる。
+// 署名の内容は sign のテストで確かめているため、ここでは送られた値が KMS のテストダブルの鍵で検証できることだけを確かめる。
+func TestSigner_Sign_ReturnsAppJWTThatGitHubClientSends(t *testing.T) {
+	stub := newKMSStub(t)
+	var authorization string
+	transport := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		authorization = r.Header.Get("Authorization")
+		return &http.Response{StatusCode: http.StatusNotFound, Header: http.Header{}, Body: http.NoBody}, nil
+	})
+	owner, err := authz.NewAllowedOwner(583231, "allowed-owner", authz.OwnerTypeUser)
+	if err != nil {
+		t.Fatalf("NewAllowedOwner returned error: %v", err)
+	}
+
+	appJWT, err := newTestSigner(t, stub).Sign(t.Context())
+	if err != nil {
+		t.Fatalf("Sign returned error: %v", err)
+	}
+	// AppJWT を送る公開の口は GitHub Client の呼び出しだけで、404 は Authorization を受け取るためだけの応答である
+	_, _ = github.NewClient(github.WithTransport(transport)).ResolveInstallation(t.Context(), appJWT, owner)
+
+	compact, ok := strings.CutPrefix(authorization, "Bearer ")
+	if !ok {
+		t.Fatalf("Authorization %q does not start with Bearer", authorization)
+	}
+	jws, err := jose.ParseSignedCompact(compact, []jose.SignatureAlgorithm{jose.RS256})
+	if err != nil {
+		t.Fatalf("ParseSignedCompact returned error: %v", err)
+	}
+	if _, err := jws.Verify(&stub.key.PublicKey); err != nil {
+		t.Errorf("Verify with the public key returned error: %v", err)
+	}
+}
+
+// roundTripperFunc は、GitHub Client の要求を、送らずに受け取る Transport である。
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
 
 func decodeSegment(t *testing.T, segment string) []byte {
 	t.Helper()

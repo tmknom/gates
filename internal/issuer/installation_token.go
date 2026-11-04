@@ -9,7 +9,7 @@ import (
 )
 
 // InstallationToken は、発行許可との照合を通った、利用者に返せる発行結果である。
-// フィールドを非公開にし、ゼロ値以外は Verify でしか作れないようにする。
+// フィールドを非公開にし、ゼロ値以外は照合（verify）でしか作れないようにする。
 type InstallationToken struct {
 	token        github.InstallationAccessToken
 	expiresAt    time.Time

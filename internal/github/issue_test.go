@@ -222,8 +222,8 @@ func TestIssue_ReadsRecordedResponse(t *testing.T) {
 	got := issueBody(t, marshal(t, recordedIssuance()))
 
 	assertReadFields(t, got)
-	if got.RequestID() != requestID {
-		t.Errorf("RequestID() = %q, want %q", got.RequestID(), requestID)
+	if got.GitHubRequestID() != requestID {
+		t.Errorf("GitHubRequestID() = %q, want %q", got.GitHubRequestID(), requestID)
 	}
 	if expiresAt, _ := got.ExpiresAt(); !expiresAt.Equal(time.Date(2026, 11, 3, 12, 18, 48, 0, time.UTC)) {
 		t.Errorf("ExpiresAt() = %v, want 2026-11-03T12:18:48Z", expiresAt)
@@ -326,8 +326,8 @@ func TestIssue_UninterpretableBodyHasNoToken(t *testing.T) {
 			got := issueBody(t, tt.body(t))
 
 			assertReadFields(t, got, allFields...)
-			if got.RequestID() != requestID {
-				t.Errorf("RequestID() = %q, want %q", got.RequestID(), requestID)
+			if got.GitHubRequestID() != requestID {
+				t.Errorf("GitHubRequestID() = %q, want %q", got.GitHubRequestID(), requestID)
 			}
 		})
 	}
@@ -387,7 +387,7 @@ func TestIssue_StatusFailure(t *testing.T) {
 			got, err := issue(t, newAPIStub(t, handler).client(t))
 
 			assertIssueFailed(t, got, err, tt.want)
-			for _, value := range []string{"status " + strconv.Itoa(tt.status), requestID} {
+			for _, value := range []string{"status " + strconv.Itoa(tt.status), labeledRequestID} {
 				if !strings.Contains(err.Error(), value) {
 					t.Errorf("error message %q does not contain %q", err.Error(), value)
 				}

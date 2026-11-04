@@ -166,7 +166,7 @@ Lambda は、GitHub API の発行応答を発行許可と照合し、照合を�
 照合の条件に適合しない応答は `issuance_verification_failed` として拒否します。
 
 発行応答から空でない `token` を取得できたうえで照合に失敗した場合、Lambda はそのトークンで `DELETE /installation/token` を呼んで失効を試みます。
-失効に失敗してもエラーコードは `issuance_verification_failed` のまま変えず、失効の試行と成否を監査記録に残します。
+失効に失敗してもエラーコードは `issuance_verification_failed` のまま変えず、[Domain Model](domain.md#36-audit-record) の失効の結果を監査記録に残します。
 `token` を取得できない場合は、失効 API の認証に使うトークンがないため、失効を試みません。
 
 ### 3.2 Failure
@@ -262,10 +262,16 @@ GitHub API の呼び出しの失敗のエラー文言には、応答のステー
 
 照合失敗のエラー文言にも満たさなかった条件を書き、トークン、実効対象の完全名、Repository ID と Owner ID の値を含めません。
 実効対象は要求の対象か Installation の対象のリポジトリを指すため、要求と Installation の値と同じに伏せます。
+失効を試みて失敗した場合は、照合失敗のエラー文言に失効の失敗の理由（失効の応答のステータスと GitHub の request ID、または通信の失敗）を添えます。
 
 GitHub API の呼び出しの失敗と照合失敗のエラー文言には、GitHub の request ID を含めます。
 失敗の原因を GitHub 側の記録と突き合わせて調べる手がかりになるためです。
 GitHub の request ID は、成功応答と失敗応答の相関 ID とは別の値で、資格情報でも、Caller、要求、許可オーナー、Installation の値でもありません。
+
+Token Issuer は、GitHub API の呼び出しの失敗の文言に、失敗した段階の名前（Installation の解決、発行）を前置します。
+Installation の取得と発行 API の呼び出しの失敗は、同じ種別になり得て文言の形も同じため、段階の名前がないと監査記録から失敗した呼び出しを見分けられないからです。
+KMS の署名と Grant の失敗には前置しません。
+署名の失敗は KMS Signer の文言で、Grant の失敗は満たさなかった条件で、それぞれ段階が分かるためです。
 
 ## 4. Logical Components
 
@@ -356,7 +362,7 @@ GitHub API は SDK を使わず、Go 標準ライブラリの HTTP クライア�
 - **リダイレクト**：従わず、`3xx` は [Failure](#32-failure) の分類で成功以外の応答として扱う。リダイレクト先は GATES が選んだエンドポイントではなく、その応答を Installation や発行応答として読む根拠がないためである。また、従うと、固定した API Host の外へ GitHub App JWT を送り得る。
 - **API バージョン**：すべての要求に `X-GitHub-Api-Version: 2026-03-10` を付ける。GitHub Constraints が REST API を確認した版であり、[調査記録](../research/github/installation-access-token.md)もこの版で取得している。ヘッダーを省略すると既定の版が使われ、その版のサポートが終わると既定の版が変わる（[GitHub Constraints](../spec/github-constraints.md#1-scope-and-evidence)）。省略すると、GATES のコードを変えずに応答の形が変わり得るため、省略しない。この版のサポートが終わると、GitHub はこの版を指定した要求に `410 Gone` を返し、[Failure](#32-failure) の分類で `installation_resolution_failed` になる。再試行では解消せず、運用者が版を更新するまで発行が止まる。版を更新するときは、GitHub Constraints と調査記録を新しい版で確かめ直す。
 - **`User-Agent`**：すべての要求に、GATES を示す固定の値 `gates` を付ける。GitHub は `User-Agent` のない要求を拒否し、値にアプリケーションの名前を推奨する（[GitHub Constraints](../spec/github-constraints.md#1-scope-and-evidence)）。
-- **応答サイズの上限**：Installation の取得と失効の応答は 64 KiB、発行応答は 16 MiB とする。Installation の応答は[調査記録](../research/github/app-installation.md)で約 1.6 KB であり、64 KiB は Discovery と JWKS の上限（[§6.1](#61-oidc-validation)）と同じく、増えても収まり、想定外に大きい応答を読み込み続けない大きさとする。発行応答は対象 1 件ごとにリポジトリの完全な表現を持ち、[調査記録](../research/github/installation-access-token.md)では 12 文字のリポジトリ名で 1 件あたり約 6 KB だった。この表現はリポジトリ名を約 40 回、オーナー名を約 50 回繰り返すため、100 文字のリポジトリ名と 39 文字のオーナー名では 1 件あたり約 12 KB になる。説明文やトピックのような自由記述のフィールドの最大長は確かめていない。16 MiB は、対象 500 件で 1 件あたり約 33 KB まで収まる大きさとする。
+- **応答サイズの上限**：Installation の取得の応答は 64 KiB、発行応答は 16 MiB とする。失効の応答は、成否をステータスだけで判定するため本文を読まず、上限を設けない。Installation の応答は[調査記録](../research/github/app-installation.md)で約 1.6 KB であり、64 KiB は Discovery と JWKS の上限（[§6.1](#61-oidc-validation)）と同じく、増えても収まり、想定外に大きい応答を読み込み続けない大きさとする。発行応答は対象 1 件ごとにリポジトリの完全な表現を持ち、[調査記録](../research/github/installation-access-token.md)では 12 文字のリポジトリ名で 1 件あたり約 6 KB だった。この表現はリポジトリ名を約 40 回、オーナー名を約 50 回繰り返すため、100 文字のリポジトリ名と 39 文字のオーナー名では 1 件あたり約 12 KB になる。説明文やトピックのような自由記述のフィールドの最大長は確かめていない。16 MiB は、対象 500 件で 1 件あたり約 33 KB まで収まる大きさとする。
 - **上限を超えた応答**：Installation の応答は、形式が想定と異なる応答として `installation_resolution_failed` にする。発行応答は、形式が想定と異なる発行応答として `issuance_verification_failed` にし、失効を試みない。トークン文字列は、完全に受信して解釈できた発行応答からだけ取り出す。途中までの本文からトークン文字列を探すと、壊れた JSON の解釈という別の規則が要るためである。この場合、GitHub 側で発行されたトークンは有効期限まで残り得る。
 - **発行応答の読み取り**：`201` の本文は、`token` とほかのフィールドを独立に読む。`token` を読み取れれば、ほかのフィールドが欠落しているか読み取れなくても発行結果にし、読み取れなかったことを発行結果に残す。本文を JSON のオブジェクトとして解釈できない場合（JSON でない、読まないフィールドの中を含めて本文のどこかに同じ名前の重複がある、UTF-8 として正しくない文字列がある）は、`token` を含めてどのフィールドも読み取らない。読み取れなかったフィールドは `issuance_verification_failed` になり、どの読み取りも失敗の種別を変えないため、GitHub Client は `201` をエラーにしない。
 - **名前の重複**：同じ名前を重複して持つ Installation の応答は、形式が想定と異なる応答として `installation_resolution_failed` にする。重複した名前のどちらの値を読むかが決まらず、Installation ID やインストール先 Owner ID を一つに定められないためである。
@@ -414,6 +420,9 @@ GitHub App JWT を作ってから発行の応答を受け取るまでは、署�
 失効は、要求の ctx の中断と期限を引き継がない ctx で行い、発行の呼び出しの ctx からも作りません。
 要求が中断された後も、発行がタイムアウトの直前に応答を返した後も、照合に失敗したトークンの失効を試みるためです。
 失効のタイムアウトは、5 秒と、関数の残り時間から応答を書くための 1 秒を除いた時間の短いほうとします。
+関数の残り時間は、Lambda Handler が受け取った要求の ctx の期限から読みます。
+要求の ctx に期限がなければ、失効のタイムアウトは 5 秒だけとします。
+そのため Lambda Handler は、要求の ctx を別の期限で包まずに Token Issuer へ渡します。
 関数の残り時間を超えて待つと、失効を待つ間に関数がタイムアウトし、照合失敗の応答を書けなくなるためです。
 残り時間が 1 秒以下でも失効は試み、すぐにタイムアウトした失効は失敗として監査記録に残します。
 試みなかったことにすると、照合に失敗してトークン文字列を取得できたのに失効を試みない経路が、中断のほかにできるためです（[Domain Model](domain.md#53-invariants) の発行処理の不変条件）。

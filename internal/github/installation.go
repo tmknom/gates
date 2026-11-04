@@ -40,14 +40,14 @@ func (c *Client) ResolveInstallation(ctx context.Context, appJWT AppJWT, owner a
 	}
 	installation, err := decodeInstallation(body)
 	if err != nil {
-		return authz.Installation{}, fmt.Errorf("%w: %w, request id %q", authz.ErrInstallationUnavailable, err, requestID)
+		return authz.Installation{}, fmt.Errorf("%w: %w, github request id %q", authz.ErrInstallationUnavailable, err, requestID)
 	}
 	return installation, nil
 }
 
 // fetchInstallation は、Installation の応答のうち 200 の本文と、GitHub の request ID を返す。
 func (c *Client) fetchInstallation(ctx context.Context, appJWT AppJWT, owner authz.AllowedOwner) ([]byte, string, error) {
-	response, err := c.httpClient.Do(c.newAppJWTRequest(ctx, http.MethodGet, installationPath(owner), appJWT))
+	response, err := c.httpClient.Do(c.newRequest(ctx, http.MethodGet, installationPath(owner), appJWT.redactedValue))
 	if err != nil {
 		// 通信の error は要求の URL（許可オーナー名を含む）を文言に含めるため包まない
 		return nil, "", fmt.Errorf("%w: request failed", ErrTransientFailure)
@@ -61,10 +61,10 @@ func (c *Client) fetchInstallation(ctx context.Context, appJWT AppJWT, owner aut
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, installationSizeLimit+1))
 	if err != nil {
-		return nil, "", fmt.Errorf("%w: response body cannot be read, request id %q", ErrTransientFailure, requestID)
+		return nil, "", fmt.Errorf("%w: response body cannot be read, github request id %q", ErrTransientFailure, requestID)
 	}
 	if len(body) > installationSizeLimit {
-		return nil, "", fmt.Errorf("%w: response exceeds %d bytes, request id %q", authz.ErrInstallationUnavailable, installationSizeLimit, requestID)
+		return nil, "", fmt.Errorf("%w: response exceeds %d bytes, github request id %q", authz.ErrInstallationUnavailable, installationSizeLimit, requestID)
 	}
 	return body, requestID, nil
 }

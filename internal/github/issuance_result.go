@@ -46,8 +46,8 @@ func newResponseField[T any](value T, read bool) responseField[T] {
 	return responseField[T]{value: value, read: read}
 }
 
-// RequestID は、発行応答の GitHub の request ID を返す。
-func (r IssuanceResult) RequestID() string {
+// GitHubRequestID は、発行応答の GitHub の request ID を返す。Lambda の相関 ID（Request ID）とは別の値である。
+func (r IssuanceResult) GitHubRequestID() string {
 	return r.requestID
 }
 
