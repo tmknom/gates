@@ -15,7 +15,7 @@ type Installation struct {
 
 // NewInstallation は、Domain Model の「Invariants」が定める Installation の条件を検証する。
 // 応答から欠落した ID を 0 として受け取っても Installation にしないため。
-// suspendedAt はゼロ値で空を表す。GitHub の停止時刻がゼロ値の時刻になることはないため。
+// suspendedAt はゼロ値で停止していないことを表す。GitHub の停止時刻がゼロ値の時刻になることはないため。
 func NewInstallation(id, installationOwnerID int64, suspendedAt time.Time) (Installation, error) {
 	if id <= 0 {
 		return Installation{}, fmt.Errorf("%w: installation id must be a positive integer", ErrInvalidInstallation)
