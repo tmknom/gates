@@ -61,10 +61,15 @@ linters:
         linters:
           - forbidigo
         text: "use of `((authz\\.)?NewCaller|(github\\.)?NewAppJWT)`"
+      # メソッドの違反は、変数の名前で表記が変わるため、メッセージで照合する
+      - path: ^internal/request/.*_test\.go$
+        linters:
+          - forbidigo
+        text: "only internal/authn may expose the unverified ID token"
       - path: ^internal/authn/
         linters:
           - forbidigo
-        text: "use of `authz\\.NewCaller`"
+        text: "use of `authz\\.NewCaller`|only internal/authn may expose the unverified ID token"
       - path: ^internal/signer/
         linters:
           - forbidigo
@@ -115,6 +120,14 @@ linters:
               desc: only internal/signer may use the AWS SDK
             - pkg: github.com/aws/smithy-go
               desc: only internal/signer may use the AWS SDK
+        # 資格情報を伏せる型は、資格情報の型を持つどの package からも使えるよう、標準ライブラリだけに依存する
+        credential-standard-library-only:
+          list-mode: strict
+          files:
+            - "**/internal/credential/**"
+          allow:
+            - $gostd
+            - github.com/tmknom/gates/internal/credential
         # GitHub Client は KMS Signer と Token Issuer に依存しない。AppJWT と発行結果を GitHub Client に置き、循環と AWS SDK の間接的な流入を防ぐため
         github-client:
           list-mode: lax
@@ -143,6 +156,10 @@ linters:
         - pattern: ^github\.NewAppJWT$
           pkg: ^github\.com/tmknom/gates/internal/github$
           msg: only internal/signer may create an AppJWT
+        # 未検証の GATES 用 OIDC JWT の値を取り出せるのは OIDC Verifier だけ（Lambda Design の資格情報の表）。Expose は公開メソッドで、呼び出せる package を型で限定できないため
+        - pattern: ^request\.RawIDToken\.Expose$
+          pkg: ^github\.com/tmknom/gates/internal/request$
+          msg: only internal/authn may expose the unverified ID token
     gocritic:
       disable-all: true
       enabled-checks:

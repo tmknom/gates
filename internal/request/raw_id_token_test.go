@@ -1,8 +1,6 @@
 package request_test
 
 import (
-	"bytes"
-	jsonv1 "encoding/json"
 	"encoding/json/v2"
 	"fmt"
 	"log/slog"
@@ -15,6 +13,8 @@ import (
 
 const secretIDToken = "secret.jwt.value"
 
+// TestRawIDToken_IsRedactedInOutput は、credential.Redacted のメソッドが RawIDToken に昇格していることを確かめる。
+// 書式指定や出力先ごとの網羅は credential package のテストが確かめる。
 func TestRawIDToken_IsRedactedInOutput(t *testing.T) {
 	token := validateIDToken(t, secretIDToken)
 	holder := struct{ Token request.RawIDToken }{Token: token}
@@ -24,23 +24,13 @@ func TestRawIDToken_IsRedactedInOutput(t *testing.T) {
 		output func(t *testing.T) string
 	}{
 		{name: "%v does not show the value", output: func(*testing.T) string { return fmt.Sprintf("%v", token) }},
-		{name: "%+v does not show the value", output: func(*testing.T) string { return fmt.Sprintf("%+v", token) }},
-		{name: "%#v does not show the value", output: func(*testing.T) string { return fmt.Sprintf("%#v", token) }},
-		{name: "%s does not show the value", output: func(*testing.T) string { return fmt.Sprintf("%s", token) }},
-		{name: "%q does not show the value", output: func(*testing.T) string { return fmt.Sprintf("%q", token) }},
-		{name: "pointer with %v does not show the value", output: func(*testing.T) string { return fmt.Sprintf("%v", &token) }},
-		{name: "exported field with %+v does not show the value", output: func(*testing.T) string { return fmt.Sprintf("%+v", holder) }},
-		{name: "slog attribute does not show the value", output: func(*testing.T) string {
-			var buf bytes.Buffer
-			slog.New(slog.NewJSONHandler(&buf, nil)).Info("msg", "token", token, "holder", holder)
-			return buf.String()
-		}},
-		{name: "encoding/json does not show the value", output: func(t *testing.T) string {
-			b, err := jsonv1.Marshal(holder)
-			if err != nil {
-				t.Fatalf("encoding/json Marshal returned error: %v", err)
+		// slog の handler は LogValue がなくても MarshalJSON や Format で伏せた表記を出すため、解決した値の種類で LogValue を確かめる
+		{name: "slog value resolves to the redacted notation", output: func(t *testing.T) string {
+			resolved := slog.AnyValue(token).Resolve()
+			if resolved.Kind() != slog.KindString {
+				t.Errorf("slog value kind = %v, want %v", resolved.Kind(), slog.KindString)
 			}
-			return string(b)
+			return resolved.String()
 		}},
 		{name: "encoding/json/v2 does not show the value", output: func(t *testing.T) string {
 			b, err := json.Marshal(holder)

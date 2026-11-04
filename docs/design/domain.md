@@ -156,7 +156,7 @@ Installation Access Token はトークン文字列そのもの、Installation To
 
 ### 3.5 Credentials
 
-GATES の処理には 5 種類の資格情報が現れ、どれも「トークン」と呼ばれ得ます（事実：System Architecture §4）。
+GATES の処理には 5 種類の **資格情報**（Credential）が現れ、どれも「トークン」と呼ばれ得ます（事実：System Architecture §4）。
 語の衝突を避けるため、本ドキュメントでは次の名前で区別します。
 
 | 資格情報 | 英語名 | 発行元 | 用途 | 発行の判定に現れるか |
@@ -170,6 +170,8 @@ GATES の処理には 5 種類の資格情報が現れ、どれも「トーク�
 GATES 用 OIDC JWT は、Payload から取り出した時点では未検証であり、認証を通って初めて Caller の根拠になります。
 
 どの資格情報も、ログとエラー本文に記録しません（事実：Requirements QR-004）。
+発行の判定に現れる資格情報は、種類によらず、どの出力でも値を伏せた同じ表記にします（推論：伏せ方が資格情報ごとに異なると、直すときに一部の資格情報だけが直り、ほかの資格情報が出力に残り得るため）。
+一方、値を取り出せるコンポーネントは資格情報ごとに異なります（事実：Lambda Design §4）。
 資格情報のうち利用者に返すのは Installation Access Token だけです（事実：Requirements FR-016）。
 
 ### 3.6 Audit Record
