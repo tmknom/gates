@@ -258,6 +258,15 @@ KMS に接続できない失敗には、経路の一時的な障害と、ネッ�
 Installation は許可オーナー名から取得するため、その Installation ID と `account.id` は、許可オーナー名をいま持つアカウントを示します。
 `account.id` が許可オーナーの Owner ID と一致しない場合も同じであり、許可オーナーの値と同じに伏せます。
 
+GitHub API の呼び出しの失敗のエラー文言には、応答のステータスを書き、応答本文、GitHub App JWT、Installation Access Token を含めません。
+
+照合失敗のエラー文言にも満たさなかった条件を書き、トークン、実効対象の完全名、Repository ID と Owner ID の値を含めません。
+実効対象は要求の対象か Installation の対象のリポジトリを指すため、要求と Installation の値と同じに伏せます。
+
+GitHub API の呼び出しの失敗と照合失敗のエラー文言には、GitHub の request ID を含めます。
+失敗の原因を GitHub 側の記録と突き合わせて調べる手がかりになるためです。
+GitHub の request ID は、成功応答と失敗応答の相関 ID とは別の値で、資格情報でも、Caller、要求、許可オーナー、Installation の値でもありません。
+
 ## 4. Logical Components
 
 ```mermaid

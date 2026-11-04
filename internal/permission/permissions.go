@@ -48,6 +48,30 @@ func AllowedPermissions() Permissions {
 	return Permissions{levels: map[string]string{"contents": "read"}}
 }
 
+// ImpliedPermissions は、要求にかかわらず GitHub が付与する Permission Entry のうち、GATES が許容するものを返す。
+// AllowedPermissions と同じ理由で、呼ぶたびに値を作る関数にする。
+func ImpliedPermissions() Permissions {
+	return Permissions{levels: map[string]string{"metadata": "read"}}
+}
+
+// EqualsAllowedExceptImplied は、Domain Model の「付随権限の許容」に従い、付随権限の Permission Entry を除けば許可権限に等しいかを返す。
+// 付随権限は GitHub が発行結果に加えるものであり、要求の認可には使わない。
+func (p Permissions) EqualsAllowedExceptImplied() bool {
+	allowed := AllowedPermissions().levels
+	implied := ImpliedPermissions().levels
+	for name, level := range allowed {
+		if p.levels[name] != level {
+			return false
+		}
+	}
+	for name, level := range p.levels {
+		if allowed[name] != level && implied[name] != level {
+			return false
+		}
+	}
+	return true
+}
+
 func wellFormedTerm(s string) bool {
 	if s == "" || len(s) > maxTermLength {
 		return false

@@ -146,7 +146,7 @@ pred verifiedResult[r: IssuanceResult] {
   r.nonemptyToken = Yes
   r.futureExpiry = Yes
   r.repositorySelection = Selected
-  ContentsRead in r.effectivePermissions
+  allowedPermissions in r.effectivePermissions
 
   // Equal count and equal name set leave no room for a repeated name or ID.
   (ModelConfiguration.policy != WithoutCountCheck) implies
@@ -198,7 +198,7 @@ assert AllIssueCallsExplicit {
 assert NoOverbroadTokenReturned {
   baseline implies (all t: InstallationToken |
     t.result.effectivePermissions in (allowedPermissions + impliedPermissions) and
-    ContentsRead in t.result.effectivePermissions and
+    allowedPermissions in t.result.effectivePermissions and
     t.result.repositorySelection = Selected)
 }
 assert ExactNamesReturned {
@@ -245,7 +245,7 @@ assert WithoutPermissionCheckPreservesPermissionBoundary {
   ModelConfiguration.policy = WithoutPermissionCheck implies
     (all t: InstallationToken |
       t.result.effectivePermissions in (allowedPermissions + impliedPermissions) and
-      ContentsRead in t.result.effectivePermissions and
+      allowedPermissions in t.result.effectivePermissions and
       t.result.repositorySelection = Selected)
 }
 assert ReturnedResultsHaveValidTokenAndExpiry {

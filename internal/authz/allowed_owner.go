@@ -39,6 +39,12 @@ func NewAllowedOwner(id int64, name string, ownerType OwnerType) (AllowedOwner, 
 	return AllowedOwner{id: id, name: ownerName, ownerType: ownerType}, nil
 }
 
+// IsZero は、NewAllowedOwner を経ていないゼロ値かを返す。
+// NewAllowedOwner は正の Owner ID だけを受け付けるため、Owner ID が 0 の値はゼロ値に限る。
+func (o AllowedOwner) IsZero() bool {
+	return o.id == 0
+}
+
 // ID は、許可オーナーの不変 Owner ID を返す。
 func (o AllowedOwner) ID() int64 {
 	return o.id
