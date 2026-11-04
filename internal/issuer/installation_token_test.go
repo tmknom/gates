@@ -1,4 +1,4 @@
-package issuer_test
+package issuer
 
 import (
 	"bytes"
@@ -8,13 +8,11 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
-
-	"github.com/tmknom/gates/internal/issuer"
 )
 
-func verifiedToken(t *testing.T) issuer.InstallationToken {
+func verifiedToken(t *testing.T) InstallationToken {
 	t.Helper()
-	got, err := verify(t, issue(t, marshal(t, recordedIssuance())))
+	got, err := verifyResult(t, issue(t, marshal(t, recordedIssuance())))
 	if err != nil {
 		t.Fatalf("Verify returned error: %v", err)
 	}

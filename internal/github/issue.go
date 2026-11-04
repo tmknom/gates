@@ -41,7 +41,7 @@ func (c *Client) Issue(ctx context.Context, appJWT AppJWT, grant authz.TokenGran
 // 上限を超える本文は、どの項目も読まない発行結果にするため、error にせず空の本文として返す。
 func (c *Client) postIssuance(ctx context.Context, appJWT AppJWT, grant authz.TokenGrant) ([]byte, string, error) {
 	body := issuanceRequestBody(grant)
-	request := c.newAppJWTRequest(ctx, http.MethodPost, issuancePath(grant.InstallationID()), appJWT)
+	request := c.newRequest(ctx, http.MethodPost, issuancePath(grant.InstallationID()), appJWT.redactedValue)
 	request.Header.Set("Content-Type", "application/json")
 	request.Body = io.NopCloser(strings.NewReader(body))
 	request.ContentLength = int64(len(body))
@@ -58,13 +58,13 @@ func (c *Client) postIssuance(ctx context.Context, appJWT AppJWT, grant authz.To
 	switch response.StatusCode {
 	case http.StatusCreated:
 	case http.StatusUnprocessableEntity:
-		return nil, "", fmt.Errorf("%w: status %d, request id %q", ErrIssuanceRejected, response.StatusCode, requestID)
+		return nil, "", fmt.Errorf("%w: status %d, github request id %q", ErrIssuanceRejected, response.StatusCode, requestID)
 	default:
 		return nil, "", statusFailure(response, requestID)
 	}
 	responseBody, err := io.ReadAll(io.LimitReader(response.Body, issuanceSizeLimit+1))
 	if err != nil {
-		return nil, "", fmt.Errorf("%w: response body cannot be read, request id %q", ErrTransientFailure, requestID)
+		return nil, "", fmt.Errorf("%w: response body cannot be read, github request id %q", ErrTransientFailure, requestID)
 	}
 	if len(responseBody) > issuanceSizeLimit {
 		return nil, requestID, nil

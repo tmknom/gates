@@ -1,4 +1,4 @@
-package issuer_test
+package issuer
 
 import (
 	"encoding/json/v2"
@@ -15,7 +15,6 @@ import (
 
 	"github.com/tmknom/gates/internal/authz"
 	"github.com/tmknom/gates/internal/github"
-	"github.com/tmknom/gates/internal/issuer"
 	"github.com/tmknom/gates/internal/permission"
 	"github.com/tmknom/gates/internal/request"
 )
@@ -96,8 +95,22 @@ func issue(t *testing.T, body string) github.IssuanceResult {
 	return result
 }
 
-// tokenGrant は、TokenGrant を Grant でしか作れないため、Caller、形式検証を通した発行要求、許可オーナー、Installation をそろえて Grant を通す。
+// tokenGrant は、TokenGrant を Grant でしか作れないため、記録した Installation で grant を通す。
 func tokenGrant(t *testing.T) authz.TokenGrant {
+	t.Helper()
+	installation, err := authz.NewInstallation(installationID, allowedOwnerID, time.Time{})
+	if err != nil {
+		t.Fatalf("NewInstallation returned error: %v", err)
+	}
+	tokenGrant, err := grant(t, installation)
+	if err != nil {
+		t.Fatalf("Grant returned error: %v", err)
+	}
+	return tokenGrant
+}
+
+// grant は、Lambda Handler と同じく、Caller、形式検証を通した発行要求、許可オーナーをそろえて、Installation から発行許可を確定する。
+func grant(t *testing.T, installation authz.Installation) (authz.TokenGrant, error) {
 	t.Helper()
 	caller, err := authz.NewCaller(allowedOwnerID, repositoryIDA, 4004, 1, authz.WorkflowTriggerAttributes{})
 	if err != nil {
@@ -113,15 +126,7 @@ func tokenGrant(t *testing.T) authz.TokenGrant {
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
-	installation, err := authz.NewInstallation(installationID, allowedOwnerID, time.Time{})
-	if err != nil {
-		t.Fatalf("NewInstallation returned error: %v", err)
-	}
-	grant, err := authz.Grant(caller, req, allowedOwner(t), installation)
-	if err != nil {
-		t.Fatalf("Grant returned error: %v", err)
-	}
-	return grant
+	return authz.Grant(caller, req, allowedOwner(t), installation)
 }
 
 func allowedOwner(t *testing.T) authz.AllowedOwner {
@@ -133,9 +138,9 @@ func allowedOwner(t *testing.T) authz.AllowedOwner {
 	return owner
 }
 
-func verify(t *testing.T, result github.IssuanceResult) (issuer.InstallationToken, error) {
+func verifyResult(t *testing.T, result github.IssuanceResult) (InstallationToken, error) {
 	t.Helper()
-	return issuer.Verify(result, tokenGrant(t), allowedOwner(t), now)
+	return verify(result, tokenGrant(t), allowedOwner(t), now)
 }
 
 func mustNewPermissions(t *testing.T, levels map[string]string) permission.Permissions {
@@ -158,7 +163,7 @@ func fullNames(repositories []github.EffectiveRepository) []string {
 func TestVerify_ReturnsInstallationTokenOfIssuanceResult(t *testing.T) {
 	result := issue(t, marshal(t, recordedIssuance()))
 
-	got, err := verify(t, result)
+	got, err := verifyResult(t, result)
 	if err != nil {
 		t.Fatalf("Verify returned error: %v", err)
 	}
@@ -197,7 +202,7 @@ func TestVerify_Accepts(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			response := recordedIssuance()
 			tt.modify(response)
-			if _, err := verify(t, issue(t, marshal(t, response))); err != nil {
+			if _, err := verifyResult(t, issue(t, marshal(t, response))); err != nil {
 				t.Errorf("Verify returned error: %v", err)
 			}
 		})
@@ -259,9 +264,9 @@ func TestVerify_Rejects(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := verify(t, issue(t, tt.body(t)))
-			if !errors.Is(err, issuer.ErrVerificationFailure) {
-				t.Fatalf("Verify error = %v, want %v", err, issuer.ErrVerificationFailure)
+			got, err := verifyResult(t, issue(t, tt.body(t)))
+			if !errors.Is(err, ErrVerificationFailure) {
+				t.Fatalf("Verify error = %v, want %v", err, ErrVerificationFailure)
 			}
 			if !reflect.ValueOf(got).IsZero() {
 				t.Errorf("Verify returned non-zero InstallationToken with error")
@@ -270,8 +275,8 @@ func TestVerify_Rejects(t *testing.T) {
 			if !strings.Contains(message, tt.condition) {
 				t.Errorf("error message %q does not contain condition %q", message, tt.condition)
 			}
-			if !strings.Contains(message, requestID) {
-				t.Errorf("error message %q does not contain request id %q", message, requestID)
+			if want := `github request id "` + requestID + `"`; !strings.Contains(message, want) {
+				t.Errorf("error message %q does not contain %q", message, want)
 			}
 			hidden := []string{tokenMarker, allowedOwnerName, "repo-b", "repo-c", "example-repo", strconv.Itoa(repositoryIDA), strconv.Itoa(repositoryIDB), strconv.Itoa(allowedOwnerID), strconv.Itoa(otherOwnerID)}
 			for _, value := range hidden {
@@ -290,30 +295,5 @@ func modified(modify func(response map[string]any)) func(t *testing.T) string {
 		response := recordedIssuance()
 		modify(response)
 		return marshal(t, response)
-	}
-}
-
-func TestVerify_PanicsOnZeroValue(t *testing.T) {
-	tests := []struct {
-		name   string
-		verify func(t *testing.T, result github.IssuanceResult)
-	}{
-		{name: "zero token grant panics", verify: func(t *testing.T, result github.IssuanceResult) {
-			_, _ = issuer.Verify(result, authz.TokenGrant{}, allowedOwner(t), now)
-		}},
-		{name: "zero allowed owner panics", verify: func(t *testing.T, result github.IssuanceResult) {
-			_, _ = issuer.Verify(result, tokenGrant(t), authz.AllowedOwner{}, now)
-		}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := issue(t, marshal(t, recordedIssuance()))
-			defer func() {
-				if recover() == nil {
-					t.Errorf("Verify did not panic")
-				}
-			}()
-			tt.verify(t, result)
-		})
 	}
 }

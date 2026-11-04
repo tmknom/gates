@@ -24,6 +24,8 @@ const (
 	recordedAccountID      = 583231
 	allowedOwnerName       = "allowed-owner"
 	requestID              = "ABCD:1234:5678:9ABC:DEF0"
+	// labeledRequestID は、エラー文言の GitHub の request ID を、相関 ID と見分けるラベル付きで表す
+	labeledRequestID = `github request id "` + requestID + `"`
 
 	// responseMarker は、応答本文がエラー文言に漏れていないことを確かめる目印である。
 	responseMarker = "response-body-marker"
@@ -288,7 +290,7 @@ func TestResolveInstallation_UnreadableInstallationReturnsErrInstallationUnavail
 			got, err := resolve(t, newAPIStub(t, respondBody(tt.body(t))).client(t))
 
 			assertRejected(t, got, err, authz.ErrInstallationUnavailable)
-			if !strings.Contains(err.Error(), requestID) {
+			if !strings.Contains(err.Error(), labeledRequestID) {
 				t.Errorf("error message %q does not contain the request id", err.Error())
 			}
 		})
@@ -318,7 +320,7 @@ func TestResolveInstallation_StatusFailure(t *testing.T) {
 			got, err := resolve(t, newAPIStub(t, respondStatus(tt.status, tt.header)).client(t))
 
 			assertRejected(t, got, err, tt.want)
-			for _, value := range []string{"status " + strconv.Itoa(tt.status), requestID} {
+			for _, value := range []string{"status " + strconv.Itoa(tt.status), labeledRequestID} {
 				if !strings.Contains(err.Error(), value) {
 					t.Errorf("error message %q does not contain %q", err.Error(), value)
 				}

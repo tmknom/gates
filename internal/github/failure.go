@@ -14,7 +14,7 @@ func statusFailure(response *http.Response, requestID string) error {
 	if response.StatusCode >= http.StatusInternalServerError || isRateLimited(response) {
 		kind = ErrTransientFailure
 	}
-	return fmt.Errorf("%w: status %d, request id %q", kind, response.StatusCode, requestID)
+	return fmt.Errorf("%w: status %d, github request id %q", kind, response.StatusCode, requestID)
 }
 
 // 規則は Lambda Design の「GitHub API の失敗の分類」に記述する。

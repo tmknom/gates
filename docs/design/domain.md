@@ -185,7 +185,11 @@ GATES 用 OIDC JWT は、Payload から取り出した時点では未検証で�
 | ワークフロー起動属性 | 認証に成功した後で、含まれていた属性だけ | 事実：Security Design §5 |
 | 要求対象、要求権限 | 形式検証を通った後 | 事実：Lambda Design §1。時点は推論 |
 | 取得した Installation の Installation ID とインストール先 Owner ID | Installation の解決に成功した後 | 推論：インストール先 Owner ID の不一致は運用者かオーナーの管理者が直す失敗であり、どのアカウントの Installation が返ったかを、呼び出しを再現せずに確かめるため。監査記録は応答に出ないため、エラー文言で値を伏せる理由は及ばない |
-| 失効の成否 | 照合に失敗し、発行済みのトークンを失効させようとした場合 | 事実：Lambda Design §3.1 |
+| 失効の結果 | 照合失敗で終わった場合 | 事実：Lambda Design §3.1 |
+
+照合に失敗した発行処理では、失効を試みたかどうかと、試みた場合の成否を残します。
+この値を **失効の結果**（Revocation Outcome）と呼び、試みなかった、試みて成功した、試みて失敗した、の 3 つのどれかをとります（語は候補）。
+試みなかった場合を成否の一方に含めないのは、トークン文字列を取得できずに失効を試みなかった処理を、監査記録で失効を試みた処理と見分けるためです（推論：[5.3 Invariants](#53-invariants) の発行処理の不変条件は、トークン文字列を取得できた場合にだけ失効の試行を求めるため）。
 
 監査記録の単位は発行処理 1 回です。
 中断した発行処理では残らない場合があります（[4.3](#43-lifecycle-of-an-issuance)）。
@@ -246,7 +250,8 @@ flowchart LR
 | 発行許可の確定 | Grant | Authorization | Caller、発行要求、許可オーナー、取得した Installation | 発行許可、または拒否（インストール先 Owner ID の不一致、停止、認可条件の不成立） | 事実：Lambda Design §5、Security Design §3.1 |
 | 発行 | Issue | Token Issuer | 発行許可、GitHub App JWT | 発行結果、または失敗 | 事実：Requirements FR-014、FR-015 |
 | 発行結果の照合 | Verify | Token Issuer | 発行結果、発行許可、許可オーナー、現在時刻 | 返却可能な発行結果、または拒否 | 事実：Requirements FR-018 |
-| 失効 | Revoke | Token Issuer | 照合を通らなかった発行結果のトークン | 失効の成否。成否にかかわらず拒否のまま終わる | 事実：Requirements FR-007、FR-018、Lambda Design §3.1 |
+| 失効 | Revoke | Token Issuer | 照合を通らなかった発行結果のトークン | 成功または失敗。成否にかかわらず拒否のまま終わる | 事実：Requirements FR-007、FR-018、Lambda Design §3.1 |
+| Installation Token の発行 | Issue Installation Token | Token Issuer | 発行許可の確定を行う関数、許可オーナー、現在時刻 | 署名、Installation の解決、発行許可の確定、発行、発行結果の照合を順に行い、返却可能な発行結果、またはいずれかの段階の拒否。照合失敗には失効の結果を添える | 事実：Lambda Design §6.2。語は候補 |
 | 監査記録の出力 | Audit | Lambda Handler | 発行処理の結果 | 監査記録 | 事実：Requirements FR-021 |
 | 署名鍵を更新する | （運用手順） | GATES 運用者 | 新しい Private Key | 新しい KMS Key と、Lambda が参照する Key ARN の切り替え | 事実：Requirements FR-017、AWS Infrastructure Design §4.2 |
 | Installation の対象を変える | （GitHub 側の操作） | GitHub App / オーナーの管理者 | 対象リポジトリの選択 | 読み取り可能範囲の上限が変わる | 事実：Requirements §2.3、Security Design §3.2 |
@@ -264,6 +269,7 @@ flowchart LR
 | Issue | GitHub 発行拒否（発行 API の `422`）。通信の失敗などは一時的な障害、その他の失敗は Installation 利用不可 |
 | Verify | 照合失敗 |
 | Revoke | なし。失効に失敗しても照合失敗のまま終わる |
+| Issue Installation Token | 失敗した段階（Sign、Resolve Installation、Grant、Issue、Verify）の種別をそのまま返す |
 
 どの段階にも属さない想定外の障害も、Handler が応答を書ける限り内部障害で終わります。
 
