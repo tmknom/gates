@@ -1,8 +1,6 @@
 package github_test
 
 import (
-	"bytes"
-	jsonv1 "encoding/json"
 	"encoding/json/v2"
 	"fmt"
 	"log/slog"
@@ -14,47 +12,41 @@ import (
 
 const appJWTValue = "secret.app.jwt"
 
-// credential は、値を伏せて出力する資格情報と、その値である。
-type credential struct {
+// credentialCase は、値を伏せて出力する資格情報と、その値である。
+type credentialCase struct {
 	name   string
 	output any
 	value  string
 }
 
 // credentials は、GitHub Client が扱う資格情報を返す。Installation Access Token は発行応答からしか作れないため、Issue で読み取る。
-func credentials(t *testing.T) []credential {
+func credentials(t *testing.T) []credentialCase {
 	t.Helper()
 	token, ok := issueBody(t, marshal(t, recordedIssuance())).Token()
 	if !ok {
 		t.Fatal("Token() was not read")
 	}
-	return []credential{
+	return []credentialCase{
 		{name: "GitHub App JWT", output: github.NewAppJWT(appJWTValue), value: appJWTValue},
 		{name: "Installation Access Token", output: token, value: tokenMarker},
 	}
 }
 
+// TestCredentials_AreRedactedInOutput は、credential.Redacted のメソッドが各資格情報の型に昇格していることを確かめる。
+// 書式指定や出力先ごとの網羅は credential package のテストが確かめる。
 func TestCredentials_AreRedactedInOutput(t *testing.T) {
 	tests := []struct {
 		name   string
 		output func(t *testing.T, value any) string
 	}{
 		{name: "%v does not show the value", output: func(_ *testing.T, value any) string { return fmt.Sprintf("%v", value) }},
-		{name: "%#v does not show the value", output: func(_ *testing.T, value any) string { return fmt.Sprintf("%#v", value) }},
-		{name: "exported field with %+v does not show the value", output: func(_ *testing.T, value any) string {
-			return fmt.Sprintf("%+v", struct{ Credential any }{Credential: value})
-		}},
-		{name: "slog attribute does not show the value", output: func(_ *testing.T, value any) string {
-			var buf bytes.Buffer
-			slog.New(slog.NewJSONHandler(&buf, nil)).Info("msg", "credential", value, "holder", struct{ Credential any }{Credential: value})
-			return buf.String()
-		}},
-		{name: "encoding/json does not show the value", output: func(t *testing.T, value any) string {
-			b, err := jsonv1.Marshal(struct{ Credential any }{Credential: value})
-			if err != nil {
-				t.Fatalf("encoding/json Marshal returned error: %v", err)
+		// slog の handler は LogValue がなくても MarshalJSON や Format で伏せた表記を出すため、解決した値の種類で LogValue を確かめる
+		{name: "slog value resolves to the redacted notation", output: func(t *testing.T, value any) string {
+			resolved := slog.AnyValue(value).Resolve()
+			if resolved.Kind() != slog.KindString {
+				t.Errorf("slog value kind = %v, want %v", resolved.Kind(), slog.KindString)
 			}
-			return string(b)
+			return resolved.String()
 		}},
 		{name: "encoding/json/v2 does not show the value", output: func(t *testing.T, value any) string {
 			b, err := json.Marshal(struct{ Credential any }{Credential: value})

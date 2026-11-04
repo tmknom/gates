@@ -47,7 +47,7 @@ func (c *Client) ResolveInstallation(ctx context.Context, appJWT AppJWT, owner a
 
 // fetchInstallation は、Installation の応答のうち 200 の本文と、GitHub の request ID を返す。
 func (c *Client) fetchInstallation(ctx context.Context, appJWT AppJWT, owner authz.AllowedOwner) ([]byte, string, error) {
-	response, err := c.httpClient.Do(c.newRequest(ctx, http.MethodGet, installationPath(owner), appJWT.redactedValue))
+	response, err := c.httpClient.Do(c.newRequest(ctx, http.MethodGet, installationPath(owner), appJWT))
 	if err != nil {
 		// 通信の error は要求の URL（許可オーナー名を含む）を文言に含めるため包まない
 		return nil, "", fmt.Errorf("%w: request failed", ErrTransientFailure)

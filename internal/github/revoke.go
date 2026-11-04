@@ -21,7 +21,7 @@ func (c *Client) Revoke(ctx context.Context, token InstallationAccessToken) erro
 	ctx, cancel := context.WithTimeout(ctx, revocationTimeout)
 	defer cancel()
 
-	response, err := c.httpClient.Do(c.newRequest(ctx, http.MethodDelete, "/installation/token", token.redactedValue))
+	response, err := c.httpClient.Do(c.newRequest(ctx, http.MethodDelete, "/installation/token", token))
 	if err != nil {
 		// 要求の URL は固定のエンドポイントで、伏せる値を含まないため包む
 		return fmt.Errorf("revocation request failed: %w", err)

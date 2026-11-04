@@ -6,6 +6,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/tmknom/gates/internal/credential"
 	"github.com/tmknom/gates/internal/permission"
 	"github.com/tmknom/gates/internal/repository"
 )
@@ -13,7 +14,14 @@ import (
 // InstallationAccessToken は、発行応答から読み取った Installation Access Token である。
 // 値を取り出せるコンポーネントは、Lambda Design の「Logical Components」の資格情報の表に従う。
 type InstallationAccessToken struct {
-	redactedValue
+	credential.Redacted
+	// credential.Redacted の規則に従い、ポインタで持つ
+	value *string
+}
+
+// expose は、GitHub API の認証に使う値を返す。ゼロ値で呼ぶと panic する。
+func (t InstallationAccessToken) expose() string {
+	return *t.value
 }
 
 // RepositorySelection は、対象が選択したリポジトリに限られるか、全リポジトリかを表す対象の選び方である。
@@ -154,7 +162,7 @@ func readToken(value jsontext.Value) (InstallationAccessToken, bool) {
 	if !ok || token == "" {
 		return InstallationAccessToken{}, false
 	}
-	return InstallationAccessToken{redactedValue{value: &token}}, true
+	return InstallationAccessToken{value: &token}, true
 }
 
 // readPermissions は、実効権限を要求の Permissions と同じ文字種の規則で読む。

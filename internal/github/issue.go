@@ -41,7 +41,7 @@ func (c *Client) Issue(ctx context.Context, appJWT AppJWT, grant authz.TokenGran
 // 上限を超える本文は、どの項目も読まない発行結果にするため、error にせず空の本文として返す。
 func (c *Client) postIssuance(ctx context.Context, appJWT AppJWT, grant authz.TokenGrant) ([]byte, string, error) {
 	body := issuanceRequestBody(grant)
-	request := c.newRequest(ctx, http.MethodPost, issuancePath(grant.InstallationID()), appJWT.redactedValue)
+	request := c.newRequest(ctx, http.MethodPost, issuancePath(grant.InstallationID()), appJWT)
 	request.Header.Set("Content-Type", "application/json")
 	request.Body = io.NopCloser(strings.NewReader(body))
 	request.ContentLength = int64(len(body))
