@@ -19,7 +19,7 @@ func Grant(caller Caller, req request.TokenRequest, owner AllowedOwner, inst Ins
 	if !inst.suspendedAt.IsZero() {
 		return TokenGrant{}, fmt.Errorf("%w: installation is suspended", ErrInstallationUnavailable)
 	}
-	// 要求の Permissions を写さない理由は Lambda Design の「Processing Flow」に記述する
+	// 要求の Permissions を写さない。認可条件で両者が等しいことは確かめているが、写すと、認可の条件を将来変えたときに要求の値がそのまま発行範囲に流れるため
 	return TokenGrant{
 		installationID: inst.id,
 		repositories:   req.Repositories(),
