@@ -130,6 +130,8 @@ KMS Key の構成・IAM 権限は Terraform で管理します。GitHub App Priv
 - 入力が不正、または認証に失敗したら、GitHub API や KMS のトークン発行処理に進まない。Installation の解決や署名の失敗、発行結果の不一致は Fail Closed とする。
 - 監査記録には相関 ID、時刻、処理結果（成功またはエラーコード）、拒否の理由に加え、認証済み Caller の Owner ID と Repository ID、ワークフロー実行 ID と試行番号、ワークフロー起動属性、要求対象（`owner/repo`）、要求権限、取得した Installation の Installation ID と `account.id`、照合に失敗した場合の失効の結果を記録する。ワークフロー実行 ID と試行番号を残すのは、監査記録から GitHub 上のワークフロー実行にたどり着けるようにするためで、認可には使わない。認証前の失敗では Caller が確定していないため、未検証の値を認証済み主体として記録しない。秘密鍵、OIDC JWT、GitHub App JWT、Installation Access Token、AWS 一時認証情報は記録しない。
 - ワークフロー起動属性（`actor`、`event_name`、`ref`、`workflow_ref`、`environment` など）を残すのは、後述の `pull_request_target` の悪用のように、どのイベントと ref でトークンを得たかを調べる場面に備えるためである。GitHub 側の記録は保持期間を過ぎたり削除されたりし得る。ワークフロー起動属性はベストエフォートで記録し、Claim が欠落していても拒否しない。IAM Role の引き受けと Lambda の呼び出しは AWS 側の記録（CloudTrail など）が担い、GATES の監査記録はそれを補うアプリケーション層の記録と位置づける。
+- 初期化の失敗（固定設定の欠落か不正、AWS SDK の設定の読み込みの失敗）のログには、満たさなかった条件と、環境変数から読んだ値ならその環境変数の名前だけを書き、値を書かない。GATES 用 Audience と KMS Key ARN は資格情報ではないが、ログに書く値を増やさない。
+- Handler が回復した panic の値は、応答、監査記録、ログのどれにも書かない。値に資格情報が入っていない保証がないためである。
 - 相関 ID は成功応答と失敗応答の両方に、同じ位置で含める。ワークフローのログに残った相関 ID から監査記録へたどれるようにするためである。
 - AWS Invoke の成功と Lambda の業務成功を区別し、Composite Action は `FunctionError` と応答の両方を確認する。
 - 許可オーナー配下のリポジトリであることは、ワークフロー内のコードの信頼性を保証しない。`pull_request_target` などで信頼できない Pull Request のコードを実行すると、正当な JWT と AWS 認証情報を取得できるジョブの権限を悪用され得る。利用者は資格情報を取得するジョブで信頼できないコードを実行しない。

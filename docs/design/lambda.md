@@ -186,6 +186,9 @@ Lambda は、GitHub API の発行応答を発行許可と照合し、照合を�
 相関 ID は応答全体の属性であり、呼び出し元が `ok` の値によらず同じ場所から読めるようにするためです。
 
 Handler は処理中の panic を回復し、`internal_error` の失敗応答として `request_id` とともに返します。
+panic の値は、応答にも監査記録にも運用者向けのログにも書きません。
+値に資格情報が入っていない保証がないためです。
+回復した panic は、運用者向けのログに相関 ID とスタックトレースを ERROR で記録します。
 `FunctionError` になるのは、タイムアウト、メモリ不足、初期化の失敗のように Handler が応答を書けない場合だけです。
 この場合は応答に `request_id` がないため、呼び出し元は Invoke の時刻と `run_id` で CloudWatch Logs の記録と突き合わせます。
 
@@ -203,11 +206,31 @@ Handler は処理中の panic を回復し、`internal_error` の失敗応答と
 | `token_issuance_failed` | 一時的な障害 | GitHub API の一時的な障害。通信の失敗、タイムアウト、5xx、レート制限による 403 / 429 で、Installation の取得と発行 API の呼び出しの両方を含む。再試行で解消し得る |
 | `github_issuance_rejected` | GitHub 発行拒否 | GATES の認可が成立した後、GitHub の発行 API が `422` で要求を拒否した。検証失敗やスパム判定など、原因は応答コードから特定できない |
 | `issuance_verification_failed` | 照合失敗 | GitHub API の発行応答が [Success](#31-success) の照合を通らない。空でないトークン文字列を取得できた場合は失効を試みる |
-| `internal_error` | 内部障害 | Handler の panic、Discovery / JWKS の非一時的な取得・構造異常、JWKS に使用可能な鍵がない場合、KMS が再試行では解消しない失敗を返した場合（鍵の無効化、鍵の状態、権限の不足など）、KMS の応答を署名として解釈できない場合、KMS に要求を送る前の AWS SDK の失敗を含む |
+| `internal_error` | 内部障害 | Handler の panic、部品が返したエラーがどの失敗の種別にも当たらない場合、Discovery / JWKS の非一時的な取得・構造異常、JWKS に使用可能な鍵がない場合、KMS が再試行では解消しない失敗を返した場合（鍵の無効化、鍵の状態、権限の不足など）、KMS の応答を署名として解釈できない場合、KMS に要求を送る前の AWS SDK の失敗を含む |
 
 一時的な障害のエラーコードは失敗した依存先ごとに分かれるため、外部の依存を呼ぶコンポーネントは、失敗の種別を依存先が分かる形で返します。
 Token Issuer も、KMS Signer と GitHub Client の失敗を、依存先が分かる種別のまま返します。
 Lambda Handler は、その種別をエラーコードに写します。
+部品が返したエラーがどの失敗の種別にも当たらなければ、Lambda Handler は `internal_error` に写します。
+写像の漏れを、再実行を促すなどの利用者への誤った案内にしないためです。
+
+失敗応答の `message` は、エラーコードごとに固定した次の文言です。
+部品のエラー文言を含めず、拒否の理由を応答に出しません（[応答とエラー文言に出す情報](#応答とエラー文言に出す情報)）。
+一時的な障害の 3 つのコードだけに再実行を促す文を添えます。
+再実行では解消しない失敗に再実行を促さないためです。
+
+| Error code | `message` |
+|---|---|
+| `invalid_request` | `The request payload is invalid.` |
+| `invalid_id_token` | `The ID token is not accepted.` |
+| `authorization_denied` | `The requested token is not permitted.` |
+| `identity_verification_unavailable` | `Identity verification is temporarily unavailable. Retry later.` |
+| `signing_unavailable` | `Signing is temporarily unavailable. Retry later.` |
+| `installation_resolution_failed` | `The GitHub App installation is not available for issuance.` |
+| `token_issuance_failed` | `The GitHub API is temporarily unavailable. Retry later.` |
+| `github_issuance_rejected` | `GitHub rejected the token issuance.` |
+| `issuance_verification_failed` | `The issued token did not pass verification and was not returned.` |
+| `internal_error` | `An internal error occurred.` |
 
 #### GitHub API の失敗の分類
 
@@ -277,7 +300,7 @@ KMS の署名と Grant の失敗には前置しません。
 
 ```mermaid
 flowchart LR
-  H[Lambda Handler]
+  E[Runtime Entry] --> H[Lambda Handler]
   H --> V[OIDC Verifier]
   H --> A[Authorization]
   H --> I[Token Issuer]
@@ -287,6 +310,7 @@ flowchart LR
 
 | Component | 責務 |
 |---|---|
+| Runtime Entry | 起動時の固定設定の読み込みと各コンポーネントの組み立て、初期化の失敗の記録と異常終了、Lambda Runtime からの Payload と相関 ID の受け取りと、Lambda Handler の応答の返却。Lambda Runtime のライブラリと AWS SDK の設定の読み込みを使う唯一のコンポーネントで、失敗の分類や値の検証の判断を持たない |
 | Lambda Handler | Payload の形式検証、各コンポーネントの呼び出し順序の制御、監査情報の記録、応答形式 |
 | OIDC Verifier | GitHub OIDC JWT の署名・Issuer・Audience・時間・Claim 検証と Caller の確定、Issuer の Discovery / JWKS の取得と保持 |
 | Authorization | Caller、要求（対象、権限）、取得済み Installation、固定設定から発行可否を判定し、TokenGrant を確定。ネットワーク通信を行わない |
@@ -307,6 +331,26 @@ flowchart LR
 | Installation Access Token | 成功応答を書く Lambda Handler と、失効を要求する GitHub Client |
 
 検証済みの GATES 用 OIDC JWT は、OIDC Verifier が Caller を確定する間だけ存在し、OIDC Verifier の外に出しません。
+
+### 4.1 Runtime Entry
+
+Lambda Handler は、Invoke の Payload をバイト列のまま受け取り、応答を JSON に符号化したバイト列で返します。
+Payload を Lambda Runtime のライブラリに復号させると、JSON として不正な Payload が Lambda Handler に届く前に `FunctionError` になり、`invalid_request` の応答と監査記録を返せないためです。
+Runtime Entry は、Lambda Runtime が Invoke ごとに ctx に入れる request ID を読んで、相関 ID として Lambda Handler に値で渡します。
+ctx は期限を変えずにそのまま渡します（[Call Time Budget](#64-call-time-budget)）。
+Lambda Handler は Lambda Runtime のライブラリに依存せず、応答を書けた Invoke を `FunctionError` にしません。
+Lambda Runtime のライブラリを Runtime Entry だけに閉じるのは、Lambda Handler のテストで Lambda の ctx を組み立てずに済ませるためです。
+
+固定設定のうち Issuer と API Host は本ドキュメントが固定し（[§6.1](#61-oidc-validation)、[§6.3](#63-github-client)）、残りの値（許可オーナー、Client ID、GATES 用 Audience、KMS Key ARN）は Runtime Entry が起動時に環境変数から読みます。
+環境変数の欠落か不正な値、[Domain Model](domain.md#53-invariants) の固定設定、認証の固定設定、署名の固定設定の不変条件の違反、AWS SDK の設定の読み込みの失敗は、どれも初期化の失敗です。
+初期化に失敗した Runtime Entry は、ログに記録して異常終了し、Lambda Handler を Lambda Runtime に渡しません。
+Lambda はこの Invoke を `Runtime.ExitError` の `FunctionError` にします。
+
+要求ごとに `internal_error` を返す形にしないのは、どの失敗も固定設定かデプロイの誤りで再実行では解消せず、要求を受け付けても発行が一度も成立しないためです。
+初期化を失敗させれば、設定の誤りが Invoke の時点で明らかになり、Lambda Handler に未初期化の部品を扱う分岐が要りません。
+初期化の失敗のログには、満たさなかった条件と、環境変数から読んだ値ならその環境変数の名前を書き、値を書きません（[Security Design](security.md#5-failure-audit-and-security-risks)）。
+AWS SDK の失敗も、SDK の文言を含めず、設定を読めなかったことだけを書きます。
+Discovery / JWKS は初期化で取得しません（[§6.1](#61-oidc-validation)）。
 
 ## 5. Processing Flow
 
@@ -427,9 +471,48 @@ GitHub App JWT を作ってから発行の応答を受け取るまでは、署�
 残り時間が 1 秒以下でも失効は試み、すぐにタイムアウトした失効は失敗として監査記録に残します。
 試みなかったことにすると、照合に失敗してトークン文字列を取得できたのに失効を試みない経路が、中断のほかにできるためです（[Domain Model](domain.md#53-invariants) の発行処理の不変条件）。
 
-## 7. Sources
+## 7. Audit Record
+
+監査記録の項目と記録する条件は [Domain Model](domain.md#36-audit-record) を、記録する値と記録しない値は [Security Design](security.md#5-failure-audit-and-security-risks) を正本とします。
+本節は、監査記録の出力の形とキー名を定めます。
+
+監査記録は、`log/slog` の JSON Handler で標準出力に 1 行ずつ書きます。
+Lambda の Go Runtime では標準出力が CloudWatch Logs に送られ、JSON Handler は文字列の値の改行と `"` をエスケープするため、ワークフロー起動属性に改行が入っても 1 行に収まります。
+1 回の発行処理につき 1 行を、応答を返す直前に出力します。
+途中の手順で出力すると、1 回の発行処理に複数の記録が残るためです。
+
+監査記録の行は、`msg` が `audit record` で、`level` が `INFO` です。
+ほかのログ（除外した JWK、初期化の失敗、回復した panic）は別の `msg` を持ち、監査記録のキーを持ちません。
+ログの種類を表すキーを別に設けないのは、`msg` と同じ事実を二か所に書くと、二つの印が食い違い得るためです。
+結果によらず `INFO` にするのは、拒否は通常の運用で起きる記録であり、監視は `result` の値で行うためです。
+時刻は `slog` が付ける `time`（RFC 3339）をそのまま監査記録の時刻とし、独自のキーを持ちません。
+記録は結果が確定した直後に 1 回書くため、書いた時刻が結果の時刻だからです。
+
+| Domain Model の項目 | キー | 値 |
+|---|---|---|
+| 相関 ID | `request_id` | 文字列。成功応答と失敗応答の `request_id` と同じ値 |
+| 結果 | `result` | 成功なら `success`、失敗なら [Failure](#32-failure) のエラーコード |
+| 拒否の理由 | `reason` | 失敗した部品のエラー文言。panic を回復した場合は固定の文言で、panic の値を含めない |
+| Caller の Owner ID と Repository ID、ワークフロー実行 ID と試行番号 | `caller.owner_id`、`caller.repository_id`、`caller.run_id`、`caller.run_attempt` | 整数 |
+| ワークフロー起動属性 | `caller.actor`、`caller.actor_id`、`caller.event_name`、`caller.ref`、`caller.sha`、`caller.workflow_ref`、`caller.job_workflow_ref`、`caller.environment` | 文字列。GATES 用 OIDC JWT の同名の Claim の値をそのまま写す |
+| 要求対象 | `request.repositories` | 完全名の文字列の配列。要求の表記と並びのまま |
+| 要求権限 | `request.permissions` | 権限名をキー、水準を値とするオブジェクト |
+| 取得した Installation の Installation ID とインストール先 Owner ID | `installation.id`、`installation.owner_id` | 整数 |
+| 失効の結果 | `revocation` | `not_attempted`、`succeeded`、`failed` のどれか |
+
+`caller`、`request`、`installation` は JSON のオブジェクトです。
+入れ子にするのは、Domain Model の概念の単位でキーがそろい、記録する条件もその単位で決まるためです。
+`time`、`level`、`msg` は `slog` のキーで、監査記録の項目には使いません。
+
+記録する条件を満たさなかった項目は、キーごと出しません。
+`null` や空文字列を値として書かないのは、条件を満たさなかったことと、値が空だったことを見分けるためです。
+ワークフロー起動属性は、欠落した属性のキーを出しません。
+
+## 8. Sources
 
 - [AWS — Lambda Invoke](https://docs.aws.amazon.com/lambda/latest/dg/invocation-sync.html)
+- [AWS — Lambda execution environment lifecycle](https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtime-environment.html)
+- [AWS — Lambda context object in Go](https://docs.aws.amazon.com/lambda/latest/dg/golang-context.html)
 - [AWS — AWS CLI Lambda Invoke](https://docs.aws.amazon.com/cli/latest/reference/lambda/invoke.html)
 - [AWS — AWS SDK for Go v2](https://docs.aws.amazon.com/sdk-for-go/v2/developer-guide/)
 - [AWS — KMS Sign](https://docs.aws.amazon.com/kms/latest/APIReference/API_Sign.html)
