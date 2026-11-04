@@ -15,6 +15,7 @@ GATES provides the following capabilities:
 - **Least-privilege tokens**: Issue installation access tokens scoped to explicitly requested repositories with `contents:read` permission.
 - **Self-service access**: Allow GitHub Actions workflows to request tokens through a reusable Composite Action.
 - **Infrastructure as Code**: Manage AWS infrastructure using Terraform.
+- **Formal verification**: Verify authorization and issuance rules against [Alloy](https://alloytools.org/) models.
 
 ## Architecture
 
@@ -27,6 +28,15 @@ The token issuance process follows these steps:
 3. AWS Lambda validates the OIDC token, identifies the caller, and authorizes the requested repositories and permissions.
 4. AWS Lambda uses AWS KMS to sign a GitHub App JWT and requests an installation access token from the GitHub API.
 5. AWS Lambda validates the issued token's scope and returns it to the Composite Action for use by subsequent workflow steps.
+
+## Documentation
+
+- [docs/](docs/README.md): Requirements, design, external specification research, and contributing guides.
+- [llms.txt](llms.txt): Index of the documents above for Coding Agents.
+
+## License
+
+[Apache License 2.0](LICENSE)
 
 ## Release notes
 
