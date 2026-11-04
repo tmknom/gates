@@ -9,6 +9,7 @@ GitHub の公式資料そのものではなく、GitHub の仕様が変更され
 - **対象**：GitHub.com。GitHub Enterprise Server は対象外。
 - **REST API の確認対象版**：`2026-03-10`。以下の REST API 資料と OpenAPI 定義（REST API Description）はこの版を参照する。
 - **バージョン指定の仕様**：REST API は `X-GitHub-Api-Version` で版を指定する。ヘッダーを省略すると `2022-11-28` が使われる。各版は新しい版の公開から24か月サポートされ、`2022-11-28` のサポートは2028年3月10日に終わる。サポート終了後、その版を指定した要求は `410 Gone` になり、ヘッダーを省略した要求の既定の版は変わる。版に依存する記述は、別の版では照合が必要である（[API Versions](https://docs.github.com/en/rest/about-the-rest-api/api-versions)）。
+- **`User-Agent` の仕様**：REST API のすべての要求は、有効な `User-Agent` ヘッダーを含む必要がある。ヘッダーのない要求は拒否され、無効な値には `403 Forbidden` が返る。値には、GitHub のユーザー名かアプリケーションの名前が推奨される（[Getting started with the REST API](https://docs.github.com/en/rest/using-the-rest-api/getting-started-with-the-rest-api)）。
 - **取得した値の調査記録**：[GitHub OIDC Discovery](../research/github/oidc-discovery.md)、[GitHub OIDC JWKS](../research/github/oidc-jwks.md)、[GitHub OIDC JWT](../research/github/oidc-jwt.md)、[GitHub App Installation](../research/github/app-installation.md)、[GitHub Installation Access Token](../research/github/installation-access-token.md)。取得日、取得方法、応答の全体はこれらの記録にある。
 
 根拠の種類は次のように区別します。

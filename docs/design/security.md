@@ -65,7 +65,7 @@ Caller の `repository_id` とワークフロー起動属性は監査のため�
 認可条件が成立した後、GitHub App JWT で許可オーナーの Installation を取得し、発行に使えるかを次の条件で確認します。
 
 - Installation の `account.id` が許可オーナーの Owner ID と一致する。
-- Installation が停止していない（`suspended_at` が空である）。
+- Installation が停止していない（`suspended_at` が `null` である）。`suspended_at` のキーがない、または `null` でも時刻でもない応答は、停止していないと読まず、Installation を作らない。
 
 どちらかが成立しなければ発行しません。
 この拒否は利用者の要求に起因せず、運用者かオーナーの管理者が GitHub 側か固定設定を直す必要があるため、認可拒否と区別し、Installation 利用不可として返します。
