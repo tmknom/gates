@@ -117,6 +117,34 @@ func TestAllowedPermissions(t *testing.T) {
 	}
 }
 
+func TestPermissions_EqualsAllowedExceptImplied(t *testing.T) {
+	tests := []struct {
+		name   string
+		levels map[string]string
+		equal  bool
+	}{
+		{name: "allowed permissions only return true", levels: map[string]string{"contents": "read"}, equal: true},
+		{name: "allowed and implied permissions return true", levels: map[string]string{"contents": "read", "metadata": "read"}, equal: true},
+		{name: "implied permissions without allowed permissions return false", levels: map[string]string{"metadata": "read"}, equal: false},
+		{name: "allowed permission name with another level returns false", levels: map[string]string{"contents": "write"}, equal: false},
+		{name: "implied permission name with another level returns false", levels: map[string]string{"contents": "read", "metadata": "write"}, equal: false},
+		{name: "additional permission entry returns false", levels: map[string]string{"contents": "read", "issues": "read"}, equal: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := mustNewPermissions(t, tt.levels).EqualsAllowedExceptImplied(); got != tt.equal {
+				t.Errorf("%v.EqualsAllowedExceptImplied() = %v, want %v", tt.levels, got, tt.equal)
+			}
+		})
+	}
+}
+
+func TestPermissions_EqualsAllowedExceptImpliedZeroValueIsFalse(t *testing.T) {
+	if (permission.Permissions{}).EqualsAllowedExceptImplied() {
+		t.Errorf("Permissions{}.EqualsAllowedExceptImplied() = true, want false")
+	}
+}
+
 func TestPermissions_EntriesInPermissionNameOrder(t *testing.T) {
 	p := mustNewPermissions(t, map[string]string{"metadata": "read", "contents": "read", "actions": "write"})
 

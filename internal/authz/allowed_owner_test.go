@@ -35,6 +35,19 @@ func TestNewAllowedOwner(t *testing.T) {
 	}
 }
 
+func TestAllowedOwner_IsZero(t *testing.T) {
+	owner, err := authz.NewAllowedOwner(12345, "Example-Org", authz.OwnerTypeOrganization)
+	if err != nil {
+		t.Fatalf("NewAllowedOwner returned error: %v", err)
+	}
+	if owner.IsZero() {
+		t.Error("IsZero() = true for the AllowedOwner created by NewAllowedOwner")
+	}
+	if !(authz.AllowedOwner{}).IsZero() {
+		t.Error("IsZero() = false for the zero AllowedOwner")
+	}
+}
+
 func TestNewAllowedOwner_Invalid(t *testing.T) {
 	tests := []struct {
 		name      string

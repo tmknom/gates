@@ -94,6 +94,17 @@ linters:
               desc: input and authorization packages must not communicate
             - pkg: github.com/
               desc: input and authorization packages must not depend on external libraries
+        # Token Issuer は通信を GitHub Client と KMS Signer に任せ、自らは通信しない。テストは発行結果を GitHub Client の発行応答から作るため、対象から外す
+        issuer-no-communication:
+          list-mode: lax
+          files:
+            - "**/internal/issuer/**"
+            - "!$test"
+          deny:
+            - pkg: net
+              desc: internal/issuer must leave communication to internal/github and internal/signer
+            - pkg: crypto/tls
+              desc: internal/issuer must leave communication to internal/github and internal/signer
         # AWS SDK は KMS Signer だけが使う。ほかのコンポーネントのテストが AWS SDK に依存せず、KMS のテストダブルが一つの package に閉じるようにするため
         aws-sdk:
           list-mode: lax
