@@ -63,5 +63,5 @@ func (f FullName) String() string {
 
 // Equal は、ASCII の範囲で大文字小文字を区別せずに比べる。
 func (f FullName) Equal(other FullName) bool {
-	return f.ownerName.Equal(other.ownerName) && equalFoldASCII(f.repositoryName, other.repositoryName)
+	return f.ownerName.Equal(other.ownerName) && EqualFoldASCII(f.repositoryName, other.repositoryName)
 }

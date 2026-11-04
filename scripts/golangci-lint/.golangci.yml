@@ -82,11 +82,12 @@ linters:
           deny:
             - pkg: gopkg.in/yaml.v3
               desc: archived; use go.yaml.in/yaml/v3
-        # 入力と認可の処理は、通信と外部ライブラリを持たない。副作用をこれらの package に入れず、テストを通信なしで書けるようにするため
+        # 入力、固定設定、認可の処理は、通信と外部ライブラリを持たない。副作用をこれらの package に入れず、テストを通信なしで書けるようにするため
         no-communication:
           list-mode: lax
           files:
             - "**/internal/authz/**"
+            - "**/internal/config/**"
             - "**/internal/permission/**"
             - "**/internal/repository/**"
             - "**/internal/request/**"
@@ -94,11 +95,11 @@ linters:
             - github.com/tmknom/gates/internal
           deny:
             - pkg: net
-              desc: input and authorization packages must not communicate
+              desc: input, fixed configuration, and authorization packages must not communicate
             - pkg: crypto/tls
-              desc: input and authorization packages must not communicate
+              desc: input, fixed configuration, and authorization packages must not communicate
             - pkg: github.com/
-              desc: input and authorization packages must not depend on external libraries
+              desc: input, fixed configuration, and authorization packages must not depend on external libraries
         # Token Issuer は通信を GitHub Client と KMS Signer に任せ、自らは通信しない。テストは発行結果を GitHub Client の発行応答から作るため、対象から外す
         issuer-no-communication:
           list-mode: lax

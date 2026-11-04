@@ -30,7 +30,7 @@ func ParseOwnerName(s string) (OwnerName, error) {
 
 // Equal は、ASCII の範囲で大文字小文字を区別せずに比べる。
 func (o OwnerName) Equal(other OwnerName) bool {
-	return equalFoldASCII(o.value, other.value)
+	return EqualFoldASCII(o.value, other.value)
 }
 
 // String は、ParseOwnerName に渡された表記をそのまま返す。
