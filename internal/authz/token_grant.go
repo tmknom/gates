@@ -15,6 +15,12 @@ type TokenGrant struct {
 	permissions    permission.Permissions
 }
 
+// IsZero は、Grant を経ていないゼロ値かを返す。
+// Grant は正の Installation ID を持つ Installation からだけ作るため、Installation ID が 0 の値はゼロ値に限る。
+func (g TokenGrant) IsZero() bool {
+	return g.installationID == 0
+}
+
 // InstallationID は、発行に使う Installation の ID を返す。
 func (g TokenGrant) InstallationID() int64 {
 	return g.installationID

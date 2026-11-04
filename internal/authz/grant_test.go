@@ -36,6 +36,23 @@ func TestGrant(t *testing.T) {
 	}
 }
 
+func TestTokenGrant_IsZero(t *testing.T) {
+	owner := mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName)
+	caller := mustNewCaller(t, allowedOwnerID)
+	req := mustTokenRequest(t, []string{"Example-Org/app"}, contentsRead)
+	grant, err := authz.Grant(caller, req, owner, mustNewInstallation(t, allowedOwnerID, time.Time{}))
+	if err != nil {
+		t.Fatalf("Grant() returned error: %v", err)
+	}
+
+	if grant.IsZero() {
+		t.Error("IsZero() = true for the TokenGrant created by Grant")
+	}
+	if !(authz.TokenGrant{}).IsZero() {
+		t.Error("IsZero() = false for the zero TokenGrant")
+	}
+}
+
 func TestTokenGrant_RepositoriesCannotBeModifiedByCaller(t *testing.T) {
 	owner := mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName)
 	caller := mustNewCaller(t, allowedOwnerID)

@@ -2,7 +2,9 @@ package permission
 
 import (
 	"fmt"
+	"iter"
 	"maps"
+	"slices"
 )
 
 // maxTermLength の根拠は Lambda Design の「権限名と水準の文字種」に記述する。
@@ -56,6 +58,18 @@ func wellFormedTerm(s string) bool {
 		}
 	}
 	return true
+}
+
+// Entries は、Permission Entry を権限名と水準の組として返す。
+// map の反復順は一定でないため、反復順を決定的にするよう、権限名の昇順に並べる。
+func (p Permissions) Entries() iter.Seq2[string, string] {
+	return func(yield func(string, string) bool) {
+		for _, name := range slices.Sorted(maps.Keys(p.levels)) {
+			if !yield(name, p.levels[name]) {
+				return
+			}
+		}
+	}
 }
 
 // Equal は、Permission Entry の集合として等しいかを返す。

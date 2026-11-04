@@ -37,7 +37,7 @@ func NewClient(opts ...Option) *Client {
 	c := &Client{
 		apiHost: &url.URL{Scheme: "https", Host: "api.github.com"},
 		httpClient: &http.Client{
-			// リダイレクトに従わず 200 以外として分類する。理由は Lambda Design の「GitHub Client」に記述する
+			// リダイレクトに従わず成功以外の応答として分類する。理由は Lambda Design の「GitHub Client」に記述する
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 	}
@@ -48,10 +48,10 @@ func NewClient(opts ...Option) *Client {
 }
 
 // path は / で始める。JoinPath は、API Host のパスが空のとき / で始まらないパスを作るため使わない。
-func (c *Client) newAppJWTGetRequest(ctx context.Context, path string, appJWT AppJWT) *http.Request {
+func (c *Client) newAppJWTRequest(ctx context.Context, method, path string, appJWT AppJWT) *http.Request {
 	// http.NewRequestWithContext は URL の文字列を解析し直す。解析済みの URL では失敗しない分岐を増やすだけのため使わない
 	request := (&http.Request{
-		Method: http.MethodGet,
+		Method: method,
 		URL:    c.apiHost.ResolveReference(&url.URL{Path: path}),
 		Header: http.Header{},
 	}).WithContext(ctx)

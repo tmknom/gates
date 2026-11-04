@@ -2,6 +2,7 @@ package permission_test
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -113,6 +114,31 @@ func TestAllowedPermissions(t *testing.T) {
 	want := mustNewPermissions(t, map[string]string{"contents": "read"})
 	if !permission.AllowedPermissions().Equal(want) {
 		t.Errorf("AllowedPermissions() is not equal to {contents:read}")
+	}
+}
+
+func TestPermissions_EntriesInPermissionNameOrder(t *testing.T) {
+	p := mustNewPermissions(t, map[string]string{"metadata": "read", "contents": "read", "actions": "write"})
+
+	var got []string
+	for name, level := range p.Entries() {
+		got = append(got, name+":"+level)
+	}
+	if want := []string{"actions:write", "contents:read", "metadata:read"}; !slices.Equal(got, want) {
+		t.Errorf("Entries() = %v, want %v", got, want)
+	}
+}
+
+func TestPermissions_EntriesStopsWhenLoopBreaks(t *testing.T) {
+	p := mustNewPermissions(t, map[string]string{"metadata": "read", "contents": "read"})
+
+	var got []string
+	for name := range p.Entries() {
+		got = append(got, name)
+		break
+	}
+	if want := []string{"contents"}; !slices.Equal(got, want) {
+		t.Errorf("Entries() until break = %v, want %v", got, want)
 	}
 }
 
