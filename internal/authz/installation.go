@@ -25,3 +25,13 @@ func NewInstallation(id, installationOwnerID int64, suspendedAt time.Time) (Inst
 	}
 	return Installation{id: id, installationOwnerID: installationOwnerID, suspendedAt: suspendedAt}, nil
 }
+
+// ID は、Installation ID を返す。
+func (i Installation) ID() int64 {
+	return i.id
+}
+
+// InstallationOwnerID は、インストール先 Owner ID を返す。
+func (i Installation) InstallationOwnerID() int64 {
+	return i.installationOwnerID
+}

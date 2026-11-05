@@ -159,6 +159,23 @@ linters:
               desc: internal/github must not depend on internal/signer
             - pkg: github.com/tmknom/gates/internal/issuer
               desc: internal/github must not depend on internal/issuer
+        # 監査記録は資格情報を含めない（Domain Model の「資格情報の非記録」）。資格情報の型を import しないことは型単位では禁じられないため、package 単位で限る。
+        # 許可する package を完全一致で列挙し、資格情報の型を公開する package を既定で拒否する。Token Issuer の失効の結果の型も、この規則のために写しを置く。
+        # internal/request は発行要求のために許し、監査記録が未検証の GATES 用 OIDC JWT を持たないことはレビューで確かめる。テストも対象にし、監査記録に渡せる型を閉じたままにする
+        audit-no-credentials:
+          list-mode: strict
+          files:
+            - "**/internal/audit/**"
+          allow:
+            - $gostd
+            - github.com/tmknom/gates/internal/audit$
+            - github.com/tmknom/gates/internal/authz$
+            - github.com/tmknom/gates/internal/request$
+          deny:
+            - pkg: net
+              desc: internal/audit must not communicate
+            - pkg: crypto/tls
+              desc: internal/audit must not communicate
     exhaustive:
       default-signifies-exhaustive: true
     forbidigo:
