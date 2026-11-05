@@ -2,9 +2,11 @@ package handler
 
 import (
 	"encoding/json/v2"
+	"errors"
 	"maps"
 	"time"
 
+	"github.com/tmknom/gates/internal/errorcode"
 	"github.com/tmknom/gates/internal/issuer"
 )
 
@@ -31,8 +33,12 @@ type failureDetail struct {
 	Message string `json:"message"`
 }
 
+// errResponseNotEncodable は、応答を JSON に符号化できなかったことを表す。
+// 符号化の error を包まないのは、その文言に応答の値（トークンを含む）が入り得るためである。
+var errResponseNotEncodable = errors.New("response cannot be encoded as JSON")
+
 // encodeSuccess は、照合を通った発行結果から成功応答を作る。
-func encodeSuccess(requestID string, installationToken issuer.InstallationToken) []byte {
+func encodeSuccess(requestID string, installationToken issuer.InstallationToken) ([]byte, error) {
 	effective := installationToken.EffectiveRepositories()
 	repositories := make([]string, 0, len(effective))
 	for _, repository := range effective {
@@ -50,22 +56,20 @@ func encodeSuccess(requestID string, installationToken issuer.InstallationToken)
 
 // encodeFailure は、エラーコードから失敗応答を作る。
 // error ではなくエラーコードを受け取り、部品のエラー文言が応答に入る経路を作らない。
-func encodeFailure(requestID string, code errorCode) []byte {
+func encodeFailure(requestID string, code errorcode.Code) ([]byte, error) {
 	return encode(failureResponse{
-		Error:     failureDetail{Code: code.code, Message: code.message},
+		Error:     failureDetail{Code: code.Value(), Message: code.Message()},
 		RequestID: requestID,
 	})
 }
 
 // encode は、応答を JSON に符号化する。
-// encoding/json/v2 の符号化が失敗するのは、UTF-8 として正しくない文字列と、RFC 3339 で表せない時刻である。
-// 応答の文字列は、GitHub Client が読み取った値、固定の文言、UTF-8 として正しい前提で受け取る相関 ID に限られ、有効期限は GitHub Client が RFC 3339 として読んだ時刻である。
-// そのため、失敗は不変条件の破れとして panic にする。
-// panic の値に error を使わないのは、error の文言に応答の値（トークンを含む）が入り得るためである。
-func encode(response any) []byte {
+// encoding/json/v2 の符号化は、UTF-8 として正しくない文字列で失敗する。
+// 相関 ID が UTF-8 として正しいかは Lambda Handler が発行処理の前に確かめる（Lambda Design の「Failure」）。ここでは失敗を error で返すだけにする。
+func encode(response any) ([]byte, error) {
 	b, err := json.Marshal(response)
 	if err != nil {
-		panic("response cannot be encoded as JSON")
+		return nil, errResponseNotEncodable
 	}
-	return b
+	return b, nil
 }

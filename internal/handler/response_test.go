@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
@@ -9,13 +10,18 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/tmknom/gates/internal/errorcode"
 )
 
 // lambdaRequestID は、Lambda の request ID の形をした相関 ID である。
 const lambdaRequestID = "c6af9ac6-7b61-11e6-9a41-93e8deadbeef"
 
-func decodeResponse(t *testing.T, b []byte) map[string]any {
+func decodeResponse(t *testing.T, b []byte, err error) map[string]any {
 	t.Helper()
+	if err != nil {
+		t.Fatalf("encoding the response returned error: %v", err)
+	}
 	var response map[string]any
 	if err := json.Unmarshal(b, &response); err != nil {
 		t.Fatalf("response %s is not a JSON object: %v", b, err)
@@ -31,7 +37,8 @@ func assertKeys(t *testing.T, name string, object map[string]any, want ...string
 }
 
 func TestEncodeFailure_WritesErrorCodeAndRequestID(t *testing.T) {
-	response := decodeResponse(t, encodeFailure(lambdaRequestID, authorizationDenied))
+	b, err := encodeFailure(lambdaRequestID, errorcode.AuthorizationDenied)
+	response := decodeResponse(t, b, err)
 
 	assertKeys(t, "failure response", response, "ok", "error", "request_id")
 	if response["ok"] != false {
@@ -46,14 +53,27 @@ func TestEncodeFailure_WritesErrorCodeAndRequestID(t *testing.T) {
 	}
 }
 
-func TestEncodeFailure_RequestIDThatIsNotUTF8Panics(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Error("encodeFailure did not panic")
-		}
-	}()
+func TestEncodeFailure_RequestIDThatIsNotUTF8ReturnsErrResponseNotEncodable(t *testing.T) {
+	if _, err := encodeFailure("\xff", errorcode.InternalError); !errors.Is(err, errResponseNotEncodable) {
+		t.Errorf("encodeFailure error = %v, want %v", err, errResponseNotEncodable)
+	}
+}
 
-	encodeFailure("\xff", internalError)
+// TestEncodeSuccess_RequestIDThatIsNotUTF8ReturnsUnwrappedErrResponseNotEncodable は、符号化の失敗の error が encoder の error を包まないことを確かめる。
+func TestEncodeSuccess_RequestIDThatIsNotUTF8ReturnsUnwrappedErrResponseNotEncodable(t *testing.T) {
+	token, err := issueInstallationToken(t, recordedIssuance(), http.StatusNoContent)
+	if err != nil {
+		t.Fatalf("IssueInstallationToken returned error: %v", err)
+	}
+
+	_, err = encodeSuccess("\xff", token)
+
+	if !errors.Is(err, errResponseNotEncodable) {
+		t.Fatalf("encodeSuccess error = %v, want %v", err, errResponseNotEncodable)
+	}
+	if err.Error() != errResponseNotEncodable.Error() {
+		t.Errorf("error message = %q, want %q without the encoder error", err.Error(), errResponseNotEncodable.Error())
+	}
 }
 
 func TestEncodeSuccess_WritesVerifiedInstallationToken(t *testing.T) {
@@ -62,7 +82,8 @@ func TestEncodeSuccess_WritesVerifiedInstallationToken(t *testing.T) {
 		t.Fatalf("IssueInstallationToken returned error: %v", err)
 	}
 
-	response := decodeResponse(t, encodeSuccess(lambdaRequestID, token))
+	b, err := encodeSuccess(lambdaRequestID, token)
+	response := decodeResponse(t, b, err)
 
 	assertKeys(t, "success response", response, "ok", "token", "expires_at", "repositories", "permissions", "request_id")
 	if response["ok"] != true {

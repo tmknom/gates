@@ -3,6 +3,7 @@ package github_test
 import (
 	"io"
 	"net/http"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -103,7 +104,8 @@ func TestRevoke_CommunicationFailureReturnsError(t *testing.T) {
 	closeConnection := func(w http.ResponseWriter, _ *http.Request) {
 		conn, _, err := w.(http.Hijacker).Hijack()
 		if err != nil {
-			panic(err)
+			t.Errorf("Hijack returned error: %v", err)
+			return
 		}
 		_ = conn.Close()
 	}
@@ -133,8 +135,13 @@ func TestRevoke_ZeroTokenPanicsWithoutRequest(t *testing.T) {
 	stub := newAPIStub(t, respondRevocation(http.StatusNoContent))
 	client := stub.client(t)
 	defer func() {
-		if recover() == nil {
+		got := recover()
+		if got == nil {
 			t.Error("Revoke did not panic for the zero InstallationAccessToken")
+		}
+		// nil の参照外しではなく、ゼロ値の検査で止めることを確かめる
+		if _, ok := got.(runtime.Error); ok {
+			t.Errorf("Revoke panicked with a runtime error: %v", got)
 		}
 		if stub.request.Load() != nil {
 			t.Error("Revoke sent a request for the zero InstallationAccessToken")

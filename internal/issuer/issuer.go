@@ -7,6 +7,7 @@ import (
 
 	"github.com/tmknom/gates/internal/authz"
 	"github.com/tmknom/gates/internal/github"
+	"github.com/tmknom/gates/internal/nonzero"
 )
 
 // kmsSigner は、KMS Signer のうち Token Issuer が使う操作である。
@@ -31,10 +32,8 @@ type Issuer struct {
 
 // NewIssuer は Token Issuer を作る。owner は固定設定の許可オーナーである。
 func NewIssuer(signer kmsSigner, client *github.Client, owner authz.AllowedOwner, now func() time.Time) *Issuer {
-	if owner.IsZero() {
-		// ゼロ値は Installation の取得先を決められず、照合でも Owner ID 0 の実効対象と一致し得るため作らない
-		panic("allowed owner is not created by NewAllowedOwner")
-	}
+	// ゼロ値は Installation の取得先を決められず、照合でも Owner ID 0 の実効対象と一致し得るため作らない
+	nonzero.Require(owner)
 	return &Issuer{signer: signer, client: client, owner: owner, now: now}
 }
 

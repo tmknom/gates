@@ -83,6 +83,11 @@ linters:
         linters:
           - forbidigo
         text: "only internal/handler may expose the installation access token"
+      # internal/nonzero は panic してよい唯一の package である。テストは対象にし、準備の失敗は t.Fatal や t.Error で示す
+      - path: ^internal/nonzero/nonzero\.go$
+        linters:
+          - forbidigo
+        text: "only internal/nonzero may panic"
   settings:
     depguard:
       rules:
@@ -170,6 +175,8 @@ linters:
             - $gostd
             - github.com/tmknom/gates/internal/audit$
             - github.com/tmknom/gates/internal/authz$
+            - github.com/tmknom/gates/internal/errorcode$
+            - github.com/tmknom/gates/internal/nonzero$
             - github.com/tmknom/gates/internal/request$
           deny:
             - pkg: net
@@ -186,6 +193,9 @@ linters:
         - pattern: ^time\.(Now|Since|Until)$
         - pattern: ^os\.(Getenv|LookupEnv|Environ)$
         - pattern: ^slog\.(SetDefault|Default|With|Log|LogAttrs|Debug|Info|Warn|Error|DebugContext|InfoContext|WarnContext|ErrorContext)$
+        # panic してよい場合は Lambda Design の「Failure」に記述する
+        - pattern: ^panic$
+          msg: only internal/nonzero may panic; return an error, or use nonzero.Require for a zero value
         # Caller は検証済みの GATES 用 OIDC JWT だけから作る（Domain Model の Caller の不変条件）。NewCaller は公開関数で、呼び出せる package を型で限定できないため
         - pattern: ^authz\.NewCaller$
           pkg: ^github\.com/tmknom/gates/internal/authz$

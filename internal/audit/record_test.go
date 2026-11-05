@@ -9,6 +9,7 @@ import (
 
 	"github.com/tmknom/gates/internal/audit"
 	"github.com/tmknom/gates/internal/authz"
+	"github.com/tmknom/gates/internal/errorcode"
 )
 
 func TestRecord_Write_SlogKeys(t *testing.T) {
@@ -31,7 +32,7 @@ func TestRecord_Write_Result(t *testing.T) {
 		wantResult string
 	}{
 		{name: "success records success", result: audit.Succeeded(), wantResult: "success"},
-		{name: "failure records error code", result: audit.Failed("authorization_denied", "reason"), wantResult: "authorization_denied"},
+		{name: "failure records error code", result: audit.Failed(errorcode.AuthorizationDenied, "reason"), wantResult: "authorization_denied"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -44,10 +45,20 @@ func TestRecord_Write_Result(t *testing.T) {
 }
 
 func TestRecord_Write_Reason(t *testing.T) {
-	const reason = "caller owner id does not match"
-	_, got := write(t, audit.NewRecord(requestID), audit.Failed("authorization_denied", reason))
-	if got["reason"] != reason {
-		t.Errorf("reason = %v, want %q", got["reason"], reason)
+	tests := []struct {
+		name   string
+		reason string
+	}{
+		{name: "failure records its reason", reason: "caller owner id does not match"},
+		{name: "failure with an empty reason records the reason key", reason: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, got := write(t, audit.NewRecord(requestID), audit.Failed(errorcode.AuthorizationDenied, tt.reason))
+			if reason, ok := got["reason"]; !ok || reason != tt.reason {
+				t.Errorf("reason = %v (present %t), want %q", reason, ok, tt.reason)
+			}
+		})
 	}
 }
 
@@ -71,7 +82,7 @@ func TestRecord_Write_TopLevelKeys(t *testing.T) {
 		{
 			name:   "invalid request records neither caller nor request",
 			build:  func(*testing.T) audit.Record { return audit.NewRecord(requestID) },
-			result: audit.Failed("invalid_request", "reason"),
+			result: audit.Failed(errorcode.InvalidRequest, "reason"),
 			want:   failure,
 		},
 		{
@@ -81,7 +92,7 @@ func TestRecord_Write_TopLevelKeys(t *testing.T) {
 				r.SetTokenRequest(tokenRequest(t))
 				return r
 			},
-			result: audit.Failed("invalid_id_token", "reason"),
+			result: audit.Failed(errorcode.InvalidIDToken, "reason"),
 			want:   append(slices.Clone(failure), "request"),
 		},
 		{
@@ -92,19 +103,19 @@ func TestRecord_Write_TopLevelKeys(t *testing.T) {
 				r.SetCaller(caller(t, authz.WorkflowTriggerAttributes{}))
 				return r
 			},
-			result: audit.Failed("authorization_denied", "reason"),
+			result: audit.Failed(errorcode.AuthorizationDenied, "reason"),
 			want:   append(slices.Clone(failure), "request", "caller"),
 		},
 		{
 			name:   "failure after installation resolution records installation without revocation",
 			build:  stagesPassed,
-			result: audit.Failed("github_issuance_rejected", "reason"),
+			result: audit.Failed(errorcode.GitHubIssuanceRejected, "reason"),
 			want:   append(slices.Clone(failure), "request", "caller", "installation"),
 		},
 		{
 			name:   "verification failure records revocation",
 			build:  stagesPassed,
-			result: audit.VerificationFailed("issuance_verification_failed", "reason", audit.RevocationSucceeded),
+			result: audit.VerificationFailed(errorcode.IssuanceVerificationFailed, "reason", audit.RevocationSucceeded),
 			want:   append(slices.Clone(failure), "request", "caller", "installation", "revocation"),
 		},
 		{
@@ -214,7 +225,7 @@ func TestRecord_Write_RevocationOutcome(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := audit.VerificationFailed("issuance_verification_failed", "reason", tt.outcome)
+			result := audit.VerificationFailed(errorcode.IssuanceVerificationFailed, "reason", tt.outcome)
 			_, got := write(t, audit.NewRecord(requestID), result)
 			if got["revocation"] != tt.want {
 				t.Errorf("revocation = %v, want %q", got["revocation"], tt.want)
@@ -228,7 +239,7 @@ func TestRecord_Write_UntrustedTriggerAttribute(t *testing.T) {
 	value := "line1\nline2\r\"quoted\"\x00\x01\x1f {\"injected\":true},\"result\":\"success\"}"
 	r := audit.NewRecord(requestID)
 	r.SetCaller(caller(t, authz.WorkflowTriggerAttributes{Actor: value}))
-	line, got := write(t, r, audit.Failed("internal_error", "reason"))
+	line, got := write(t, r, audit.Failed(errorcode.InternalError, "reason"))
 	if n := strings.Count(line, "\n"); n != 1 || !strings.HasSuffix(line, "\n") {
 		t.Errorf("record has %d newlines, want exactly one at the end: %q", n, line)
 	}

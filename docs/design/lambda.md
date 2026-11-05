@@ -185,12 +185,19 @@ Lambda は、GitHub API の発行応答を発行許可と照合し、照合を�
 `request_id` は成功応答と同じくトップレベルに置きます。
 相関 ID は応答全体の属性であり、呼び出し元が `ok` の値によらず同じ場所から読めるようにするためです。
 
+コンポーネントが panic するのは、構築関数を経ていないゼロ値が、その値を前提にする処理に渡った場合だけです。
+Go の型はゼロ値の生成を禁じられないため、この場合だけは呼び出し側の誤りとして処理を止めます。
+外部入力と外部呼び出しの失敗は、panic にせずエラーで返します。
+
 Handler は処理中の panic を回復し、`internal_error` の失敗応答として `request_id` とともに返します。
-panic の値は、応答にも監査記録にも運用者向けのログにも書きません。
-値に資格情報が入っていない保証がないためです。
+panic の値は、応答にも監査記録にも運用者向けのログにも書きません（[Security Design](security.md#5-failure-audit-and-security-risks)）。
 回復した panic は、運用者向けのログに相関 ID とスタックトレースを ERROR で記録します。
-`FunctionError` になるのは、タイムアウト、メモリ不足、初期化の失敗のように Handler が応答を書けない場合だけです。
+`FunctionError` になるのは、タイムアウト、メモリ不足、初期化の失敗、相関 ID が UTF-8 として正しくない場合のように Handler が応答を書けない場合だけです。
 この場合は応答に `request_id` がないため、呼び出し元は Invoke の時刻と `run_id` で CloudWatch Logs の記録と突き合わせます。
+相関 ID は応答に入るため、UTF-8 として正しくなければ、失敗応答も JSON に符号化できません。
+Lambda Handler は Payload を読む前に相関 ID を確かめ、正しくなければ発行処理を始めずに、エラーを Lambda Runtime に返します。
+符号化の時点で初めて気づくと、発行したトークンを返せず失効もしないまま残すためです。
+発行処理を始めないため、監査記録も書きません。
 
 エラーコードは、[Domain Model](domain.md#42-failure-kinds) の失敗の種別を応答で表す値です。
 種別を分ける理由は Domain Model に置き、本ドキュメントはコードと失敗の条件の対応だけを定めます。
@@ -370,6 +377,7 @@ Discovery / JWKS は初期化で取得しません（[§6.1](#61-oidc-validation
 7. Lambda Handler が監査記録を出力し、応答を返す。
 
 どの手順で失敗しても、[Failure](#32-failure) のエラーコードで終わり、以降の手順に進みません。
+手順 1 の前に相関 ID が UTF-8 として正しくないと分かった場合は、どの手順にも進まず `FunctionError` になります（[Failure](#32-failure)）。
 
 Owner ID、権限、オーナー名の照合（手順 3）を Installation の取得（手順 4）より先に置くのは、KMS と GitHub API の呼び出しを認可の見込みがある要求だけに限るためです。
 

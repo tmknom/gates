@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/tmknom/gates/internal/authz"
+	"github.com/tmknom/gates/internal/nonzero"
 )
 
 // 値の理由は Lambda Design の「GitHub Client」と「Call Time Budget」に記述する。
@@ -21,10 +22,8 @@ const (
 // Issue は、発行許可の対象と権限を明示して Installation Access Token を発行させ、発行応答を発行結果にする。
 // 201 の応答は、項目を読み取れたかどうかにかかわらず発行結果にし、照合を Token Issuer に任せる。
 func (c *Client) Issue(ctx context.Context, appJWT AppJWT, grant authz.TokenGrant) (IssuanceResult, error) {
-	if grant.IsZero() {
-		// ゼロ値は対象も権限も持たず、そのまま送ると省略として Installation の全対象と App の全権限を継承するため、要求を送らない
-		panic("token grant is not created by Grant")
-	}
+	// ゼロ値は対象も権限も持たず、そのまま送ると省略として Installation の全対象と App の全権限を継承するため、要求を送らない
+	nonzero.Require(grant)
 	ctx, cancel := context.WithTimeout(ctx, issuanceTimeout)
 	defer cancel()
 
