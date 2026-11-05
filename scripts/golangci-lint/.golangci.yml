@@ -74,6 +74,15 @@ linters:
         linters:
           - forbidigo
         text: "use of `github\\.NewAppJWT`"
+      # GitHub Client 自身は非公開の expose で値を読むため、除外はテストだけに置く
+      - path: ^internal/github/.*_test\.go$
+        linters:
+          - forbidigo
+        text: "only internal/handler may expose the installation access token"
+      - path: ^internal/handler/
+        linters:
+          - forbidigo
+        text: "only internal/handler may expose the installation access token"
   settings:
     depguard:
       rules:
@@ -111,6 +120,17 @@ linters:
               desc: internal/issuer must leave communication to internal/github and internal/signer
             - pkg: crypto/tls
               desc: internal/issuer must leave communication to internal/github and internal/signer
+        # Lambda Handler は通信を OIDC Verifier、KMS Signer、GitHub Client に任せ、自らは通信しない。テストは成功応答を GitHub Client の発行応答から作るため、対象から外す
+        handler-no-communication:
+          list-mode: lax
+          files:
+            - "**/internal/handler/**"
+            - "!$test"
+          deny:
+            - pkg: net
+              desc: internal/handler must leave communication to internal/authn, internal/signer, and internal/github
+            - pkg: crypto/tls
+              desc: internal/handler must leave communication to internal/authn, internal/signer, and internal/github
         # AWS SDK は KMS Signer だけが使う。ほかのコンポーネントのテストが AWS SDK に依存せず、KMS のテストダブルが一つの package に閉じるようにするため
         aws-sdk:
           list-mode: lax
@@ -161,6 +181,10 @@ linters:
         - pattern: ^request\.RawIDToken\.Expose$
           pkg: ^github\.com/tmknom/gates/internal/request$
           msg: only internal/authn may expose the unverified ID token
+        # Installation Access Token の値を package の外で取り出せるのは、成功応答を書く Lambda Handler だけ（Lambda Design の資格情報の表）。Expose は公開メソッドで、呼び出せる package を型で限定できないため
+        - pattern: ^github\.InstallationAccessToken\.Expose$
+          pkg: ^github\.com/tmknom/gates/internal/github$
+          msg: only internal/handler may expose the installation access token
     gocritic:
       disable-all: true
       enabled-checks:
