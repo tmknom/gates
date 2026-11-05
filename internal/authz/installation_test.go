@@ -8,6 +8,19 @@ import (
 	"github.com/tmknom/gates/internal/authz"
 )
 
+func TestInstallation_IDAndInstallationOwnerID(t *testing.T) {
+	installation, err := authz.NewInstallation(installationID, allowedOwnerID, time.Time{})
+	if err != nil {
+		t.Fatalf("NewInstallation() error = %v", err)
+	}
+	if got := installation.ID(); got != installationID {
+		t.Errorf("ID() = %d, want %d", got, installationID)
+	}
+	if got := installation.InstallationOwnerID(); got != allowedOwnerID {
+		t.Errorf("InstallationOwnerID() = %d, want %d", got, allowedOwnerID)
+	}
+}
+
 func TestNewInstallation_Invalid(t *testing.T) {
 	tests := []struct {
 		name                string
