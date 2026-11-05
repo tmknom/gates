@@ -4,6 +4,7 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"log/slog"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -63,6 +64,21 @@ func TestRawIDToken_UnexportedFieldDoesNotShowValue(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRawIDToken_ExposeZeroValuePanicsAsZeroValueGuard は、ゼロ値を nil の参照外しではなくゼロ値の検査で止めることを確かめる。
+func TestRawIDToken_ExposeZeroValuePanicsAsZeroValueGuard(t *testing.T) {
+	defer func() {
+		got := recover()
+		if got == nil {
+			t.Fatal("Expose did not panic for the zero RawIDToken")
+		}
+		if _, ok := got.(runtime.Error); ok {
+			t.Errorf("Expose panicked with a runtime error: %v", got)
+		}
+	}()
+
+	_ = request.RawIDToken{}.Expose()
 }
 
 // validateIDToken は、RawIDToken を作れる唯一の経路である Validate を通して値を得る。

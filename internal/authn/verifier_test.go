@@ -35,19 +35,34 @@ func testClock() time.Time { return testNow }
 // discardLog は、ログを確かめないテストが Verifier に渡す logger である。
 var discardLog = slog.New(slog.DiscardHandler)
 
-// testKey は、鍵の生成が遅いため 1 回だけ作る。
-var testKey = sync.OnceValue(generateKey)
+// sharedKey は、鍵の生成が遅いため 1 回だけ作る。
+var sharedKey = sync.OnceValues(func() (*rsa.PrivateKey, error) {
+	return rsa.GenerateKey(rand.Reader, 2048)
+})
 
-func generateKey() *rsa.PrivateKey {
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
+// testKey は、テストが共有する鍵を返す。
+func testKey(t *testing.T) *rsa.PrivateKey {
+	t.Helper()
+	key, err := sharedKey()
 	if err != nil {
-		panic(err)
+		t.Fatalf("rsa.GenerateKey returned error: %v", err)
 	}
 	return key
 }
 
-func newTestVerifier() *Verifier {
-	keys := &oidc.StaticKeySet{PublicKeys: []crypto.PublicKey{testKey().Public()}}
+// generateKey は、共有する鍵と異なる鍵を作る。
+func generateKey(t *testing.T) *rsa.PrivateKey {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("rsa.GenerateKey returned error: %v", err)
+	}
+	return key
+}
+
+func newTestVerifier(t *testing.T) *Verifier {
+	t.Helper()
+	keys := &oidc.StaticKeySet{PublicKeys: []crypto.PublicKey{testKey(t).Public()}}
 	return newVerifier(testIssuer, testAudience, keys, testClock)
 }
 
@@ -78,7 +93,7 @@ func signWithKeyID(t *testing.T, algorithm jose.SignatureAlgorithm, key *rsa.Pri
 
 func signClaims(t *testing.T, claims map[string]any) string {
 	t.Helper()
-	return signPayload(t, jose.RS256, testKey(), marshalClaims(t, claims))
+	return signPayload(t, jose.RS256, testKey(t), marshalClaims(t, claims))
 }
 
 // signLeadingClaims は leading の JSON のメンバーを先頭に固定して署名する。
@@ -86,7 +101,7 @@ func signClaims(t *testing.T, claims map[string]any) string {
 func signLeadingClaims(t *testing.T, leading, omitted string) string {
 	t.Helper()
 	rest := marshalClaims(t, claimsWithout(omitted))[1:]
-	return signPayload(t, jose.RS256, testKey(), append([]byte("{"+leading+","), rest...))
+	return signPayload(t, jose.RS256, testKey(t), append([]byte("{"+leading+","), rest...))
 }
 
 // escapedName は、先頭の文字を Unicode エスケープで書いた JSON の文字列を返す。エスケープを解いた後の名前で比較されることを確かめるため。
@@ -167,7 +182,7 @@ func TestVerifierAuthenticate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name+" returns Caller", func(t *testing.T) {
-			got, err := newTestVerifier().Authenticate(t.Context(), rawIDToken(t, signClaims(t, tt.claims)))
+			got, err := newTestVerifier(t).Authenticate(t.Context(), rawIDToken(t, signClaims(t, tt.claims)))
 			if err != nil {
 				t.Fatalf("Authenticate returned error: %v", err)
 			}
@@ -190,10 +205,10 @@ func TestVerifierAuthenticate_InvalidToken(t *testing.T) {
 			return s[0] + "." + base64.RawURLEncoding.EncodeToString(tampered) + "." + s[2]
 		}},
 		{"signature by another key", func(t *testing.T) string {
-			return signPayload(t, jose.RS256, generateKey(), marshalClaims(t, validClaims()))
+			return signPayload(t, jose.RS256, generateKey(t), marshalClaims(t, validClaims()))
 		}},
 		{"alg RS384", func(t *testing.T) string {
-			return signPayload(t, jose.RS384, testKey(), marshalClaims(t, validClaims()))
+			return signPayload(t, jose.RS384, testKey(t), marshalClaims(t, validClaims()))
 		}},
 		{"different iss", func(t *testing.T) string {
 			return signClaims(t, claimsWith(map[string]any{"iss": "https://other.example"}))
@@ -309,7 +324,7 @@ func TestVerifierAuthenticate_InvalidNumericDate(t *testing.T) {
 
 func assertAuthenticationFailure(t *testing.T, token string, values ...string) {
 	t.Helper()
-	got, err := newTestVerifier().Authenticate(t.Context(), rawIDToken(t, token))
+	got, err := newTestVerifier(t).Authenticate(t.Context(), rawIDToken(t, token))
 	if !errors.Is(err, ErrAuthenticationFailure) {
 		t.Fatalf("Authenticate error = %v, want ErrAuthenticationFailure", err)
 	}

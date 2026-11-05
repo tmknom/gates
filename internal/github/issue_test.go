@@ -400,7 +400,8 @@ func TestIssue_CommunicationFailureReturnsErrTransientFailure(t *testing.T) {
 	closeConnection := func(w http.ResponseWriter, _ *http.Request) {
 		conn, _, err := w.(http.Hijacker).Hijack()
 		if err != nil {
-			panic(err)
+			t.Errorf("Hijack returned error: %v", err)
+			return
 		}
 		_ = conn.Close()
 	}

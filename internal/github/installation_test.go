@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -333,7 +334,8 @@ func TestResolveInstallation_CommunicationFailureReturnsErrTransientFailure(t *t
 	closeConnection := func(w http.ResponseWriter, _ *http.Request) {
 		conn, _, err := w.(http.Hijacker).Hijack()
 		if err != nil {
-			panic(err)
+			t.Errorf("Hijack returned error: %v", err)
+			return
 		}
 		_ = conn.Close()
 	}
@@ -418,4 +420,24 @@ func TestResolveInstallation_ZeroAllowedOwnerPanics(t *testing.T) {
 	}()
 
 	_, _ = client.ResolveInstallation(t.Context(), github.NewAppJWT(appJWTValue), authz.AllowedOwner{})
+}
+
+func TestResolveInstallation_ZeroAppJWTPanicsWithoutRequest(t *testing.T) {
+	stub := newAPIStub(t, respondBody(marshal(t, recordedInstallation())))
+	client := stub.client(t)
+	defer func() {
+		got := recover()
+		if got == nil {
+			t.Error("ResolveInstallation did not panic for the zero AppJWT")
+		}
+		// nil の参照外しではなく、ゼロ値の検査で止めることを確かめる
+		if _, ok := got.(runtime.Error); ok {
+			t.Errorf("ResolveInstallation panicked with a runtime error: %v", got)
+		}
+		if stub.request.Load() != nil {
+			t.Error("ResolveInstallation sent a request for the zero AppJWT")
+		}
+	}()
+
+	_, _ = client.ResolveInstallation(t.Context(), github.AppJWT{}, allowedOwner(t, authz.OwnerTypeOrganization))
 }

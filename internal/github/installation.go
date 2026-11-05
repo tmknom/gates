@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tmknom/gates/internal/authz"
+	"github.com/tmknom/gates/internal/nonzero"
 )
 
 // 値の理由は Lambda Design の「GitHub Client」と「Call Time Budget」に記述する。
@@ -71,15 +72,17 @@ func (c *Client) fetchInstallation(ctx context.Context, appJWT AppJWT, owner aut
 
 // 許可オーナー名は Lambda Design の「名前の文字種と比較規則」の文字種を満たし、パスの要素としてエスケープを要しない。
 func installationPath(owner authz.AllowedOwner) string {
+	// ゼロ値は種別を持たず、取得先のエンドポイントを決められない
+	nonzero.Require(owner)
+	// default を置かず、種別が増えたときに exhaustive が case の不足を示すようにする
+	var accounts string
 	switch owner.Type() {
 	case authz.OwnerTypeOrganization:
-		return "/orgs/" + owner.Name().String() + "/installation"
+		accounts = "orgs"
 	case authz.OwnerTypeUser:
-		return "/users/" + owner.Name().String() + "/installation"
-	default:
-		// NewAllowedOwner が種別を二つの値に限るため、ここに来るのは NewAllowedOwner を経ないゼロ値だけである
-		panic(fmt.Sprintf("allowed owner type %q is neither %s nor %s", owner.Type(), authz.OwnerTypeOrganization, authz.OwnerTypeUser))
+		accounts = "users"
 	}
+	return "/" + accounts + "/" + owner.Name().String() + "/installation"
 }
 
 func decodeInstallation(body []byte) (authz.Installation, error) {
