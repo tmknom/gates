@@ -136,16 +136,25 @@ linters:
               desc: internal/handler must leave communication to internal/authn, internal/signer, and internal/github
             - pkg: crypto/tls
               desc: internal/handler must leave communication to internal/authn, internal/signer, and internal/github
-        # AWS SDK は KMS Signer だけが使う。ほかのコンポーネントのテストが AWS SDK に依存せず、KMS のテストダブルが一つの package に閉じるようにするため
+        # AWS SDK は KMS Signer と、AWS SDK の設定を読む Runtime Entry だけが使う。ほかのコンポーネントのテストが AWS SDK に依存せず、KMS のテストダブルが一つの package に閉じるようにするため
         aws-sdk:
           list-mode: lax
           files:
             - "!**/internal/signer/**"
+            - "!**/main.go"
           deny:
             - pkg: github.com/aws/aws-sdk-go-v2
-              desc: only internal/signer may use the AWS SDK
+              desc: only internal/signer and main may use the AWS SDK
             - pkg: github.com/aws/smithy-go
-              desc: only internal/signer may use the AWS SDK
+              desc: only internal/signer and main may use the AWS SDK
+        # Lambda Runtime のライブラリは Runtime Entry だけが使う。Lambda Handler のテストで Lambda の ctx を組み立てずに済ませるため
+        lambda-runtime:
+          list-mode: lax
+          files:
+            - "**/internal/**"
+          deny:
+            - pkg: github.com/aws/aws-lambda-go
+              desc: only main may use the Lambda Runtime library
         # 資格情報を伏せる型は、資格情報の型を持つどの package からも使えるよう、標準ライブラリだけに依存する
         credential-standard-library-only:
           list-mode: strict
