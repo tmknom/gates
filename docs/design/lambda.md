@@ -362,7 +362,9 @@ Lambda はこの Invoke を `Runtime.ExitError` の `FunctionError` にします
 
 要求ごとに `internal_error` を返す形にしないのは、どの失敗も固定設定かデプロイの誤りで再実行では解消せず、要求を受け付けても発行が一度も成立しないためです。
 初期化を失敗させれば、設定の誤りが Invoke の時点で明らかになり、Lambda Handler に未初期化の部品を扱う分岐が要りません。
-初期化の失敗のログには、満たさなかった条件と、環境変数から読んだ値ならその環境変数の名前を書き、値を書きません（[Security Design](security.md#5-failure-audit-and-security-risks)）。
+初期化の失敗のログには、満たさなかった条件と、どの値の条件かを書き、値を書きません（[Security Design](security.md#5-failure-audit-and-security-risks)）。
+固定設定の読み込みで見つけた誤りは環境変数の名前で、部品を作る時点で見つけた誤りは固定設定の概念名（GATES 用 Audience、Client ID など）で、どの値かを示します。
+部品は環境変数を知らず、概念名と環境変数の名前は [AWS Infrastructure Design](aws-infrastructure.md#5-lambda-deployment-and-operation) の表で一対一に対応するためです。
 固定設定の読み込みで見つけた環境変数の欠落と不正な値は、複数あればそのすべてを一度の初期化の失敗として書きます。
 デプロイの誤りを、一度の Invoke でまとめて直せるようにするためです。
 認証の固定設定と署名の固定設定の不変条件は、読み込みの後に部品を作る時点で検査するため、読み込みの誤りを直した後の初期化で初めて見つかることがあります。
