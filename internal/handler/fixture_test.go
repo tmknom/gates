@@ -22,6 +22,8 @@ const (
 
 	// tokenMarker は、記録した発行応答のトークンで、成功応答に値がそのまま入ることを確かめる目印である。
 	tokenMarker = "ghs_token-marker" //nolint:gosec // 資格情報ではなく、値を確かめるための目印である
+	// idTokenMarker は、Payload の GATES 用 OIDC JWT で、応答と監査記録に現れないことを確かめる目印である。
+	idTokenMarker = "id-token-header.id-token-payload.id-token-signature"
 )
 
 // now は、記録した発行応答の有効期限の 1 時間前である。
@@ -50,8 +52,17 @@ func recordedIssuance() map[string]any {
 }
 
 // issueInstallationToken は、返却可能な発行結果を Token Issuer の照合からしか作れないため、GitHub API の代わりのサーバーに対して Token Issuer を呼ぶ。
-// サーバーは issuance を発行応答として返し、失効の要求に revocationStatus で応答する。
 func issueInstallationToken(t *testing.T, issuance map[string]any, revocationStatus int) (issuer.InstallationToken, error) {
+	t.Helper()
+	owner := allowedOwner(t)
+	return newIssuer(t, issuance, revocationStatus).IssueInstallationToken(t.Context(), func(installation authz.Installation) (authz.TokenGrant, error) {
+		return authz.Grant(caller(t), tokenRequest(t), owner, installation)
+	})
+}
+
+// newIssuer は、GitHub API の代わりのサーバーに接続する Token Issuer を作る。
+// サーバーは許可オーナーの停止していない Installation を返し、issuance を発行応答として返し、失効の要求に revocationStatus で応答する。
+func newIssuer(t *testing.T, issuance map[string]any, revocationStatus int) *issuer.Issuer {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /users/"+allowedOwnerName+"/installation", respond(t, http.StatusOK, map[string]any{"id": installationID, "account": map[string]any{"id": allowedOwnerID}, "suspended_at": nil}))
@@ -64,10 +75,7 @@ func issueInstallationToken(t *testing.T, issuance map[string]any, revocationSta
 		t.Fatalf("Parse returned error: %v", err)
 	}
 	client := github.NewClient(github.WithAPIHost(apiHost), github.WithTransport(server.Client().Transport))
-	owner := allowedOwner(t)
-	return issuer.NewIssuer(signerStub{}, client, owner, func() time.Time { return now }).IssueInstallationToken(t.Context(), func(installation authz.Installation) (authz.TokenGrant, error) {
-		return authz.Grant(caller(t), tokenRequest(t), owner, installation)
-	})
+	return issuer.NewIssuer(signerStub{}, client, allowedOwner(t), func() time.Time { return now })
 }
 
 func respond(t *testing.T, status int, body any) http.HandlerFunc {
@@ -109,15 +117,20 @@ func caller(t *testing.T) authz.Caller {
 	return c
 }
 
-func tokenRequest(t *testing.T) request.TokenRequest {
+// validPayload は、記録した発行応答の実効対象と一致する対象を要求する Payload である。
+func validPayload(t *testing.T) []byte {
 	t.Helper()
-	payload := marshal(t, map[string]any{
+	return marshal(t, map[string]any{
 		"version":      1,
-		"id_token":     "header.payload.signature",
+		"id_token":     idTokenMarker,
 		"repositories": []string{allowedOwnerName + "/repo-b", allowedOwnerName + "/Example-Repo"},
 		"permissions":  map[string]string{"contents": "read"},
 	})
-	_, req, err := request.Validate(payload)
+}
+
+func tokenRequest(t *testing.T) request.TokenRequest {
+	t.Helper()
+	_, req, err := request.Validate(validPayload(t))
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}

@@ -2,7 +2,6 @@ package handler
 
 import (
 	"encoding/json/v2"
-	"errors"
 	"maps"
 	"time"
 
@@ -33,12 +32,17 @@ type failureDetail struct {
 	Message string `json:"message"`
 }
 
-// errResponseNotEncodable は、応答を JSON に符号化できなかったことを表す。
-// 符号化の error を包まないのは、その文言に応答の値（トークンを含む）が入り得るためである。
-var errResponseNotEncodable = errors.New("response cannot be encoded as JSON")
+// response は、JSON に符号化した応答である。
+// 符号化できなかったことをゼロ値で表し、error を返さない。符号化の error の文言には応答の値（トークンを含む）が入り得るため、捨てる。
+type response []byte
+
+// IsZero は、符号化できなかった応答かを返す。
+func (r response) IsZero() bool {
+	return r == nil
+}
 
 // encodeSuccess は、照合を通った発行結果から成功応答を作る。
-func encodeSuccess(requestID string, installationToken issuer.InstallationToken) ([]byte, error) {
+func encodeSuccess(requestID string, installationToken issuer.InstallationToken) response {
 	effective := installationToken.EffectiveRepositories()
 	repositories := make([]string, 0, len(effective))
 	for _, repository := range effective {
@@ -56,7 +60,7 @@ func encodeSuccess(requestID string, installationToken issuer.InstallationToken)
 
 // encodeFailure は、エラーコードから失敗応答を作る。
 // error ではなくエラーコードを受け取り、部品のエラー文言が応答に入る経路を作らない。
-func encodeFailure(requestID string, code errorcode.Code) ([]byte, error) {
+func encodeFailure(requestID string, code errorcode.Code) response {
 	return encode(failureResponse{
 		Error:     failureDetail{Code: code.Value(), Message: code.Message()},
 		RequestID: requestID,
@@ -65,11 +69,10 @@ func encodeFailure(requestID string, code errorcode.Code) ([]byte, error) {
 
 // encode は、応答を JSON に符号化する。
 // encoding/json/v2 の符号化は、UTF-8 として正しくない文字列で失敗する。
-// 相関 ID が UTF-8 として正しいかは Lambda Handler が発行処理の前に確かめる（Lambda Design の「Failure」）。ここでは失敗を error で返すだけにする。
-func encode(response any) ([]byte, error) {
-	b, err := json.Marshal(response)
+func encode(value any) response {
+	b, err := json.Marshal(value)
 	if err != nil {
-		return nil, errResponseNotEncodable
+		return nil
 	}
-	return b, nil
+	return b
 }
