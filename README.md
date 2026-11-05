@@ -32,6 +32,7 @@ The token issuance process follows these steps:
 ## Documentation
 
 - [docs/](docs/README.md): Requirements, design, external specification research, and contributing guides.
+- [formal/](formal/README.md): Alloy models that verify the authorization and issuance rules, and what they do and do not guarantee.
 - [llms.txt](llms.txt): Index of the documents above for Coding Agents.
 
 ## License
