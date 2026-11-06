@@ -15,7 +15,7 @@ GATES provides the following capabilities:
 - **Least-privilege tokens**: Issue installation access tokens scoped to explicitly requested repositories with `contents:read` permission.
 - **Self-service access**: Allow GitHub Actions workflows to request tokens through a reusable Composite Action.
 - **Infrastructure as Code**: Manage AWS infrastructure using Terraform.
-- **Formal verification**: Verify authorization and issuance rules against [Alloy](https://alloytools.org/) models.
+- **Formal verification**: Verify authorization and issuance rules against [Alloy](https://alloytools.org/) models, and JWT claim acceptance rules with [Z3](https://github.com/Z3Prover/z3).
 
 ## Architecture
 
@@ -32,7 +32,7 @@ The token issuance process follows these steps:
 ## Documentation
 
 - [docs/](docs/README.md): Requirements, design, external specification research, and contributing guides.
-- [formal/](formal/README.md): Alloy models that verify the authorization and issuance rules, and what they do and do not guarantee.
+- [formal/](formal/README.md): Alloy models that verify the authorization and issuance rules, Z3 models that verify the JWT claim acceptance rules, and what they do and do not guarantee.
 - [llms.txt](llms.txt): Index of the documents above for Coding Agents.
 
 ## License

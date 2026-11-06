@@ -19,11 +19,11 @@ Alloy のバージョンを変えるときは、URL とハッシュを一緒に�
 `-c` には、実行する `run` や `check` の名前を指定できます。
 
 ```sh
-ALLOY_TARGET="$PWD/formal" docker compose -f scripts/alloy/compose.yaml run --build --rm -T --interactive=false \
+ALLOY_TARGET="$PWD/formal/alloy" docker compose -f scripts/alloy/compose.yaml run --build --rm -T --interactive=false \
   alloy exec -c '*' -o /tmp/out -t none authorization.als
 ```
 
-結果の読み方は [形式モデルの README](../../formal/README.md) に記述しています。
+結果の読み方は [Alloy Models](../../formal/alloy/README.md) に記述しています。
 
 ## 環境変数
 

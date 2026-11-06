@@ -25,7 +25,7 @@
 
 | コマンド | コンテナ | 処理 | Docker のほかに必要なもの |
 |---|---|---|---|
-| `make alloy` | Alloy | `formal/` の `authorization.als` と `issuance-temporal.als` にある `run` と `check` をすべて実行する | |
+| `make alloy` | Alloy | `formal/alloy/` の `authorization.als` と `issuance-temporal.als` にある `run` と `check` をすべて実行する | |
 | `make lint` | golangci-lint | リポジトリのルートのモジュールを lint する | Go と、取得済みの依存モジュール |
 | `make tflint` | tflint | `terraform/` を再帰的に lint する | |
 | `make trivy` | trivy | リポジトリのルートを検査する | |
@@ -37,8 +37,10 @@
 | `make tf-plan` | Terraform | デプロイパッケージをビルドし、Plan を `terraform/local/plan.tfplan` に保存する | AWS の認証情報、Go、`zip` |
 | `make tf-show` | Terraform | 保存した Plan を表示する | |
 | `make tf-apply` | Terraform | 保存した Plan を適用する | AWS の認証情報 |
+| `make z3` | Z3 | `formal/z3/` の検査をすべて実行し、期待する判定と比べる | |
 
 Alloy のモデルを追加するときは、Makefile の `alloy` に実行の行を追加します。
+Z3 の検査を追加するときは、Makefile ではなく `formal/z3/checks/expected.txt` に行を追加します。
 
 ### Terraform の変更の進め方
 

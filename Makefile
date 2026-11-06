@@ -183,8 +183,13 @@ trivy-update: ## rebuild the trivy image to refresh its vulnerability database
 # Targets: Formal Verification
 .PHONY: alloy
 alloy: ## verify formal models by Alloy in an isolated container
-	ALLOY_TARGET=$(CURDIR)/formal docker compose -f scripts/alloy/compose.yaml run --build --rm -T --interactive=false alloy exec -c '*' -o /tmp/out -t none authorization.als
-	ALLOY_TARGET=$(CURDIR)/formal docker compose -f scripts/alloy/compose.yaml run --rm -T --interactive=false alloy exec -c '*' -o /tmp/out -t none issuance-temporal.als
+	ALLOY_TARGET=$(CURDIR)/formal/alloy docker compose -f scripts/alloy/compose.yaml run --build --rm -T --interactive=false alloy exec -c '*' -o /tmp/out -t none authorization.als
+	ALLOY_TARGET=$(CURDIR)/formal/alloy docker compose -f scripts/alloy/compose.yaml run --rm -T --interactive=false alloy exec -c '*' -o /tmp/out -t none issuance-temporal.als
+
+# 検査ごとに Z3 を起動し、期待する判定と比べるスクリプトを実行するため、entrypoint を sh に替える
+.PHONY: z3
+z3: ## verify formal specifications by Z3 in an isolated container
+	Z3_TARGET=$(CURDIR)/formal/z3 docker compose -f scripts/z3/compose.yaml run --build --rm -T --interactive=false --entrypoint sh z3 verify.sh
 
 # 読み取り専用の /src にはマウントポイントを作れないため、compose.yaml が隠すパスをホスト側で用意する。既存の .envrc は変更しない
 .PHONY: container-mountpoints
