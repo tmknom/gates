@@ -1,7 +1,5 @@
-; Adopted/under-review GATES acceptance for decoded Claims Set.
-; Source of truth: current docs/design/jwt.md §§2.2–2.38.4.
-; The Unicode case-fold alias rejection is EXISTING / UNDER REVIEW.
-; Its entire Unicode semantics is NOT formalized by the examples below.
+; Adopted GATES acceptance for decoded Claims Set.
+; Source of truth: docs/design/jwt.md §§2.2–2.38.4.
 (define-fun gates-exp ((c Claims) (now Int)) Bool
   (and (integer-in-range c "exp")
        (< now (integer-value (claim-value (get-claim c "exp"))))))
@@ -52,87 +50,37 @@
                                         (str.substr o (+ oa 1) (- (str.len o) oa 1)))
                                      (= (string-claim-value c "repository_id")
                                         (str.substr r (+ ra 1) (- (str.len r) ra 1))))))))))))))
-; All ASCII case alternatives of iss/aud/exp/iat/nbf plus iſſ.
-; Complete for ASCII letter-case changes; NOT complete Unicode case folding.
-; This is an UNDER-REVIEW current policy, not an RFC MUST.
-(define-fun recognized-alias-example ((n String)) Bool
-  (or
-    (= n "AUD")
-    (= n "AUd")
-    (= n "AuD")
-    (= n "Aud")
-    (= n "EXP")
-    (= n "EXp")
-    (= n "ExP")
-    (= n "Exp")
-    (= n "IAT")
-    (= n "IAt")
-    (= n "ISS")
-    (= n "ISs")
-    (= n "IaT")
-    (= n "Iat")
-    (= n "IsS")
-    (= n "Iss")
-    (= n "NBF")
-    (= n "NBf")
-    (= n "NbF")
-    (= n "Nbf")
-    (= n "aUD")
-    (= n "aUd")
-    (= n "auD")
-    (= n "eXP")
-    (= n "eXp")
-    (= n "exP")
-    (= n "iAT")
-    (= n "iAt")
-    (= n "iSS")
-    (= n "iSs")
-    (= n "iaT")
-    (= n "isS")
-    (= n "nBF")
-    (= n "nBf")
-    (= n "nbF")
-    (= n "iſſ")
-  ))
-(define-fun alias-examples-absent ((c Claims)) Bool
+; The 45 names that claim-alias holds for, listed so that acceptance reads only
+; fixed names and needs no quantifier (Z3 answers unknown with one).
+; PALIAS shows every claim-alias name is listed, and PCONGRUENCE shows no
+; other name affects acceptance, so this list and claim-alias are the same set.
+(define-fun aliases-absent ((c Claims)) Bool
   (and
+    (= (get-claim c "isS") Absent) (= (get-claim c "is\u{17f}") Absent)
+    (= (get-claim c "iSs") Absent) (= (get-claim c "iSS") Absent)
+    (= (get-claim c "iS\u{17f}") Absent) (= (get-claim c "i\u{17f}s") Absent)
+    (= (get-claim c "i\u{17f}S") Absent) (= (get-claim c "i\u{17f}\u{17f}") Absent)
+    (= (get-claim c "Iss") Absent) (= (get-claim c "IsS") Absent)
+    (= (get-claim c "Is\u{17f}") Absent) (= (get-claim c "ISs") Absent)
+    (= (get-claim c "ISS") Absent) (= (get-claim c "IS\u{17f}") Absent)
+    (= (get-claim c "I\u{17f}s") Absent) (= (get-claim c "I\u{17f}S") Absent)
+    (= (get-claim c "I\u{17f}\u{17f}") Absent)
+    (= (get-claim c "auD") Absent) (= (get-claim c "aUd") Absent)
+    (= (get-claim c "aUD") Absent) (= (get-claim c "Aud") Absent)
+    (= (get-claim c "AuD") Absent) (= (get-claim c "AUd") Absent)
     (= (get-claim c "AUD") Absent)
-    (= (get-claim c "AUd") Absent)
-    (= (get-claim c "AuD") Absent)
-    (= (get-claim c "Aud") Absent)
+    (= (get-claim c "exP") Absent) (= (get-claim c "eXp") Absent)
+    (= (get-claim c "eXP") Absent) (= (get-claim c "Exp") Absent)
+    (= (get-claim c "ExP") Absent) (= (get-claim c "EXp") Absent)
     (= (get-claim c "EXP") Absent)
-    (= (get-claim c "EXp") Absent)
-    (= (get-claim c "ExP") Absent)
-    (= (get-claim c "Exp") Absent)
+    (= (get-claim c "iaT") Absent) (= (get-claim c "iAt") Absent)
+    (= (get-claim c "iAT") Absent) (= (get-claim c "Iat") Absent)
+    (= (get-claim c "IaT") Absent) (= (get-claim c "IAt") Absent)
     (= (get-claim c "IAT") Absent)
-    (= (get-claim c "IAt") Absent)
-    (= (get-claim c "ISS") Absent)
-    (= (get-claim c "ISs") Absent)
-    (= (get-claim c "IaT") Absent)
-    (= (get-claim c "Iat") Absent)
-    (= (get-claim c "IsS") Absent)
-    (= (get-claim c "Iss") Absent)
-    (= (get-claim c "NBF") Absent)
-    (= (get-claim c "NBf") Absent)
-    (= (get-claim c "NbF") Absent)
-    (= (get-claim c "Nbf") Absent)
-    (= (get-claim c "aUD") Absent)
-    (= (get-claim c "aUd") Absent)
-    (= (get-claim c "auD") Absent)
-    (= (get-claim c "eXP") Absent)
-    (= (get-claim c "eXp") Absent)
-    (= (get-claim c "exP") Absent)
-    (= (get-claim c "iAT") Absent)
-    (= (get-claim c "iAt") Absent)
-    (= (get-claim c "iSS") Absent)
-    (= (get-claim c "iSs") Absent)
-    (= (get-claim c "iaT") Absent)
-    (= (get-claim c "isS") Absent)
-    (= (get-claim c "nBF") Absent)
-    (= (get-claim c "nBf") Absent)
-    (= (get-claim c "nbF") Absent)
-    (= (get-claim c "iſſ") Absent)
-  ))
+    (= (get-claim c "nbF") Absent) (= (get-claim c "nBf") Absent)
+    (= (get-claim c "nBF") Absent) (= (get-claim c "Nbf") Absent)
+    (= (get-claim c "NbF") Absent) (= (get-claim c "NBf") Absent)
+    (= (get-claim c "NBF") Absent)))
 (define-fun gates-common-except-exp ((c Claims) (now Int) (expected String)) Bool
   (and (github-issuer c)
        (gates-aud c expected)
@@ -141,13 +89,7 @@
        (gates-sub c)
        (canonical-id-claim c "run_id")
        (canonical-id-claim c "run_attempt")))
-(define-fun gates-current-on-map ((c Claims) (now Int) (expected String)) Bool
+(define-fun gates-current ((c Claims) (now Int) (expected String)) Bool
   (and (gates-common-except-exp c now expected)
        (gates-exp c now)
-       (alias-examples-absent c)))
-; Explicitly route current acceptance through a complete consulted-field view.
-; Thus changes to names outside the view cannot affect this model's outcome.
-(define-fun gates-current-example-aliases ((c Claims) (now Int) (expected String)) Bool
-  (gates-current-on-map (view-as-claims (core-view c)) now expected))
-; All 10 Claim acceptance obligations represented within same Map.
-; A complete Unicode alias classifier would replace this finite example check.
+       (aliases-absent c)))

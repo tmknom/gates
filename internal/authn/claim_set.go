@@ -19,7 +19,7 @@ func checkClaimSet(rawClaims []byte) error {
 	}
 	for name := range claimSet {
 		if isClaimAlias(name) {
-			return fmt.Errorf("%w: a claim name differs only by case from iss, aud, exp, iat, or nbf", ErrAuthenticationFailure)
+			return fmt.Errorf("%w: a claim name is an alias of iss, aud, exp, iat, or nbf", ErrAuthenticationFailure)
 		}
 	}
 	for _, name := range []string{"exp", "iat", "nbf"} {
@@ -31,9 +31,9 @@ func checkClaimSet(rawClaims []byte) error {
 	return nil
 }
 
-// isClaimAlias は、JWT Design の「JSON と Claim 名の一貫した解釈」が拒否する、既知の Claim 名と大文字小文字だけが異なる名前 (別名) かを判定する。
+// isClaimAlias は、JWT Design の「JSON と Claim 名の一貫した解釈」が拒否する別名かを判定する。
 // go-oidc の encoding/json (v1) は別名も正しい名前の Claim として読み、後に現れた値で上書きする。
-// strings.EqualFold を使うのは、v1 の名前の照合が bytes.EqualFold と同じ範囲で、U+017F のような ASCII 以外の文字にも一致するため。
+// strings.EqualFold を使うのは、v1 の名前の照合と同じく Unicode の単純な Case Folding で比べ、U+017F のような ASCII 以外の文字にも一致するため。
 func isClaimAlias(name string) bool {
 	for _, claimName := range []string{"iss", "aud", "exp", "iat", "nbf"} {
 		if name != claimName && strings.EqualFold(name, claimName) {

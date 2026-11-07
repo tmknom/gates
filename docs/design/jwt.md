@@ -367,8 +367,10 @@ Caller の確定後、固定した Allowed Owner ID との一致は認可で確�
 #### 2.38.4 JSON と Claim 名の一貫した解釈
 
 - Claims Set は UTF-8 の JSON オブジェクトとし、不正な UTF-8 と、エスケープ解除後に同一となる Claim 名の重複を拒否する。未使用 Claim の重複も拒否する（RFC 7519 §4 が許容する処理）。
-- Claim 名はエスケープ解除後の **厳密一致** で識別する。大文字小文字の同一視、Unicode 正規化、Unicode case folding は行わない（[RFC 7519 §7.3](https://www.rfc-editor.org/rfc/rfc7519.html#section-7.3)、[OIDC Core §14](https://openid.net/specs/openid-connect-core-1_0.html#StringOps)）。`iss`、`ISS`、`iſſ` はそれぞれ別の名前として扱う。
-- `iss`、`aud`、`exp`、`iat`、`nbf` と大文字小文字の違いや Unicode case folding だけが異なる名前（`ISS`、`iſſ` など）の Claim があれば、正しい `iss` などが同時にあっても拒否する。Requirements AC-27 に従う GATES の追加制約であり、JSON デコーダーが別名を同じ Claim として読む危険も防ぐ。`iss` と `\u0069ss` の同時存在は名前の重複として拒否する。
+- Claim 名はエスケープ解除後の **厳密一致** で識別する。識別では、大文字小文字の同一視、Unicode 正規化、Unicode の Case Folding は行わない（[RFC 7519 §7.3](https://www.rfc-editor.org/rfc/rfc7519.html#section-7.3)、[OIDC Core §14](https://openid.net/specs/openid-connect-core-1_0.html#StringOps)）。`iss`、`ISS`、`iſſ` はそれぞれ別の名前として扱う。
+- `iss`、`aud`、`exp`、`iat`、`nbf` の **別名** の Claim があれば、正しい `iss` などが同時にあっても拒否する。Requirements AC-27 に従う GATES の追加制約であり、JSON デコーダーが別名を同じ Claim として読む危険も防ぐ。`iss` と `\u0069ss` の同時存在は名前の重複として拒否する。
+- 別名は、5 つの名前のどれかと Unicode の単純な Case Folding（[CaseFolding.txt](https://www.unicode.org/Public/UCD/latest/ucd/CaseFolding.txt) の状態 C と S）で同じ文字列に畳み込まれ、その名前自体とは異なる名前とする。5 つの名前の文字では、各 ASCII 英字の大文字と小文字、および `s`、`S`、`ſ`（U+017F）がそれぞれ同じ文字に畳み込まれる。別名は `iss` の 17 個（`ISS`、`iſſ`、`iſs` など）と、ほかの 4 つの名前の各 7 個（`AUD`、`eXp` など）の計 45 個である。
+- 完全な Case Folding（状態 F）とトルコ語用の対応（状態 T）は使わない。そのため、`iß` と `İss` は別名ではなく、未知の Claim として扱う。`ıss` も、`ı`（U+0131）がどの Case Folding でも `i` に畳み込まれないため、未知の Claim として扱う。範囲を単純な Case Folding に揃えるのは、検証ライブラリの JSON デコーダーが Claim 名を同一視する範囲がこれと一致し、`iß` のような名前は `iss` として読まれないためである。
 - 検証ライブラリと Claim 抽出処理で、同じ署名済み Claims Set の **同名・同値** を使用する。
 - 任意・監査用 Claim は JSON 文字列として読み取れた場合だけ転送する。型違い・欠落は拒否せず、構造化ログではエスケープする。未知 Claim を自動的に監査へ取り込まない。
 
@@ -534,7 +536,7 @@ GitHub の Discovery 公開値は `issuer`、`jwks_uri`、`subject_types_support
 | 不変 ID | `"1"`、`"0"`、`"01"`、JSON 数値、符号、64 bit 範囲外、`sub` との不一致 | 正の整数文字列および一致だけ受理 |
 | `run_attempt` | `"1"`、`"0"`、欠落、再実行時の値 | `"0"` は拒否。再実行時の実測は別途実施 |
 | 任意・監査 | `environment` 欠落、監査 Claim の型違い、制御文字入りの文字列 | 認証は継続し、ログでは安全に記録 |
-| Claim 名の比較 | `iss`、`ISS`、`iſſ`、`\u0069ss`、同時存在 | 厳密一致。`iss`、`aud`、`exp`、`iat`、`nbf` と大文字小文字・case folding だけが異なる名前は拒否。エスケープ解除後の重複は拒否 |
+| Claim 名の比較 | `iss`、`ISS`、`iſſ`、`iſS` のような混在、`iß`、`İss`、`ıss`、`\u0069ss`、同時存在 | 厳密一致。§2.38.4 の 45 個の別名は拒否し、`iß`、`İss`、`ıss` は別名として扱わない。エスケープ解除後の重複は拒否 |
 | 動的 Claim | `repo_property_*` の文字列・複数選択・真偽値文字列、未知 Claim | 追加 Claim があっても、必須 Claim が成立すれば認証を妨げない |
 | JSON の曖昧さ | 重複 Claim 名、Unicode エスケープによる重複、不正 UTF-8 | 署名が正しくても拒否 |
 | JOSE Header | 未知 Header、`crit`、`b64`、`cty=JWT` / `cty=jwt` / その他の `cty`、`alg=none`、`kid` 欠落、改行入り JWT | 未知 Header は無視し、`cty` を含む未対応の形式・拡張を拒否 |
@@ -572,5 +574,6 @@ GitHub の Discovery 公開値は `issuer`、`jwks_uri`、`subject_types_support
 - [RFC 8725 — JSON Web Token Best Current Practices](https://www.rfc-editor.org/rfc/rfc8725.html)
 - [OpenID Connect Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html)
 - [OpenID Connect Discovery 1.0](https://openid.net/specs/openid-connect-discovery-1_0.html)
+- [Unicode Character Database — CaseFolding.txt](https://www.unicode.org/Public/UCD/latest/ucd/CaseFolding.txt)（Claim 名の別名の範囲）
 - [GitHub — OpenID Connect reference](https://docs.github.com/en/actions/reference/security/oidc)（動的 `repo_property_*` の公式仕様を含む）
 - [GitHub — Generating a JWT for a GitHub App](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-json-web-token-jwt-for-a-github-app)

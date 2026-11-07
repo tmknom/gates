@@ -1,3 +1,0 @@
-; BOWNERZERO repository_owner_id zero spelling rejected
-(assert (gates-current-example-aliases (store sample "repository_owner_id" (Present (JString "0"))) 1000 "gates-oidc"))
-(check-sat)

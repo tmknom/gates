@@ -40,7 +40,7 @@
 | `make z3` | Z3 | `formal/z3/` の検査をすべて実行し、期待する判定と比べる | |
 
 Alloy のモデルを追加するときは、Makefile の `alloy` に実行の行を追加します。
-Z3 の検査を追加するときは、Makefile ではなく `formal/z3/checks/expected.txt` に行を追加します。
+Z3 の検査を追加するときは、Makefile ではなく `formal/z3/checks/` にファイルを追加します。
 
 ### Terraform の変更の進め方
 
