@@ -30,6 +30,8 @@ flowchart TD
     architecture --> github["docs/spec/github-constraints.md"]
     architecture --> jwt["docs/spec/jwt-constraints.md"]
     future --> requirements
+    requirements --> constitution["docs/CONSTITUTION.md"]
+    future --> constitution
     requirements --> research["docs/research/"]
     github --> research
     github -->|標準仕様との差分の説明に限る| jwt
@@ -53,8 +55,8 @@ flowchart TD
 
 | ドキュメント | 責務 | 依存してよい範囲 |
 |---|---|---|
-| `requirements.md` | 目的、対象範囲、要求、受け入れ条件 | `docs/research/` |
-| `future-scope.md` | 現在のスコープと、将来取り込む想定の機能 | `requirements.md` |
+| `requirements.md` | 目的、対象範囲、要求、受け入れ条件 | `CONSTITUTION.md`、`docs/research/` |
+| `future-scope.md` | 現在のスコープと、将来取り込む想定の機能 | `CONSTITUTION.md`、`requirements.md` |
 | `jwt-constraints.md` | JWT / JWS / JWK / OpenID Connect の標準仕様の規定 | 標準仕様のドキュメント |
 | `github-constraints.md` | GitHub の仕様 | `docs/research/github/`、GitHub の公式ドキュメント。標準仕様との差分を説明する箇所に限り `jwt-constraints.md` |
 
@@ -66,7 +68,7 @@ flowchart TD
 
 ### 2.3 docs/design/
 
-`docs/spec/`、`docs/research/`、調査対象の外部ドキュメントに依存してよいものとします。
+`CONSTITUTION.md`、`docs/spec/`、`docs/research/`、調査対象の外部ドキュメントに依存してよいものとします。
 
 | ドキュメント | 責務 |
 |---|---|
@@ -100,6 +102,15 @@ flowchart TD
 - 配下のドキュメントと下位ディレクトリの `README.md` へのファイル単位のリンクと主題だけで構成し、節へのリンクや各ドキュメントの内容を書かない
 - `README.md` 以外のドキュメントは `README.md` に依存しない
 - ドキュメントを追加、削除、改名したときや、主題が変わったときは、案内している `README.md` も変更する
+
+### 2.6 CONSTITUTION.md
+
+`CONSTITUTION.md` は、GATES の存在理由、解決する問題、提供価値、設計上の判断原則、目的の境界を定めます。
+個別の要求、技術の選択、設計の内容は書きません。
+それらは目的や原則を具体化した結果であり、`CONSTITUTION.md` に書くと、要求や設計の変更のたびに `CONSTITUTION.md` も変わるためです。
+
+- リポジトリ内の他のドキュメントに依存しない
+- `CONSTITUTION.md` に依存してよいのは、`requirements.md`、`future-scope.md`、`docs/design/`、`docs/contributing/` に限る
 
 ## 3. Dependencies within docs/design
 
@@ -147,12 +158,12 @@ flowchart TD
 | 対象 | 概念名の扱い |
 |---|---|
 | `architecture.md` 以外の `docs/design/`、コード、`formal/` | `domain.md` の概念名を使う |
-| `architecture.md`、`requirements.md`、`future-scope.md` | `domain.md` の概念名を使う。ただし `domain.md` を参照しない |
+| `CONSTITUTION.md`、`architecture.md`、`requirements.md`、`future-scope.md` | `domain.md` の概念名を使う。ただし `domain.md` を参照しない |
 | `jwt-constraints.md`、`github-constraints.md`、`docs/research/` | 外部仕様の用語を使う。`domain.md` の概念名を持ち込まない |
 
 外部仕様の用語と概念名の対応は、`docs/design/` の側に書きます。
 
-概念名の変更に伴う `architecture.md`、`requirements.md`、`future-scope.md` の語の置き換えは、`docs/spec/` が `docs/design/` に依存しないという [§2.2](#22-docsspec) の規則と、`architecture.md` が `docs/design/` の他のドキュメントに依存しないという [§2.3](#23-docsdesign) の規則の例外です。
+概念名の変更に伴う `CONSTITUTION.md`、`architecture.md`、`requirements.md`、`future-scope.md` の語の置き換えは、`CONSTITUTION.md` が他のドキュメントに依存しないという [§2.6](#26-constitutionmd) の規則と、`docs/spec/` が `docs/design/` に依存しないという [§2.2](#22-docsspec) の規則と、`architecture.md` が `docs/design/` の他のドキュメントに依存しないという [§2.3](#23-docsdesign) の規則の例外です。
 例外は語を揃えるだけの変更に限ります。
 要求の内容まで変わるなら、`domain.md` の都合で要求を変えることになるため、`requirements.md` の変更として別に判断します。
 
@@ -163,6 +174,7 @@ flowchart TD
 | 内容 | 正とするもの | 従う側 |
 |---|---|---|
 | 外部仕様の事実 | 外部仕様そのもの | リポジトリ内のすべてのドキュメント |
+| 存在理由、解決する問題、提供価値、設計上の判断原則、目的の境界 | `CONSTITUTION.md` | `requirements.md`、`future-scope.md`、`docs/design/` |
 | GATES が満たす要求 | `requirements.md` | `future-scope.md`、`docs/design/` |
 | コンポーネントの全体構成と処理の流れ | `architecture.md` | `docs/design/` の他のドキュメント |
 | 概念の名前と意味 | `domain.md` | `requirements.md`、`future-scope.md`、`docs/design/` の他のドキュメント、コード、`formal/` |

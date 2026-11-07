@@ -5,6 +5,12 @@
 本ディレクトリでは、GATES の要求、設計、外部仕様の調査結果、開発と運用の手順など、GATES を構築するための文書を管理します。
 文書間で依存してよい範囲は [Documentation Policy](contributing/docs-policy.md) に定めています。
 
+## ドキュメント一覧
+
+| ファイル | 内容 |
+|---|---|
+| [Constitution](CONSTITUTION.md) | GATES の存在理由、解決する問題、提供価値、設計上の判断原則、目的の境界 |
+
 ## ディレクトリ一覧
 
 | ディレクトリ | 内容 |
