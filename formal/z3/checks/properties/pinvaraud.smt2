@@ -1,0 +1,6 @@
+(declare-const anyClaims Claims)
+(declare-const changeName String)
+(declare-const changeValue MaybeClaim)
+; PINVARAUD Actor may be changed without changing acceptance (general Claims Map)
+(assert (not (= (gates-current-example-aliases anyClaims 1000 "gates-oidc") (gates-current-example-aliases (store anyClaims "actor" changeValue) 1000 "gates-oidc"))))
+(check-sat)

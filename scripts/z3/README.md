@@ -25,6 +25,10 @@ Z3_TARGET="$PWD/path/to/smt" docker compose -f scripts/z3/compose.yaml run --bui
 
 引数を省略すると、Z3 のバージョンを表示します。
 
+`make z3` は、`--entrypoint sh` で entrypoint を替え、`formal/z3/verify.sh` を実行します。
+このスクリプトは検査ごとに Z3 を起動し、判定を期待するものと比べます。
+結果の読み方は [Z3 Models](../../formal/z3/README.md) に記述しています。
+
 ## 環境変数
 
 次の変数を指定します。
