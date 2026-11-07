@@ -4,5 +4,3 @@
 ; nor that all subjects have immutable form. GATES itself selects a subset.
 (define-fun github-issuer ((c Claims)) Bool
   (string-is c "iss" "https://token.actions.githubusercontent.com"))
-; Public observations are represented as concrete, timestamped fixtures
-; under checks/observations, never as universal axioms.

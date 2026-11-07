@@ -3,7 +3,7 @@
 ; JInteger/JFraction/JExponent are lexical NUMBER categories assigned before
 ; this model. JStringArray represents a genuine all-string JSON array.
 ; Nested JSON is intentionally abstracted as JObject/JOtherArray.
-; No parser, duplicate-name detection, cryptographic or Unicode folding proof.
+; No parser, duplicate-name detection or cryptographic proof.
 (set-logic ALL)
 (set-option :produce-models true)
 (set-option :timeout 8000)
@@ -29,8 +29,6 @@
            (and ((_ is JInteger) v)
                 (<= 0 (integer-value v))
                 (<= (integer-value v) 253402300799))))))
-(define-fun integer-value-is ((c Claims) (name String) (value Int)) Bool
-  (= (get-claim c name) (Present (JInteger value))))
 (define-fun string-claim ((c Claims) (name String)) Bool
   (let ((m (get-claim c name)))
     (and ((_ is Present) m) ((_ is JString) (claim-value m)))))
@@ -57,7 +55,7 @@
 (define-fun ascii-text ((s String)) Bool
   (str.in_re s (re.* (re.range "\u{0000}" "\u{007F}"))))
 
-; Exact registry of GATES-used names. Noncore names can be audit/unused/unknown.
+; Exact registry of GATES-used names. Other names are audit/unused/unknown.
 (define-fun core-name ((name String)) Bool
   (or (= name "iss") (= name "aud") (= name "exp") (= name "iat")
       (= name "nbf") (= name "sub")
@@ -67,15 +65,35 @@
   (or (= name "actor") (= name "actor_id") (= name "event_name")
       (= name "ref") (= name "sha") (= name "workflow_ref")
       (= name "job_workflow_ref") (= name "environment")))
-; 18 Discovery-known unused names. Unrecognized names including repo_property_*
-; are also ignored for acceptance (subject to raw JSON validity and aliases).
-(define-fun known-unused-name ((name String)) Bool
-  (or (= name "jti") (= name "repository") (= name "repository_owner")
-      (= name "enterprise") (= name "enterprise_id") (= name "run_number")
-      (= name "workflow") (= name "workflow_sha")
-      (= name "head_ref") (= name "base_ref") (= name "ref_type")
-      (= name "ref_protected") (= name "environment_node_id")
-      (= name "job_workflow_sha") (= name "repository_visibility")
-      (= name "runner_environment") (= name "issuer_scope") (= name "check_run_id")))
-(define-fun discovery-known-name ((name String)) Bool
-  (or (core-name name) (audit-name name) (known-unused-name name)))
+
+; Claim name alias (jwt.md §2.38.4): a name other than iss/aud/exp/iat/nbf
+; that folds to the same string under Unicode simple case folding
+; (CaseFolding.txt status C and S). For the letters of these five names,
+; each ASCII letter folds with its other case, and s/S/U+017F fold together.
+(define-fun simple-fold-letter ((c String) (base String)) Bool
+  (or (= c base)
+      (and (= base "a") (= c "A"))
+      (and (= base "b") (= c "B"))
+      (and (= base "d") (= c "D"))
+      (and (= base "e") (= c "E"))
+      (and (= base "f") (= c "F"))
+      (and (= base "i") (= c "I"))
+      (and (= base "n") (= c "N"))
+      (and (= base "p") (= c "P"))
+      (and (= base "s") (or (= c "S") (= c "\u{17f}")))
+      (and (= base "t") (= c "T"))
+      (and (= base "u") (= c "U"))
+      (and (= base "x") (= c "X"))))
+(define-fun alias-of ((n String) (name String)) Bool
+  (and (not (= n name))
+       (= (str.len n) 3)
+       (simple-fold-letter (str.at n 0) (str.at name 0))
+       (simple-fold-letter (str.at n 1) (str.at name 1))
+       (simple-fold-letter (str.at n 2) (str.at name 2))))
+(define-fun claim-alias ((n String)) Bool
+  (or (alias-of n "iss") (alias-of n "aud") (alias-of n "exp")
+      (alias-of n "iat") (alias-of n "nbf")))
+; Every name the acceptance predicate reads. PCONGRUENCE checks that equal
+; values under these names imply equal acceptance.
+(define-fun consulted-name ((n String)) Bool
+  (or (core-name n) (claim-alias n)))

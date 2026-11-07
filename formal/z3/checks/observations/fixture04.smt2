@@ -1,3 +1,0 @@
-; observed JWT #4; selected 10 required/optional fields only; other fields omitted
-(define-fun observed04 () Claims
-  (store (store (store (store (store (store (store (store (store (store ((as const Claims) Absent) "iss" (Present (JString "https://token.actions.githubusercontent.com"))) "aud" (Present (JString "https://github.com/octocat"))) "exp" (Present (JInteger 1793344300))) "iat" (Present (JInteger 1793344000))) "nbf" (Present (JInteger 1793343700))) "sub" (Present (JString "repo:octocat@583231/example-repo@1234567890:ref:refs/heads/test-branch"))) "repository_owner_id" (Present (JString "583231"))) "repository_id" (Present (JString "1234567890"))) "run_id" (Present (JString "41018050776"))) "run_attempt" (Present (JString "1"))))

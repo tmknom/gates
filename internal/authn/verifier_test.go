@@ -5,14 +5,20 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
+	jsonv1 "encoding/json"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/go-jose/go-jose/v4"
@@ -97,7 +103,7 @@ func signClaims(t *testing.T, claims map[string]any) string {
 }
 
 // signLeadingClaims は leading の JSON のメンバーを先頭に固定して署名する。
-// go-oidc が読む値は大文字小文字だけが異なる名前の順序で変わり、map から作る JSON では順序を決められないため。
+// go-oidc が読む値は別名との順序で変わり、map から作る JSON では順序を決められないため。
 func signLeadingClaims(t *testing.T, leading, omitted string) string {
 	t.Helper()
 	rest := marshalClaims(t, claimsWithout(omitted))[1:]
@@ -219,6 +225,9 @@ func TestVerifierAuthenticate_InvalidToken(t *testing.T) {
 		{"aud with another value", func(t *testing.T) string {
 			return signClaims(t, claimsWith(map[string]any{"aud": []string{testAudience, "other"}}))
 		}},
+		{"aud as empty array", func(t *testing.T) string {
+			return signClaims(t, claimsWith(map[string]any{"aud": []string{}}))
+		}},
 		{"aud missing", func(t *testing.T) string {
 			return signClaims(t, claimsWithout("aud"))
 		}},
@@ -272,23 +281,6 @@ func TestVerifierAuthenticate_InvalidToken(t *testing.T) {
 		{"escaped AUD after a different aud", func(t *testing.T) string {
 			return signLeadingClaims(t, `"aud":"other",`+escapedName("AUD")+`:"`+testAudience+`"`, "aud")
 		}},
-		// 別名の値を正しい名前と同じにし、別名の拒否だけが拒否できるようにする
-		{"iss with ISS", func(t *testing.T) string {
-			return signLeadingClaims(t, `"iss":"`+testIssuer+`","ISS":"`+testIssuer+`"`, "iss")
-		}},
-		{"exp with EXP", func(t *testing.T) string {
-			return signLeadingClaims(t, `"exp":1700000300,"EXP":1700000300`, "exp")
-		}},
-		{"iat with IAT", func(t *testing.T) string {
-			return signLeadingClaims(t, `"iat":1700000000,"IAT":1700000000`, "iat")
-		}},
-		{"nbf with NBF", func(t *testing.T) string {
-			return signLeadingClaims(t, `"nbf":1699999700,"NBF":1699999700`, "nbf")
-		}},
-		// U+017F は s と同じ大文字小文字の対応に属し、encoding/json (v1) は iss として読む
-		{"iss with non-ASCII alias", func(t *testing.T) string {
-			return signLeadingClaims(t, `"iss":"`+testIssuer+`","iſſ":"`+testIssuer+`"`, "iss")
-		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name+" returns ErrAuthenticationFailure", func(t *testing.T) {
@@ -319,6 +311,202 @@ func TestVerifierAuthenticate_InvalidNumericDate(t *testing.T) {
 				assertAuthenticationFailure(t, signLeadingClaims(t, `"`+name+`":`+tt.literal, name), tt.literal)
 			})
 		}
+	}
+}
+
+// testdata/observed は、GitHub OIDC JWT の研究文書が記録した実測の Payload で、署名だけをテストの鍵で付け直す。
+// 実測は Audience を指定せずに取得したため、既定の Audience を GATES 用 Audience として設定する。
+func TestVerifierAuthenticate_ObservedClaims(t *testing.T) {
+	for _, name := range []string{"push", "pull_request", "workflow_dispatch", "absolute_reusable_workflow", "relative_reusable_workflow", "environment"} {
+		t.Run(name+" returns Caller", func(t *testing.T) {
+			payload, err := os.ReadFile(filepath.Join("testdata", "observed", name+".json"))
+			if err != nil {
+				t.Fatalf("ReadFile returned error: %v", err)
+			}
+			var observed struct {
+				IssuedAt       int64  `json:"iat"`
+				RunID          string `json:"run_id"`
+				RunAttempt     string `json:"run_attempt"`
+				Actor          string `json:"actor"`
+				ActorID        string `json:"actor_id"`
+				EventName      string `json:"event_name"`
+				Ref            string `json:"ref"`
+				SHA            string `json:"sha"`
+				WorkflowRef    string `json:"workflow_ref"`
+				JobWorkflowRef string `json:"job_workflow_ref"`
+				Environment    string `json:"environment"`
+			}
+			if err := json.Unmarshal(payload, &observed); err != nil {
+				t.Fatalf("Unmarshal returned error: %v", err)
+			}
+			want := newCaller(t, 583231, 1234567890, parseObservedID(t, observed.RunID), parseObservedID(t, observed.RunAttempt), authz.WorkflowTriggerAttributes{
+				Actor:          observed.Actor,
+				ActorID:        observed.ActorID,
+				EventName:      observed.EventName,
+				Ref:            observed.Ref,
+				SHA:            observed.SHA,
+				WorkflowRef:    observed.WorkflowRef,
+				JobWorkflowRef: observed.JobWorkflowRef,
+				Environment:    observed.Environment,
+			})
+			keys := &oidc.StaticKeySet{PublicKeys: []crypto.PublicKey{testKey(t).Public()}}
+			// formal/z3 の実測の例と同じく、発行の 1 秒後に検証する
+			clock := func() time.Time { return time.Unix(observed.IssuedAt+1, 0) }
+			verifier := newVerifier(testIssuer, "https://github.com/octocat", keys, clock)
+			got, err := verifier.Authenticate(t.Context(), rawIDToken(t, signPayload(t, jose.RS256, testKey(t), payload)))
+			if err != nil {
+				t.Fatalf("Authenticate returned error: %v", err)
+			}
+			if got != want {
+				t.Errorf("Authenticate = %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
+// parseObservedID は、実測の Payload の ID の文字列を、Caller と比べるために整数に変換する。
+func parseObservedID(t *testing.T, id string) int64 {
+	t.Helper()
+	n, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		t.Fatalf("ParseInt(%q) returned error: %v", id, err)
+	}
+	return n
+}
+
+// 単純な Case Folding で iss と一致しない名前は、未知の Claim として受理する。
+// 値を iss と異ならせて最後のメンバーに置き、デコーダが iss として読めば Issuer の不一致で拒否されるようにする。
+func TestVerifierAuthenticate_NonAliasClaimName(t *testing.T) {
+	tests := []struct {
+		name string
+	}{
+		// 完全な Case Folding では ss に畳み込まれるが、単純な Case Folding では iss と一致しない
+		{"iß"},
+		// トルコ語用の対応でだけ i に畳み込まれ、小文字への変換でも iss になる
+		{"İss"},
+		// Case Folding では i に畳み込まれないが、大文字への変換では ISS になる
+		{"ıss"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name+" returns Caller", func(t *testing.T) {
+			payload := validClaimsAnd(t, `"`+tt.name+`":"https://evil.example"`)
+			got, err := newTestVerifier(t).Authenticate(t.Context(), rawIDToken(t, signPayload(t, jose.RS256, testKey(t), []byte(payload))))
+			if err != nil {
+				t.Fatalf("Authenticate returned error: %v", err)
+			}
+			if want := newCaller(t, 11, 22, 33, 2, validAttributes()); got != want {
+				t.Errorf("Authenticate = %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
+// claimAliasLetters は、JWT Design が別名の範囲として定める、別名を持つ 5 つの Claim 名の各文字と同じ文字に畳み込まれる文字の組である。
+var claimAliasLetters = map[rune][]rune{
+	'a': []rune("aA"), 'b': []rune("bB"), 'd': []rune("dD"), 'e': []rune("eE"),
+	'f': []rune("fF"), 'i': []rune("iI"), 'n': []rune("nN"), 'p': []rune("pP"),
+	's': []rune("sSſ"), 't': []rune("tT"), 'u': []rune("uU"), 'x': []rune("xX"),
+}
+
+// claimAliases は、各文字を letters の返す文字に置き換えて作れる名前のうち元の名前と異なるものを、元の名前を値とする map で返す。
+func claimAliases(letters func(rune) []rune) map[string]string {
+	aliases := map[string]string{}
+	for _, name := range []string{"iss", "aud", "exp", "iat", "nbf"} {
+		spellings := []string{""}
+		for _, r := range name {
+			var next []string
+			for _, prefix := range spellings {
+				for _, letter := range letters(r) {
+					next = append(next, prefix+string(letter))
+				}
+			}
+			spellings = next
+		}
+		for _, spelling := range spellings {
+			if spelling != name {
+				aliases[spelling] = name
+			}
+		}
+	}
+	return aliases
+}
+
+// simpleFoldOrbit は、r と Unicode の単純な Case Folding で同じ文字に畳み込まれる文字を返す。
+func simpleFoldOrbit(r rune) []rune {
+	orbit := []rune{r}
+	for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
+		orbit = append(orbit, f)
+	}
+	return orbit
+}
+
+// claimNameCandidates は、5 つの Claim 名と、その各文字を単純な Case Folding で同じ文字に畳み込まれる文字に置き換えた名前を返す。
+// i には、トルコ語用の対応でだけ i と同じになる İ と、i に似るがどの Case Folding でも i にならない ı も充てる。
+// 完全な Case Folding でだけ ss と同じになる iß も加える。
+func claimNameCandidates() []string {
+	letters := func(r rune) []rune {
+		if r == 'i' {
+			return append(simpleFoldOrbit(r), 'İ', 'ı')
+		}
+		return simpleFoldOrbit(r)
+	}
+	names := []string{"iss", "aud", "exp", "iat", "nbf", "iß"}
+	for name := range claimAliases(letters) {
+		names = append(names, name)
+	}
+	return names
+}
+
+// decodedClaimName は、go-oidc が Claim を読む encoding/json (v1) が、name を 5 つの Claim 名のどれとして読むかを返す。どれとしても読まなければ空文字列を返す。
+func decodedClaimName(t *testing.T, name string) string {
+	t.Helper()
+	var claims struct {
+		Iss jsonv1.RawMessage `json:"iss"`
+		Aud jsonv1.RawMessage `json:"aud"`
+		Exp jsonv1.RawMessage `json:"exp"`
+		Iat jsonv1.RawMessage `json:"iat"`
+		Nbf jsonv1.RawMessage `json:"nbf"`
+	}
+	if err := jsonv1.Unmarshal([]byte(`{"`+name+`":0}`), &claims); err != nil {
+		t.Fatalf("Unmarshal returned error: %v", err)
+	}
+	for claimName, value := range map[string]jsonv1.RawMessage{"iss": claims.Iss, "aud": claims.Aud, "exp": claims.Exp, "iat": claims.Iat, "nbf": claims.Nbf} {
+		if value != nil {
+			return claimName
+		}
+	}
+	return ""
+}
+
+// JWT Design の別名が、go-oidc のデコーダが 5 つの Claim 名として読む名前とも、isClaimAlias が拒否する名前とも一致することを確かめる。
+// デコーダの照合は Go の Unicode の版で広がり得るため、単純な Case Folding で畳み込まれる文字はすべて候補に入れる。
+func TestClaimAliases_MatchDecoderAndRejection(t *testing.T) {
+	aliases := claimAliases(func(r rune) []rune { return claimAliasLetters[r] })
+	for _, name := range claimNameCandidates() {
+		claimName, isAlias := aliases[name]
+		if !isAlias && slices.Contains([]string{"iss", "aud", "exp", "iat", "nbf"}, name) {
+			claimName = name
+		}
+		if got := decodedClaimName(t, name); got != claimName {
+			t.Errorf("decoder under unicode %s reads %q as %q, want %q", unicode.Version, name, got, claimName)
+		}
+		if got := isClaimAlias(name); got != isAlias {
+			t.Errorf("isClaimAlias(%q) = %v, want %v", name, got, isAlias)
+		}
+	}
+}
+
+func TestVerifierAuthenticate_ClaimAlias(t *testing.T) {
+	for alias, name := range claimAliases(func(r rune) []rune { return claimAliasLetters[r] }) {
+		t.Run(alias+" with "+name+" returns ErrAuthenticationFailure", func(t *testing.T) {
+			// 別名の値を正しい名前と同じにし、別名の拒否だけが拒否できるようにする
+			value, err := json.Marshal(validClaims()[name])
+			if err != nil {
+				t.Fatalf("Marshal returned error: %v", err)
+			}
+			payload := validClaimsAnd(t, `"`+alias+`":`+string(value))
+			assertAuthenticationFailure(t, signPayload(t, jose.RS256, testKey(t), []byte(payload)))
+		})
 	}
 }
 

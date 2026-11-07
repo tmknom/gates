@@ -1,7 +1,15 @@
+; expect: unsat
+; PCONGRUENCE: two Claims Sets with equal values under every consulted name
+; have equal acceptance, so consulted-name covers every name the acceptance
+; predicate reads. otherClaims ranges over every set that agrees with
+; anyClaims on the consulted names, because anyValues is arbitrary.
 (declare-const anyClaims Claims)
-(declare-const otherClaims Claims)
-; PCONGRUENCE: if every inspected name+JsonValue is equal, decisions equal.
-(assert (= (core-view anyClaims) (core-view otherClaims)))
-(assert (not (= (gates-current-example-aliases anyClaims 1000 "gates-oidc")
-                (gates-current-example-aliases otherClaims 1000 "gates-oidc"))))
+(declare-const anyValues Claims)
+(declare-const arbitraryClock Int)
+(declare-const arbitraryAudience String)
+(define-fun otherClaims () Claims
+  (lambda ((n String))
+    (ite (consulted-name n) (select anyClaims n) (select anyValues n))))
+(assert (not (= (gates-current anyClaims arbitraryClock arbitraryAudience)
+                (gates-current otherClaims arbitraryClock arbitraryAudience))))
 (check-sat)

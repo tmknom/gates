@@ -1,5 +1,8 @@
-; PSUBOIDC (universal): every GATES-accepted sub satisfies OIDC Core §2 ASCII/255
+; expect: unsat
+; PSUBOIDC: every GATES-accepted sub satisfies OIDC Core §2 ASCII/255.
 (declare-const anyClaims Claims)
-(assert (gates-current-example-aliases anyClaims 1000 "gates-oidc"))
+(declare-const arbitraryClock Int)
+(declare-const arbitraryAudience String)
+(assert (gates-current anyClaims arbitraryClock arbitraryAudience))
 (assert (not (oidc-sub-conditional anyClaims)))
 (check-sat)
