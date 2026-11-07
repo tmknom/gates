@@ -12,5 +12,6 @@
 | [GitHub OIDC Discovery](github/oidc-discovery.md) | GitHub OIDC の Discovery エンドポイントから取得した応答 |
 | [GitHub OIDC JWKS](github/oidc-jwks.md) | GitHub OIDC の JWKS エンドポイントから取得した応答 |
 | [GitHub OIDC JWT](github/oidc-jwt.md) | GitHub Actions の実環境で発行された OIDC JWT の Claim を、起動条件ごとに取得した値 |
+| [GitHub OIDC Custom Audience](github/custom-audience.md) | Audience を指定して取得した OIDC JWT の形と、GitHub が発行を拒否した Audience |
 | [GitHub App Installation](github/app-installation.md) | GitHub App JWT でユーザーアカウントの Installation を取得した応答と、署名を壊した GitHub App JWT への `401` の応答 |
 | [GitHub Installation Access Token](github/installation-access-token.md) | 対象と権限を明示した Installation Access Token の発行と失効の応答 |

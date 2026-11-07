@@ -61,10 +61,16 @@ variable "gates_audience" {
     error_message = "gates_audience must differ from sts.amazonaws.com, the audience of the OIDC JWT for AWS."
   }
 
-  # Audience を指定せずに取得した OIDC JWT にはオーナーの URL が入る。同じ値にすると、その JWT を手にした Action が GATES の認証を通せる
+  # GitHub は GitHub 全体を指す汎用の https://github.com でも OIDC JWT を発行する。同じ値にすると、同じ値を Audience に使うほかのサービス向けの OIDC JWT で GATES の認証を通せる
   validation {
-    condition     = lower(var.gates_audience) != lower("https://github.com/${var.allowed_owner_name}")
-    error_message = "gates_audience must differ from https://github.com/<allowed_owner_name>, the default audience of GitHub OIDC JWTs."
+    condition     = lower(var.gates_audience) != "https://github.com"
+    error_message = "gates_audience must differ from https://github.com, which does not identify GATES."
+  }
+
+  # GitHub は呼び出し元のオーナーとリポジトリの URL でも OIDC JWT を発行し、オーナーの URL は Audience を指定しない OIDC JWT にも入る。同じ値にすると、その OIDC JWT で GATES の認証を通せる
+  validation {
+    condition     = !startswith(lower(var.gates_audience), "https://github.com/")
+    error_message = "gates_audience must not start with https://github.com/, which does not identify GATES."
   }
 }
 

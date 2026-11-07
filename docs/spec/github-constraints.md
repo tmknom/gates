@@ -98,6 +98,11 @@ Organization 名の規則もこの資料の対象外であり、`User` と Organ
 - **再利用ワークフロー**：`job_workflow_ref` は再利用ワークフローを使わないジョブにも含まれ、値は `workflow_ref` と同じである。再利用ワークフローを使うと、`job_workflow_ref` は再利用ワークフローを指し、`workflow_ref` は呼び出し元のワークフローを指す。別のコミットをコミット SHA で参照した記録では、`job_workflow_ref` の `@` の後がコミット SHA になり、`job_workflow_sha` は `sha`、`workflow_sha` と異なる
 - **Claim の有無**：`environment` と `environment_node_id` は Environment を使う1件にだけ含まれる。`base_ref` と `head_ref` は pull_request 以外でも欠落せず、空文字列である。`claims_supported` のうち `enterprise`、`enterprise_id`、`issuer_scope` は6件のどれにも含まれない
 
+**実測値（Audience の指定）**：Audience を指定して取得した JWT と、指定した値ごとの発行の可否を記録しています（[GitHub OIDC Custom Audience](../research/github/custom-audience.md)）。
+
+- **`aud`**：URL でない文字列を指定した2件とも、指定した値そのものの JSON 文字列で、配列ではない。時刻と ID の Claim の型、Header のキーと `alg` は、Audience を指定しない場合と同じである。ほかの Claim は記録していない
+- **発行の可否**：試した github.com の URL のうち、発行されたのは呼び出し元のオーナーの URL、呼び出し元のリポジトリの URL、`https://github.com` だけである。同じオーナーの別のリポジトリの URL（末尾にスラッシュを付けたもの、ホスト名に大文字を混ぜたものを含む）と、別のオーナーの URL は、JWT を発行せず `400` を返した。api.github.com の URL は、別のリポジトリを指すものだけを試し、`400` を返した。github.io の URL は、呼び出し元と異なるオーナーのサブドメインでも発行された。`example.com` の https URL、`urn:` と `api://` の URI、URL でない文字列、`sts.amazonaws.com` も発行された。試していない形（呼び出し元のリポジトリの下のパス、別のオーナーのリポジトリの URL など）の扱いと拒否の規則は、公式資料に記載がない
+
 **推論**：公式の例も実測値も、すべての JWT の型や時刻の差を保証するものとは読めません。
 実測値の `nbf` は公式の例と異なり `iat` の5分前ですが、JWT の標準仕様は `nbf`、`iat`、`exp` の差を定めていないため、この違いだけでは仕様違反になりません。
 
@@ -298,7 +303,7 @@ Client ID または App ID を `iss` にすることは、`iss` を文字列と�
 |---|---|
 | オーナー名 | 一般の `User` / Organization の命名規則と適用上の例外 |
 | リポジトリ名 | `.` と `..` の扱い、既存リポジトリへの例外的な命名規則 |
-| OIDC | カスタマイズ後の `sub` の形式（`repo` を含めないテンプレートを不変形式のリポジトリに適用した場合を含む）、`sub` が OpenID Connect Core の上限255 ASCII 文字に常に収まるか、Claim の JSON の型、Claim が欠落する条件、`nbf`、`iat`、`exp` の時刻の差、JOSE Header に `crit`、`jku`、`jwk` などが現れるか、`User` 所有のリポジトリでの `repository_owner_id`、`run_attempt` の初回の値、Organization が所有するリポジトリで発行された JWT の実測値 |
+| OIDC | カスタマイズ後の `sub` の形式（`repo` を含めないテンプレートを不変形式のリポジトリに適用した場合を含む）、`sub` が OpenID Connect Core の上限255 ASCII 文字に常に収まるか、Claim の JSON の型、Claim が欠落する条件、`nbf`、`iat`、`exp` の時刻の差、JOSE Header に `crit`、`jku`、`jwk` などが現れるか、`User` 所有のリポジトリでの `repository_owner_id`、`run_attempt` の初回の値、Organization が所有するリポジトリで発行された JWT の実測値、指定した Audience の発行を拒否する規則（実測した値の外での振る舞い） |
 | GitHub App の鍵 | 新規生成される RSA 鍵のビット長 |
 | Installation の取得 API | Organization と User の API の `200` 以外の応答（インストールされていない場合を含む）、Organization の API の応答の形、GitHub App とオーナーの組での一意性 |
 | トークン発行 API | 範囲外リポジトリへの要求、選択対象外の公開リポジトリに対するトークンの振る舞い、500件超の要求、停止中の Installation への要求、`422` の原因、`metadata:read` の付与条件、応答フィールドの有無、`repositories` の並び |

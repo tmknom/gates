@@ -254,25 +254,65 @@ run "rejects_gates_audience_of_github_default" {
   expect_failures = [var.gates_audience]
 }
 
-run "rejects_gates_audience_of_github_default_in_other_case" {
+run "rejects_gates_audience_of_github_host" {
   command = plan
 
   variables {
-    gates_audience = "https://github.com/example-owner"
+    gates_audience = "https://github.com"
   }
 
   expect_failures = [var.gates_audience]
 }
 
-run "accepts_gates_audience_of_repository_under_owner" {
+run "rejects_gates_audience_of_github_host_in_other_case" {
+  command = plan
+
+  variables {
+    gates_audience = "HTTPS://GitHub.COM"
+  }
+
+  expect_failures = [var.gates_audience]
+}
+
+run "rejects_gates_audience_of_github_host_with_trailing_slash" {
+  command = plan
+
+  variables {
+    gates_audience = "https://github.com/"
+  }
+
+  expect_failures = [var.gates_audience]
+}
+
+run "rejects_gates_audience_of_github_repository" {
   command = plan
 
   variables {
     gates_audience = "https://github.com/Example-Owner/gates"
   }
 
+  expect_failures = [var.gates_audience]
+}
+
+run "rejects_gates_audience_of_github_repository_with_uppercase_host" {
+  command = plan
+
+  variables {
+    gates_audience = "https://GitHub.com/Example-Owner/gates"
+  }
+
+  expect_failures = [var.gates_audience]
+}
+
+run "accepts_gates_audience_of_non_github_url" {
+  command = plan
+
+  variables {
+    gates_audience = "https://gates.example.com"
+  }
+
   assert {
-    condition     = aws_lambda_function.gates.environment[0].variables["GATES_AUDIENCE"] == "https://github.com/Example-Owner/gates"
+    condition     = aws_lambda_function.gates.environment[0].variables["GATES_AUDIENCE"] == "https://gates.example.com"
     error_message = "the audience must carry the input value"
   }
 }

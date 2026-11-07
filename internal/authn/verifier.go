@@ -13,6 +13,7 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 
 	"github.com/tmknom/gates/internal/authz"
+	"github.com/tmknom/gates/internal/repository"
 	"github.com/tmknom/gates/internal/request"
 )
 
@@ -21,6 +22,9 @@ const clockSkew = 5 * time.Minute
 
 // awsAudience は AWS 用 OIDC JWT の Audience で、Domain Model の認証の固定設定が GATES 用 Audience に禁じる値である。
 const awsAudience = "sts.amazonaws.com"
+
+// githubURL と、githubURL に "/" を続けた値で始まる値が、Domain Model の認証の固定設定が GATES 用 Audience に禁じる github.com の URL である。
+const githubURL = "https://github.com"
 
 // Verifier は、固定設定と公開鍵の集合に照らして GATES 用 OIDC JWT を認証する。
 type Verifier struct {
@@ -42,7 +46,16 @@ func NewVerifier(issuer, audience string, now func() time.Time, log *slog.Logger
 	if audience == awsAudience {
 		return nil, fmt.Errorf("%w: must differ from the audience of the OIDC JWT for AWS", ErrInvalidAudience)
 	}
+	if isGitHubURL(audience) {
+		return nil, fmt.Errorf("%w: must not be %s or start with %s/, which does not identify GATES", ErrInvalidAudience, githubURL, githubURL)
+	}
 	return newVerifier(issuer, audience, newIssuerKeySet(issuerURL, now, log, opts...), now), nil
+}
+
+func isGitHubURL(audience string) bool {
+	prefix := githubURL + "/"
+	return repository.EqualFoldASCII(audience, githubURL) ||
+		len(audience) >= len(prefix) && repository.EqualFoldASCII(audience[:len(prefix)], prefix)
 }
 
 // parseIssuer は Domain Model の認証の固定設定の条件を Issuer について確かめる。
