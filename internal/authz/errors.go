@@ -8,6 +8,5 @@ var (
 	ErrAuthorizationDenied     = errors.New("authorization denied")
 	ErrInstallationUnavailable = errors.New("installation unavailable")
 	ErrInvalidAllowedOwner     = errors.New("invalid allowed owner")
-	ErrInvalidCaller           = errors.New("invalid caller")
 	ErrInvalidInstallation     = errors.New("invalid installation")
 )

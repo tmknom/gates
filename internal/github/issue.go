@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/tmknom/gates/internal/authz"
+	"github.com/tmknom/gates/internal/githubid"
 	"github.com/tmknom/gates/internal/nonzero"
 )
 
@@ -71,8 +72,8 @@ func (c *Client) postIssuance(ctx context.Context, appJWT AppJWT, grant authz.To
 	return responseBody, requestID, nil
 }
 
-func issuancePath(installationID int64) string {
-	return "/app/installations/" + strconv.FormatInt(installationID, 10) + "/access_tokens"
+func issuancePath(installationID githubid.InstallationID) string {
+	return "/app/installations/" + strconv.FormatInt(installationID.Int64(), 10) + "/access_tokens"
 }
 
 // issuanceRequestBody は、発行許可の対象のリポジトリ名と権限を、どちらも省略せずに JSON にする。

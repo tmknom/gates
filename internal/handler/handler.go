@@ -9,20 +9,21 @@ import (
 
 	"github.com/tmknom/gates/internal/audit"
 	"github.com/tmknom/gates/internal/authz"
+	"github.com/tmknom/gates/internal/caller"
 	"github.com/tmknom/gates/internal/errorcode"
-	"github.com/tmknom/gates/internal/issuer"
 	"github.com/tmknom/gates/internal/nonzero"
 	"github.com/tmknom/gates/internal/request"
+	"github.com/tmknom/gates/internal/tokenissuer"
 )
 
 // oidcVerifier は、OIDC Verifier のうち Lambda Handler が使う操作である。
 type oidcVerifier interface {
-	Authenticate(ctx context.Context, rawIDToken request.RawIDToken) (authz.Caller, error)
+	Authenticate(ctx context.Context, unverifiedIDToken request.UnverifiedIDToken) (caller.Caller, error)
 }
 
 // installationTokenIssuer は、Token Issuer のうち Lambda Handler が使う操作である。
 type installationTokenIssuer interface {
-	IssueInstallationToken(ctx context.Context, grant issuer.GrantFunc) (issuer.InstallationToken, error)
+	IssueInstallationToken(ctx context.Context, grant tokenissuer.GrantFunc) (tokenissuer.InstallationToken, error)
 }
 
 // Handler は Lambda Handler である。
@@ -79,24 +80,24 @@ func (h *Handler) process(ctx context.Context, requestID RequestID, payload []by
 }
 
 // runProcessingFlow は、Processing Flow の手順を監査記録の出力の前まで順に行い、各手順で確定した値を監査記録に詰める。
-func (h *Handler) runProcessingFlow(ctx context.Context, payload []byte, record *audit.Record) (issuer.InstallationToken, error) {
-	rawIDToken, tokenRequest, err := request.Validate(payload)
+func (h *Handler) runProcessingFlow(ctx context.Context, payload []byte, record *audit.Record) (tokenissuer.InstallationToken, error) {
+	unverifiedIDToken, tokenRequest, err := request.Validate(payload)
 	if err != nil {
-		return issuer.InstallationToken{}, err
+		return tokenissuer.InstallationToken{}, err
 	}
 	record.SetTokenRequest(tokenRequest)
-	caller, err := h.verifier.Authenticate(ctx, rawIDToken)
+	verified, err := h.verifier.Authenticate(ctx, unverifiedIDToken)
 	if err != nil {
-		return issuer.InstallationToken{}, err
+		return tokenissuer.InstallationToken{}, err
 	}
-	record.SetCaller(caller)
-	if err := authz.Authorize(caller, tokenRequest, h.owner); err != nil {
-		return issuer.InstallationToken{}, err
+	record.SetCaller(verified)
+	if err := authz.Authorize(verified, tokenRequest, h.owner); err != nil {
+		return tokenissuer.InstallationToken{}, err
 	}
 	// 要求の ctx を別の期限で包まない。失効のタイムアウトは要求の ctx の期限から決まる（Lambda Design の「Call Time Budget」）
 	return h.tokenIssuer.IssueInstallationToken(ctx, func(installation authz.Installation) (authz.TokenGrant, error) {
 		// Grant が拒否しても、Installation の解決には成功しているため、判定の前に詰める
 		record.SetInstallation(installation)
-		return authz.Grant(caller, tokenRequest, h.owner, installation)
+		return authz.Grant(verified, tokenRequest, h.owner, installation)
 	})
 }

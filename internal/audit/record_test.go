@@ -8,8 +8,9 @@ import (
 	"testing"
 
 	"github.com/tmknom/gates/internal/audit"
-	"github.com/tmknom/gates/internal/authz"
+	"github.com/tmknom/gates/internal/caller"
 	"github.com/tmknom/gates/internal/errorcode"
+	"github.com/tmknom/gates/internal/revocation"
 )
 
 func TestRecord_Write_SlogKeys(t *testing.T) {
@@ -69,7 +70,7 @@ func TestRecord_Write_TopLevelKeys(t *testing.T) {
 		t.Helper()
 		r := audit.NewRecord(requestID)
 		r.SetTokenRequest(tokenRequest(t))
-		r.SetCaller(caller(t, authz.WorkflowTriggerAttributes{}))
+		r.SetCaller(verifiedCaller(t, caller.WorkflowTriggerAttributes{}))
 		r.SetInstallation(installation(t))
 		return r
 	}
@@ -100,7 +101,7 @@ func TestRecord_Write_TopLevelKeys(t *testing.T) {
 			build: func(t *testing.T) audit.Record {
 				r := audit.NewRecord(requestID)
 				r.SetTokenRequest(tokenRequest(t))
-				r.SetCaller(caller(t, authz.WorkflowTriggerAttributes{}))
+				r.SetCaller(verifiedCaller(t, caller.WorkflowTriggerAttributes{}))
 				return r
 			},
 			result: audit.Failed(errorcode.AuthorizationDenied, "reason"),
@@ -115,7 +116,7 @@ func TestRecord_Write_TopLevelKeys(t *testing.T) {
 		{
 			name:   "verification failure records revocation",
 			build:  stagesPassed,
-			result: audit.VerificationFailed(errorcode.IssuanceVerificationFailed, "reason", audit.RevocationSucceeded),
+			result: audit.VerificationFailed(errorcode.IssuanceVerificationFailed, "reason", revocation.Succeeded),
 			want:   append(slices.Clone(failure), "request", "caller", "installation", "revocation"),
 		},
 		{
@@ -137,7 +138,7 @@ func TestRecord_Write_TopLevelKeys(t *testing.T) {
 }
 
 func TestRecord_Write_Caller(t *testing.T) {
-	all := authz.WorkflowTriggerAttributes{
+	all := caller.WorkflowTriggerAttributes{
 		Actor:          "octocat",
 		ActorID:        "1001",
 		EventName:      "pull_request_target",
@@ -155,7 +156,7 @@ func TestRecord_Write_Caller(t *testing.T) {
 	}
 	tests := []struct {
 		name       string
-		attributes authz.WorkflowTriggerAttributes
+		attributes caller.WorkflowTriggerAttributes
 		want       map[string]any
 	}{
 		{
@@ -174,14 +175,14 @@ func TestRecord_Write_Caller(t *testing.T) {
 		},
 		{
 			name:       "empty trigger attributes are omitted",
-			attributes: authz.WorkflowTriggerAttributes{Actor: all.Actor, EventName: all.EventName},
+			attributes: caller.WorkflowTriggerAttributes{Actor: all.Actor, EventName: all.EventName},
 			want:       merge(ids, map[string]any{"actor": all.Actor, "event_name": all.EventName}),
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := audit.NewRecord(requestID)
-			r.SetCaller(caller(t, tt.attributes))
+			r.SetCaller(verifiedCaller(t, tt.attributes))
 			_, got := write(t, r, audit.Succeeded())
 			if !reflect.DeepEqual(got["caller"], tt.want) {
 				t.Errorf("caller = %v, want %v", got["caller"], tt.want)
@@ -213,24 +214,12 @@ func TestRecord_Write_Installation(t *testing.T) {
 	}
 }
 
+// TestRecord_Write_RevocationOutcome は、失効の結果を revocation キーに書くことを確かめる。値ごとの表記は revocation のテストに任せる。
 func TestRecord_Write_RevocationOutcome(t *testing.T) {
-	tests := []struct {
-		name    string
-		outcome audit.RevocationOutcome
-		want    string
-	}{
-		{name: "not attempted records not_attempted", outcome: audit.RevocationNotAttempted, want: "not_attempted"},
-		{name: "succeeded records succeeded", outcome: audit.RevocationSucceeded, want: "succeeded"},
-		{name: "failed records failed", outcome: audit.RevocationFailed, want: "failed"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := audit.VerificationFailed(errorcode.IssuanceVerificationFailed, "reason", tt.outcome)
-			_, got := write(t, audit.NewRecord(requestID), result)
-			if got["revocation"] != tt.want {
-				t.Errorf("revocation = %v, want %q", got["revocation"], tt.want)
-			}
-		})
+	result := audit.VerificationFailed(errorcode.IssuanceVerificationFailed, "reason", revocation.NotAttempted)
+	_, got := write(t, audit.NewRecord(requestID), result)
+	if got["revocation"] != "not_attempted" {
+		t.Errorf("revocation = %v, want %q", got["revocation"], "not_attempted")
 	}
 }
 
@@ -238,7 +227,7 @@ func TestRecord_Write_RevocationOutcome(t *testing.T) {
 func TestRecord_Write_UntrustedTriggerAttribute(t *testing.T) {
 	value := "line1\nline2\r\"quoted\"\x00\x01\x1f {\"injected\":true},\"result\":\"success\"}"
 	r := audit.NewRecord(requestID)
-	r.SetCaller(caller(t, authz.WorkflowTriggerAttributes{Actor: value}))
+	r.SetCaller(verifiedCaller(t, caller.WorkflowTriggerAttributes{Actor: value}))
 	line, got := write(t, r, audit.Failed(errorcode.InternalError, "reason"))
 	if n := strings.Count(line, "\n"); n != 1 || !strings.HasSuffix(line, "\n") {
 		t.Errorf("record has %d newlines, want exactly one at the end: %q", n, line)

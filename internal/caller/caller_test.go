@@ -1,14 +1,14 @@
-package authz_test
+package caller_test
 
 import (
 	"errors"
 	"testing"
 
-	"github.com/tmknom/gates/internal/authz"
+	"github.com/tmknom/gates/internal/caller"
 )
 
 func TestNewCaller(t *testing.T) {
-	attributes := authz.WorkflowTriggerAttributes{
+	attributes := caller.WorkflowTriggerAttributes{
 		Actor:          "octocat",
 		ActorID:        "583231",
 		EventName:      "push",
@@ -18,21 +18,21 @@ func TestNewCaller(t *testing.T) {
 		JobWorkflowRef: "example-org/app/.github/workflows/ci.yml@refs/heads/main",
 		Environment:    "production",
 	}
-	got, err := authz.NewCaller(11, 22, 33, 2, attributes)
+	got, err := caller.NewCaller(11, 22, 33, 2, attributes)
 	if err != nil {
 		t.Fatalf("NewCaller returned error: %v", err)
 	}
-	if got.OwnerID() != 11 {
-		t.Errorf("OwnerID() = %d, want 11", got.OwnerID())
+	if got.OwnerID().Int64() != 11 {
+		t.Errorf("OwnerID() = %d, want 11", got.OwnerID().Int64())
 	}
-	if got.RepositoryID() != 22 {
-		t.Errorf("RepositoryID() = %d, want 22", got.RepositoryID())
+	if got.RepositoryID().Int64() != 22 {
+		t.Errorf("RepositoryID() = %d, want 22", got.RepositoryID().Int64())
 	}
-	if got.RunID() != 33 {
-		t.Errorf("RunID() = %d, want 33", got.RunID())
+	if got.RunID().Int64() != 33 {
+		t.Errorf("RunID() = %d, want 33", got.RunID().Int64())
 	}
-	if got.RunAttempt() != 2 {
-		t.Errorf("RunAttempt() = %d, want 2", got.RunAttempt())
+	if got.RunAttempt().Int64() != 2 {
+		t.Errorf("RunAttempt() = %d, want 2", got.RunAttempt().Int64())
 	}
 	if got.WorkflowTriggerAttributes() != attributes {
 		t.Errorf("WorkflowTriggerAttributes() = %+v, want %+v", got.WorkflowTriggerAttributes(), attributes)
@@ -40,11 +40,12 @@ func TestNewCaller(t *testing.T) {
 }
 
 func TestNewCaller_AllowsMissingWorkflowTriggerAttributes(t *testing.T) {
-	if _, err := authz.NewCaller(11, 22, 33, 1, authz.WorkflowTriggerAttributes{}); err != nil {
+	if _, err := caller.NewCaller(11, 22, 33, 1, caller.WorkflowTriggerAttributes{}); err != nil {
 		t.Errorf("NewCaller returned error: %v", err)
 	}
 }
 
+// TestNewCaller_Invalid は、各 ID と試行番号の形式の判定を githubid に任せていることを 0 で確かめ、負の値の拒否は githubid のテストに任せる。
 func TestNewCaller_Invalid(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -54,19 +55,15 @@ func TestNewCaller_Invalid(t *testing.T) {
 		runAttempt   int64
 	}{
 		{name: "zero owner id returns ErrInvalidCaller", ownerID: 0, repositoryID: 22, runID: 33, runAttempt: 1},
-		{name: "negative owner id returns ErrInvalidCaller", ownerID: -1, repositoryID: 22, runID: 33, runAttempt: 1},
 		{name: "zero repository id returns ErrInvalidCaller", ownerID: 11, repositoryID: 0, runID: 33, runAttempt: 1},
-		{name: "negative repository id returns ErrInvalidCaller", ownerID: 11, repositoryID: -1, runID: 33, runAttempt: 1},
 		{name: "zero run id returns ErrInvalidCaller", ownerID: 11, repositoryID: 22, runID: 0, runAttempt: 1},
-		{name: "negative run id returns ErrInvalidCaller", ownerID: 11, repositoryID: 22, runID: -1, runAttempt: 1},
 		{name: "zero run attempt returns ErrInvalidCaller", ownerID: 11, repositoryID: 22, runID: 33, runAttempt: 0},
-		{name: "negative run attempt returns ErrInvalidCaller", ownerID: 11, repositoryID: 22, runID: 33, runAttempt: -1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := authz.NewCaller(tt.ownerID, tt.repositoryID, tt.runID, tt.runAttempt, authz.WorkflowTriggerAttributes{})
-			if !errors.Is(err, authz.ErrInvalidCaller) {
-				t.Errorf("NewCaller() error = %v, want %v", err, authz.ErrInvalidCaller)
+			_, err := caller.NewCaller(tt.ownerID, tt.repositoryID, tt.runID, tt.runAttempt, caller.WorkflowTriggerAttributes{})
+			if !errors.Is(err, caller.ErrInvalidCaller) {
+				t.Errorf("NewCaller() error = %v, want %v", err, caller.ErrInvalidCaller)
 			}
 		})
 	}

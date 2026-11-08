@@ -10,9 +10,10 @@ import (
 	"github.com/tmknom/gates/internal/authz"
 	"github.com/tmknom/gates/internal/errorcode"
 	"github.com/tmknom/gates/internal/github"
-	"github.com/tmknom/gates/internal/issuer"
 	"github.com/tmknom/gates/internal/request"
+	"github.com/tmknom/gates/internal/revocation"
 	"github.com/tmknom/gates/internal/signer"
+	"github.com/tmknom/gates/internal/tokenissuer"
 )
 
 func TestErrorCodeOf(t *testing.T) {
@@ -32,7 +33,7 @@ func TestErrorCodeOf(t *testing.T) {
 		{name: "signer internal failure maps to internal_error", failure: signer.ErrInternalFailure, want: errorcode.InternalError},
 		{name: "github transient failure maps to token_issuance_failed", failure: github.ErrTransientFailure, want: errorcode.TokenIssuanceFailed},
 		{name: "github issuance rejected maps to github_issuance_rejected", failure: github.ErrIssuanceRejected, want: errorcode.GitHubIssuanceRejected},
-		{name: "verification failure maps to issuance_verification_failed", failure: issuer.ErrVerificationFailure, want: errorcode.IssuanceVerificationFailed},
+		{name: "verification failure maps to issuance_verification_failed", failure: tokenissuer.ErrVerificationFailure, want: errorcode.IssuanceVerificationFailed},
 		{name: "failure of no failure kind maps to internal_error", failure: errors.New("unexpected"), want: errorcode.InternalError},
 	}
 	for _, tt := range tests {
@@ -58,9 +59,9 @@ func TestErrorCodeOf_VerificationFailureWithFailedRevocationMapsToIssuanceVerifi
 	issuance := recordedIssuance()
 	issuance["repository_selection"] = "all"
 	_, err := issueInstallationToken(t, issuance, http.StatusServiceUnavailable)
-	failure, ok := errors.AsType[*issuer.VerificationFailure](err)
-	if !ok || failure.RevocationOutcome() != issuer.RevocationFailed {
-		t.Fatalf("IssueInstallationToken error = %v, want *issuer.VerificationFailure with failed revocation", err)
+	failure, ok := errors.AsType[*tokenissuer.VerificationFailure](err)
+	if !ok || failure.RevocationOutcome() != revocation.Failed {
+		t.Fatalf("IssueInstallationToken error = %v, want *tokenissuer.VerificationFailure with failed revocation", err)
 	}
 
 	if got := errorCodeOf(err); got != errorcode.IssuanceVerificationFailed {

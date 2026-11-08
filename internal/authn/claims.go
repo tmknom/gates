@@ -5,7 +5,7 @@ import (
 	"encoding/json/v2"
 	"fmt"
 
-	"github.com/tmknom/gates/internal/authz"
+	"github.com/tmknom/gates/internal/caller"
 )
 
 // claims は、GATES 用 OIDC JWT の Claim のうち、Caller の確定に読むものを復号する入れ物である。
@@ -37,8 +37,8 @@ func decodeClaims(rawClaims []byte) (claims, error) {
 	return c, nil
 }
 
-func (c claims) triggerAttributes() authz.WorkflowTriggerAttributes {
-	return authz.WorkflowTriggerAttributes{
+func (c claims) triggerAttributes() caller.WorkflowTriggerAttributes {
+	return caller.WorkflowTriggerAttributes{
 		Actor:          attributeValue(c.Actor),
 		ActorID:        attributeValue(c.ActorID),
 		EventName:      attributeValue(c.EventName),

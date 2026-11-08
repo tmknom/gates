@@ -7,9 +7,9 @@ import (
 	"github.com/tmknom/gates/internal/authz"
 	"github.com/tmknom/gates/internal/errorcode"
 	"github.com/tmknom/gates/internal/github"
-	"github.com/tmknom/gates/internal/issuer"
 	"github.com/tmknom/gates/internal/request"
 	"github.com/tmknom/gates/internal/signer"
+	"github.com/tmknom/gates/internal/tokenissuer"
 )
 
 // errorCodesByFailureKind は、部品が返す失敗の種別の sentinel error を、エラーコードに対応づける。
@@ -29,7 +29,7 @@ var errorCodesByFailureKind = []struct {
 	{kind: signer.ErrInternalFailure, code: errorcode.InternalError},
 	{kind: github.ErrTransientFailure, code: errorcode.TokenIssuanceFailed},
 	{kind: github.ErrIssuanceRejected, code: errorcode.GitHubIssuanceRejected},
-	{kind: issuer.ErrVerificationFailure, code: errorcode.IssuanceVerificationFailed},
+	{kind: tokenissuer.ErrVerificationFailure, code: errorcode.IssuanceVerificationFailed},
 }
 
 // errorCodeOf は、部品が返した失敗をエラーコードに写す。

@@ -76,7 +76,7 @@ func TestValidate(t *testing.T) {
 		t.Fatalf("Validate returned error: %v", err)
 	}
 	if got, want := token.Expose(), "header.payload.signature"; got != want {
-		t.Errorf("RawIDToken.Expose() = %q, want %q", got, want)
+		t.Errorf("UnverifiedIDToken.Expose() = %q, want %q", got, want)
 	}
 	assertRepositories(t, req.Repositories(), []string{"Example-Org/Repo-A", "example-org/repo-b"})
 	assertPermissions(t, req.Permissions(), map[string]string{"contents": "read"})

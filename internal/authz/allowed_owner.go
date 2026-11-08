@@ -3,6 +3,7 @@ package authz
 import (
 	"fmt"
 
+	"github.com/tmknom/gates/internal/githubid"
 	"github.com/tmknom/gates/internal/repository"
 )
 
@@ -18,7 +19,7 @@ const (
 // AllowedOwner は、固定設定のうち許可オーナーである。
 // フィールドを非公開にし、ゼロ値以外は NewAllowedOwner でしか作れないようにする。
 type AllowedOwner struct {
-	id        int64
+	id        githubid.OwnerID
 	name      repository.OwnerName
 	ownerType OwnerType
 }
@@ -26,8 +27,9 @@ type AllowedOwner struct {
 // NewAllowedOwner は、Domain Model の「Invariants」が定める許可オーナーの条件を検証する。
 // オーナー名を文字列で受け取るのは、repository.OwnerName のゼロ値が検証を通らずに入らないようにするため。
 func NewAllowedOwner(id int64, name string, ownerType OwnerType) (AllowedOwner, error) {
-	if id <= 0 {
-		return AllowedOwner{}, fmt.Errorf("%w: owner id must be a positive integer", ErrInvalidAllowedOwner)
+	ownerID, err := githubid.NewOwnerID(id)
+	if err != nil {
+		return AllowedOwner{}, fmt.Errorf("%w: owner id %w", ErrInvalidAllowedOwner, err)
 	}
 	ownerName, err := repository.ParseOwnerName(name)
 	if err != nil {
@@ -37,7 +39,7 @@ func NewAllowedOwner(id int64, name string, ownerType OwnerType) (AllowedOwner, 
 	if err != nil {
 		return AllowedOwner{}, err
 	}
-	return AllowedOwner{id: id, name: ownerName, ownerType: parsedType}, nil
+	return AllowedOwner{id: ownerID, name: ownerName, ownerType: parsedType}, nil
 }
 
 // ParseOwnerType は、許可オーナーの種別を大文字小文字を区別して検証する。
@@ -51,13 +53,13 @@ func ParseOwnerType(s string) (OwnerType, error) {
 }
 
 // IsZero は、NewAllowedOwner を経ていないゼロ値かを返す。
-// NewAllowedOwner は正の Owner ID だけを受け付けるため、Owner ID が 0 の値はゼロ値に限る。
+// NewAllowedOwner はゼロ値の Owner ID を持つ値を作らないため、Owner ID がゼロ値の値はゼロ値に限る。
 func (o AllowedOwner) IsZero() bool {
-	return o.id == 0
+	return o.id.IsZero()
 }
 
 // ID は、許可オーナーの不変 Owner ID を返す。
-func (o AllowedOwner) ID() int64 {
+func (o AllowedOwner) ID() githubid.OwnerID {
 	return o.id
 }
 

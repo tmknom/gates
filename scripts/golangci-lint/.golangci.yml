@@ -60,7 +60,7 @@ linters:
       - path: _test\.go
         linters:
           - forbidigo
-        text: "use of `((authz\\.)?NewCaller|(github\\.)?NewAppJWT)`"
+        text: "use of `((caller\\.)?NewCaller|(github\\.)?NewAppJWT)`"
       # メソッドの違反は、変数の名前で表記が変わるため、メッセージで照合する
       - path: ^internal/request/.*_test\.go$
         linters:
@@ -69,7 +69,7 @@ linters:
       - path: ^internal/authn/
         linters:
           - forbidigo
-        text: "use of `authz\\.NewCaller`|only internal/authn may expose the unverified ID token"
+        text: "use of `caller\\.NewCaller`|only internal/authn may expose the unverified ID token"
       - path: ^internal/signer/
         linters:
           - forbidigo
@@ -96,35 +96,38 @@ linters:
           deny:
             - pkg: gopkg.in/yaml.v3
               desc: archived; use go.yaml.in/yaml/v3
-        # 入力、固定設定、認可の処理は、通信と外部ライブラリを持たない。副作用をこれらの package に入れず、テストを通信なしで書けるようにするため
+        # 入力、固定設定、認可の処理と、ドメインの値の package は、通信と外部ライブラリを持たない。副作用をこれらの package に入れず、テストを通信なしで書けるようにするため
         no-communication:
           list-mode: lax
           files:
             - "**/internal/authz/**"
+            - "**/internal/caller/**"
             - "**/internal/config/**"
+            - "**/internal/githubid/**"
             - "**/internal/permission/**"
             - "**/internal/repository/**"
             - "**/internal/request/**"
+            - "**/internal/revocation/**"
           allow:
             - github.com/tmknom/gates/internal
           deny:
             - pkg: net
-              desc: input, fixed configuration, and authorization packages must not communicate
+              desc: input, fixed configuration, authorization, and domain value packages must not communicate
             - pkg: crypto/tls
-              desc: input, fixed configuration, and authorization packages must not communicate
+              desc: input, fixed configuration, authorization, and domain value packages must not communicate
             - pkg: github.com/
-              desc: input, fixed configuration, and authorization packages must not depend on external libraries
+              desc: input, fixed configuration, authorization, and domain value packages must not depend on external libraries
         # Token Issuer は通信を GitHub Client と KMS Signer に任せ、自らは通信しない。テストは発行結果を GitHub Client の発行応答から作るため、対象から外す
-        issuer-no-communication:
+        tokenissuer-no-communication:
           list-mode: lax
           files:
-            - "**/internal/issuer/**"
+            - "**/internal/tokenissuer/**"
             - "!$test"
           deny:
             - pkg: net
-              desc: internal/issuer must leave communication to internal/github and internal/signer
+              desc: internal/tokenissuer must leave communication to internal/github and internal/signer
             - pkg: crypto/tls
-              desc: internal/issuer must leave communication to internal/github and internal/signer
+              desc: internal/tokenissuer must leave communication to internal/github and internal/signer
         # Lambda Handler は通信を OIDC Verifier、KMS Signer、GitHub Client に任せ、自らは通信しない。テストは成功応答を GitHub Client の発行応答から作るため、対象から外す
         handler-no-communication:
           list-mode: lax
@@ -171,10 +174,10 @@ linters:
           deny:
             - pkg: github.com/tmknom/gates/internal/signer
               desc: internal/github must not depend on internal/signer
-            - pkg: github.com/tmknom/gates/internal/issuer
-              desc: internal/github must not depend on internal/issuer
+            - pkg: github.com/tmknom/gates/internal/tokenissuer
+              desc: internal/github must not depend on internal/tokenissuer
         # 監査記録は資格情報を含めない（Domain Model の「資格情報の非記録」）。資格情報の型を import しないことは型単位では禁じられないため、package 単位で限る。
-        # 許可する package を完全一致で列挙し、資格情報の型を公開する package を既定で拒否する。Token Issuer の失効の結果の型も、この規則のために写しを置く。
+        # 許可する package を完全一致で列挙し、資格情報の型を公開する package を既定で拒否する。
         # internal/request は発行要求のために許し、監査記録が未検証の GATES 用 OIDC JWT を持たないことはレビューで確かめる。テストも対象にし、監査記録に渡せる型を閉じたままにする
         audit-no-credentials:
           list-mode: strict
@@ -184,9 +187,11 @@ linters:
             - $gostd
             - github.com/tmknom/gates/internal/audit$
             - github.com/tmknom/gates/internal/authz$
+            - github.com/tmknom/gates/internal/caller$
             - github.com/tmknom/gates/internal/errorcode$
             - github.com/tmknom/gates/internal/nonzero$
             - github.com/tmknom/gates/internal/request$
+            - github.com/tmknom/gates/internal/revocation$
           deny:
             - pkg: net
               desc: internal/audit must not communicate
@@ -206,15 +211,15 @@ linters:
         - pattern: ^panic$
           msg: only internal/nonzero may panic; return an error, or use nonzero.Require for a zero value
         # Caller は検証済みの GATES 用 OIDC JWT だけから作る（Domain Model の Caller の不変条件）。NewCaller は公開関数で、呼び出せる package を型で限定できないため
-        - pattern: ^authz\.NewCaller$
-          pkg: ^github\.com/tmknom/gates/internal/authz$
+        - pattern: ^caller\.NewCaller$
+          pkg: ^github\.com/tmknom/gates/internal/caller$
           msg: only internal/authn may create a Caller
         # AppJWT は KMS Signer だけが作る。NewAppJWT は公開関数で、呼び出せる package を型で限定できないため
         - pattern: ^github\.NewAppJWT$
           pkg: ^github\.com/tmknom/gates/internal/github$
           msg: only internal/signer may create an AppJWT
         # 未検証の GATES 用 OIDC JWT の値を取り出せるのは OIDC Verifier だけ（Lambda Design の資格情報の表）。Expose は公開メソッドで、呼び出せる package を型で限定できないため
-        - pattern: ^request\.RawIDToken\.Expose$
+        - pattern: ^request\.UnverifiedIDToken\.Expose$
           pkg: ^github\.com/tmknom/gates/internal/request$
           msg: only internal/authn may expose the unverified ID token
         # Installation Access Token の値を package の外で取り出せるのは、成功応答を書く Lambda Handler だけ（Lambda Design の資格情報の表）。Expose は公開メソッドで、呼び出せる package を型で限定できないため

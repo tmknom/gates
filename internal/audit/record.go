@@ -7,6 +7,7 @@ import (
 	"maps"
 
 	"github.com/tmknom/gates/internal/authz"
+	"github.com/tmknom/gates/internal/caller"
 	"github.com/tmknom/gates/internal/request"
 )
 
@@ -15,7 +16,7 @@ import (
 // 詰めていない項目を nil で表す。値の型のゼロ値で表すと、未設定の判定をほかの package の型に求めることになるため。
 type Record struct {
 	requestID    string
-	caller       *authz.Caller
+	caller       *caller.Caller
 	tokenRequest *request.TokenRequest
 	installation *authz.Installation
 }
@@ -26,8 +27,8 @@ func NewRecord(requestID string) Record {
 }
 
 // SetCaller は、認証で確定した Caller を詰める。
-func (r *Record) SetCaller(caller authz.Caller) {
-	r.caller = &caller
+func (r *Record) SetCaller(c caller.Caller) {
+	r.caller = &c
 }
 
 // SetTokenRequest は、形式検証を通った発行要求を詰める。
@@ -53,8 +54,8 @@ func (r *Record) Write(log *slog.Logger, result Result) {
 	}
 	if r.installation != nil {
 		attrs = append(attrs, slog.Group("installation",
-			slog.Int64("id", r.installation.ID()),
-			slog.Int64("owner_id", r.installation.InstallationOwnerID()),
+			slog.Int64("id", r.installation.ID().Int64()),
+			slog.Int64("owner_id", r.installation.InstallationOwnerID().Int64()),
 		))
 	}
 	log.Info("audit record", attrs...)
@@ -62,14 +63,14 @@ func (r *Record) Write(log *slog.Logger, result Result) {
 
 // callerAttr は、ワークフロー起動属性のうち空文字列のものを欠落として省く。
 // 空文字列の扱いは Domain Model の「Request and Decision」が定める。
-func callerAttr(caller authz.Caller) slog.Attr {
+func callerAttr(c caller.Caller) slog.Attr {
 	attrs := []any{
-		slog.Int64("owner_id", caller.OwnerID()),
-		slog.Int64("repository_id", caller.RepositoryID()),
-		slog.Int64("run_id", caller.RunID()),
-		slog.Int64("run_attempt", caller.RunAttempt()),
+		slog.Int64("owner_id", c.OwnerID().Int64()),
+		slog.Int64("repository_id", c.RepositoryID().Int64()),
+		slog.Int64("run_id", c.RunID().Int64()),
+		slog.Int64("run_attempt", c.RunAttempt().Int64()),
 	}
-	trigger := caller.WorkflowTriggerAttributes()
+	trigger := c.WorkflowTriggerAttributes()
 	for _, attr := range []slog.Attr{
 		slog.String("actor", trigger.Actor),
 		slog.String("actor_id", trigger.ActorID),

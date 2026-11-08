@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/tmknom/gates/internal/authz"
+	"github.com/tmknom/gates/internal/caller"
 	"github.com/tmknom/gates/internal/request"
 )
 
@@ -73,7 +74,7 @@ func TestAuthorize_Denied(t *testing.T) {
 // ゼロ値どうしは Owner ID が一致してしまうため、形式検証を通った要求がほかの条件で拒否されることを確かめる。
 func TestAuthorize_ZeroValueOwnerAndCallerAreDenied(t *testing.T) {
 	req := mustTokenRequest(t, []string{"Example-Org/app"}, contentsRead)
-	err := authz.Authorize(authz.Caller{}, req, authz.AllowedOwner{})
+	err := authz.Authorize(caller.Caller{}, req, authz.AllowedOwner{})
 	if !errors.Is(err, authz.ErrAuthorizationDenied) {
 		t.Errorf("Authorize() error = %v, want %v", err, authz.ErrAuthorizationDenied)
 	}
@@ -115,9 +116,9 @@ func mustNewAllowedOwner(t *testing.T, id int64, name string) authz.AllowedOwner
 	return o
 }
 
-func mustNewCaller(t *testing.T, ownerID int64) authz.Caller {
+func mustNewCaller(t *testing.T, ownerID int64) caller.Caller {
 	t.Helper()
-	c, err := authz.NewCaller(ownerID, 3003, 4004, 1, authz.WorkflowTriggerAttributes{})
+	c, err := caller.NewCaller(ownerID, 3003, 4004, 1, caller.WorkflowTriggerAttributes{})
 	if err != nil {
 		t.Fatalf("NewCaller returned error: %v", err)
 	}

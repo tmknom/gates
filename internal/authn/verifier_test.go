@@ -23,7 +23,7 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/go-jose/go-jose/v4"
 
-	"github.com/tmknom/gates/internal/authz"
+	"github.com/tmknom/gates/internal/caller"
 	"github.com/tmknom/gates/internal/request"
 )
 
@@ -115,7 +115,7 @@ func escapedName(name string) string {
 	return fmt.Sprintf(`"%cu%04x%s"`, '\\', name[0], name[1:])
 }
 
-func rawIDToken(t *testing.T, token string) request.RawIDToken {
+func unverifiedIDToken(t *testing.T, token string) request.UnverifiedIDToken {
 	t.Helper()
 	payload, err := json.Marshal(map[string]any{
 		"version":      1,
@@ -202,7 +202,7 @@ func TestVerifierAuthenticate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name+" returns Caller", func(t *testing.T) {
-			got, err := newTestVerifier(t).Authenticate(t.Context(), rawIDToken(t, signClaims(t, tt.claims)))
+			got, err := newTestVerifier(t).Authenticate(t.Context(), unverifiedIDToken(t, signClaims(t, tt.claims)))
 			if err != nil {
 				t.Fatalf("Authenticate returned error: %v", err)
 			}
@@ -353,7 +353,7 @@ func TestVerifierAuthenticate_ObservedClaims(t *testing.T) {
 			if err := json.Unmarshal(payload, &observed); err != nil {
 				t.Fatalf("Unmarshal returned error: %v", err)
 			}
-			want := newCaller(t, 583231, 1234567890, parseObservedID(t, observed.RunID), parseObservedID(t, observed.RunAttempt), authz.WorkflowTriggerAttributes{
+			want := newCaller(t, 583231, 1234567890, parseObservedID(t, observed.RunID), parseObservedID(t, observed.RunAttempt), caller.WorkflowTriggerAttributes{
 				Actor:          observed.Actor,
 				ActorID:        observed.ActorID,
 				EventName:      observed.EventName,
@@ -367,7 +367,7 @@ func TestVerifierAuthenticate_ObservedClaims(t *testing.T) {
 			// formal/z3 の実測の例と同じく、発行の 1 秒後に検証する
 			clock := func() time.Time { return time.Unix(observed.IssuedAt+1, 0) }
 			verifier := newVerifier(testIssuer, "https://github.com/octocat", keys, clock)
-			got, err := verifier.Authenticate(t.Context(), rawIDToken(t, signPayload(t, jose.RS256, testKey(t), payload)))
+			got, err := verifier.Authenticate(t.Context(), unverifiedIDToken(t, signPayload(t, jose.RS256, testKey(t), payload)))
 			if err != nil {
 				t.Fatalf("Authenticate returned error: %v", err)
 			}
@@ -404,7 +404,7 @@ func TestVerifierAuthenticate_NonAliasClaimName(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name+" returns Caller", func(t *testing.T) {
 			payload := validClaimsAnd(t, `"`+tt.name+`":"https://evil.example"`)
-			got, err := newTestVerifier(t).Authenticate(t.Context(), rawIDToken(t, signPayload(t, jose.RS256, testKey(t), []byte(payload))))
+			got, err := newTestVerifier(t).Authenticate(t.Context(), unverifiedIDToken(t, signPayload(t, jose.RS256, testKey(t), []byte(payload))))
 			if err != nil {
 				t.Fatalf("Authenticate returned error: %v", err)
 			}
@@ -526,11 +526,11 @@ func TestVerifierAuthenticate_ClaimAlias(t *testing.T) {
 
 func assertAuthenticationFailure(t *testing.T, token string, values ...string) {
 	t.Helper()
-	got, err := newTestVerifier(t).Authenticate(t.Context(), rawIDToken(t, token))
+	got, err := newTestVerifier(t).Authenticate(t.Context(), unverifiedIDToken(t, token))
 	if !errors.Is(err, ErrAuthenticationFailure) {
 		t.Fatalf("Authenticate error = %v, want ErrAuthenticationFailure", err)
 	}
-	if got != (authz.Caller{}) {
+	if got != (caller.Caller{}) {
 		t.Errorf("Authenticate = %+v, want zero Caller", got)
 	}
 

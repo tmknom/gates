@@ -3,6 +3,7 @@ package authz
 import (
 	"slices"
 
+	"github.com/tmknom/gates/internal/githubid"
 	"github.com/tmknom/gates/internal/permission"
 	"github.com/tmknom/gates/internal/repository"
 )
@@ -10,19 +11,19 @@ import (
 // TokenGrant は、認可が成立した結果として、発行 API の呼び出しの内容を定める発行許可である。
 // フィールドを非公開にし、ゼロ値以外は Grant でしか作れないようにする。
 type TokenGrant struct {
-	installationID int64
+	installationID githubid.InstallationID
 	repositories   []repository.FullName
 	permissions    permission.Permissions
 }
 
 // IsZero は、Grant を経ていないゼロ値かを返す。
-// Grant は正の Installation ID を持つ Installation からだけ作るため、Installation ID が 0 の値はゼロ値に限る。
+// Grant は NewInstallation を経た Installation からだけ作るため、Installation ID がゼロ値の値はゼロ値に限る。
 func (g TokenGrant) IsZero() bool {
-	return g.installationID == 0
+	return g.installationID.IsZero()
 }
 
 // InstallationID は、発行に使う Installation の ID を返す。
-func (g TokenGrant) InstallationID() int64 {
+func (g TokenGrant) InstallationID() githubid.InstallationID {
 	return g.installationID
 }
 

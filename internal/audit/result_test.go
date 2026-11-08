@@ -5,6 +5,7 @@ import (
 
 	"github.com/tmknom/gates/internal/audit"
 	"github.com/tmknom/gates/internal/errorcode"
+	"github.com/tmknom/gates/internal/revocation"
 )
 
 func TestFailed_ZeroErrorCodePanics(t *testing.T) {
@@ -19,9 +20,9 @@ func TestFailed_ZeroErrorCodePanics(t *testing.T) {
 func TestVerificationFailed_ZeroOutcomePanics(t *testing.T) {
 	defer func() {
 		if recover() == nil {
-			t.Error("VerificationFailed() with the zero RevocationOutcome did not panic")
+			t.Error("VerificationFailed() with the zero revocation.Outcome did not panic")
 		}
 	}()
-	var outcome audit.RevocationOutcome
+	var outcome revocation.Outcome
 	audit.VerificationFailed(errorcode.IssuanceVerificationFailed, "reason", outcome)
 }

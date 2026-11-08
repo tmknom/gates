@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/tmknom/gates/internal/authz"
+	"github.com/tmknom/gates/internal/caller"
 	"github.com/tmknom/gates/internal/github"
 	"github.com/tmknom/gates/internal/permission"
 	"github.com/tmknom/gates/internal/request"
@@ -69,7 +70,7 @@ func respondIssuance(body string) http.HandlerFunc {
 // tokenGrant は、TokenGrant を Grant でしか作れないため、Caller、形式検証を通した発行要求、許可オーナー、Installation をそろえて Grant を通す。
 func tokenGrant(t *testing.T) authz.TokenGrant {
 	t.Helper()
-	caller, err := authz.NewCaller(recordedAccountID, 1234567890, 4004, 1, authz.WorkflowTriggerAttributes{})
+	c, err := caller.NewCaller(recordedAccountID, 1234567890, 4004, 1, caller.WorkflowTriggerAttributes{})
 	if err != nil {
 		t.Fatalf("NewCaller returned error: %v", err)
 	}
@@ -83,7 +84,7 @@ func tokenGrant(t *testing.T) authz.TokenGrant {
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
-	grant, err := authz.Grant(caller, req, allowedOwner(t, authz.OwnerTypeUser), newInstallation(t, time.Time{}))
+	grant, err := authz.Grant(c, req, allowedOwner(t, authz.OwnerTypeUser), newInstallation(t, time.Time{}))
 	if err != nil {
 		t.Fatalf("Grant returned error: %v", err)
 	}

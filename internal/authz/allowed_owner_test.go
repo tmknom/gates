@@ -23,8 +23,8 @@ func TestNewAllowedOwner(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewAllowedOwner returned error: %v", err)
 			}
-			if got.ID() != 12345 {
-				t.Errorf("ID() = %d, want 12345", got.ID())
+			if got.ID().Int64() != 12345 {
+				t.Errorf("ID() = %d, want 12345", got.ID().Int64())
 			}
 			if got.Name().String() != "Example-Org" {
 				t.Errorf("Name() = %q, want %q", got.Name(), "Example-Org")
@@ -58,7 +58,6 @@ func TestNewAllowedOwner_Invalid(t *testing.T) {
 		wantErr   error
 	}{
 		{name: "zero owner id returns ErrInvalidAllowedOwner", id: 0, ownerName: "example", ownerType: authz.OwnerTypeOrganization, wantErr: authz.ErrInvalidAllowedOwner},
-		{name: "negative owner id returns ErrInvalidAllowedOwner", id: -1, ownerName: "example", ownerType: authz.OwnerTypeOrganization, wantErr: authz.ErrInvalidAllowedOwner},
 		{name: "malformed owner name returns ErrInvalidAllowedOwner wrapping ErrInvalidOwnerName", id: 1, ownerName: "ex_ample", ownerType: authz.OwnerTypeOrganization, wantErr: repository.ErrInvalidOwnerName},
 		{name: "missing owner type returns ErrInvalidAllowedOwner", id: 1, ownerName: "example", ownerType: "", wantErr: authz.ErrInvalidAllowedOwner},
 	}
