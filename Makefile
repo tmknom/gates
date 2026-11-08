@@ -202,8 +202,33 @@ container-mountpoints:
 	@[ -e .envrc ] || touch .envrc
 
 # Targets: GitHub Actions
+# GitHub Actions のディレクトリのシェルのファイル。拡張子のない試験のスタブと bats の試験も含める。
+# 共通の SHELL_FILES はリポジトリ全体の *.sh を対象にするため、上書きせずに別の変数とする
+GHA_SHELL_FILES = $(shell find .github -type f \
+	\( -name '*.sh' -o -name '*.bats' -o -name '*.bash' -o -path '.github/actions/*/scripts/tests/stubs/*' \) -print)
+
+# 共通の makefile の既定は更新され続けるタグのため、版と digest を固定し、検査と整形の結果を版の更新から切り離す。
+# 共通の makefile より後で代入し、共通の lint/shell と fmt/shell にも効かせる
+SHELLCHECK = koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d
+SHFMT = mvdan/shfmt:v3.14.1@sha256:8c06884a35683d8763fba6c0d9484d11a61a96da65f8d497d6f625825a6043f2
+
 .PHONY: lint-gha
-lint-gha: lint/workflow lint/yaml ## Lint workflow files and YAML files
+lint-gha: lint/workflow lint/yaml lint-gha-shell ## Lint workflow files, YAML files and shell files
+
+# 共通の lint/shell は shellcheck の指摘を無視して成功するため、指摘があれば失敗する専用のターゲットで検査する。
+# 対象が見つからなければ、何も検査せずに通さないよう失敗する
+.PHONY: lint-gha-shell
+lint-gha-shell:
+	@if [ -z "$(GHA_SHELL_FILES)" ]; then echo "lint-gha-shell: no shell files found under .github" >&2; exit 1; fi
+	$(SECURE_DOCKER_RUN) $(SHELLCHECK) $(GHA_SHELL_FILES)
 
 .PHONY: fmt-gha
-fmt-gha: fmt/yaml ## Format YAML files
+fmt-gha: fmt/yaml fmt-gha-shell ## Format YAML files and shell files
+
+.PHONY: fmt-gha-shell
+fmt-gha-shell:
+	$(MAKE) fmt/shell SHELL_FILES="$(GHA_SHELL_FILES)"
+
+.PHONY: test-action
+test-action: ## test the composite action scripts by bats in an isolated container
+	BATS_TARGET=$(CURDIR)/.github/actions/issue-token/scripts docker compose -f scripts/bats/compose.yaml run --build --rm -T --interactive=false bats tests

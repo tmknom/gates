@@ -10,6 +10,7 @@
 | コンテナ | 内容 |
 |---|---|
 | [Alloy](alloy/README.md) | 形式モデルを検証する |
+| [bats](bats/README.md) | Composite Action のスクリプトを試験する |
 | [golangci-lint](golangci-lint/README.md) | Go のコードを静的解析する |
 | [Terraform](terraform/README.md) | AWS のインフラを管理する |
 | [tflint](tflint/README.md) | Terraform のコードを静的解析する |
@@ -38,6 +39,7 @@
 | `make tf-show` | Terraform | 保存した Plan を表示する | |
 | `make tf-apply` | Terraform | 保存した Plan を適用する | AWS の認証情報 |
 | `make z3` | Z3 | `formal/z3/` の検査をすべて実行し、期待する判定と比べる | |
+| `make test-action` | bats | `.github/actions/issue-token/scripts/tests/` の試験をすべて実行する | |
 
 Alloy のモデルを追加するときは、Makefile の `alloy` に実行の行を追加します。
 Z3 の検査を追加するときは、Makefile ではなく `formal/z3/checks/` にファイルを追加します。

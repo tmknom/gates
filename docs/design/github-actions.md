@@ -77,17 +77,18 @@ with:
   permissions: contents:read
 ```
 
-区切りは `,` とし、要素の前後の空白を除きます。
+区切りは `,` とし、要素の前後の空白（スペース、タブ、CR、LF）を除きます。
 Composite Action 内では `repositories` を配列、`permissions` を JSON オブジェクトへ変換します。
+空白を除くほかは要素を書き換えず、大文字小文字もそろえずに、入力の順のまま変換します。
 独自のエスケープ構文は設けません。
 
 Composite Action が検証するのは、リストの構造だけです。
 次のどれかに当たる入力は、Lambda を呼ばずに失敗します。
 
 - 空の要素がある
-- `repositories` の要素が `/` をちょうど 1 つ含まないか、`/` の前後のどちらかが空である
+- `repositories` の要素が `/` をちょうど 1 つ含まないか、`/` の前後のどちらかが、空であるか、空白で始まるか終わる
 - `repositories` に、ASCII の範囲で大文字小文字を区別せずに比べて同じ要素が 2 つ以上ある
-- `permissions` の要素が `:` をちょうど 1 つ含まないか、`:` の前後のどちらかが空である
+- `permissions` の要素が `:` をちょうど 1 つ含まないか、`:` の前後のどちらかが、空であるか、空白で始まるか終わる
 - `permissions` に、権限名が文字列として完全に一致する要素が 2 つ以上ある
 
 空の要素や区切りの誤りは Lambda も `invalid_request` で拒否しますが、その `message` は固定の文言で、どの要素が不正かを示しません（[Lambda Design](lambda.md#32-failure)）。
@@ -119,6 +120,7 @@ Composite Action は、`action.yml` の次の手順を順に実行します。
 展開すると、入力の値をシェルがコマンドとして解釈し得るためです。
 各スクリプトは先頭で `set -euo pipefail` と `umask 077` を設定します。
 手順はそれぞれ別のシェルで動き、手順 2 の umask は引き継がれないためです。
+umask は新しく作るファイルにだけ効くため、出力先のファイルが前からあれば、消してから書きます。
 `set -x`、AWS CLI の `--debug`、`--log-type Tail` は使いません。
 
 手順 1 で前提を先に確かめるのは、AWS STS の一時認証情報を取得する手順 3 が `id-token: write` を要し、手順 4 以降がコマンドを要するためです。
@@ -137,12 +139,14 @@ Composite Action は入力値を [Lambda Request](lambda.md#2-request) に従っ
 通信するスクリプトと、ファイルを変換するだけのスクリプトを分けます。
 変換の試験に通信を要らなくするためです。
 各スクリプトは、入力の値とファイルのパスを環境変数で受け取ります。
+スクリプトは `action.yml` の隣の `scripts/` に置き、ローカルの試験（[6.1 Local Tests](#61-local-tests)）もその中の `tests/` に置きます。
+`action.yml` の隣には、ほかに利用者向けの README だけを置きます。
 
 | スクリプト | 環境変数 | 処理 | 通信 |
 |---|---|---|---|
 | `check-prerequisites.sh` | `ROLE_ARN`、`FUNCTION_NAME`、`REGION`、`AUDIENCE` | 手順 1 の前提を確かめ、満たさなければ、満たさなかった前提をすべて示して失敗する。要求用トークンは有無だけを確かめ、値を出さない | なし |
-| `request-id-token.sh` | `AUDIENCE`、`OUT` | `ACTIONS_ID_TOKEN_REQUEST_URL` に URI エンコードした Audience を付けて GET し、応答の `value` を末尾の改行なしで `OUT` に書く。要求用トークンを含む `Authorization` ヘッダーは `curl -H @-` で標準入力から渡し、コマンドの引数に置かない | `curl` |
-| `build-payload.sh` | `REPOSITORIES`、`PERMISSIONS`、`ID_TOKEN_FILE`、`OUT` | [§2.2](#22-list-syntax) の検証を行い、[Lambda Request](lambda.md#21-invoke-payload) の `version`、`id_token`、`repositories`、`permissions` を持つ Payload を `OUT` に書く。JWT は `jq --rawfile` でファイルから読み、コマンドの引数にもログにも出さない。終了時に、成否によらず `ID_TOKEN_FILE` を削除する | なし |
+| `request-id-token.sh` | `AUDIENCE`、`OUT` | `ACTIONS_ID_TOKEN_REQUEST_URL` に URI エンコードした Audience を付けて GET し、応答の `value` を末尾の改行なしで `OUT` に書く。マスクは行ごとに効くため、`value` が改行を含むか、応答が複数の JSON を含めば失敗する。要求用トークンを含む `Authorization` ヘッダーは `curl -H @-` で標準入力から渡し、コマンドの引数に置かない。`curl` には最初の引数に `--disable` を渡し、ヘッダーを記録する設定を `~/.curlrc` から読ませない。応答を受けた一時ファイルは成否によらず削除し、削除できなければ失敗する。失敗したときは、前からあった `OUT` も残さない | `curl` |
+| `build-payload.sh` | `REPOSITORIES`、`PERMISSIONS`、`ID_TOKEN_FILE`、`OUT` | [§2.2](#22-list-syntax) の検証を行い、[Lambda Request](lambda.md#21-invoke-payload) の `version`、`id_token`、`repositories`、`permissions` を持つ Payload を `OUT` に書く。JWT は `jq --rawfile` でファイルから読み、コマンドの引数にもログにも出さない。終了時に、成否によらず `ID_TOKEN_FILE` を削除し、削除できなければ失敗する。失敗したときは、書きかけの `OUT` を残さない | なし |
 | `invoke.sh` | `FUNCTION_NAME`、`PAYLOAD`、`RESPONSE`、`METADATA`、`STDERR`、`STATUS`。AWS CLI 用に、手順 3 の Output の一時認証情報を `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY`、`AWS_SESSION_TOKEN`、入力の `aws-region` を `AWS_REGION` | 一時認証情報をマスクし、Invoke の時刻をログに出してから、`aws lambda invoke --invocation-type RequestResponse --payload fileb://... --output json --no-cli-pager` を実行する。応答を `RESPONSE`、標準出力を `METADATA`、標準エラーを `STDERR`、終了コードを `STATUS` に書き、AWS CLI が失敗してもスクリプトは失敗しない。終了時に、成否によらず `PAYLOAD` を削除する | `aws` |
 | `handle-response.sh` | `STATUS`、`STDERR`、`METADATA`、`RESPONSE` | AWS CLI の終了コード、`StatusCode`、`FunctionError`、応答の `ok` の順に判定する。成功なら Output を書き（[§2.1](#21-inputs-and-outputs)）、`request_id`、`expires_at`、対象、実効権限をログに出す。失敗なら [3.2 Failure Output](#32-failure-output) に従ってログに出し、終了コード 1 で終える。終了時に、成否によらず `RESPONSE` を削除する | なし |
 
@@ -158,7 +162,7 @@ Composite Action は、どの段階で失敗しても終了コード 1 で終え
 | 段階 | ログに出すもの | 出さないもの |
 |---|---|---|
 | 前提の確認 | 満たさなかった前提（OS、足りないコマンドの名前、要求用トークンの欠落、空の入力の名前） | なし |
-| GATES 用 OIDC JWT の取得 | HTTP ステータスと応答本文。通信に失敗して HTTP ステータスがなければ `curl` の終了コードと文言。`200` の応答に `value` がなければ、そのこと | 要求用トークン、JWT |
+| GATES 用 OIDC JWT の取得 | HTTP ステータス。`4xx` と `5xx` なら、応答本文の先頭の 4096 バイトも。通信に失敗して HTTP ステータスがなければ `curl` の終了コードと文言。`200` の応答に 1 行の `value` がなければ、そのこと | 要求用トークン、JWT。`200` 以外の `2xx` と `3xx` の応答本文は、マスクする前の JWT を含み得るため出さない |
 | 入力の検証 | 満たさなかった条件と、該当する要素 | なし。入力は資格情報ではない |
 | AWS CLI の失敗（終了コードが 0 でない） | 標準エラーが `An error occurred (` を含めば、その括弧の中の例外の名前だけ。含まなければ標準エラーの全文 | AWS のエラー応答の文言 |
 | `METADATA` を読めないか、`StatusCode` がないか `200` でない | そのことと、読み取れれば `StatusCode` の値 | なし |
@@ -168,6 +172,11 @@ Composite Action は、どの段階で失敗しても終了コード 1 で終え
 | `ok` が `true` だが、成功応答の項目が欠けるか、型が違うか、値が改行を含む | そのことと、読み取れれば `request_id` | 応答本文 |
 
 作業ディレクトリの作成や Payload の書き込みのように、外部に依存しない処理の失敗では、失敗したことと段階だけを出します。
+
+注釈は標準出力に書き、注釈と `::add-mask::` に入れる値は `%`、CR、LF をそれぞれ `%25`、`%0D`、`%0A` に符号化して 1 行に収めます（[GitHub — actions/toolkit command.ts](https://github.com/actions/toolkit/blob/main/packages/core/src/command.ts) の `escapeData`）。
+値に改行が残ると、その後の行を Runner がワークフローコマンドとして読み得るためです。
+マスクの値に `%` が符号化されずに残ると、Runner が `%25`、`%0D`、`%0A` を戻した後の別の文字列をマスクし、資格情報そのものはマスクされません。
+入力の検証の注釈では、該当する要素を JSON の文字列として示し、前後の空白や制御文字を見分けられるようにします。
 
 AWS のエラー応答の文言を出さないのは、例外によっては文言に要求の一部が入り、Payload には GATES 用 OIDC JWT が入るためです。
 Lambda Developer Guide の例では、JSON として読めない Payload への `InvalidRequestContentException` の文言に、読めなかった Payload の一部が入ります（[AWS Lambda Invoke Rejection](../research/aws/lambda-invoke-rejection.md)）。
@@ -194,6 +203,9 @@ Lambda が発行を終えた後に応答が届かなかった場合、送り直�
 
 Lambda もどの呼び出しも再試行せず、一時的な障害を呼び出し元の再実行に任せます（[Lambda Design](lambda.md#64-call-time-budget)）。
 Composite Action も、一時的な障害をステップの失敗として利用者に伝え、再実行するかは利用者が判断します。
+
+GATES 用 OIDC JWT の取得では、`curl` に `--connect-timeout 10` と `--max-time 30` を渡します。
+`curl` は既定では全体の時間を区切らないため、接続した相手が応答しないと、ジョブのタイムアウトまで失敗を伝えられません（[curl — man page](https://curl.se/docs/manpage.html)）。
 
 AWS CLI の読み取りのタイムアウトは、既定の 60 秒のままとします（[AWS — AWS CLI command line options](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-options.html)）。
 同期 Invoke では関数が終わるまで応答が届かず、新しい実行環境では関数の初期化の時間も待ちます。
@@ -280,9 +292,11 @@ GitHub の Installation Access Token は固定長と仮定せず、トークン�
 ### 6.1 Local Tests
 
 [3.1 Scripts](#31-scripts) のスクリプトは、AWS と GitHub に接続しないローカルの試験で検証します。
-試験は bats-core をコンテナで動かし、コンテナはネットワークに接続せず、Composite Action のディレクトリを読み取り専用でマウントします。
+試験は bats-core をコンテナで動かし、コンテナはネットワークに接続せず、スクリプトのディレクトリだけを読み取り専用でマウントします。
 通信するスクリプトは、試験のときに PATH の先頭へ置いたスタブの `curl` と `aws` を呼びます。
 スタブは受け取った引数をファイルに記録し、用意した応答と終了コードを返します。
+`jq` もスタブで包み、引数を記録してから本物の `jq` に渡します。資格情報が `jq` の引数に現れないことを確かめるためです。
+`rm` のスタブは、指定したパスの削除だけを失敗させ、資格情報を含み得るファイルを消せないときの振る舞いを確かめます。
 
 ローカルの試験で確かめるのは次の事項です。
 
@@ -316,6 +330,7 @@ GitHub と AWS の挙動に依存する事項は、許可オーナーのワー�
 - [AWS — AWS CLI environment variables](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html)
 - [AWS — AWS CLI command line options](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-options.html)
 - [GitHub — Workflow commands for GitHub Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-commands)
+- [GitHub — actions/toolkit command.ts](https://github.com/actions/toolkit/blob/main/packages/core/src/command.ts)
 - [jq 1.6 Manual](https://jqlang.org/manual/v1.6/)
 - [curl — man page](https://curl.se/docs/manpage.html)
 - [GitHub — runner-images](https://github.com/actions/runner-images)
