@@ -10,7 +10,7 @@ GitHub の公式資料そのものではなく、GitHub の仕様が変更され
 - **REST API の確認対象版**：`2026-03-10`。以下の REST API 資料と OpenAPI 定義（REST API Description）はこの版を参照する。
 - **バージョン指定の仕様**：REST API は `X-GitHub-Api-Version` で版を指定する。ヘッダーを省略すると `2022-11-28` が使われる。各版は新しい版の公開から24か月サポートされ、`2022-11-28` のサポートは2028年3月10日に終わる。サポート終了後、その版を指定した要求は `410 Gone` になり、ヘッダーを省略した要求の既定の版は変わる。版に依存する記述は、別の版では照合が必要である（[API Versions](https://docs.github.com/en/rest/about-the-rest-api/api-versions)）。
 - **`User-Agent` の仕様**：REST API のすべての要求は、有効な `User-Agent` ヘッダーを含む必要がある。ヘッダーのない要求は拒否され、無効な値には `403 Forbidden` が返る。値には、GitHub のユーザー名かアプリケーションの名前が推奨される（[Getting started with the REST API](https://docs.github.com/en/rest/using-the-rest-api/getting-started-with-the-rest-api)）。
-- **取得した値の調査記録**：[GitHub OIDC Discovery](../research/github/oidc-discovery.md)、[GitHub OIDC JWKS](../research/github/oidc-jwks.md)、[GitHub OIDC JWT](../research/github/oidc-jwt.md)、[GitHub App Installation](../research/github/app-installation.md)、[GitHub Installation Access Token](../research/github/installation-access-token.md)。取得日、取得方法、応答の全体はこれらの記録にある。
+- **取得した値の調査記録**：[GitHub OIDC Discovery](../research/github/oidc-discovery.md)、[GitHub OIDC JWKS](../research/github/oidc-jwks.md)、[GitHub OIDC JWT](../research/github/oidc-jwt.md)、[GitHub App Installation](../research/github/app-installation.md)、[GitHub Installation Access Token](../research/github/installation-access-token.md)、[GitHub Composite Action Outputs](../research/github/composite-action-outputs.md)。取得日、取得方法、応答の全体はこれらの記録にある。
 
 根拠の種類は次のように区別します。
 
@@ -18,7 +18,7 @@ GitHub の公式資料そのものではなく、GitHub の仕様が変更され
 |---|---|
 | 公式仕様 | リンクした GitHub の公式資料に記述された内容。資料の条件・適用範囲を含めて読む |
 | 公開値 | GitHub が公開するエンドポイントから取得し、調査記録に残した値。取得時点の値であり、将来も同じ値であることの保証ではない |
-| 実測値 | GitHub Actions の実環境で発行された JWT と、GitHub API の実際の応答から取得し、調査記録に残した値。記録した条件での観測であり、ほかの条件や将来も同じ値であることの保証ではない |
+| 実測値 | GitHub Actions の実環境で発行された JWT、GitHub API の実際の応答、GitHub Actions の実行ログから取得し、調査記録に残した値。記録した条件での観測であり、ほかの条件や将来も同じ値であることの保証ではない |
 | 推論 | 公式仕様、公開値、実測値から導いた解釈。GitHub が明示的に保証した事実とは区別する |
 | 未確認 | 公式資料で確定できない動作。公開値や実測値があっても、それだけでは保証とみなさない |
 
@@ -262,9 +262,25 @@ GitHub は、トークンを、中身を解釈しない文字列として扱う�
 同じ資料は、マスクした値は Output に設定できないと説明する一方で、同一ジョブ内なら生成、`add-mask`、`GITHUB_OUTPUT` の順で後続ステップへ渡す例を示しています。
 ジョブやワークフローをまたいでマスクした値を渡す場合は、シークレットストアを経由するよう案内しています（[Workflow commands](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-commands)）。
 
+**実測値（マスクと Output）**：リポジトリ内の Composite Action の内部ステップで `add-mask` した値を `GITHUB_OUTPUT` に書き、`action.yml` の `outputs` で公開した記録では、呼び出し元の同じジョブの後続ステップが値を欠けずに受け取り、その値はログで `***` にマスクされました。
+呼び出し元は `add-mask` を実行していません。
+`name=value` の形式と区切り文字の形式の両方で、`+`、`/`、`=` を含む64文字の値と、500文字の値が、どちらも同じ値で届きました。
+同じ値をジョブの `outputs` に置くと、GitHub は「Skip output ... since it may contain secret」の警告を出して設定せず、次のジョブでは空文字列でした（[GitHub Composite Action Outputs](../research/github/composite-action-outputs.md)）。
+
+**推論**：公式資料の「マスクした値は Output に設定できない」は、この観測と照らすと、ジョブの Output を指すと読めます。
+
 **公式仕様**：GitHub Actions の Secrets / Variables はリポジトリ、Environment、Organization の単位で設定できます。Organization の Secrets / Variables はポリシーで利用できるリポジトリを制限でき、GitHub Free の private リポジトリからは Organization の Secrets / Variables を利用できません（[Using secrets](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets)、[Variables reference](https://docs.github.com/en/actions/reference/workflows-and-actions/variables)）。
 
 **推論**：個人アカウントが所有するリポジトリでは Organization 単位の設定を使えないため、値はリポジトリまたは Environment の単位で設定します。
+
+**公式仕様（Dependabot が起動したワークフロー）**：Dependabot が `push`、`pull_request`、`pull_request_review`、`pull_request_review_comment` で起動したワークフローは、既定ではフォークから開いたものと同じに扱われ、`GITHUB_TOKEN` は読み取り専用になります。`permissions` キーで権限を引き上げられます。
+参照できる Secrets は Dependabot の Secrets だけで、GitHub Actions の Secrets は参照できません。
+Dependabot の Secrets は `secrets` コンテキストに同じ書き方で入ります（[Troubleshooting Dependabot on GitHub Actions](https://docs.github.com/en/code-security/reference/supply-chain-security/troubleshoot-dependabot/dependabot-on-actions)）。
+
+**推論**：Dependabot が起動したワークフローでも、Variables は参照できます。上記の資料が参照を制限するのは Secrets と `GITHUB_TOKEN` の権限で、Variables は制限の対象に挙げていないためです。
+
+**公式仕様（Dependabot の `github-actions` の対象）**：`package-ecosystem: github-actions` の `directory` に `/` を指定すると、Dependabot は `/.github/workflows` と、ルートの `action.yml` / `action.yaml` を探します。
+`directories` はグロブとワイルドカード `*` を受け付け、`directory` は受け付けません（[Dependabot options reference](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference)）。
 
 ## 8. Boundaries with JWT and OpenID Connect Standards
 
