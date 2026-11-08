@@ -3,5 +3,20 @@
     "commit": "",
     "pr": "",
     "sessionUrl": false
+  },
+  "permissions": {
+    "deny": [
+      "Bash(gh workflow run *)",
+      "Bash(gh * workflow run *)",
+      "Bash(gh run rerun *)",
+      "Bash(gh * run rerun *)",
+      "Bash(gh pr create *)",
+      "Bash(gh * pr create *)",
+      "Bash(gh pr merge *)",
+      "Bash(gh * pr merge *)",
+      "Bash(gh api *dispatches*)",
+      "Bash(gh api */rerun*)",
+      "Bash(gh api */merge*)"
+    ]
   }
 }
