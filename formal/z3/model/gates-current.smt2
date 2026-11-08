@@ -1,5 +1,5 @@
 ; Adopted GATES acceptance for decoded Claims Set.
-; Source of truth: docs/design/jwt.md §§2.2–2.38.4.
+; Source of truth: docs/design/gates-oidc-jwt-claims.md.
 (define-fun gates-exp ((c Claims) (now Int)) Bool
   (and (integer-in-range c "exp")
        (< now (integer-value (claim-value (get-claim c "exp"))))))
@@ -24,7 +24,7 @@
 ; 'repo:' and first ':' after it. In each NAME@ID: exactly one @, nonempty
 ; NAME and positive decimal ID. Name is not used for identity/authorization.
 ; Repo name may contain '/', owner name may contain ':' (per current rules).
-; The whole sub is ASCII only and at most 255 characters (jwt.md §2.2(6)).
+; The whole sub is ASCII only and at most 255 characters (GOJ-SUB condition 6).
 (define-fun gates-sub ((c Claims)) Bool
   (and (string-claim c "sub")
        (let ((s (string-claim-value c "sub")))

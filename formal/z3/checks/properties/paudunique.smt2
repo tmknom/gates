@@ -1,5 +1,5 @@
 ; expect: unsat
-; PAUDUNIQUE (jwt.md §2.3): a Claims Set accepted for one expected Audience is
+; PAUDUNIQUE (GOJ-AUD): a Claims Set accepted for one expected Audience is
 ; not accepted for any other, so a JWT is a credential for one receiver only.
 (declare-const anyClaims Claims)
 (declare-const arbitraryClock Int)

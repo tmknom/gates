@@ -1,5 +1,5 @@
 ; expect: sat sat unsat unsat unsat unsat unsat unsat
-; EXAMPLES-AUD (jwt.md §2.3, §6.2 aud): the model accepts only the GATES
+; EXAMPLES-AUD (GOJ-AUD, Verification Cases aud): the model accepts only the GATES
 ; Audience alone, as a string or a one-element array.
 (push 1) (assert (accepts-with "aud" (Present (JString "gates-oidc")))) (check-sat) (pop 1) ; string: sat
 (push 1) (assert (accepts-with "aud" (Present (JStringArray (seq.unit "gates-oidc"))))) (check-sat) (pop 1) ; one-element array: sat

@@ -211,7 +211,7 @@ Lambda Handler は Payload を読む前に相関 ID を確かめます。
 | Error code | 失敗の種別 | 内容 |
 |---|---|---|
 | `invalid_request` | 入力不正 | Payload が [Validation](#22-validation) の入力不正の形に当たる |
-| `invalid_id_token` | 認証失敗 | GATES 用 OIDC JWT が [JWT Design](jwt.md) の受理条件を満たさない。JWT の形式・署名、Issuer、Audience、時間条件、必須 Claim、再取得後も一意に選べる使用可能な鍵がない `kid` などを含む |
+| `invalid_id_token` | 認証失敗 | GATES 用 OIDC JWT が [GATES OIDC JWT Claims](gates-oidc-jwt-claims.md) または [GATES OIDC JWT Signature](gates-oidc-jwt-signature.md) の受理条件を満たさない。JWT の形式・署名、Issuer、Audience、時間条件、必須 Claim、再取得後も一意に選べる使用可能な鍵がない `kid` などを含む |
 | `authorization_denied` | 認可拒否 | Caller の Owner ID が許可オーナーと不一致、要求した権限が許可条件外、または要求したリポジトリのオーナー名が許可オーナー名と不一致。Installation の対象外であることが GitHub API の呼び出し後に判明した場合は、その処理段階の失敗として扱う |
 | `identity_verification_unavailable` | 一時的な障害 | OIDC Discovery / JWKS の取得が一時的に失敗した。通信の失敗、タイムアウト、5xx、403 / 429 で、再試行で解消し得る |
 | `signing_unavailable` | 一時的な障害 | KMS 署名が一時的に失敗した。通信の失敗、タイムアウト、呼び出し元の ctx の期限切れと中断、5xx、スロットリングで、再試行で解消し得る |
@@ -343,7 +343,7 @@ flowchart LR
 | 資格情報 | 値を取り出せるコンポーネント |
 |---|---|
 | 未検証の GATES 用 OIDC JWT | OIDC Verifier |
-| GitHub App JWT | GitHub Client。GitHub App JWT を Token Issuer の外に出さない（[GitHub App JWT](#62-github-app-jwt)） |
+| GitHub App JWT | GitHub Client。GitHub App JWT を Token Issuer の外に出さない（[6.2 GitHub App JWT](#62-github-app-jwt)） |
 | Installation Access Token | 成功応答を書く Lambda Handler と、失効を要求する GitHub Client |
 
 検証済みの GATES 用 OIDC JWT は、OIDC Verifier が Caller を確定する間だけ存在し、OIDC Verifier の外に出しません。
@@ -398,21 +398,21 @@ Owner ID、権限、オーナー名の照合（手順 3）を Installation の�
 
 ### 6.1 OIDC Validation
 
-OIDC Verifier は、GATES 用 OIDC JWT を [JWT Design](jwt.md) の受理条件で検証し、成立したときだけ Caller を確定します。
-受理条件は JWT Design を正本とし、検証ライブラリの既定値で置き換えません。
+OIDC Verifier は、GATES 用 OIDC JWT を [GATES OIDC JWT Claims](gates-oidc-jwt-claims.md) と [GATES OIDC JWT Signature](gates-oidc-jwt-signature.md) の受理条件で検証し、成立したときだけ Caller を確定します。
+受理条件はこの2つの設計を正本とし、検証ライブラリの既定値で置き換えません。
 署名の検証そのものは暗号ライブラリに任せ、自作しません。
-本節は、JWT Design がコンポーネント設計に委ねる Discovery / JWKS の取得、保持、再取得、除外した JWK の記録を定めます。
+本節は、GATES OIDC JWT Signature がコンポーネント設計に委ねる Discovery / JWKS の取得、保持、再取得、除外した JWK の記録を定めます。
 
 - **取得先**：Issuer は `https://token.actions.githubusercontent.com` に固定する。リダイレクトに従わず、JWT の Header や利用者入力から取得先を変更しない。
 - **取得の時点と保持**：Discovery / JWKS は Lambda の初期化ではなく最初の認証で取得する。初期化時に取得すると、取得の失敗を Handler が相関 ID 付きのエラーとして返せないためである。取得に成功した Discovery は実行環境内で保持して再取得せず、取得に失敗した内容は保持しない。JWKS は使用可能な鍵だけを、有効期限を設けずに保持する。有効期限を設けないことで受容するリスクは [Security Design](security.md#5-failure-audit-and-security-risks) に定める。
-- **取得前の拒否**：[JWT Design §5.1](jwt.md#51-jws-と-json-の基本条件) の直列化・JSON の条件、[§5.2](jwt.md#52-jose-header) の JOSE Header の条件（`kid` の存在を含む）、[§2.38.4](jwt.md#2384-json-と-claim-名の一貫した解釈) の Claim 名の条件、[§2.4](jwt.md#24-exp) の NumericDate の型と範囲は、Issuer の鍵情報に依存しない。これらを満たさない JWT は、Discovery / JWKS を取得せずに `invalid_id_token` で拒否する。不正な JWT が再取得の上限を消費せず、Issuer の障害時にもエラーの種別が変わらないためである。
+- **取得前の拒否**：[GOJ-SERIALIZATION](gates-oidc-jwt-signature.md#goj-serialization-jws-と-json-の基本条件) の直列化・JSON の条件、[GOJ-HEADER](gates-oidc-jwt-signature.md#goj-header-jose-header) の JOSE Header の条件（`kid` の存在を含む）、[GOJ-CLAIM-NAME](gates-oidc-jwt-claims.md#goj-claim-name-json-と-claim-名の一貫した解釈) の Claim 名の条件、[GOJ-EXP](gates-oidc-jwt-claims.md#goj-exp-exp) の NumericDate の型と範囲は、Issuer の鍵情報に依存しない。これらを満たさない JWT は、Discovery / JWKS を取得せずに `invalid_id_token` で拒否する。不正な JWT が再取得の上限を消費せず、Issuer の障害時にもエラーの種別が変わらないためである。
 - **JWKS の再取得の上限**：保持した鍵集合に、JWT の `kid` で一意に選べて署名が一致する使用可能な鍵がなければ、JWKS の再取得を試みる。取得の試行は、成否にかかわらず、同じ実行環境内で前回の試行の開始から 1 分に 1 回までとし、並行した試行は一つにまとめる。上限の間は取得せず、前回の試行が取得失敗なら同じ種別を返す。JWKS の構造の異常、秘密情報の混入、使用可能な鍵が 1 つもない場合も取得失敗とし、直前に取得に成功した鍵集合を置き換えない。1 分は取得頻度の抑制とローテーションへの追従を両立させるために置いた初期値で、実環境のローテーションでは検証していない。
 - **除外した JWK の記録**：JWK の受理条件を満たさず除外した JWK は、`keys` 内の位置、`kid`、除外の理由を、運用者向けのログに WARN で記録する。鍵の値、応答本文、ライブラリのエラー文言は記録しない。運用者は位置と `kid` から Issuer の JWKS を直接確かめられるためである。
 - **取得の制限**：Discovery と JWKS の各取得の応答サイズは各 64 KiB とする。調査時の応答（[Discovery](../research/github/oidc-discovery.md) が約 1.2 KB、[JWKS](../research/github/oidc-jwks.md) が 4 鍵で約 5.5 KB）に対して JWKS が約 10 倍に増えても収まり、想定外に大きい応答を読み込み続けない大きさである。各取得のタイムアウトは [Call Time Budget](#64-call-time-budget) に置く。
 
 ### 6.2 GitHub App JWT
 
-GitHub App JWT の生成条件は [JWT Design §4](jwt.md#4-github-app-jwt) を正本とします。
+GitHub App JWT の生成条件は [GitHub App JWT](github-app-jwt.md) を正本とします。
 
 - GitHub App JWT は要求ごとに 1 回だけ作り、Installation の取得（[Processing Flow](#5-processing-flow) の手順 4）と発行（手順 6）の両方に使う。要求をまたいで保持しない。保持すると、有効期限の管理と、期限の近い GitHub App JWT を使って GitHub に拒否される失敗が加わる。
 - Token Issuer は手順 4 から手順 6 までを一つの操作として行い、その間の手順 5（Grant）を Lambda Handler から関数として受け取る。GitHub App JWT を Lambda Handler に渡さないためである。渡すと、Lambda Handler のログやエラーに出し得る値が一つ増え、手順 4 と手順 6 の間で GitHub App JWT を持ち回る経路が Token Issuer の外にできる。
@@ -483,7 +483,7 @@ Lambda の関数のタイムアウトは、合計より、外部の呼び出し�
 関数がタイムアウトすると Handler は応答を書けず、トークン文字列を取得した後なら失効も試みられません（[Domain Model](domain.md#43-lifecycle-of-an-issuance) の中断）。
 
 GitHub App JWT を作ってから発行の応答を受け取るまでは、署名、Installation の取得、発行のタイムアウトの合計で最大 20 秒です。
-この時間は GitHub App JWT の `exp`（[JWT Design §4.4](jwt.md#44-exp) の 5 分）より短いため、同じ GitHub App JWT を手順 4 と手順 6 に使えます（[GitHub App JWT](#62-github-app-jwt)）。
+この時間は GitHub App JWT の `exp`（[GAJ-EXP](github-app-jwt.md#gaj-exp-exp) の 5 分）より短いため、同じ GitHub App JWT を手順 4 と手順 6 に使えます（[6.2 GitHub App JWT](#62-github-app-jwt)）。
 
 失効は、要求の ctx の中断と期限を引き継がない ctx で行い、発行の呼び出しの ctx からも作りません。
 要求が中断された後も、発行がタイムアウトの直前に応答を返した後も、照合に失敗したトークンの失効を試みるためです。
@@ -543,7 +543,9 @@ Lambda の Go Runtime では標準出力が CloudWatch Logs に送られ、JSON 
 - [AWS — KMS Sign](https://docs.aws.amazon.com/kms/latest/APIReference/API_Sign.html)
 - [AWS — KMS Common Error Types](https://docs.aws.amazon.com/kms/latest/APIReference/CommonErrors.html)
 - [GitHub Constraints](../spec/github-constraints.md)
-- [JWT Design](jwt.md)
+- [GATES OIDC JWT Claims](gates-oidc-jwt-claims.md)
+- [GATES OIDC JWT Signature](gates-oidc-jwt-signature.md)
+- [GitHub App JWT](github-app-jwt.md)
 - [JWT Constraints](../spec/jwt-constraints.md)
 - [OpenID Foundation — OpenID Connect Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html)
 - [IETF — RFC 7519 JSON Web Token](https://www.rfc-editor.org/rfc/rfc7519)

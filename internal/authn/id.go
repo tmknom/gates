@@ -5,7 +5,7 @@ import (
 	"strconv"
 )
 
-// JWT Design の「ID の表記」が定める 0 の拒否は、Caller の不変条件と重なるため authz.NewCaller に判定させる。
+// GATES OIDC JWT Claims の GOJ-ID-FORMAT が定める 0 の拒否は、Caller の不変条件と重なるため authz.NewCaller に判定させる。
 // strconv.ParseUint を 63 ビットで使うのは、strconv.ParseInt と違って符号を受理せず、値が int64 に収まるため。
 // strconv のエラー文言は入力の値を含むため包まない。
 func parseID(name, s string) (int64, error) {

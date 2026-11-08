@@ -1,6 +1,6 @@
 ; expect: unsat unsat unsat unsat unsat unsat sat unsat unsat sat unsat unsat unsat sat unsat unsat unsat sat unsat unsat
-; EXAMPLES-ID (jwt.md §2.38.1, §2.38.2, §2.17, §2.19, §6.2 不変 ID and
-; run_attempt): the model accepts only positive canonical int64 strings, and
+; EXAMPLES-ID (GOJ-ID-FORMAT, GOJ-ID-MATCH, GOJ-RUN-ID, GOJ-RUN-ATTEMPT,
+; Verification Cases 不変 ID and run_attempt): the model accepts only positive canonical int64 strings, and
 ; only owner and repository IDs that match sub.
 (push 1) (assert (accepts-with "repository_owner_id" (Present (JString "0")))) (check-sat) (pop 1) ; owner zero: unsat
 (push 1) (assert (accepts-with "repository_owner_id" (Present (JString "01")))) (check-sat) (pop 1) ; owner leading zero: unsat
