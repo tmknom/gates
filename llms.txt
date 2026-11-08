@@ -35,7 +35,7 @@ Identify and read task-related sections below when the "Use when" trigger matche
 - [GATES OIDC JWT Signature](docs/design/gates-oidc-jwt-signature.md): Acceptance rules for the serialization, JOSE Header, Discovery, JWKs, `x5c`, and JWK Set failure classification of the GATES OIDC JWT, each with a GOJ- rule ID - Use when implementing or reviewing signature verification, key acceptance, or Discovery and JWKS handling
 - [AWS OIDC JWT](docs/design/aws-oidc-jwt.md): Claim conditions the IAM Trust Policy imposes on the AWS OIDC JWT and what they do not guarantee, with AOJ- rule IDs - Use when changing the Trust Policy conditions or judging what the entry control on AWS STS guarantees
 - [GitHub App JWT](docs/design/github-app-jwt.md): Claim and Header generation rules for the GitHub App JWT signed by KMS, with GAJ- rule IDs - Use when implementing or reviewing GitHub App JWT generation or its lifetime
-- [GitHub Actions Design](docs/design/github-actions.md): Composite Action location, inputs and outputs, connection information, list syntax, processing flow, workflow usage, and test cases - Use when implementing or changing the Composite Action, setting up its connection information, or writing a workflow that requests a token from GATES
+- [GitHub Actions Design](docs/design/github-actions.md): Composite Action name and location, inputs and outputs and how they are written, connection information, list syntax and the validation it leaves to Lambda, processing flow, scripts and their responsibilities, what each failure logs and hides, disabled retries and the read timeout, masking order, Runner requirements, workflow usage, and local and real-environment tests - Use when implementing or changing the Composite Action or its scripts, setting up its connection information, writing a workflow that requests a token from GATES, or deciding what the Action may print on failure
 
 ## Specification
 
@@ -52,7 +52,7 @@ Identify and read task-related sections below when the "Use when" trigger matche
 
 ## Documentation Rules
 
-- [Documentation Policy](docs/contributing/docs-policy.md): Responsibility of each document, allowed dependencies between documents, how concept names apply, and the source of truth per kind of content - Use when creating, editing, or moving a document under `docs/` and you must decide which document owns a statement and whether a reference is allowed, or when two documents disagree and you must decide which one to fix
+- [Documentation Policy](docs/contributing/docs-policy.md): Responsibility of each document, allowed dependencies between documents including the Composite Action README, how concept names apply, and the source of truth per kind of content - Use when creating, editing, or moving a document under `docs/` or a Composite Action README and you must decide which document owns a statement and whether a reference is allowed, or when two documents disagree and you must decide which one to fix
 
 ## Infrastructure
 
