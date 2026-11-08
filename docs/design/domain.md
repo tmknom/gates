@@ -505,6 +505,11 @@ flowchart LR
 AWS 一時認証情報と GATES 用 OIDC JWT が同じジョブで取得されたことは検証されず、発行の可否は GATES 用 OIDC JWT と固定設定から判断します（事実：Security Design §2.2）。
 この独立があるため、入口制御の資格情報が盗まれても、それだけでは Caller を確定できません。
 
+入口制御が拒否した呼び出しは、発行処理を始めません。
+Invoke を許可されない主体からの Invoke、AWS の認証情報のない呼び出し、OIDC JWT の主体が Trust Policy の条件に合わず IAM Role を引き受けられないワークフロー（主体が名前だけの旧形式である場合を含む）がこれに当たります。
+Lambda の Invoke API が JSON として読めずに拒否した Payload も、関数に届かないため同じです（事実：Lambda Design §2.2）。
+これらは失敗の種別に属さず、監査記録も残りません（推論：失敗の種別と監査記録は、発行処理 1 回の単位で定めるため）。
+
 ### 6.2 Terms Whose Meaning Changes Across Contexts
 
 | 語 | 発行 | 入口制御 | 利用者接点 | 鍵管理 |

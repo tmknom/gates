@@ -223,6 +223,10 @@ Installation で選択していない同じアカウントの公開リポジト�
 
 本文は、どのリポジトリが原因かを示しません。
 
+2026/11/08 に、デプロイした GATES を通して、Installation で選択していない同じアカウントの private リポジトリ（`private-repo`）を要求しました。
+`["private-repo"]` と `["example-repo", "private-repo"]` は、どちらも `422` でした。
+GATES が応答本文を記録しないため、本文が上と同じかは確かめていません。
+
 ## 失効の前後のトークン
 
 対象 1 件の発行で得たトークンで、失効の前に `GET /installation/repositories` を呼ぶと `200` で、`total_count` は `1`、`repositories` は `example-repo` だけでした。
