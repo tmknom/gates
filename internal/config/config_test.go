@@ -64,8 +64,8 @@ func TestLoad(t *testing.T) {
 				t.Fatalf("Load returned error: %v", err)
 			}
 			owner := got.AllowedOwner()
-			if owner.ID() != tt.wantOwnerID {
-				t.Errorf("AllowedOwner().ID() = %d, want %d", owner.ID(), tt.wantOwnerID)
+			if owner.ID().Int64() != tt.wantOwnerID {
+				t.Errorf("AllowedOwner().ID() = %d, want %d", owner.ID().Int64(), tt.wantOwnerID)
 			}
 			if owner.Name().String() != "Example-Org" {
 				t.Errorf("AllowedOwner().Name() = %q, want %q", owner.Name(), "Example-Org")

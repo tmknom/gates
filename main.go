@@ -18,8 +18,8 @@ import (
 	"github.com/tmknom/gates/internal/config"
 	"github.com/tmknom/gates/internal/github"
 	"github.com/tmknom/gates/internal/handler"
-	"github.com/tmknom/gates/internal/issuer"
 	"github.com/tmknom/gates/internal/signer"
+	"github.com/tmknom/gates/internal/tokenissuer"
 )
 
 // oidcIssuer は固定設定の Issuer である。値の理由は Lambda Design の「OIDC Validation」に記述する。
@@ -63,7 +63,7 @@ func newRuntimeEntry(ctx context.Context, log *slog.Logger) (runtimeEntry, error
 	if err != nil {
 		return runtimeEntry{}, err
 	}
-	tokenIssuer := issuer.NewIssuer(kmsSigner, github.NewClient(), cfg.AllowedOwner(), time.Now)
+	tokenIssuer := tokenissuer.NewTokenIssuer(kmsSigner, github.NewClient(), cfg.AllowedOwner(), time.Now)
 	return runtimeEntry{handler: handler.NewHandler(verifier, tokenIssuer, cfg.AllowedOwner(), log)}, nil
 }
 

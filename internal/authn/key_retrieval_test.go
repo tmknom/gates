@@ -28,7 +28,7 @@ import (
 
 	"github.com/go-jose/go-jose/v4"
 
-	"github.com/tmknom/gates/internal/authz"
+	"github.com/tmknom/gates/internal/caller"
 )
 
 const (
@@ -166,12 +166,12 @@ func padded(body string, size int) string {
 }
 
 // assertRejected は失敗の種別と、どの拒否でも JWT の断片、応答本文、ライブラリの文言がエラー文言に入らないことを確かめる。
-func assertRejected(t *testing.T, got authz.Caller, err error, want error, token string) {
+func assertRejected(t *testing.T, got caller.Caller, err error, want error, token string) {
 	t.Helper()
 	if !errors.Is(err, want) {
 		t.Fatalf("Authenticate error = %v, want %v", err, want)
 	}
-	if got != (authz.Caller{}) {
+	if got != (caller.Caller{}) {
 		t.Errorf("Authenticate = %+v, want zero Caller", got)
 	}
 	forbidden := append(strings.Split(token, "."), responseMarker, "oidc:", "go-jose")
@@ -184,7 +184,7 @@ func assertRejected(t *testing.T, got authz.Caller, err error, want error, token
 
 func assertAuthenticated(t *testing.T, verifier *Verifier, token string) {
 	t.Helper()
-	got, err := verifier.Authenticate(t.Context(), rawIDToken(t, token))
+	got, err := verifier.Authenticate(t.Context(), unverifiedIDToken(t, token))
 	if err != nil {
 		t.Fatalf("Authenticate returned error: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestAuthenticate_RetrievalFailure(t *testing.T) {
 				document.respond(stub, tt.handler)
 				token := stub.token(t, testKey(t), testKeyID)
 
-				got, err := stub.verifier(t).Authenticate(t.Context(), rawIDToken(t, token))
+				got, err := stub.verifier(t).Authenticate(t.Context(), unverifiedIDToken(t, token))
 
 				assertRejected(t, got, err, tt.want, token)
 			})
@@ -272,7 +272,7 @@ func TestAuthenticate_UnacceptableDiscovery(t *testing.T) {
 			stub.respondDiscovery(respondBody(tt.body(stub)))
 			token := stub.token(t, testKey(t), testKeyID)
 
-			got, err := stub.verifier(t).Authenticate(t.Context(), rawIDToken(t, token))
+			got, err := stub.verifier(t).Authenticate(t.Context(), unverifiedIDToken(t, token))
 
 			assertRejected(t, got, err, ErrInternalFailure, token)
 			if requests := stub.jwksRequests.Load(); requests != 0 {
@@ -301,7 +301,7 @@ func TestAuthenticate_UnacceptableJWKS(t *testing.T) {
 			stub.respondJWKS(respondBody(tt.body))
 			token := stub.token(t, testKey(t), testKeyID)
 
-			got, err := stub.verifier(t).Authenticate(t.Context(), rawIDToken(t, token))
+			got, err := stub.verifier(t).Authenticate(t.Context(), unverifiedIDToken(t, token))
 
 			assertRejected(t, got, err, ErrInternalFailure, token)
 		})
@@ -333,7 +333,7 @@ func TestAuthenticate_JWKSWithSecretKeyMaterial(t *testing.T) {
 			stub.respondJWKS(respondBody(jwksOf(excluded, jwkWith(t, testKey(t), testKeyID, nil), tt.secret)))
 			token := stub.token(t, testKey(t), testKeyID)
 
-			got, err := stub.verifier(t).Authenticate(t.Context(), rawIDToken(t, token))
+			got, err := stub.verifier(t).Authenticate(t.Context(), unverifiedIDToken(t, token))
 
 			assertRejected(t, got, err, ErrInternalFailure, token)
 			if records := excludedRecords(t, &stub.logs); len(records) != 0 {
@@ -476,7 +476,7 @@ func TestAuthenticate_ExcludedJWK(t *testing.T) {
 			assertAuthenticated(t, verifier, stub.token(t, testKey(t), testKeyID))
 			// 除外した JWK の kid は保持しないため、その kid の JWT は鍵の値によらず拒否される
 			token := stub.token(t, key, keyID)
-			got, err := verifier.Authenticate(t.Context(), rawIDToken(t, token))
+			got, err := verifier.Authenticate(t.Context(), unverifiedIDToken(t, token))
 			assertRejected(t, got, err, ErrAuthenticationFailure, token)
 
 			records := excludedRecords(t, &stub.logs)
@@ -537,7 +537,7 @@ func TestAuthenticate_ExponentAtBoundaryIsKept(t *testing.T) {
 			stub.respondJWKS(respondBody(jwksOf(jwkWith(t, testKey(t), testKeyID, map[string]any{"e": tt.exponent}))))
 			token := stub.token(t, testKey(t), testKeyID)
 
-			got, err := stub.verifier(t).Authenticate(t.Context(), rawIDToken(t, token))
+			got, err := stub.verifier(t).Authenticate(t.Context(), unverifiedIDToken(t, token))
 
 			assertRejected(t, got, err, ErrAuthenticationFailure, token)
 		})
@@ -562,7 +562,7 @@ func TestAuthenticate_SameKeyID(t *testing.T) {
 		// 先頭の鍵で署名する。一意性を判定しなければ go-jose が先頭の鍵を選んで受理する
 		stub.respondJWKS(respondBody(jwksOf(jwkWith(t, testKey(t), testKeyID, nil), jwkWith(t, generateKey(t), testKeyID, nil))))
 		token := stub.token(t, testKey(t), testKeyID)
-		got, err := verifier.Authenticate(t.Context(), rawIDToken(t, token))
+		got, err := verifier.Authenticate(t.Context(), unverifiedIDToken(t, token))
 		assertRejected(t, got, err, ErrAuthenticationFailure, token)
 
 		stub.respondJWKS(respondBody(jwksOf(jwkWith(t, testKey(t), testKeyID, nil))))
@@ -626,7 +626,7 @@ func TestAuthenticate_UnacceptableHeaderIsRejectedWithoutRetrieval(t *testing.T)
 			stub := newIssuerStub(t, testKey(t), testKeyID)
 			token := stub.tokenWithHeader(t, testKey(t), tt.header)
 
-			got, err := stub.verifier(t).Authenticate(t.Context(), rawIDToken(t, token))
+			got, err := stub.verifier(t).Authenticate(t.Context(), unverifiedIDToken(t, token))
 
 			assertRejected(t, got, err, ErrAuthenticationFailure, token)
 			if requests := stub.documentRequests(); requests != 0 {
@@ -673,7 +673,7 @@ func TestAuthenticate_SignatureByKeyInHeaderReturnsErrAuthenticationFailure(t *t
 	attacker := generateKey(t)
 	token := stub.tokenWithHeader(t, attacker, attackerKeyHeader(t, attacker))
 
-	got, err := stub.verifier(t).Authenticate(t.Context(), rawIDToken(t, token))
+	got, err := stub.verifier(t).Authenticate(t.Context(), unverifiedIDToken(t, token))
 
 	assertRejected(t, got, err, ErrAuthenticationFailure, token)
 }
@@ -699,7 +699,7 @@ func TestAuthenticate_ResponseSizeLimit(t *testing.T) {
 			document.respond(stub, respondBody(padded(document.body(stub), keyRetrievalSizeLimit+1)))
 			token := stub.token(t, testKey(t), testKeyID)
 
-			got, err := stub.verifier(t).Authenticate(t.Context(), rawIDToken(t, token))
+			got, err := stub.verifier(t).Authenticate(t.Context(), unverifiedIDToken(t, token))
 
 			assertRejected(t, got, err, ErrInternalFailure, token)
 		})
@@ -713,7 +713,7 @@ func TestAuthenticate_DeadlineExceededReturnsErrTransientFailure(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 		defer cancel()
 
-		got, err := verifier.Authenticate(ctx, rawIDToken(t, token))
+		got, err := verifier.Authenticate(ctx, unverifiedIDToken(t, token))
 
 		assertRejected(t, got, err, ErrTransientFailure, token)
 	}
@@ -797,7 +797,7 @@ func TestAuthenticate_CommunicationFailureKeepsResponseValuesOutOfError(t *testi
 	}
 	token := stub.token(t, testKey(t), testKeyID)
 
-	got, err := verifier.Authenticate(t.Context(), rawIDToken(t, token))
+	got, err := verifier.Authenticate(t.Context(), unverifiedIDToken(t, token))
 
 	assertRejected(t, got, err, ErrTransientFailure, token)
 }
@@ -832,7 +832,7 @@ func TestAuthenticate_DefaultClientRejectsUntrustedCertificate(t *testing.T) {
 	}
 	token := stub.token(t, testKey(t), testKeyID)
 
-	got, err := verifier.Authenticate(t.Context(), rawIDToken(t, token))
+	got, err := verifier.Authenticate(t.Context(), unverifiedIDToken(t, token))
 
 	assertRejected(t, got, err, ErrTransientFailure, token)
 	if requests := stub.discoveryRequests.Load(); requests != 0 {
@@ -848,7 +848,7 @@ func TestAuthenticate_JWKSFailureKeepsDiscovery(t *testing.T) {
 	valid := *stub.jwks.Load()
 	stub.respondJWKS(respondStatus(500))
 
-	got, err := verifier.Authenticate(t.Context(), rawIDToken(t, token))
+	got, err := verifier.Authenticate(t.Context(), unverifiedIDToken(t, token))
 	assertRejected(t, got, err, ErrTransientFailure, token)
 
 	stub.respondJWKS(valid)
@@ -918,7 +918,7 @@ func TestAuthenticate_RetrievalIntervalAfterSuccess(t *testing.T) {
 				token := stub.token(t, generateKey(t), tokenCase.keyID)
 
 				clock.advance(tt.elapsed)
-				got, err := verifier.Authenticate(t.Context(), rawIDToken(t, token))
+				got, err := verifier.Authenticate(t.Context(), unverifiedIDToken(t, token))
 
 				assertRejected(t, got, err, ErrAuthenticationFailure, token)
 				if requests := stub.jwksRequests.Load(); requests != tt.wantJWKS {
@@ -945,7 +945,7 @@ func TestAuthenticate_RetrievalIntervalCountsFromRetrievalStart(t *testing.T) {
 	token := stub.token(t, generateKey(t), "unknown")
 
 	clock.advance(time.Minute - retrievalDuration)
-	got, err := verifier.Authenticate(t.Context(), rawIDToken(t, token))
+	got, err := verifier.Authenticate(t.Context(), unverifiedIDToken(t, token))
 
 	assertRejected(t, got, err, ErrAuthenticationFailure, token)
 	if requests := stub.jwksRequests.Load(); requests != 2 {
@@ -984,13 +984,13 @@ func TestAuthenticate_RetrievalIntervalAfterFailureWithKeys(t *testing.T) {
 
 			stub.respondJWKS(respondStatus(failure.status))
 			clock.advance(keyRetrievalInterval)
-			got, err := verifier.Authenticate(t.Context(), rawIDToken(t, rotatedToken))
+			got, err := verifier.Authenticate(t.Context(), unverifiedIDToken(t, rotatedToken))
 			assertRejected(t, got, err, failure.want, rotatedToken)
 			requests := stub.documentRequests()
 
 			stub.respondJWKS(respondBody(jwksBody(t, rotated, "rotated")))
 			clock.advance(keyRetrievalInterval - time.Second)
-			got, err = verifier.Authenticate(t.Context(), rawIDToken(t, rotatedToken))
+			got, err = verifier.Authenticate(t.Context(), unverifiedIDToken(t, rotatedToken))
 			assertRejected(t, got, err, failure.want, rotatedToken)
 			assertFailureKindOnly(t, err)
 			// 上限の間でも、手元の鍵で検証できる JWT の検証は妨げない
@@ -1016,13 +1016,13 @@ func TestAuthenticate_RetrievalIntervalAfterFailureWithoutKeys(t *testing.T) {
 				valid := document.current(stub)
 
 				document.respond(stub, respondStatus(failure.status))
-				got, err := verifier.Authenticate(t.Context(), rawIDToken(t, token))
+				got, err := verifier.Authenticate(t.Context(), unverifiedIDToken(t, token))
 				assertRejected(t, got, err, failure.want, token)
 				requests := stub.documentRequests()
 
 				document.respond(stub, valid)
 				clock.advance(keyRetrievalInterval - time.Second)
-				got, err = verifier.Authenticate(t.Context(), rawIDToken(t, token))
+				got, err = verifier.Authenticate(t.Context(), unverifiedIDToken(t, token))
 				assertRejected(t, got, err, failure.want, token)
 				assertFailureKindOnly(t, err)
 				if got := stub.documentRequests(); got != requests {
@@ -1045,7 +1045,7 @@ func TestAuthenticate_SuccessfulRetrievalClearsPreviousFailure(t *testing.T) {
 	valid := *stub.jwks.Load()
 
 	stub.respondJWKS(respondStatus(500))
-	got, err := verifier.Authenticate(t.Context(), rawIDToken(t, token))
+	got, err := verifier.Authenticate(t.Context(), unverifiedIDToken(t, token))
 	assertRejected(t, got, err, ErrTransientFailure, token)
 
 	stub.respondJWKS(valid)
@@ -1053,7 +1053,7 @@ func TestAuthenticate_SuccessfulRetrievalClearsPreviousFailure(t *testing.T) {
 	assertAuthenticated(t, verifier, token)
 
 	unknownKeyToken := stub.token(t, generateKey(t), "unknown")
-	got, err = verifier.Authenticate(t.Context(), rawIDToken(t, unknownKeyToken))
+	got, err = verifier.Authenticate(t.Context(), unverifiedIDToken(t, unknownKeyToken))
 	assertRejected(t, got, err, ErrAuthenticationFailure, unknownKeyToken)
 }
 
@@ -1077,7 +1077,7 @@ func TestAuthenticate_RetrievedKeysRejectInvalidToken(t *testing.T) {
 			stub := newIssuerStub(t, testKey(t), testKeyID)
 			token := tt.token(t, stub)
 
-			got, err := stub.verifier(t).Authenticate(t.Context(), rawIDToken(t, token))
+			got, err := stub.verifier(t).Authenticate(t.Context(), unverifiedIDToken(t, token))
 
 			assertRejected(t, got, err, ErrAuthenticationFailure, token)
 			if errors.Is(err, ErrTransientFailure) || errors.Is(err, ErrInternalFailure) {
@@ -1090,7 +1090,7 @@ func TestAuthenticate_RetrievedKeysRejectInvalidToken(t *testing.T) {
 func TestAuthenticate_ConcurrentCallsShareRetrieval(t *testing.T) {
 	stub := newIssuerStub(t, testKey(t), testKeyID)
 	verifier := stub.verifier(t)
-	token := rawIDToken(t, stub.token(t, testKey(t), testKeyID))
+	token := unverifiedIDToken(t, stub.token(t, testKey(t), testKeyID))
 
 	var calls sync.WaitGroup
 	for range 8 {
@@ -1113,7 +1113,7 @@ func TestAuthenticate_ConcurrentCallsShareRetrieval(t *testing.T) {
 func TestAuthenticate_ConcurrentUnknownKeyIDsStayWithinRetrievalInterval(t *testing.T) {
 	stub := newIssuerStub(t, testKey(t), testKeyID)
 	verifier := stub.verifier(t)
-	unknownKeyToken := rawIDToken(t, stub.token(t, generateKey(t), "unknown"))
+	unknownKeyToken := unverifiedIDToken(t, stub.token(t, generateKey(t), "unknown"))
 
 	var calls sync.WaitGroup
 	for range 8 {
@@ -1139,9 +1139,9 @@ func TestAuthenticate_ConcurrentRetrievalFailureDoesNotReachCallsRejectedWithout
 	stub.respondJWKS(respondStatus(500))
 	clock.advance(keyRetrievalInterval)
 
-	unknownKeyToken := rawIDToken(t, stub.token(t, generateKey(t), "unknown"))
+	unknownKeyToken := unverifiedIDToken(t, stub.token(t, generateKey(t), "unknown"))
 	otherAudience := marshalClaims(t, claimsWith(map[string]any{"iss": stub.issuer(), "aud": "other"}))
-	rejectedToken := rawIDToken(t, signWithKeyID(t, jose.RS256, testKey(t), testKeyID, otherAudience))
+	rejectedToken := unverifiedIDToken(t, signWithKeyID(t, jose.RS256, testKey(t), testKeyID, otherAudience))
 
 	var calls sync.WaitGroup
 	for range 8 {
@@ -1178,7 +1178,7 @@ func TestAuthenticate_UnacceptableClaimSetIsRejectedWithoutRetrieval(t *testing.
 			payload := append([]byte("{"+tt.leading+","), marshalClaims(t, claims)[1:]...)
 			token := signWithKeyID(t, jose.RS256, testKey(t), testKeyID, payload)
 
-			got, err := stub.verifier(t).Authenticate(t.Context(), rawIDToken(t, token))
+			got, err := stub.verifier(t).Authenticate(t.Context(), unverifiedIDToken(t, token))
 
 			assertRejected(t, got, err, ErrAuthenticationFailure, token)
 			if requests := stub.documentRequests(); requests != 0 {
@@ -1217,7 +1217,7 @@ func TestAuthenticate_NonCompactSerializationIsRejectedWithoutRetrieval(t *testi
 			stub := newIssuerStub(t, testKey(t), testKeyID)
 			compact := stub.token(t, testKey(t), testKeyID)
 
-			got, err := stub.verifier(t).Authenticate(t.Context(), rawIDToken(t, tt.serialize(t, compact)))
+			got, err := stub.verifier(t).Authenticate(t.Context(), unverifiedIDToken(t, tt.serialize(t, compact)))
 
 			assertRejected(t, got, err, ErrAuthenticationFailure, compact)
 			if requests := stub.documentRequests(); requests != 0 {

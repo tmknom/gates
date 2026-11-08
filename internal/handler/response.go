@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/tmknom/gates/internal/errorcode"
-	"github.com/tmknom/gates/internal/issuer"
+	"github.com/tmknom/gates/internal/tokenissuer"
 )
 
 // 応答の形は Lambda Design の「Responses」に従う。
@@ -42,7 +42,7 @@ func (r response) IsZero() bool {
 }
 
 // encodeSuccess は、照合を通った発行結果から成功応答を作る。
-func encodeSuccess(requestID string, installationToken issuer.InstallationToken) response {
+func encodeSuccess(requestID string, installationToken tokenissuer.InstallationToken) response {
 	effective := installationToken.EffectiveRepositories()
 	repositories := make([]string, 0, len(effective))
 	for _, repository := range effective {

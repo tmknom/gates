@@ -1,4 +1,4 @@
-package issuer
+package tokenissuer
 
 import (
 	"encoding/json/v2"
@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/tmknom/gates/internal/authz"
+	"github.com/tmknom/gates/internal/caller"
 	"github.com/tmknom/gates/internal/github"
 	"github.com/tmknom/gates/internal/permission"
 	"github.com/tmknom/gates/internal/request"
@@ -112,7 +113,7 @@ func tokenGrant(t *testing.T) authz.TokenGrant {
 // grant は、Lambda Handler と同じく、Caller、形式検証を通した発行要求、許可オーナーをそろえて、Installation から発行許可を確定する。
 func grant(t *testing.T, installation authz.Installation) (authz.TokenGrant, error) {
 	t.Helper()
-	caller, err := authz.NewCaller(allowedOwnerID, repositoryIDA, 4004, 1, authz.WorkflowTriggerAttributes{})
+	c, err := caller.NewCaller(allowedOwnerID, repositoryIDA, 4004, 1, caller.WorkflowTriggerAttributes{})
 	if err != nil {
 		t.Fatalf("NewCaller returned error: %v", err)
 	}
@@ -126,7 +127,7 @@ func grant(t *testing.T, installation authz.Installation) (authz.TokenGrant, err
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
-	return authz.Grant(caller, req, allowedOwner(t), installation)
+	return authz.Grant(c, req, allowedOwner(t), installation)
 }
 
 func allowedOwner(t *testing.T) authz.AllowedOwner {

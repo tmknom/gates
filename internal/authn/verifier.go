@@ -12,7 +12,7 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 
-	"github.com/tmknom/gates/internal/authz"
+	"github.com/tmknom/gates/internal/caller"
 	"github.com/tmknom/gates/internal/repository"
 	"github.com/tmknom/gates/internal/request"
 )
@@ -98,20 +98,20 @@ func (r *retrievalRecorder) VerifySignature(ctx context.Context, jwt string) ([]
 }
 
 // Authenticate は、未検証の GATES 用 OIDC JWT から Caller を確定する。
-func (v *Verifier) Authenticate(ctx context.Context, rawIDToken request.RawIDToken) (authz.Caller, error) {
-	jwt := rawIDToken.Expose()
+func (v *Verifier) Authenticate(ctx context.Context, unverifiedIDToken request.UnverifiedIDToken) (caller.Caller, error) {
+	jwt := unverifiedIDToken.Expose()
 
 	// Lambda Design の「取得前の拒否」に当たる条件を、公開鍵を取得する前に判定する
 	signature, err := parseCompact(jwt)
 	if err != nil {
-		return authz.Caller{}, err
+		return caller.Caller{}, err
 	}
 	if err := checkJOSEHeader(jwt); err != nil {
-		return authz.Caller{}, err
+		return caller.Caller{}, err
 	}
 	// 署名を検証する前の Payload は拒否の判定だけに使い、Caller は検証済みの Payload から作る
 	if err := checkClaimSet(signature.UnsafePayloadWithoutVerification()); err != nil {
-		return authz.Caller{}, err
+		return caller.Caller{}, err
 	}
 
 	// 記録先を呼び出しごとに分けるため、呼び出しごとに組み立てる。go-oidc の検証器は値を持つだけで、組み立ては軽い
@@ -119,10 +119,10 @@ func (v *Verifier) Authenticate(ctx context.Context, rawIDToken request.RawIDTok
 	idToken, err := oidc.NewVerifier(v.issuer, recorder, v.config).Verify(ctx, jwt)
 	if err != nil {
 		if recorder.failure != nil {
-			return authz.Caller{}, recorder.failure
+			return caller.Caller{}, recorder.failure
 		}
 		// ErrAuthenticationFailure の文言の規則に従い、error を包まない
-		return authz.Caller{}, fmt.Errorf("%w: key selection, signature, issuer, audience, or time condition is not satisfied", ErrAuthenticationFailure)
+		return caller.Caller{}, fmt.Errorf("%w: key selection, signature, issuer, audience, or time condition is not satisfied", ErrAuthenticationFailure)
 	}
 
 	// Claims は encoding/json (v1) で復号するため、重複したキーを拒否する callerFromClaims に生の JSON を渡す。
@@ -132,19 +132,19 @@ func (v *Verifier) Authenticate(ctx context.Context, rawIDToken request.RawIDTok
 
 	// go-oidc は aud の含有だけを確かめるため、ここでは要素数だけを判定する
 	if len(idToken.Audience) != 1 {
-		return authz.Caller{}, fmt.Errorf("%w: aud must have exactly one value", ErrAuthenticationFailure)
+		return caller.Caller{}, fmt.Errorf("%w: aud must have exactly one value", ErrAuthenticationFailure)
 	}
 	// go-oidc は iat を読むだけで検証しない
 	if idToken.IssuedAt.IsZero() {
-		return authz.Caller{}, fmt.Errorf("%w: iat is required", ErrAuthenticationFailure)
+		return caller.Caller{}, fmt.Errorf("%w: iat is required", ErrAuthenticationFailure)
 	}
 	now := v.config.Now()
 	if idToken.IssuedAt.After(now.Add(clockSkew)) {
-		return authz.Caller{}, fmt.Errorf("%w: iat must not be later than the current time plus the clock skew", ErrAuthenticationFailure)
+		return caller.Caller{}, fmt.Errorf("%w: iat must not be later than the current time plus the clock skew", ErrAuthenticationFailure)
 	}
 	// go-oidc の exp の判定は Expiry.Before(now) で、現在時刻と等しい exp を受理する。設定で変えられないため重ねて判定する
 	if !now.Before(idToken.Expiry) {
-		return authz.Caller{}, fmt.Errorf("%w: exp must be later than the current time", ErrAuthenticationFailure)
+		return caller.Caller{}, fmt.Errorf("%w: exp must be later than the current time", ErrAuthenticationFailure)
 	}
 
 	return callerFromClaims(raw)

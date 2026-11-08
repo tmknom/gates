@@ -10,9 +10,10 @@ import (
 	"time"
 
 	"github.com/tmknom/gates/internal/authz"
+	"github.com/tmknom/gates/internal/caller"
 	"github.com/tmknom/gates/internal/github"
-	"github.com/tmknom/gates/internal/issuer"
 	"github.com/tmknom/gates/internal/request"
+	"github.com/tmknom/gates/internal/tokenissuer"
 )
 
 const (
@@ -52,17 +53,17 @@ func recordedIssuance() map[string]any {
 }
 
 // issueInstallationToken は、返却可能な発行結果を Token Issuer の照合からしか作れないため、GitHub API の代わりのサーバーに対して Token Issuer を呼ぶ。
-func issueInstallationToken(t *testing.T, issuance map[string]any, revocationStatus int) (issuer.InstallationToken, error) {
+func issueInstallationToken(t *testing.T, issuance map[string]any, revocationStatus int) (tokenissuer.InstallationToken, error) {
 	t.Helper()
 	owner := allowedOwner(t)
-	return newIssuer(t, issuance, revocationStatus).IssueInstallationToken(t.Context(), func(installation authz.Installation) (authz.TokenGrant, error) {
-		return authz.Grant(caller(t), tokenRequest(t), owner, installation)
+	return newTokenIssuer(t, issuance, revocationStatus).IssueInstallationToken(t.Context(), func(installation authz.Installation) (authz.TokenGrant, error) {
+		return authz.Grant(verifiedCaller(t), tokenRequest(t), owner, installation)
 	})
 }
 
-// newIssuer は、GitHub API の代わりのサーバーに接続する Token Issuer を作る。
+// newTokenIssuer は、GitHub API の代わりのサーバーに接続する Token Issuer を作る。
 // サーバーは許可オーナーの停止していない Installation を返し、issuance を発行応答として返し、失効の要求に revocationStatus で応答する。
-func newIssuer(t *testing.T, issuance map[string]any, revocationStatus int) *issuer.Issuer {
+func newTokenIssuer(t *testing.T, issuance map[string]any, revocationStatus int) *tokenissuer.TokenIssuer {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /users/"+allowedOwnerName+"/installation", respond(t, http.StatusOK, map[string]any{"id": installationID, "account": map[string]any{"id": allowedOwnerID}, "suspended_at": nil}))
@@ -75,7 +76,7 @@ func newIssuer(t *testing.T, issuance map[string]any, revocationStatus int) *iss
 		t.Fatalf("Parse returned error: %v", err)
 	}
 	client := github.NewClient(github.WithAPIHost(apiHost), github.WithTransport(server.Client().Transport))
-	return issuer.NewIssuer(signerStub{}, client, allowedOwner(t), func() time.Time { return now })
+	return tokenissuer.NewTokenIssuer(signerStub{}, client, allowedOwner(t), func() time.Time { return now })
 }
 
 func respond(t *testing.T, status int, body any) http.HandlerFunc {
@@ -108,9 +109,14 @@ func allowedOwner(t *testing.T) authz.AllowedOwner {
 	return owner
 }
 
-func caller(t *testing.T) authz.Caller {
+func verifiedCaller(t *testing.T) caller.Caller {
 	t.Helper()
-	c, err := authz.NewCaller(allowedOwnerID, 1234567890, 4004, 1, authz.WorkflowTriggerAttributes{})
+	return callerOf(t, allowedOwnerID)
+}
+
+func callerOf(t *testing.T, ownerID int64) caller.Caller {
+	t.Helper()
+	c, err := caller.NewCaller(ownerID, 1234567890, 4004, 1, caller.WorkflowTriggerAttributes{})
 	if err != nil {
 		t.Fatalf("NewCaller returned error: %v", err)
 	}

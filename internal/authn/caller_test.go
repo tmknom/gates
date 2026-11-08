@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tmknom/gates/internal/authz"
+	"github.com/tmknom/gates/internal/caller"
 )
 
 const maxInt64 = "9223372036854775807"
@@ -37,8 +37,8 @@ func validClaims() map[string]any {
 	}
 }
 
-func validAttributes() authz.WorkflowTriggerAttributes {
-	return authz.WorkflowTriggerAttributes{
+func validAttributes() caller.WorkflowTriggerAttributes {
+	return caller.WorkflowTriggerAttributes{
 		Actor:          "octocat",
 		ActorID:        "583231",
 		EventName:      "push",
@@ -73,13 +73,13 @@ func claimsWithout(names ...string) map[string]any {
 	return claims
 }
 
-func newCaller(t *testing.T, ownerID, repositoryID, runID, runAttempt int64, attributes authz.WorkflowTriggerAttributes) authz.Caller {
+func newCaller(t *testing.T, ownerID, repositoryID, runID, runAttempt int64, attributes caller.WorkflowTriggerAttributes) caller.Caller {
 	t.Helper()
-	caller, err := authz.NewCaller(ownerID, repositoryID, runID, runAttempt, attributes)
+	c, err := caller.NewCaller(ownerID, repositoryID, runID, runAttempt, attributes)
 	if err != nil {
 		t.Fatalf("NewCaller returned error: %v", err)
 	}
-	return caller
+	return c
 }
 
 // subjectOfLength は、validClaims の ID と一致する不変形式の sub を、ref を伸ばして length 文字にする。
@@ -90,7 +90,7 @@ func subjectOfLength(length int) string {
 
 func TestCallerFromClaims(t *testing.T) {
 	defaultCaller := newCaller(t, 11, 22, 33, 2, validAttributes())
-	withAttributes := func(change func(*authz.WorkflowTriggerAttributes)) authz.Caller {
+	withAttributes := func(change func(*caller.WorkflowTriggerAttributes)) caller.Caller {
 		attributes := validAttributes()
 		change(&attributes)
 		return newCaller(t, 11, 22, 33, 2, attributes)
@@ -98,7 +98,7 @@ func TestCallerFromClaims(t *testing.T) {
 	tests := []struct {
 		name   string
 		claims map[string]any
-		want   authz.Caller
+		want   caller.Caller
 	}{
 		{
 			name:   "valid claims return caller",
@@ -135,22 +135,22 @@ func TestCallerFromClaims(t *testing.T) {
 			name: "all workflow trigger attributes missing return caller",
 			claims: claimsWithout("actor", "actor_id", "event_name", "ref", "sha",
 				"workflow_ref", "job_workflow_ref", "environment"),
-			want: newCaller(t, 11, 22, 33, 2, authz.WorkflowTriggerAttributes{}),
+			want: newCaller(t, 11, 22, 33, 2, caller.WorkflowTriggerAttributes{}),
 		},
 		{
 			name:   "null workflow trigger attribute is treated as missing",
 			claims: claimsWith(map[string]any{"environment": nil}),
-			want:   withAttributes(func(a *authz.WorkflowTriggerAttributes) { a.Environment = "" }),
+			want:   withAttributes(func(a *caller.WorkflowTriggerAttributes) { a.Environment = "" }),
 		},
 		{
 			name:   "number workflow trigger attribute is treated as missing",
 			claims: claimsWith(map[string]any{"environment": 42}),
-			want:   withAttributes(func(a *authz.WorkflowTriggerAttributes) { a.Environment = "" }),
+			want:   withAttributes(func(a *caller.WorkflowTriggerAttributes) { a.Environment = "" }),
 		},
 		{
 			name:   "workflow trigger attribute is kept without interpretation",
 			claims: claimsWith(map[string]any{"environment": "line1\nline2\"quoted\""}),
-			want:   withAttributes(func(a *authz.WorkflowTriggerAttributes) { a.Environment = "line1\nline2\"quoted\"" }),
+			want:   withAttributes(func(a *caller.WorkflowTriggerAttributes) { a.Environment = "line1\nline2\"quoted\"" }),
 		},
 		{
 			name:   "sub of 255 characters returns caller",

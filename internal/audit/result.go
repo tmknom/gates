@@ -5,6 +5,7 @@ import (
 
 	"github.com/tmknom/gates/internal/errorcode"
 	"github.com/tmknom/gates/internal/nonzero"
+	"github.com/tmknom/gates/internal/revocation"
 )
 
 // success は、成功した発行処理の結果の値である。失敗の結果の値はエラーコードである。
@@ -17,7 +18,7 @@ type Result struct {
 	succeeded  bool
 	code       errorcode.Code
 	reason     string
-	revocation RevocationOutcome
+	revocation revocation.Outcome
 }
 
 // IsZero は、Succeeded と Failed を経ていないゼロ値かを返す。Failed はゼロ値のエラーコードを受け付けないため、成功でもなくエラーコードも持たない値はゼロ値に限る。
@@ -38,8 +39,8 @@ func Failed(code errorcode.Code, reason string) Result {
 }
 
 // VerificationFailed は、照合失敗の結果を、失効の結果とともに返す。
-func VerificationFailed(code errorcode.Code, reason string, outcome RevocationOutcome) Result {
-	// ゼロ値は Token Issuer の失効の結果を写していない値で、どの失効の結果として記録しても事実と食い違う
+func VerificationFailed(code errorcode.Code, reason string, outcome revocation.Outcome) Result {
+	// ゼロ値は Token Issuer が失効の結果を決めていない値で、どの失効の結果として記録しても事実と食い違う
 	nonzero.Require(outcome)
 	result := Failed(code, reason)
 	result.revocation = outcome
@@ -55,7 +56,7 @@ func (r Result) attrs() []any {
 	// 失敗は拒否の理由を記録する条件を満たすため、値が空でもキーを書き、条件を満たさなかった記録と見分けられるようにする
 	attrs := []any{slog.String("result", r.code.Value()), slog.String("reason", r.reason)}
 	if !r.revocation.IsZero() {
-		attrs = append(attrs, slog.String("revocation", r.revocation.value))
+		attrs = append(attrs, slog.String("revocation", r.revocation.String()))
 	}
 	return attrs
 }

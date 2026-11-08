@@ -15,7 +15,7 @@ const (
 	maxRepositories = 500
 )
 
-// payload は、Repository Request 形式の Payload を復号する入れ物である。
+// payload は、Invoke Payload を復号する入れ物である。
 // encoding/json/v2 は null をゼロ値として復号するため、欠落と null を区別できない。
 // どのフィールドもゼロ値が正当な値と重ならず、欠落も null も入力不正であるため、区別せずにゼロ値で判定する。
 type payload struct {
@@ -36,28 +36,28 @@ var fieldErrors = map[string]error{
 // Validate は、Payload を形式検証し、未検証の GATES 用 OIDC JWT と発行要求に分けて返す。
 // 値を読み取れない形だけを入力不正にし、Permissions が許可条件に合うかは判定しない。
 // 返す error はどれも入力不正である。sentinel error は、どの規則で拒否したかを区別するために分ける。
-func Validate(b []byte) (RawIDToken, TokenRequest, error) {
+func Validate(b []byte) (UnverifiedIDToken, TokenRequest, error) {
 	if len(b) > maxPayloadBytes {
-		return RawIDToken{}, TokenRequest{}, fmt.Errorf("%w: must be at most %d bytes", ErrPayloadTooLarge, maxPayloadBytes)
+		return UnverifiedIDToken{}, TokenRequest{}, fmt.Errorf("%w: must be at most %d bytes", ErrPayloadTooLarge, maxPayloadBytes)
 	}
 	p, err := decode(b)
 	if err != nil {
-		return RawIDToken{}, TokenRequest{}, err
+		return UnverifiedIDToken{}, TokenRequest{}, err
 	}
 
 	if p.Version != 1 {
-		return RawIDToken{}, TokenRequest{}, ErrInvalidVersion
+		return UnverifiedIDToken{}, TokenRequest{}, ErrInvalidVersion
 	}
 	if p.IDToken == "" {
-		return RawIDToken{}, TokenRequest{}, ErrInvalidIDTokenField
+		return UnverifiedIDToken{}, TokenRequest{}, ErrInvalidIDTokenField
 	}
 	repositories, err := p.Repositories.parse()
 	if err != nil {
-		return RawIDToken{}, TokenRequest{}, err
+		return UnverifiedIDToken{}, TokenRequest{}, err
 	}
 	permissions, err := permission.NewPermissions(p.Permissions)
 	if err != nil {
-		return RawIDToken{}, TokenRequest{}, fmt.Errorf("%w: %w", ErrInvalidPermissions, err)
+		return UnverifiedIDToken{}, TokenRequest{}, fmt.Errorf("%w: %w", ErrInvalidPermissions, err)
 	}
 
 	req := TokenRequest{
@@ -66,7 +66,7 @@ func Validate(b []byte) (RawIDToken, TokenRequest, error) {
 	}
 	// p のフィールドを指すと、トークンが復号した Payload 全体を保持し続けるため、値を写してから指す
 	idToken := p.IDToken
-	return RawIDToken{value: &idToken}, req, nil
+	return UnverifiedIDToken{value: &idToken}, req, nil
 }
 
 // decode は、重複したキーと不正な UTF-8 を拒否し、フィールド名の大文字小文字を区別する encoding/json/v2 の既定に、未知のフィールドの拒否を加えて復号する。

@@ -1,4 +1,4 @@
-package issuer
+package tokenissuer
 
 import (
 	"errors"
@@ -7,13 +7,14 @@ import (
 
 	"github.com/tmknom/gates/internal/authz"
 	"github.com/tmknom/gates/internal/github"
+	"github.com/tmknom/gates/internal/githubid"
 	"github.com/tmknom/gates/internal/repository"
 )
 
 // verify は、発行結果を発行許可と許可オーナーで照合し、Domain Model の「Invariants」が定める返却可能な発行結果の条件をすべて満たすときだけ InstallationToken を返す。
 // トークンの長さと形式は、GitHub が定めておらず変わり得るため確かめない。
 // 発行許可と許可オーナーのゼロ値は、対象のない発行結果や Owner ID 0 の実効対象と一致し得るが、
-// それぞれ照合より先に GitHub Client の Issue と NewIssuer が panic で止めるため、ここでは確かめない。
+// それぞれ照合より先に GitHub Client の Issue と NewTokenIssuer が panic で止めるため、ここでは確かめない。
 func verify(result github.IssuanceResult, grant authz.TokenGrant, owner authz.AllowedOwner, now time.Time) (InstallationToken, error) {
 	// 空のトークンは GitHub Client が読み取らないため、トークンが空でないことはこの判定に含まれる
 	token, ok := result.Token()
@@ -57,23 +58,25 @@ func verificationFailure(result github.IssuanceResult, condition error) error {
 
 // verifyRepositories は、実効対象と発行許可の対象が完全名で一対一に対応し、各実効対象が許可オーナーの有効なリポジトリであるかを確かめる。
 // 件数が一致し、どの実効対象も未対応の対象のちょうど一つに対応すれば、余分・欠落・重複はない。
-func verifyRepositories(repositories []github.EffectiveRepository, granted []repository.FullName, ownerID int64) error {
+// 発行結果は照合の前の値で ID を int64 のまま持つため、Repository ID はここで ID の形式を確かめる。
+// 所有オーナーの Owner ID は、ゼロ値でない許可オーナーの Owner ID と一致すれば ID の形式も満たすため、一致だけを比べる。
+func verifyRepositories(repositories []github.EffectiveRepository, granted []repository.FullName, allowedOwnerID githubid.OwnerID) error {
 	// 件数を先に比べ、名前の総当たりを発行許可の対象の件数の上限の二乗に収める
 	if len(repositories) != len(granted) {
 		return errors.New("repositories count does not match token grant")
 	}
 	matched := make([]bool, len(granted))
-	seenIDs := make(map[int64]bool, len(repositories))
+	seenIDs := make(map[githubid.RepositoryID]bool, len(repositories))
 	for i, effective := range repositories {
-		id := effective.RepositoryID()
-		if id <= 0 {
+		id, err := githubid.NewRepositoryID(effective.RepositoryID())
+		if err != nil {
 			return fmt.Errorf("repositories[%d] id is not a positive integer", i)
 		}
 		if seenIDs[id] {
 			return fmt.Errorf("repositories[%d] id is a duplicate", i)
 		}
 		seenIDs[id] = true
-		if effective.OwnerID() != ownerID {
+		if effective.OwnerID() != allowedOwnerID.Int64() {
 			return fmt.Errorf("repositories[%d] owner.id does not match allowed owner id", i)
 		}
 		j := unmatchedGrantIndex(granted, matched, effective.FullName())

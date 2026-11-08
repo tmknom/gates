@@ -9,6 +9,7 @@ import (
 
 	"github.com/tmknom/gates/internal/audit"
 	"github.com/tmknom/gates/internal/authz"
+	"github.com/tmknom/gates/internal/caller"
 	"github.com/tmknom/gates/internal/request"
 )
 
@@ -26,9 +27,9 @@ const (
 	idTokenMarker = "id-token-marker.payload.signature"
 )
 
-func caller(t *testing.T, attributes authz.WorkflowTriggerAttributes) authz.Caller {
+func verifiedCaller(t *testing.T, attributes caller.WorkflowTriggerAttributes) caller.Caller {
 	t.Helper()
-	c, err := authz.NewCaller(ownerID, repositoryID, runID, runAttempt, attributes)
+	c, err := caller.NewCaller(ownerID, repositoryID, runID, runAttempt, attributes)
 	if err != nil {
 		t.Fatalf("NewCaller returned error: %v", err)
 	}

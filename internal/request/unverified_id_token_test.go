@@ -14,11 +14,11 @@ import (
 
 const secretIDToken = "secret.jwt.value"
 
-// TestRawIDToken_IsRedactedInOutput は、credential.Redacted のメソッドが RawIDToken に昇格していることを確かめる。
+// TestUnverifiedIDToken_IsRedactedInOutput は、credential.Redacted のメソッドが UnverifiedIDToken に昇格していることを確かめる。
 // 書式指定や出力先ごとの網羅は credential package のテストが確かめる。
-func TestRawIDToken_IsRedactedInOutput(t *testing.T) {
+func TestUnverifiedIDToken_IsRedactedInOutput(t *testing.T) {
 	token := validateIDToken(t, secretIDToken)
-	holder := struct{ Token request.RawIDToken }{Token: token}
+	holder := struct{ Token request.UnverifiedIDToken }{Token: token}
 
 	tests := []struct {
 		name   string
@@ -54,9 +54,9 @@ func TestRawIDToken_IsRedactedInOutput(t *testing.T) {
 	}
 }
 
-// TestRawIDToken_UnexportedFieldDoesNotShowValue は、fmt が Format を呼べない非公開フィールドに置かれても、値が出ないことを確かめる。
-func TestRawIDToken_UnexportedFieldDoesNotShowValue(t *testing.T) {
-	holder := struct{ token request.RawIDToken }{token: validateIDToken(t, secretIDToken)}
+// TestUnverifiedIDToken_UnexportedFieldDoesNotShowValue は、fmt が Format を呼べない非公開フィールドに置かれても、値が出ないことを確かめる。
+func TestUnverifiedIDToken_UnexportedFieldDoesNotShowValue(t *testing.T) {
+	holder := struct{ token request.UnverifiedIDToken }{token: validateIDToken(t, secretIDToken)}
 	for _, verb := range []string{"%v", "%+v", "%#v"} {
 		t.Run(verb+" does not show the value", func(t *testing.T) {
 			if got := fmt.Sprintf(verb, holder); strings.Contains(got, secretIDToken) {
@@ -66,23 +66,23 @@ func TestRawIDToken_UnexportedFieldDoesNotShowValue(t *testing.T) {
 	}
 }
 
-// TestRawIDToken_ExposeZeroValuePanicsAsZeroValueGuard は、ゼロ値を nil の参照外しではなくゼロ値の検査で止めることを確かめる。
-func TestRawIDToken_ExposeZeroValuePanicsAsZeroValueGuard(t *testing.T) {
+// TestUnverifiedIDToken_ExposeZeroValuePanicsAsZeroValueGuard は、ゼロ値を nil の参照外しではなくゼロ値の検査で止めることを確かめる。
+func TestUnverifiedIDToken_ExposeZeroValuePanicsAsZeroValueGuard(t *testing.T) {
 	defer func() {
 		got := recover()
 		if got == nil {
-			t.Fatal("Expose did not panic for the zero RawIDToken")
+			t.Fatal("Expose did not panic for the zero UnverifiedIDToken")
 		}
 		if _, ok := got.(runtime.Error); ok {
 			t.Errorf("Expose panicked with a runtime error: %v", got)
 		}
 	}()
 
-	_ = request.RawIDToken{}.Expose()
+	_ = request.UnverifiedIDToken{}.Expose()
 }
 
-// validateIDToken は、RawIDToken を作れる唯一の経路である Validate を通して値を得る。
-func validateIDToken(t *testing.T, idToken string) request.RawIDToken {
+// validateIDToken は、UnverifiedIDToken を作れる唯一の経路である Validate を通して値を得る。
+func validateIDToken(t *testing.T, idToken string) request.UnverifiedIDToken {
 	t.Helper()
 	token, _, err := request.Validate([]byte(payloadWith("id_token", strconv.Quote(idToken))))
 	if err != nil {

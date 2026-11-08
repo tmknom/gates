@@ -27,8 +27,8 @@ func TestGrant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Grant() returned error: %v", err)
 	}
-	if grant.InstallationID() != installationID {
-		t.Errorf("InstallationID() = %d, want %d", grant.InstallationID(), installationID)
+	if grant.InstallationID().Int64() != installationID {
+		t.Errorf("InstallationID() = %d, want %d", grant.InstallationID().Int64(), installationID)
 	}
 	assertRepositories(t, grant.Repositories(), []string{"Example-Org/App", "example-org/lib"})
 	if !grant.Permissions().Equal(permission.AllowedPermissions()) {

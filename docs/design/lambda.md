@@ -20,7 +20,7 @@ Lambda Invoke には HTTP の `Authorization` ヘッダーに相当するアプ�
 
 ## 2. Request
 
-### 2.1 Repository Request
+### 2.1 Invoke Payload
 
 ```json
 {
@@ -38,8 +38,7 @@ Lambda Invoke には HTTP の `Authorization` ヘッダーに相当するアプ�
 | `repositories` | 必須、重複のない 1 件以上 500 件以下の `owner/repo` の配列。上限は GitHub のトークン発行 API が一度に受け付ける件数に合わせる（[GitHub Constraints](../spec/github-constraints.md#61-発行-api-の呼び出しと有効期限)）。GATES が設ける 16 KiB の Payload には最短の要素で 2,000 件以上が入るため、Payload サイズより先にこの上限に達する |
 | `permissions` | 必須、値は **`{"contents":"read"}`**。形式が不正なら入力不正、形式が正しく値が許可条件と異なれば認可拒否 |
 
-この Payload の形式を Repository Request と呼びます。
-形式検証を通った Repository Request から、GATES 用 OIDC JWT と発行要求を分けて取り出します。
+形式検証を通った Invoke Payload から、未検証の GATES 用 OIDC JWT と発行要求を分けて取り出します。
 
 - 対象は同一オーナーに属し、GATES で利用する同一の GitHub App Installation に含まれる必要がある。
 - Caller / オーナー / Installation ID と GitHub API Host を利用者から指定させない。
@@ -442,7 +441,7 @@ GitHub API は SDK を使わず、Go 標準ライブラリの HTTP クライア�
 | Installation ID | Installation | `id` | |
 | インストール先 Owner ID | Installation | `account.id` | 許可オーナーの Owner ID との照合は Authorization が行う |
 | 停止状態 | Installation | `suspended_at` | `null` なら停止していない。時刻なら停止している。キーの欠落と、`null` でも時刻でもない値は、停止状態を読み取れない応答として `installation_resolution_failed` にする。Go の時刻のゼロ値と同じ時刻（`0001-01-01T00:00:00Z`）も、停止していないことの表現と区別できないため、読み取れない値として扱う |
-| 対象の選び方 | Installation、発行応答 | `repository_selection` | `selected` が選択したリポジトリに限る、`all` が全リポジトリ。発行応答では文字列でなければ読み取れない。ほかの文字列も読み取り、照合が `selected` 以外として拒否する |
+| 対象の選び方 | 発行応答 | `repository_selection` | `selected` が選択したリポジトリに限る、`all` が全リポジトリ。文字列でなければ読み取れない。ほかの文字列も読み取り、照合が `selected` 以外として拒否する |
 | Installation Access Token | 発行応答 | `token` | 空でない文字列だけを読み取る。空文字列は失効 API の認証に使えないため、読み取れないものとする |
 | 実効権限 | 発行応答 | `permissions` | [権限名と水準の文字種](#権限名と水準の文字種)に合わない、空、またはオブジェクトでない値は読み取れない |
 | 実効対象の Repository ID | 発行応答 | `repositories[].id` | |

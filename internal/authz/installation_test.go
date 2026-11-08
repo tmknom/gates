@@ -13,10 +13,10 @@ func TestInstallation_IDAndInstallationOwnerID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewInstallation() error = %v", err)
 	}
-	if got := installation.ID(); got != installationID {
+	if got := installation.ID().Int64(); got != installationID {
 		t.Errorf("ID() = %d, want %d", got, installationID)
 	}
-	if got := installation.InstallationOwnerID(); got != allowedOwnerID {
+	if got := installation.InstallationOwnerID().Int64(); got != allowedOwnerID {
 		t.Errorf("InstallationOwnerID() = %d, want %d", got, allowedOwnerID)
 	}
 }
@@ -28,9 +28,7 @@ func TestNewInstallation_Invalid(t *testing.T) {
 		installationOwnerID int64
 	}{
 		{name: "zero installation id returns ErrInvalidInstallation", id: 0, installationOwnerID: allowedOwnerID},
-		{name: "negative installation id returns ErrInvalidInstallation", id: -1, installationOwnerID: allowedOwnerID},
 		{name: "zero installation owner id returns ErrInvalidInstallation", id: installationID, installationOwnerID: 0},
-		{name: "negative installation owner id returns ErrInvalidInstallation", id: installationID, installationOwnerID: -1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

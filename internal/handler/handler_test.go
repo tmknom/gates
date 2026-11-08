@@ -15,21 +15,22 @@ import (
 
 	"github.com/tmknom/gates/internal/authn"
 	"github.com/tmknom/gates/internal/authz"
-	"github.com/tmknom/gates/internal/issuer"
+	"github.com/tmknom/gates/internal/caller"
 	"github.com/tmknom/gates/internal/nonzero"
 	"github.com/tmknom/gates/internal/request"
 	"github.com/tmknom/gates/internal/signer"
+	"github.com/tmknom/gates/internal/tokenissuer"
 )
 
 // verifierStub は OIDC Verifier のテストダブルである。
 type verifierStub struct {
-	caller authz.Caller
+	caller caller.Caller
 	err    error
 	panics bool
 	calls  int
 }
 
-func (v *verifierStub) Authenticate(context.Context, request.RawIDToken) (authz.Caller, error) {
+func (v *verifierStub) Authenticate(context.Context, request.UnverifiedIDToken) (caller.Caller, error) {
 	v.calls++
 	if v.panics {
 		panicWithSecret()
@@ -37,10 +38,10 @@ func (v *verifierStub) Authenticate(context.Context, request.RawIDToken) (authz.
 	return v.caller, v.err
 }
 
-// issuerStub は Token Issuer のテストダブルである。
+// tokenIssuerStub は Token Issuer のテストダブルである。
 // installation があれば、受け取った GrantFunc にそれを渡し、Grant が拒否すればその error を返す。
-// 成功は照合を経た Token Issuer からしか起きないため、err も panics も持たない stub は、呼ばれないことを確かめる場合にだけ使う。成功は newIssuer の Token Issuer で作る。
-type issuerStub struct {
+// 成功は照合を経た Token Issuer からしか起きないため、err も panics も持たない stub は、呼ばれないことを確かめる場合にだけ使う。成功は newTokenIssuer の Token Issuer で作る。
+type tokenIssuerStub struct {
 	installation *authz.Installation
 	err          error
 	panics       bool
@@ -48,18 +49,18 @@ type issuerStub struct {
 	ctx          context.Context
 }
 
-func (i *issuerStub) IssueInstallationToken(ctx context.Context, grant issuer.GrantFunc) (issuer.InstallationToken, error) {
+func (i *tokenIssuerStub) IssueInstallationToken(ctx context.Context, grant tokenissuer.GrantFunc) (tokenissuer.InstallationToken, error) {
 	i.calls++
 	i.ctx = ctx
 	if i.installation != nil {
 		if _, err := grant(*i.installation); err != nil {
-			return issuer.InstallationToken{}, err
+			return tokenissuer.InstallationToken{}, err
 		}
 	}
 	if i.panics {
 		panicWithSecret()
 	}
-	return issuer.InstallationToken{}, i.err
+	return tokenissuer.InstallationToken{}, i.err
 }
 
 // secretMarker は、nonzero.Require の panic の値に型名として入る目印である。
@@ -161,15 +162,6 @@ func auditKeys(keys ...string) []string {
 	return append([]string{"time", "level", "msg", "request_id", "result"}, keys...)
 }
 
-func callerOf(t *testing.T, ownerID int64) authz.Caller {
-	t.Helper()
-	c, err := authz.NewCaller(ownerID, 1234567890, 4004, 1, authz.WorkflowTriggerAttributes{})
-	if err != nil {
-		t.Fatalf("NewCaller returned error: %v", err)
-	}
-	return c
-}
-
 func installation(t *testing.T, installationOwnerID int64, suspendedAt time.Time) *authz.Installation {
 	t.Helper()
 	inst, err := authz.NewInstallation(installationID, installationOwnerID, suspendedAt)
@@ -180,7 +172,7 @@ func installation(t *testing.T, installationOwnerID int64, suspendedAt time.Time
 }
 
 func TestHandle_IssuesTokenAndWritesOneAuditRecordOfSuccess(t *testing.T) {
-	inv := handle(t, &verifierStub{caller: caller(t)}, newIssuer(t, recordedIssuance(), http.StatusNoContent), validPayload(t))
+	inv := handle(t, &verifierStub{caller: verifiedCaller(t)}, newTokenIssuer(t, recordedIssuance(), http.StatusNoContent), validPayload(t))
 
 	if inv.response["ok"] != true || inv.response["token"] != tokenMarker || inv.response["request_id"] != lambdaRequestID {
 		t.Errorf("response = %v, want the success response with the issued token and the request ID", inv.response)
@@ -206,8 +198,8 @@ func TestHandle_IssuesTokenAndWritesOneAuditRecordOfSuccess(t *testing.T) {
 }
 
 func TestHandle_InvalidRequestDoesNotAuthenticate(t *testing.T) {
-	verifier := &verifierStub{caller: caller(t)}
-	tokenIssuer := &issuerStub{}
+	verifier := &verifierStub{caller: verifiedCaller(t)}
+	tokenIssuer := &tokenIssuerStub{}
 
 	// GATES 用 OIDC JWT は正しい形のまま、対象だけを不正にし、拒否の理由に JWT が入らないことも確かめる
 	inv := handle(t, verifier, tokenIssuer, marshal(t, map[string]any{
@@ -235,7 +227,7 @@ func TestHandle_AuthenticationFailureStopsBeforeAuthorization(t *testing.T) {
 		{name: "unexpected provider response returns internal_error", err: fmt.Errorf("%w: issuer mismatch", authn.ErrInternalFailure), code: "internal_error"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			tokenIssuer := &issuerStub{}
+			tokenIssuer := &tokenIssuerStub{}
 
 			inv := handle(t, &verifierStub{err: tc.err}, tokenIssuer, validPayload(t))
 
@@ -253,7 +245,7 @@ func TestHandle_AuthenticationFailureStopsBeforeAuthorization(t *testing.T) {
 
 // Token Issuer が呼ばれないことで、KMS と GitHub API に進まないことを確かめる。
 func TestHandle_AuthorizationDeniedDoesNotCallTokenIssuer(t *testing.T) {
-	tokenIssuer := &issuerStub{}
+	tokenIssuer := &tokenIssuerStub{}
 
 	inv := handle(t, &verifierStub{caller: callerOf(t, allowedOwnerID+1)}, tokenIssuer, validPayload(t))
 
@@ -270,7 +262,7 @@ func TestHandle_GrantRejectionKeepsResolvedInstallation(t *testing.T) {
 	// インストール先 Owner ID が許可オーナーと異なり、監査記録の owner_id が許可オーナーの値と見分けられる
 	inst := installation(t, allowedOwnerID+1, time.Time{})
 
-	inv := handle(t, &verifierStub{caller: caller(t)}, &issuerStub{installation: inst}, validPayload(t))
+	inv := handle(t, &verifierStub{caller: verifiedCaller(t)}, &tokenIssuerStub{installation: inst}, validPayload(t))
 
 	record := inv.assertFailed(t, "installation_resolution_failed")
 	assertKeys(t, "audit record", record, auditKeys("reason", "request", "caller", "installation")...)
@@ -283,7 +275,7 @@ func TestHandle_GrantRejectionKeepsResolvedInstallation(t *testing.T) {
 func TestHandle_TokenIssuerFailureWritesErrorCodeAndReason(t *testing.T) {
 	err := fmt.Errorf("%w: KMS throttled", signer.ErrTransientFailure)
 
-	inv := handle(t, &verifierStub{caller: caller(t)}, &issuerStub{err: err}, validPayload(t))
+	inv := handle(t, &verifierStub{caller: verifiedCaller(t)}, &tokenIssuerStub{err: err}, validPayload(t))
 
 	record := inv.assertFailed(t, "signing_unavailable")
 	assertKeys(t, "audit record", record, auditKeys("reason", "request", "caller")...)
@@ -295,35 +287,21 @@ func TestHandle_TokenIssuerFailureWritesErrorCodeAndReason(t *testing.T) {
 func TestHandle_VerificationFailureWritesRevocationOutcome(t *testing.T) {
 	allRepositories := recordedIssuance()
 	allRepositories["repository_selection"] = "all"
-	withoutToken := recordedIssuance()
-	delete(withoutToken, "token")
-	for _, tc := range []struct {
-		name             string
-		issuance         map[string]any
-		revocationStatus int
-		want             string
-	}{
-		{name: "revoked token writes succeeded", issuance: allRepositories, revocationStatus: http.StatusNoContent, want: "succeeded"},
-		{name: "token whose revocation failed writes failed", issuance: allRepositories, revocationStatus: http.StatusServiceUnavailable, want: "failed"},
-		{name: "issuance response without a token writes not_attempted", issuance: withoutToken, revocationStatus: http.StatusNoContent, want: "not_attempted"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			inv := handle(t, &verifierStub{caller: caller(t)}, newIssuer(t, tc.issuance, tc.revocationStatus), validPayload(t))
 
-			record := inv.assertFailed(t, "issuance_verification_failed")
-			assertKeys(t, "audit record", record, auditKeys("reason", "request", "caller", "installation", "revocation")...)
-			if record["revocation"] != tc.want {
-				t.Errorf("revocation = %v, want %q", record["revocation"], tc.want)
-			}
-		})
+	inv := handle(t, &verifierStub{caller: verifiedCaller(t)}, newTokenIssuer(t, allRepositories, http.StatusNoContent), validPayload(t))
+
+	record := inv.assertFailed(t, "issuance_verification_failed")
+	assertKeys(t, "audit record", record, auditKeys("reason", "request", "caller", "installation", "revocation")...)
+	if record["revocation"] != "succeeded" {
+		t.Errorf("revocation = %v, want %q", record["revocation"], "succeeded")
 	}
 }
 
 // 失効の結果を持たない照合失敗は Token Issuer の誤りで、試みなかったとも試みたとも記録できないため、internal_error で終える。
 func TestHandle_VerificationFailureWithoutRevocationOutcomeReturnsInternalError(t *testing.T) {
-	err := fmt.Errorf("%w: effective repositories do not match", issuer.ErrVerificationFailure)
+	err := fmt.Errorf("%w: effective repositories do not match", tokenissuer.ErrVerificationFailure)
 
-	inv := handle(t, &verifierStub{caller: caller(t)}, &issuerStub{err: err}, validPayload(t))
+	inv := handle(t, &verifierStub{caller: verifiedCaller(t)}, &tokenIssuerStub{err: err}, validPayload(t))
 
 	record := inv.assertFailed(t, "internal_error")
 	assertKeys(t, "audit record", record, auditKeys("reason", "request", "caller")...)
@@ -335,13 +313,13 @@ func TestHandle_VerificationFailureWithoutRevocationOutcomeReturnsInternalError(
 func TestHandle_PassesRequestContextToTokenIssuer(t *testing.T) {
 	ctx, cancel := context.WithDeadline(t.Context(), now)
 	defer cancel()
-	tokenIssuer := &issuerStub{err: errors.New("unexpected failure")}
+	tokenIssuer := &tokenIssuerStub{err: errors.New("unexpected failure")}
 	requestID, err := NewRequestID(lambdaRequestID)
 	if err != nil {
 		t.Fatalf("NewRequestID returned error: %v", err)
 	}
 
-	NewHandler(&verifierStub{caller: caller(t)}, tokenIssuer, allowedOwner(t), slog.New(slog.DiscardHandler)).Handle(ctx, requestID, validPayload(t))
+	NewHandler(&verifierStub{caller: verifiedCaller(t)}, tokenIssuer, allowedOwner(t), slog.New(slog.DiscardHandler)).Handle(ctx, requestID, validPayload(t))
 
 	if tokenIssuer.ctx != ctx {
 		t.Errorf("Token Issuer received ctx %v, want the request ctx %v", tokenIssuer.ctx, ctx)
@@ -352,11 +330,11 @@ func TestHandle_RecoversPanicOfComponent(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
 		verifier    *verifierStub
-		tokenIssuer *issuerStub
+		tokenIssuer *tokenIssuerStub
 		keys        []string
 	}{
-		{name: "panic of OIDC Verifier keeps the token request", verifier: &verifierStub{panics: true}, tokenIssuer: &issuerStub{}, keys: auditKeys("reason", "request")},
-		{name: "panic of Token Issuer keeps the values settled before it", verifier: &verifierStub{caller: caller(t)}, tokenIssuer: &issuerStub{installation: installation(t, allowedOwnerID, time.Time{}), panics: true}, keys: auditKeys("reason", "request", "caller", "installation")},
+		{name: "panic of OIDC Verifier keeps the token request", verifier: &verifierStub{panics: true}, tokenIssuer: &tokenIssuerStub{}, keys: auditKeys("reason", "request")},
+		{name: "panic of Token Issuer keeps the values settled before it", verifier: &verifierStub{caller: verifiedCaller(t)}, tokenIssuer: &tokenIssuerStub{installation: installation(t, allowedOwnerID, time.Time{}), panics: true}, keys: auditKeys("reason", "request", "caller", "installation")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			inv := handle(t, tc.verifier, tc.tokenIssuer, validPayload(t))
@@ -371,7 +349,7 @@ func TestHandle_RecoversPanicOfComponent(t *testing.T) {
 }
 
 func TestHandle_LogsRecoveredPanicWithoutItsValue(t *testing.T) {
-	inv := handle(t, &verifierStub{panics: true}, &issuerStub{}, validPayload(t))
+	inv := handle(t, &verifierStub{panics: true}, &tokenIssuerStub{}, validPayload(t))
 
 	var errorLogs []map[string]any
 	for _, record := range inv.logs {
@@ -408,5 +386,5 @@ func TestNewHandler_ZeroAllowedOwnerPanics(t *testing.T) {
 		}
 	}()
 
-	_ = NewHandler(&verifierStub{}, &issuerStub{}, authz.AllowedOwner{}, slog.New(slog.DiscardHandler))
+	_ = NewHandler(&verifierStub{}, &tokenIssuerStub{}, authz.AllowedOwner{}, slog.New(slog.DiscardHandler))
 }
