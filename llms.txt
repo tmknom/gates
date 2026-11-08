@@ -17,7 +17,7 @@ Identify and read task-related sections below when the "Use when" trigger matche
 - Changing an authorization or issuance rule → read **Specification** and **Design**, then **Formal Verification**
 - Running `make alloy` or `make z3`, or interpreting their verdicts → read **Formal Verification**
 - Checking what GitHub or the JWT and OpenID Connect standards specify → read **Specification**
-- Checking the values GitHub OIDC or the GitHub API actually returned → read **Research**
+- Checking the values GitHub OIDC, the GitHub API, AWS Lambda, or AWS STS actually returned → read **Research**
 - Preparing a GitHub App to try GATES against, deploying GATES to AWS, or importing the GitHub App Private Key into KMS → read **Environment Setup**
 
 ## Constitution
@@ -69,6 +69,8 @@ Identify and read task-related sections below when the "Use when" trigger matche
 - [GitHub OIDC JWKS](docs/research/github/oidc-jwks.md): Observed response of the GitHub OIDC JWKS endpoint and the command that fetches it - Use when implementing or testing key retrieval or JWK acceptance, or when checking the keys GitHub actually publishes
 - [GitHub App Installation](docs/research/github/app-installation.md): Observed responses of getting a user's installation with a GitHub App JWT, including a JWT with a broken signature, and the commands that sign the JWT and send the request - Use when implementing or testing installation resolution, or when checking the fields and failure responses GitHub actually returns
 - [GitHub Installation Access Token](docs/research/github/installation-access-token.md): Observed responses of issuing installation access tokens for explicit repositories and permissions, including rejected requests, and of revoking them, with sizes and rate limit headers - Use when implementing or testing token issuance, issuance verification, or revocation, or when sizing response limits
+- [AWS Lambda Invoke Rejection](docs/research/aws/lambda-invoke-rejection.md): AWS CLI errors observed when IAM refused an invoke without credentials, from a role without permissions, to another function, and to a qualified ARN, and how the Lambda Invoke API handled malformed JSON, duplicate keys, trailing data, and unknown fields - Use when judging what reaches the Lambda handler, which rejections leave no function log, or how a caller should read an invoke failure
+- [AWS STS Legacy Subject](docs/research/aws/sts-legacy-subject.md): Result of assuming the GitHub Actions IAM role with an OIDC JWT whose `sub` has only names, from a repository created before immutable subjects became the default, with the workflow that ran it - Use when checking that the trust policy rejects the legacy `sub` format, or when reading an assume-role failure from a repository that has not opted in to immutable subjects
 
 ## Environment Setup
 
