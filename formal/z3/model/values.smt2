@@ -66,7 +66,7 @@
       (= name "ref") (= name "sha") (= name "workflow_ref")
       (= name "job_workflow_ref") (= name "environment")))
 
-; Claim name alias (jwt.md §2.38.4): a name other than iss/aud/exp/iat/nbf
+; Claim name alias (GOJ-CLAIM-NAME): a name other than iss/aud/exp/iat/nbf
 ; that folds to the same string under Unicode simple case folding
 ; (CaseFolding.txt status C and S). For the letters of these five names,
 ; each ASCII letter folds with its other case, and s/S/U+017F fold together.

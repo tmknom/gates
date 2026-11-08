@@ -19,7 +19,7 @@ import (
 // signTimeout は、KMS の署名 1 回を待つ上限である。値の理由は Lambda Design の Call Time Budget にある。
 const signTimeout = 5 * time.Second
 
-// iat と exp の生成条件は JWT Design の GitHub App JWT にある。
+// iat と exp の生成条件は GitHub App JWT の GAJ-IAT と GAJ-EXP にある。
 const (
 	issuedAtSkew = 60 * time.Second
 	lifetime     = 5 * time.Minute

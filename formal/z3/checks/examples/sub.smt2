@@ -1,5 +1,5 @@
 ; expect: sat sat sat unsat unsat unsat unsat unsat unsat unsat unsat sat unsat unsat
-; EXAMPLES-SUB (jwt.md §2.2, §6.2 sub and its length): the model accepts only
+; EXAMPLES-SUB (GOJ-SUB, Verification Cases sub and its length): the model accepts only
 ; the immutable form, ASCII and at most 255 characters.
 (push 1) (assert (accepts-with "sub" (Present (JString "repo:org@1/repo@2:environment:prod")))) (check-sat) (pop 1) ; immutable form: sat
 (push 1) (assert (accepts-with "sub" (Present (JString "repo:org@1/repo@2:")))) (check-sat) (pop 1) ; empty context: sat

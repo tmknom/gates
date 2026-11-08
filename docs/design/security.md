@@ -19,7 +19,7 @@
 ### 2.1 AWS IAM / STS
 
 IAM Role の Trust Policy は、GitHub OIDC Provider を信頼先とし、`aud` と `sub` の条件で引き受けを制限します。
-AWS 用 OIDC JWT の Claim に課す条件と、この入口制御が保証しない範囲は [JWT Design](jwt.md#3-aws-用-oidc-jwt) に定めます。
+AWS 用 OIDC JWT の Claim に課す条件と、この入口制御が保証しない範囲は [AWS OIDC JWT](aws-oidc-jwt.md) に定めます。
 
 - オーナー配下での共通利用を前提とし、`sub` の後半部分（`ref`、`pull_request`、`environment` など）による追加制限は設けない。
 - 引き受けた IAM Role の権限は対象 Lambda への `lambda:InvokeFunction` のみとし、KMS `Sign`、IAM 管理、鍵インポートを許可しない。
@@ -33,7 +33,7 @@ IAM は認証情報の由来となるオーナーに対する入口制限であ�
 
 AWS 用 OIDC JWT とは別に、GATES 用 Audience の OIDC JWT を取得します。
 Lambda はこの JWT を検証し、Caller を確定します。
-署名と検証鍵、Issuer、Audience、時間条件、必須 Claim、`sub` と個別の ID の Claim の整合の受理条件は [JWT Design](jwt.md) に定めます。
+署名と検証鍵、Issuer、Audience、時間条件、必須 Claim、`sub` と個別の ID の Claim の整合の受理条件は [GATES OIDC JWT Claims](gates-oidc-jwt-claims.md) と [GATES OIDC JWT Signature](gates-oidc-jwt-signature.md) に定めます。
 検証鍵は固定した Issuer の JWKS からだけ得ます。
 JWT の発行者と署名検証鍵を結び付け、JWT や要求の内容で鍵の取得先を変えられないようにするためです。
 
@@ -199,7 +199,9 @@ GATES は不正な変更や署名を通知する仕組みを持たないため�
 ## 7. Sources
 
 - [GitHub Constraints](../spec/github-constraints.md)
-- [JWT Design](jwt.md)
+- [AWS OIDC JWT](aws-oidc-jwt.md)
+- [GATES OIDC JWT Claims](gates-oidc-jwt-claims.md)
+- [GATES OIDC JWT Signature](gates-oidc-jwt-signature.md)
 - [JWT Constraints](../spec/jwt-constraints.md)
 - [GitHub — Securely using pull_request_target](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target)
 - [AWS — IAM and AWS STS condition context keys](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_iam-condition-keys.html)

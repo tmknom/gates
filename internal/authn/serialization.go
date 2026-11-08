@@ -7,7 +7,7 @@ import (
 	"github.com/go-jose/go-jose/v4"
 )
 
-// parseCompact は JWT Design の「JWS と JSON の基本条件」のうち直列化の条件を確かめ、署名を検証する前の JWS を返す。
+// parseCompact は GATES OIDC JWT Signature の GOJ-SERIALIZATION のうち直列化の条件を確かめ、署名を検証する前の JWS を返す。
 // CR と LF を先に拒否するのは、go-jose が使う base64 の復号がこれらを読み飛ばし、改行を含む JWT を受理するため。
 // go-oidc の解析は JSON 形式と空白を含む JWT を通すため、受理する形を go-jose の Compact の解析で限る。
 // go-jose の文言は Header の alg の値を含むため包まない。
