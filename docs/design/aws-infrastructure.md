@@ -174,7 +174,7 @@ Terraform の検証は、次の点で Lambda より狭い値だけを通しま�
 
 - Owner ID は、`int64` に必ず収まる 18 桁までに限る
 - Client ID と Audience は、前後の空白を拒否する。前後の空白は書き損じであることが多く、Plan の時点で気付けるようにするためである
-- Audience と許可オーナーの URL は、Unicode の小文字化で比べる。Lambda は ASCII の範囲で比べる
+- Audience を `https://github.com` や `https://github.com/` で始まる値と比べるときは、Unicode の小文字化で比べる。Lambda は ASCII の範囲で比べる
 
 Issuer と GitHub API Host は環境変数にしません。
 デプロイごとに変わらない値であり、環境変数にすると、Lambda の設定を変更できる主体が検証の基準を差し替えられるためです。

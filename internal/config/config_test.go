@@ -56,21 +56,6 @@ func TestLoad(t *testing.T) {
 			wantOwnerType: authz.OwnerTypeOrganization,
 			wantAudience:  "https://gates.example.com",
 		},
-		{
-			name:          "audience that extends the owner url is loaded",
-			overrides:     map[string]string{"GATES_AUDIENCE": "https://github.com/Example-Org/gates"},
-			wantOwnerID:   12345,
-			wantOwnerType: authz.OwnerTypeOrganization,
-			wantAudience:  "https://github.com/Example-Org/gates",
-		},
-		{
-			// U+017F（ſ）は Unicode の大文字小文字の畳み込みでは s と等しいが、ASCII の範囲の比較では等しくない
-			name:          "audience equal to the owner url only under unicode case folding is loaded",
-			overrides:     map[string]string{"GATES_AUDIENCE": "http\u017f://github.com/Example-Org"},
-			wantOwnerID:   12345,
-			wantOwnerType: authz.OwnerTypeOrganization,
-			wantAudience:  "http\u017f://github.com/Example-Org",
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -172,23 +157,6 @@ func TestLoad_InvalidOwnerType(t *testing.T) {
 	assertInvalid(t, env, "GATES_ALLOWED_OWNER_TYPE: ")
 }
 
-func TestLoad_AudienceEqualsOwnerURL(t *testing.T) {
-	tests := []struct {
-		name      string
-		overrides map[string]string
-	}{
-		{name: "same case", overrides: map[string]string{"GATES_AUDIENCE": "https://github.com/Example-Org"}},
-		{name: "different case", overrides: map[string]string{"GATES_AUDIENCE": "HTTPS://GITHUB.COM/example-org"}},
-		// オーナー名が不正でも、Audience がオーナーの URL と等しいことは文字列だけで決まる
-		{name: "invalid owner name", overrides: map[string]string{"GATES_ALLOWED_OWNER_NAME": "Example_Org", "GATES_AUDIENCE": "https://github.com/example_org"}},
-	}
-	for _, tt := range tests {
-		t.Run("audience equal to owner url with "+tt.name+" returns ErrInvalidConfig", func(t *testing.T) {
-			assertInvalid(t, withEnv(tt.overrides), "GATES_AUDIENCE: must differ from the owner URL")
-		})
-	}
-}
-
 func TestLoad_AggregatesErrors(t *testing.T) {
 	env := withEnv(map[string]string{
 		"GATES_ALLOWED_OWNER_ID":   "0",
@@ -213,7 +181,6 @@ func TestLoad_ErrorsDoNotContainValues(t *testing.T) {
 		{name: "owner id with a non-digit", overrides: map[string]string{"GATES_ALLOWED_OWNER_ID": "SecretMarker1"}},
 		{name: "owner name", overrides: map[string]string{"GATES_ALLOWED_OWNER_NAME": "Secret_Marker"}},
 		{name: "owner type", overrides: map[string]string{"GATES_ALLOWED_OWNER_TYPE": "SecretMarker"}},
-		{name: "audience", overrides: map[string]string{"GATES_ALLOWED_OWNER_NAME": "SecretMarker", "GATES_AUDIENCE": "https://github.com/SecretMarker"}},
 	}
 	for _, tt := range tests {
 		t.Run("invalid "+tt.name+" is not written in the error", func(t *testing.T) {

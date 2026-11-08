@@ -158,6 +158,11 @@ func TestNewVerifier_InvalidConfig(t *testing.T) {
 		{"issuer with empty port returns ErrInvalidIssuer", "https://issuer.example:", testAudience, ErrInvalidIssuer},
 		{"empty audience returns ErrInvalidAudience", testIssuer, "", ErrInvalidAudience},
 		{"aws sts audience returns ErrInvalidAudience", testIssuer, "sts.amazonaws.com", ErrInvalidAudience},
+		{"github host audience returns ErrInvalidAudience", testIssuer, "https://github.com", ErrInvalidAudience},
+		{"github host audience in other case returns ErrInvalidAudience", testIssuer, "HTTPS://GitHub.COM", ErrInvalidAudience},
+		{"github host audience with trailing slash returns ErrInvalidAudience", testIssuer, "https://github.com/", ErrInvalidAudience},
+		{"github owner url audience returns ErrInvalidAudience", testIssuer, "https://github.com/octocat", ErrInvalidAudience},
+		{"github repository url audience in other case returns ErrInvalidAudience", testIssuer, "HTTPS://GitHub.COM/octocat/example-repo", ErrInvalidAudience},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -169,6 +174,15 @@ func TestNewVerifier_InvalidConfig(t *testing.T) {
 				t.Errorf("NewVerifier = %+v, want nil", got)
 			}
 		})
+	}
+}
+
+// U+017F（ſ）は Unicode の大文字小文字の畳み込みでは s と等しいが、ASCII の範囲の比較では等しくない
+func TestNewVerifier_AudienceGitHubURLOnlyUnderUnicodeCaseFolding(t *testing.T) {
+	for _, audience := range []string{"http\u017f://github.com", "http\u017f://github.com/octocat"} {
+		if _, err := NewVerifier(testIssuer, audience, testClock, discardLog); err != nil {
+			t.Errorf("NewVerifier(%q) error = %v, want nil", audience, err)
+		}
 	}
 }
 

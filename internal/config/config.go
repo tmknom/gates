@@ -19,9 +19,6 @@ const (
 	envKMSKeyARN        = "GATES_KMS_KEY_ARN"
 )
 
-// ownerURLPrefix にオーナー名を続けた値が、Domain Model の「Invariants」が定める許可オーナーの URL である。
-const ownerURLPrefix = "https://github.com/"
-
 // Config は、固定設定のうち GATES 運用者がデプロイ時に決める値である。
 // Client ID、Audience、KMS Key ARN を文字列のまま持つのは、それらの条件を検証器と KMS Signer が作る時点の不変条件として持ち、規則を 2 か所に分けないため。
 // フィールドを非公開にし、ゼロ値以外は Load でしか作れないようにする。
@@ -32,7 +29,7 @@ type Config struct {
 	kmsKeyARN    string
 }
 
-// Load は、環境変数から固定設定を読み、Domain Model の「Invariants」が定める許可オーナーと固定設定の条件を検証する。
+// Load は、環境変数から固定設定を読み、Domain Model の「Invariants」が定める許可オーナーの条件を検証する。
 // 欠落と不正な値をすべて集めて返す理由は Lambda Design の「Runtime Entry」に記述する。
 func Load(lookupEnv func(key string) (string, bool)) (Config, error) {
 	l := loader{lookupEnv: lookupEnv}
@@ -44,7 +41,6 @@ func Load(lookupEnv func(key string) (string, bool)) (Config, error) {
 	kmsKeyARN := l.read(envKMSKeyARN)
 
 	allowedOwner := l.allowedOwner(ownerID, ownerName, ownerType)
-	l.checkAudience(audience, ownerName)
 
 	if len(l.errs) > 0 {
 		return Config{}, fmt.Errorf("%w: %w", ErrInvalidConfig, errors.Join(l.errs...))
@@ -148,13 +144,6 @@ func (l *loader) ownerType(raw envValue) (authz.OwnerType, bool) {
 		return "", false
 	}
 	return ownerType, true
-}
-
-// checkAudience は、オーナー名が不正でも判定する。許可オーナーの URL と等しいかは文字列だけで決まるため。
-func (l *loader) checkAudience(audience, ownerName envValue) {
-	if audience.ok && ownerName.ok && repository.EqualFoldASCII(audience.value, ownerURLPrefix+ownerName.value) {
-		l.fail(audience.key, fmt.Errorf("must differ from the owner URL %s<%s>", ownerURLPrefix, ownerName.key))
-	}
 }
 
 // parseOwnerID は、符号と先頭の 0 を持たない 10 進表記だけを受け付ける。

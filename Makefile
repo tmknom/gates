@@ -124,6 +124,10 @@ tf-check: tf-mountpoints tf-misplaced-values ## check format, validate and test 
 tf-show: tf-mountpoints ## show the saved terraform plan
 	$(TF_RUN) offline show $(TF_LOCAL_NAME)/plan.tfplan
 
+.PHONY: tf-output
+tf-output: tf-mountpoints ## show the terraform outputs recorded in the state
+	$(TF_RUN) offline output
+
 # 古いコードを配布しないよう、Plan のたびにデプロイパッケージを作り直す
 # Terraform はエラーで止まった Plan も保存するため、失敗したら捨てる。prevent_destroy で止めた鍵の置換を含む Plan が残るのを防ぐ
 .PHONY: tf-plan

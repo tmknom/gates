@@ -22,7 +22,7 @@ AWS 用と GATES 用の OIDC JWT は、同じジョブで Audience を変えて�
 |---|---|
 | 標準仕様 | JWT / JWS / JWK の RFC、OpenID Connect Core / Discovery の **適用対象を特定した** 規範的要求。原文の MUST / SHOULD / MAY の強さを保持する |
 | GitHub 公式仕様 | GitHub が文書で説明している発行・設定・Claim の意味。条件付きの規定を一般化しない |
-| 公開値・実測値 | 調査記録にある Discovery / JWKS の取得と、JWT 6件の観測。発行条件・将来の仕様を保証しない |
+| 公開値・実測値 | 調査記録にある Discovery / JWKS の取得と、Audience を指定しない JWT 6件、URL でない文字列を Audience に指定した JWT 2件の観測。発行条件・将来の仕様を保証しない |
 | GATES の設計 | GATES が要求する必須性、型、受理・拒否条件、使用目的。外部仕様にない制約はその旨と理由を示す |
 | 未確認 | 文書で仕様を断定できない事項、実測条件では確認できない事項。推測で必須性や形式を補わない |
 
@@ -110,7 +110,9 @@ GATES は、適用対象の標準仕様が要求する検証を省略しませ�
 
 **標準仕様**：RFC 7519 §4.1.3 では受信対象を文字列または文字列配列で表します。受信者自身が含まれなければ拒否することが MUST です。OpenID Connect Core §2 の ID Token は RP の `client_id` を含むことを要求しますが、GitHub Actions のトークン取得はその認証フローと異なります（[RFC 7519 §4.1.3](https://www.rfc-editor.org/rfc/rfc7519.html#section-4.1.3)、[OIDC Core §2](https://openid.net/specs/openid-connect-core-1_0.html#IDToken)）。
 
-**GitHub 公式仕様**：既定の Audience はリポジトリ所有者の URL ですが、JWT 取得時にカスタム Audience を指定できます（[GitHub OIDC reference](https://docs.github.com/en/actions/reference/security/oidc)）。実測6件は既定の Audience のみで、GATES 用 Audience を指定した JWT の記録ではありません。
+**GitHub 公式仕様**：既定の Audience はリポジトリ所有者の URL ですが、JWT 取得時にカスタム Audience を指定できます（[GitHub OIDC reference](https://docs.github.com/en/actions/reference/security/oidc)）。
+
+**実測値**：Audience を指定せずに取得した6件はリポジトリ所有者の URL、URL でない文字列を Audience に指定して取得した2件は指定した値の JSON 文字列でした（[GitHub Constraints](../spec/github-constraints.md#31-issueraudienceclaim)）。
 
 **GATES の受理条件**：必須。固定設定の GATES 用 Audience と大文字小文字を含め完全一致する文字列1個、またはそれだけを含む要素数1の文字列配列を許容し、要素が複数なら GATES 用 Audience を含んでも拒否します。空文字列、空配列、別の Audience は拒否します。受信者を増やした JWT を資格情報として再利用しないための追加制約です。AWS 用 JWT の `aud=sts.amazonaws.com` とは区別します。
 
@@ -566,6 +568,7 @@ GitHub の Discovery 公開値は `issuer`、`jwks_uri`、`subject_types_support
 - [GitHub OIDC Discovery](../research/github/oidc-discovery.md) — `claims_supported`
 - [GitHub OIDC JWKS](../research/github/oidc-jwks.md) — 鍵情報
 - [GitHub OIDC JWT](../research/github/oidc-jwt.md) — 6件の JWT 観測
+- [GitHub OIDC Custom Audience](../research/github/custom-audience.md) — Audience を指定した JWT の観測と、GitHub が発行を拒否した Audience
 - [RFC 7515 — JSON Web Signature](https://www.rfc-editor.org/rfc/rfc7515.html)
 - [RFC 7517 — JSON Web Key](https://www.rfc-editor.org/rfc/rfc7517.html)
 - [RFC 7518 — JSON Web Algorithms](https://www.rfc-editor.org/rfc/rfc7518.html)

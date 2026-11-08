@@ -54,7 +54,7 @@ Plan の前に次を満たしておきます。
 
 `terraform.tfvars` の値のうち、次の 3 つは適用の前に確かめて決めます。
 
-- **`gates_audience`**：運用者が持つ名前空間の、GATES 専用だと分かる URI にする（例：GATES のコードを置くリポジトリの URL `https://github.com/<owner>/<repo>`）。呼び出し元のリポジトリの URL にはしない。Audience はすべての呼び出し元に共通の固定値であるため。AWS 用 OIDC JWT の Audience `sts.amazonaws.com` と、GitHub の既定の Audience（`https://github.com/<owner>`）は、それぞれの Audience の OIDC JWT で GATES の認証を通せるようになるため、変数の検証で拒否される
+- **`gates_audience`**：GATES 専用の、URL でない文字列にする（例：`<owner>-gates`）。`sts.amazonaws.com`、`https://github.com`、`https://github.com/` で始まる値は、変数の検証で拒否される（[Domain Model](../design/domain.md#53-invariants)）
 - **`kms_key_spec`**：インポートする GitHub App Private Key の鍵長に合わせる。秘密鍵は適用の後に生成するため、検証用 App で生成した鍵の鍵長（2048 bit）から `RSA_2048` とする
 - **`lambda_reserved_concurrency`**：`aws lambda get-account-settings` の `UnreservedConcurrentExecutions` から予約する数を引いても、Lambda が求める未予約の下限（100）を下回らない値にする
 
@@ -100,9 +100,48 @@ State、Plan、`terraform.tfvars` は `terraform/local/` に置かれます。
 State を失うと、Terraform は作成済みのリソースを管理できなくなります。
 その状態で適用し直すと、同じ名前の IAM ポリシーや IAM Role の作成が `EntityAlreadyExists` で失敗します。
 
+### 3.4 Connection Information
+
+GATES を呼び出すワークフローのために、接続情報を GitHub の Secrets と Variables に登録します（[GitHub Actions Design](../design/github-actions.md#21-inputs-and-outputs)）。
+AWS アカウント ID は GATES を適用したアカウントの ID で、適用に使った認証情報で `aws sts get-caller-identity --query Account --output text` を実行すると確かめられます。
+Role 名と関数名は、`make tf-output` が State から表示する `github_actions_role_name` と `lambda_function_name` の値です。
+リージョンと Audience は、`terraform/local/terraform.tfvars` の `region` と `gates_audience` の値です。
+
+```bash
+make tf-output
+```
+
+登録する単位は、許可オーナーの種別で決まります。
+オーナーが Organization なら、Organization 単位に一度だけ登録します。
+`--visibility` を付けないと、登録した値は private リポジトリからだけ参照できます。
+参照できるリポジトリをさらに絞るときは、`--visibility selected` と `--repos` で対象を指定します。
+
+```bash
+gh secret set GATES_AWS_ACCOUNT_ID --org <owner>
+gh variable set GATES_ROLE_NAME --org <owner> --body <github_actions_role_name>
+gh variable set GATES_FUNCTION_NAME --org <owner> --body <lambda_function_name>
+gh variable set GATES_AWS_REGION --org <owner> --body <region>
+gh variable set GATES_AUDIENCE --org <owner> --body <gates_audience>
+```
+
+オーナーがユーザーアカウントなら、GATES を呼び出す各リポジトリに登録します。
+Organization でも、GitHub Free の private リポジトリと、ポリシーで利用を制限したリポジトリは Organization 単位の値を参照できないため、同じように個別に登録します。
+
+```bash
+gh secret set GATES_AWS_ACCOUNT_ID --repo <owner>/<repo>
+gh variable set GATES_ROLE_NAME --repo <owner>/<repo> --body <github_actions_role_name>
+gh variable set GATES_FUNCTION_NAME --repo <owner>/<repo> --body <lambda_function_name>
+gh variable set GATES_AWS_REGION --repo <owner>/<repo> --body <region>
+gh variable set GATES_AUDIENCE --repo <owner>/<repo> --body <gates_audience>
+```
+
+`gh secret set` は `--body` を付けないと値の入力を求めるため、AWS アカウント ID をコマンドラインに書かずに済みます。
+
 ## 4. Sources
 
 - [GitHub — Registering a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app)
 - [GitHub — Installing your own GitHub App](https://docs.github.com/en/apps/using-github-apps/installing-your-own-github-app)
 - [GitHub — Managing private keys for GitHub Apps](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps)
+- [GitHub CLI — gh secret set](https://cli.github.com/manual/gh_secret_set)
+- [GitHub CLI — gh variable set](https://cli.github.com/manual/gh_variable_set)
 - [AWS — Configuring reserved concurrency for a function](https://docs.aws.amazon.com/lambda/latest/dg/configuration-concurrency.html)

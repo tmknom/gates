@@ -355,8 +355,8 @@ Lambda Handler は Lambda Runtime のライブラリに依存せず、応答を�
 Lambda Runtime のライブラリを Runtime Entry だけに閉じるのは、Lambda Handler のテストで Lambda の ctx を組み立てずに済ませるためです。
 
 固定設定のうち Issuer と API Host は本ドキュメントが固定し（[§6.1](#61-oidc-validation)、[§6.3](#63-github-client)）、残りの値（許可オーナー、Client ID、GATES 用 Audience、KMS Key ARN）は Runtime Entry が起動時に環境変数から読みます。
-読んだ値を [Domain Model](domain.md#53-invariants) の許可オーナーと固定設定の不変条件で検証するのは固定設定の読み込みであり、Runtime Entry はその結果を受け取るだけで、値の検証の判断を持ちません。
-環境変数の欠落か不正な値、[Domain Model](domain.md#53-invariants) の固定設定、認証の固定設定、署名の固定設定の不変条件の違反、AWS SDK の設定の読み込みの失敗は、どれも初期化の失敗です。
+読んだ値を [Domain Model](domain.md#53-invariants) の許可オーナーの不変条件で検証するのは固定設定の読み込みであり、Runtime Entry はその結果を受け取るだけで、値の検証の判断を持ちません。
+環境変数の欠落か不正な値、[Domain Model](domain.md#53-invariants) の許可オーナー、認証の固定設定、署名の固定設定の不変条件の違反、AWS SDK の設定の読み込みの失敗は、どれも初期化の失敗です。
 初期化に失敗した Runtime Entry は、ログに記録して異常終了し、Lambda Handler を Lambda Runtime に渡しません。
 Lambda はこの Invoke を `Runtime.ExitError` の `FunctionError` にします。
 
