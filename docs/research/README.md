@@ -16,5 +16,6 @@
 | [GitHub App Installation](github/app-installation.md) | GitHub App JWT でユーザーアカウントの Installation を取得した応答と、署名を壊した GitHub App JWT への `401` の応答 |
 | [GitHub Installation Access Token](github/installation-access-token.md) | 対象と権限を明示した Installation Access Token の発行と失効の応答 |
 | [GitHub Composite Action Outputs](github/composite-action-outputs.md) | Composite Action の内部でマスクした値を Output で呼び出し元に渡したときの、マスクの範囲、値の受け渡し、ジョブの Output での扱い |
+| [GitHub Docker Action Runtime](github/docker-action-runtime.md) | Docker Action のコンテナに届く入力と OIDC の環境変数、マウント、root 以外のユーザーでの書き込み、Output とマスク、post-entrypoint への状態の受け渡し、イメージのビルドの時間 |
 | [AWS Lambda Invoke Rejection](aws/lambda-invoke-rejection.md) | IAM と Lambda の Invoke API が関数の実行前に拒否した呼び出しと、JSON の解釈が分かれる Payload を関数に渡すか |
 | [AWS STS Legacy Subject](aws/sts-legacy-subject.md) | 名前だけの旧形式の `sub` の OIDC JWT で IAM Role の引き受けを試みた結果 |
