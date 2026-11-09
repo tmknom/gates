@@ -14,9 +14,15 @@ const secret = "secret-value"
 
 // credentials は、資格情報の型を、同じ検証に掛けるために並べる。
 func credentials() map[string]any {
+	aws := credential.NewAWSCredentials(secret, secret, secret)
 	return map[string]any{
-		"OIDCRequestToken": credential.NewOIDCRequestToken(secret),
-		"OIDCJWT":          credential.NewOIDCJWT(secret),
+		"OIDCRequestToken":        credential.NewOIDCRequestToken(secret),
+		"OIDCJWT":                 credential.NewOIDCJWT(secret),
+		"AWSAccessKeyID":          aws.AccessKeyID,
+		"AWSSecretAccessKey":      aws.SecretAccessKey,
+		"AWSSessionToken":         aws.SessionToken,
+		"AWSCredentials":          aws,
+		"InstallationAccessToken": credential.NewInstallationAccessToken(secret),
 	}
 }
 
@@ -75,8 +81,9 @@ func TestCredentials_ExposeReturnsValue(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]func() string{
-		"OIDCRequestToken": credential.NewOIDCRequestToken(secret).Expose,
-		"OIDCJWT":          credential.NewOIDCJWT(secret).Expose,
+		"OIDCRequestToken":        credential.NewOIDCRequestToken(secret).Expose,
+		"OIDCJWT":                 credential.NewOIDCJWT(secret).Expose,
+		"InstallationAccessToken": credential.NewInstallationAccessToken(secret).Expose,
 	}
 	for name, expose := range tests {
 		t.Run(name+" returns the value given to the constructor", func(t *testing.T) {
@@ -86,5 +93,26 @@ func TestCredentials_ExposeReturnsValue(t *testing.T) {
 				t.Errorf("Expose() = %q, want %q", got, secret)
 			}
 		})
+	}
+}
+
+func TestNewAWSCredentials_KeepsEachValueInItsField(t *testing.T) {
+	t.Parallel()
+
+	got := credential.NewAWSCredentials("access-key-id", "secret-access-key", "session-token")
+	values := map[string]string{
+		"AccessKeyID":     got.AccessKeyID.Expose(),
+		"SecretAccessKey": got.SecretAccessKey.Expose(),
+		"SessionToken":    got.SessionToken.Expose(),
+	}
+	want := map[string]string{
+		"AccessKeyID":     "access-key-id",
+		"SecretAccessKey": "secret-access-key",
+		"SessionToken":    "session-token",
+	}
+	for field, value := range values {
+		if value != want[field] {
+			t.Errorf("%s.Expose() = %q, want %q", field, value, want[field])
+		}
 	}
 }

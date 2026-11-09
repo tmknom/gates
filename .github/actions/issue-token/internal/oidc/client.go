@@ -62,13 +62,3 @@ func NewClient(requestURL string, requestToken credential.OIDCRequestToken, opts
 	}
 	return c, nil
 }
-
-// communicationError は、応答を得られなかった失敗である。
-// url.Error の文言は URL を含むため、文言は固定し、cause は errors.Is と errors.As のために Unwrap で返す。
-// 失敗の種類を sentinel error にしないのは、使う側が種類で分岐せず文言を注釈にし、タイムアウトかどうかだけを
-// GitHub Actions Design の「Failure Output」のとおり Unwrap した標準ライブラリの種別で判定するため。
-type communicationError struct{ cause error }
-
-func (communicationError) Error() string { return "could not get a response" }
-
-func (e communicationError) Unwrap() error { return e.cause }

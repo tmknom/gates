@@ -94,10 +94,19 @@ linters:
           - forbidigo
         text: "only internal/oidc may expose the OIDC request token"
       # oidc のテストは、取得した OIDC JWT の値を応答と照合する
-      - path: ^internal/(request/|oidc/.*_test\.go$|credential/.*_test\.go$)
+      - path: ^internal/(request/|awsapi/|oidc/.*_test\.go$|credential/.*_test\.go$)
         linters:
           - forbidigo
-        text: "only internal/request may expose the OIDC JWT"
+        text: "only internal/request and internal/awsapi may expose the OIDC JWT"
+      - path: ^internal/(awsapi/|credential/.*_test\.go$)
+        linters:
+          - forbidigo
+        text: "only internal/awsapi may expose the AWS credentials"
+      # response のテストは、取り出したトークンの値を応答と照合する
+      - path: ^internal/(issue/|githubapi/|credential/.*_test\.go$|response/.*_test\.go$)
+        linters:
+          - forbidigo
+        text: "only internal/issue and internal/githubapi may expose the installation access token"
       # テストは、任意の値の OIDC JWT を作る
       - path: ^internal/oidc/|_test\.go$
         linters:
@@ -197,22 +206,44 @@ linters:
               desc: internal/github must not depend on internal/signer
             - pkg: github.com/tmknom/gates/internal/tokenissuer
               desc: internal/github must not depend on internal/tokenissuer
-        # Docker Action：入力の検証、ワークフローコマンド、資格情報の package は通信と外部ライブラリを持たない。入力の検証と Payload の試験を通信なしで書けるようにするため
+        # Docker Action：入力の検証、応答の判定、ワークフローコマンド、資格情報の package は通信と外部ライブラリを持たない。入力の検証、Payload、応答の判定の試験を通信なしで書けるようにするため
         action-no-communication:
           list-mode: lax
           files:
             - "**/.github/actions/issue-token/internal/credential/**"
             - "**/.github/actions/issue-token/internal/request/**"
+            - "**/.github/actions/issue-token/internal/response/**"
             - "**/.github/actions/issue-token/internal/workflow/**"
           allow:
             - github.com/tmknom/gates/.github/actions/issue-token/internal
           deny:
             - pkg: net
-              desc: the docker action's input, workflow command, and credential packages must not communicate
+              desc: the docker action's input, response, workflow command, and credential packages must not communicate
             - pkg: crypto/tls
-              desc: the docker action's input, workflow command, and credential packages must not communicate
+              desc: the docker action's input, response, workflow command, and credential packages must not communicate
             - pkg: github.com/
-              desc: the docker action's input, workflow command, and credential packages must not depend on external libraries
+              desc: the docker action's input, response, workflow command, and credential packages must not depend on external libraries
+        # Docker Action：AWS SDK は internal/awsapi だけが使う。ほかの package とそのテストが AWS SDK に依存しないようにするため
+        action-aws-sdk:
+          list-mode: lax
+          files:
+            - "**/.github/actions/issue-token/**"
+            - "!**/.github/actions/issue-token/internal/awsapi/**"
+          deny:
+            - pkg: github.com/aws/aws-sdk-go-v2
+              desc: only internal/awsapi may use the AWS SDK in the docker action
+            - pkg: github.com/aws/smithy-go
+              desc: only internal/awsapi may use the AWS SDK in the docker action
+        # Docker Action：AWS SDK の設定を環境変数と共有の設定ファイルから読まない（GitHub Actions Design の Retry and Timeout）
+        action-no-aws-config:
+          list-mode: lax
+          files:
+            - "**/.github/actions/issue-token/**"
+          deny:
+            - pkg: github.com/aws/aws-sdk-go-v2/config
+              desc: the docker action builds the AWS SDK options itself and must not load configuration from the environment or shared files
+            - pkg: github.com/aws/aws-sdk-go-v2/credentials
+              desc: the docker action passes the AWS credentials with aws.CredentialsProviderFunc
         # Docker Action：資格情報の型は、資格情報の型を使うどの package からも使えるよう、標準ライブラリだけに依存する
         action-credential-standard-library-only:
           list-mode: strict
@@ -277,10 +308,18 @@ linters:
         - pattern: ^credential\.OIDCRequestToken\.Expose$
           pkg: ^github\.com/tmknom/gates/\.github/actions/issue-token/internal/credential$
           msg: only internal/oidc may expose the OIDC request token
-        # Docker Action：OIDC JWT の値を取り出せるのは、Payload に入れる internal/request だけ。Expose は公開メソッドで、呼び出せる package を型で限定できないため
+        # Docker Action：OIDC JWT の値を取り出せるのは、Payload に入れる internal/request と、AssumeRoleWithWebIdentity に渡す internal/awsapi だけ。Expose は公開メソッドで、呼び出せる package を型で限定できないため
         - pattern: ^credential\.OIDCJWT\.Expose$
           pkg: ^github\.com/tmknom/gates/\.github/actions/issue-token/internal/credential$
-          msg: only internal/request may expose the OIDC JWT
+          msg: only internal/request and internal/awsapi may expose the OIDC JWT
+        # Docker Action：AWS 一時認証情報の値を取り出せるのは、Lambda Invoke に署名する internal/awsapi だけ。Expose は公開メソッドで、呼び出せる package を型で限定できないため
+        - pattern: ^credential\.AWS(AccessKeyID|SecretAccessKey|SessionToken)\.Expose$
+          pkg: ^github\.com/tmknom/gates/\.github/actions/issue-token/internal/credential$
+          msg: only internal/awsapi may expose the AWS credentials
+        # Docker Action：Installation Access Token の値を取り出せるのは、GITHUB_STATE と Output に書く internal/issue と、失効の要求に付ける internal/githubapi だけ。Expose は公開メソッドで、呼び出せる package を型で限定できないため
+        - pattern: ^credential\.InstallationAccessToken\.Expose$
+          pkg: ^github\.com/tmknom/gates/\.github/actions/issue-token/internal/credential$
+          msg: only internal/issue and internal/githubapi may expose the installation access token
         # Docker Action：OIDC JWT を作れるのは、応答の JSON を復号した文字列から作る internal/oidc だけ。Payload の符号化は、OIDC JWT が UTF-8 として正しいことを前提にする。NewOIDCJWT は公開関数で、呼び出せる package を型で限定できないため
         - pattern: ^credential\.NewOIDCJWT$
           pkg: ^github\.com/tmknom/gates/\.github/actions/issue-token/internal/credential$

@@ -16,6 +16,16 @@ type failingWriter struct{}
 
 func (failingWriter) Write([]byte) (int, error) { return 0, errWrite }
 
+func TestAddMask_WritesValuesInOrder(t *testing.T) {
+	var buf bytes.Buffer
+	if err := AddMask(&buf, exposer("a"), exposer("b")); err != nil {
+		t.Fatalf("AddMask() error = %v", err)
+	}
+	if want := "::add-mask::a\n::add-mask::b\n"; buf.String() != want {
+		t.Errorf("AddMask() wrote %q, want %q", buf.String(), want)
+	}
+}
+
 func TestAddMask(t *testing.T) {
 	tests := []struct {
 		name  string
