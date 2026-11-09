@@ -282,6 +282,28 @@ Dependabot の Secrets は `secrets` コンテキストに同じ書き方で入�
 **公式仕様（Dependabot の `github-actions` の対象）**：`package-ecosystem: github-actions` の `directory` に `/` を指定すると、Dependabot は `/.github/workflows` と、ルートの `action.yml` / `action.yaml` を探します。
 `directories` はグロブとワイルドカード `*` を受け付け、`directory` は受け付けません（[Dependabot options reference](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference)）。
 
+**公式仕様（Docker Action）**：Docker Action は Linux の Runner だけで動き、セルフホストの Runner には Linux と Docker が要ります（[About custom actions](https://docs.github.com/en/actions/concepts/workflows-and-actions/custom-actions)）。
+`runs.image` に `Dockerfile` を指定すると、Runner がそのファイルからイメージをビルドします。パスは `action.yml` からの相対パスで、ファイル名は `Dockerfile` でなければなりません。
+入力は `INPUT_<大文字の入力名>` の環境変数で渡され、空白だけが `_` に変わります。
+`runs.args` はコンテナの `ENTRYPOINT` に渡す引数で、`Dockerfile` の `CMD` を置き換え、`runs.entrypoint` は `ENTRYPOINT` を置き換えます。
+`runs.post-entrypoint` は、`runs.entrypoint` の後に同じイメージの新しいコンテナで動き、状態はワークスペース、`HOME`、`STATE_` の環境変数で受け渡します。`runs.post-if` の既定は `always()` です（[Metadata syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/metadata-syntax)）。
+`GITHUB_STATE` に書いた値は、同じ Action の `pre:` または `post:` で `STATE_<名前>` の環境変数として読めます（[Workflow commands](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-commands)）。
+Docker Action は既定の Docker ユーザー（root）で動かす必要があり、`USER` を使うと `GITHUB_WORKSPACE` にアクセスできなくなります。
+`WORKDIR` は使わず、`ENTRYPOINT` は exec 形式と絶対パスで書くよう推奨しています。exec 形式では `args` がシェルを通らず、環境変数が展開されません（[Dockerfile support for GitHub Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/dockerfile-support)）。
+
+**実測値（Docker Action）**：リポジトリ内の Docker Action を `args` なしで動かした記録では、`role-arn` の入力は `INPUT_ROLE-ARN` の環境変数で届き、ハイフンは残りました。
+`id-token: write` のあるジョブでは `ACTIONS_ID_TOKEN_REQUEST_URL` と `ACTIONS_ID_TOKEN_REQUEST_TOKEN` がコンテナに渡り、コンテナの中から `sts.amazonaws.com` を Audience とする OIDC JWT を取得できました。ないジョブでは両方とも渡りませんでした。
+`ACTIONS_RUNTIME_TOKEN` はどちらのジョブでも渡りました。
+コンテナには `/var/run/docker.sock`、`RUNNER_TEMP`、`HOME`、ファイルコマンドのディレクトリ、ワークスペースがマウントされ、`docker run` に `--user` は付きませんでした。
+`USER 65534:65534` のイメージでは、`GITHUB_OUTPUT`、`GITHUB_STATE`、`GITHUB_ENV` に書き込めず（所有者は Runner のユーザーで、ほかのユーザーに書き込み権限がない）、標準出力のワークフローコマンドだけが効きました。
+root では、メインで `add-mask` した値が `GITHUB_OUTPUT` を経て呼び出し元の後続ステップに欠けずに届いてマスクされ、`GITHUB_STATE` を経て post-entrypoint に `STATE_` の環境変数として届いてマスクされました。
+メインが終了コード 1 で終えたステップ（`continue-on-error: true`）でも、post-entrypoint は動きました（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md)）。
+
+**推論（Docker Action の実行ユーザー）**：公式資料が `USER` を禁じる理由に挙げるのは `GITHUB_WORKSPACE` だけですが、観測ではファイルコマンドにも書き込めませんでした。ファイルコマンドの所有者は Runner を動かすユーザーで、その uid は Runner の環境ごとに決まるため、Action のイメージが固定の uid で書き込める保証はありません。Output と `STATE_` を使う Docker Action は、root で動かす前提になります。
+
+**公式仕様（Dependabot の `docker`）**：`package-ecosystem: docker` は `Dockerfile` のイメージのタグを更新します（[Dependabot options reference](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference)、[Dependabot supported ecosystems and repositories](https://docs.github.com/en/code-security/reference/supply-chain-security/supported-ecosystems-and-repositories)）。
+docs.github.com の資料は、`FROM` の digest を更新するとは明記していません。
+
 ## 8. Boundaries with JWT and OpenID Connect Standards
 
 GitHub が発行または受理する JWT には、[JWT Constraints](jwt-constraints.md) の規定がすべて同じように適用されるわけではありません。
@@ -324,3 +346,4 @@ Client ID または App ID を `iss` にすることは、`iss` を文字列と�
 | Installation の取得 API | Organization と User の API の `200` 以外の応答（インストールされていない場合を含む）、Organization の API の応答の形、GitHub App とオーナーの組での一意性 |
 | トークン発行 API | 範囲外リポジトリへの要求、選択対象外の公開リポジトリに対するトークンの振る舞い、500件超の要求、停止中の Installation への要求、`422` の原因、`metadata:read` の付与条件、応答フィールドの有無、`repositories` の並び |
 | トークン失効 API | 新形式のトークンでの失効の動作 |
+| Docker Action | ジョブが失敗した状態での post-entrypoint の実行、別のリポジトリを `uses:` で参照したときのビルドの時間と post-entrypoint でのビルドのし直し、Dependabot の `docker` が `FROM` のタグと並べた digest を更新するか |
