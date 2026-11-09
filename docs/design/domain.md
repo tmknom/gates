@@ -5,9 +5,9 @@ GATES は、許可された単一のオーナー配下の GitHub Actions ワー�
 
 ## 1. Purpose and Scope
 
-本ドキュメントの目的は、Lambda 上の Go アプリケーション、Composite Action、Terraform の設計・実装・レビューが、概念の意味と判定のルールを一つのモデルから参照できるようにすることです。
+本ドキュメントの目的は、Lambda 上の Go アプリケーション、Docker Action、Terraform の設計・実装・レビューが、概念の意味と判定のルールを一つのモデルから参照できるようにすることです。
 中心に置くのは、Lambda が担う発行の判定です。
-Composite Action、AWS IAM、KMS の鍵管理は、発行の判定と語の意味が異なる範囲として境界を示すにとどめます。
+Docker Action、AWS IAM、KMS の鍵管理は、発行の判定と語の意味が異なる範囲として境界を示すにとどめます。
 
 モデルが答える問いは次のとおりです。
 
@@ -238,7 +238,7 @@ flowchart LR
   CFG -->|許可オーナーを固定| O
   CFG -->|利用 App を固定| APP
   WF -->|GATES 用 OIDC JWT から確定| C
-  WF -->|Composite Action 経由で送る| REQ
+  WF -->|Docker Action 経由で送る| REQ
   C --> G
   REQ --> G
   CFG --> G
@@ -256,7 +256,9 @@ flowchart LR
 
 | 操作 | 英語名 | 担当 | 入力 | 結果 | 根拠 |
 |---|---|---|---|---|---|
-| トークンを要求する | （Composite Action の責務） | ワークフロー利用者 | 対象、権限、接続情報 | Composite Action が発行処理を起動する | 事実：Requirements §3、FR-019 |
+| トークンを要求する | （Docker Action の責務） | ワークフロー利用者 | 対象、権限、接続情報 | Docker Action が発行処理を起動する | 事実：Requirements §3、FR-019 |
+| ジョブの終了時の失効 | Revoke | Docker Action | ジョブの終了時の処理へ引き継いだ Installation Access Token。後続ステップへ渡したトークンはすべて含む | 成功または失敗。成否にかかわらずジョブの結果を変えない。トークンを引き継がなかった場合は何もしない | 事実：Requirements FR-026、GitHub Actions Design §3.5 |
+| 失敗時の失効 | Revoke | Docker Action | 受け取った後、後続ステップへ渡す前に失敗するかキャンセルされた Installation Access Token | 成功または失敗。成否にかかわらず Docker Action は失敗で終わる | 事実：Requirements FR-026、GitHub Actions Design §3.5、§3.6 |
 | 形式検証 | Validate | Lambda Handler | Invoke Payload | 発行要求と未検証の GATES 用 OIDC JWT を取り出す、または入力不正 | 事実：Lambda Design §2.2 |
 | 認証 | Authenticate | OIDC Verifier | 未検証の GATES 用 OIDC JWT、固定設定、Issuer の公開鍵、現在時刻 | Caller を確定する、または拒否 | 事実：Requirements FR-002 |
 | 事前認可 | Authorize | Authorization | Caller、発行要求、許可オーナー | 外部呼び出しに進める、または認可拒否 | 事実：Lambda Design §5 手順 3 |
@@ -305,7 +307,7 @@ flowchart LR
 | **Installation 利用不可** | Installation Unavailable | 固定した GitHub App と許可オーナーから、発行に使える Installation を得られない。一時的な障害を除く成功以外の応答、応答を解釈できない、必須項目の欠落、停止状態を読み取れない、停止、インストール先 Owner ID の不一致、発行の間に Installation か App の状態が変わった場合 | GATES 運用者かオーナーの管理者が、GitHub 側か固定設定を直す。再試行では解消しない | 事実：Lambda Design §3.2 |
 | **GitHub 発行拒否** | GitHub Issuance Rejected | GATES の認可が成立したが、GitHub 発行 API が `422` で要求を拒否した。原因は応答コードから確定できない | 利用者の許可外要求とは断定せず、運用者が GitHub の発行条件・状態・応答を調べる。トークン文字列は未取得 | 事実：Lambda Design §3.2 |
 | **照合失敗** | Verification Failure | GitHub 発行 API の応答を取得したが、発行結果が発行許可と一致しない。発行結果に読み取れなかった項目がある場合を含む | 運用者が設定か GitHub 側の仕様変更を調べる。トークン文字列を取得できた場合は失効を試みる | 事実：Requirements FR-018、Lambda Design §3.1 |
-| **一時的な障害** | Transient Failure | Discovery / JWKS の取得、KMS の署名、GitHub API の呼び出しのいずれかが一時的に失敗した。通信の失敗、タイムアウト、サーバー側のエラー、レート制限を指す | 利用者の再実行で解消し得る。GATES も Composite Action も要求を自動で送り直さない（[6.1](#61-contexts)） | 事実：Lambda Design §3.2、§6.4、GitHub Actions Design §3.3 |
+| **一時的な障害** | Transient Failure | Discovery / JWKS の取得、KMS の署名、GitHub API の呼び出しのいずれかが一時的に失敗した。通信の失敗、タイムアウト、サーバー側のエラー、レート制限を指す | 利用者の再実行で解消し得る。GATES も Docker Action も要求を自動で送り直さない（[6.1](#61-contexts)） | 事実：Lambda Design §3.2、§6.4、GitHub Actions Design §3.3 |
 | **内部障害** | Internal Failure | 想定外の失敗。どの段階にも属さない失敗と、GitHub OIDC Provider の応答が想定と異なる失敗（Discovery が示す Issuer が固定した Issuer と異なる、公開鍵の取得先が Issuer と異なるホストかポートを指す、応答を解釈できない、公開鍵集合に秘密鍵か対称鍵の値が含まれる、使用可能な鍵が一つもない、応答が上限より大きい、再試行では解消しない失敗の応答が返る）と、署名の要求を送る前に失敗した場合、KMS が再試行では解消しない失敗を返した場合（鍵の無効化、署名できない鍵の状態、権限の不足など）、KMS の応答を署名として解釈できない場合を含む | 運用者が調べる。再試行では解消しない | 事実：Lambda Design §3.2 |
 
 Installation 利用不可を認可拒否と分けるのは、利用者の要求に起因しない失敗だからです。
@@ -489,7 +491,7 @@ GitHub が発行した後に不整合を検出して失効に失敗した場合�
 | **認証** | Authentication | 未検証の GATES 用 OIDC JWT を、Issuer の公開鍵と固定設定の Issuer と Audience で検証し、Caller を確定する | Lambda の Go アプリケーションのうち OIDC Verifier | JWT、JOSE Header、Claim、主体（`sub`）、Issuer、Audience、Discovery、JWK / JWKS、`kid`、使用可能な鍵 |
 | **発行** | Issuance | 発行要求と Caller から発行許可を確定し、発行結果を照合して返す | Lambda の Go アプリケーションのうち OIDC Verifier を除く部分 | 本ドキュメント §3 の概念のうち、Issuer、GATES 用 Audience、Issuer の公開鍵集合、Discovery を除くもの |
 | **入口制御** | Entry Control | 許可オーナーのワークフローだけに Lambda の Invoke を許す | IAM OIDC Provider、IAM Role、Terraform | OIDC JWT の主体の文字列パターン、Audience、AWS 一時認証情報、`lambda:InvokeFunction` |
-| **利用者接点** | Workflow Integration | 利用者の入力を発行要求に変換し、発行結果を後続ステップへ渡す | Composite Action | `repositories` と `permissions` のカンマ区切り、接続情報、`GITHUB_OUTPUT` |
+| **利用者接点** | Workflow Integration | 利用者の入力を発行要求に変換し、発行結果を後続ステップへ渡し、受け取ったトークンの失効（失敗時の失効、ジョブの終了時の失効）を試みる | Docker Action | `repositories` と `permissions` のカンマ区切り、接続情報、`GITHUB_OUTPUT`、`GITHUB_STATE` |
 | **鍵管理** | Key Custody | KMS Key の作成、鍵素材のインポート、鍵の更新 | Terraform と独立した運用手順 | KMS Key、鍵素材、`PendingImport` と `Enabled`、`key_spec` |
 
 GitHub は、オーナー、リポジトリ、GitHub App、Installation を所有する上流です。
@@ -510,10 +512,26 @@ GitHub は、オーナー、リポジトリ、GitHub App、Installation を所�
 利用者接点は、発行要求を自動で送り直しません（事実：GitHub Actions Design §3.3）。
 応答を受け取れなかった発行処理でも、GitHub 側でトークンが発行されて残り得るため（[4.3](#43-lifecycle-of-an-issuance)）、送り直すと誰も持たないトークンが増え得るからです（推論）。
 
+利用者接点は、ジョブの終了時の処理へ引き継いだ Installation Access Token の失効を、ジョブの終了時にそのトークン自身で認証して試みます（事実：Requirements FR-026、GitHub Actions Design §3.5）。
+利用者接点はトークンを後続ステップへ渡す前にジョブの終了時の処理へ引き継ぐため、後続ステップへ渡したトークンはすべてこの対象に含まれます（事実：GitHub Actions Design §2.1）。
+この操作を **ジョブの終了時の失効** と呼び、発行 Context の失効（照合を通らなかった発行結果のトークンに対し、発行処理の不変条件が試行を求めるもの）と区別します。
+GitHub API の操作は同じで、英語名はどちらも Revoke です。
+ジョブの終了時の失効はベストエフォートで、成否はワークフローのログにだけ残り、監査記録の失効の結果には含まれません（推論：監査記録の単位は発行処理 1 回であり、発行処理は返却可能な発行結果を返した時点で終わっているため）。
+失敗してもジョブの結果を変えず、トークンは GitHub 側で有効なまま、GitHub が定めた有効期限まで残り得ます。
+ジョブの終了時の処理へトークンを引き継がなかったジョブでは何もしません。
+
+利用者接点がトークンを受け取った後、後続ステップへ渡す前に失敗するかキャンセルされた場合は、そのトークンの失効をその場で試みます（事実：Requirements FR-026、GitHub Actions Design §3.5、§3.6）。
+この操作を **失敗時の失効** と呼びます。
+ジョブの終了時の処理へ引き継ぐ前に終わると、ジョブの終了時の失効の対象にもならず、誰も持たないトークンが有効期限まで残るためです（推論）。
+引き継いだ後に後続ステップへ渡す段階で失敗した場合は、同じトークンが失敗時の失効とジョブの終了時の失効の両方の対象になります（事実：GitHub Actions Design §3.5）。
+失敗時の失効もベストエフォートで、成否はワークフローのログにだけ残り、成否にかかわらず利用者接点は失敗で終わります。
+
+どちらの失効についても、利用者が止める手段は設けません。利用者接点はジョブをまたぐトークンの受け渡しを提供せず、ジョブの終了後にトークンを使う正当な経路がないためです（事実：GitHub Actions Design §2.1）。
+
 ```mermaid
 flowchart LR
   GH[GitHub<br/>オーナー、リポジトリ、App、Installation]
-  UI[利用者接点<br/>Composite Action]
+  UI[利用者接点<br/>Docker Action]
   EC[入口制御<br/>IAM / STS]
   AN[認証<br/>OIDC Verifier]
   IS[発行<br/>Lambda]
@@ -528,6 +546,7 @@ flowchart LR
   GH -->|Discovery と公開鍵集合| AN
   GH -->|Installation と発行結果| IS
   IS -->|発行結果| UI
+  UI -->|失敗時の失効、ジョブの終了時の失効| GH
 ```
 
 入口制御と認証は、同じ GitHub OIDC Provider を信頼しますが、互いの判定を前提にしません。
@@ -543,7 +562,7 @@ Lambda の Invoke API が JSON として読めずに拒否した Payload も、�
 
 | 語 | 認証 | 発行 | 入口制御 | 利用者接点 | 鍵管理 |
 |---|---|---|---|---|---|
-| トークン | GATES 用 OIDC JWT | GitHub App JWT、Installation Access Token。GATES 用 OIDC JWT は認証へ渡すだけで読まない | AWS 用 OIDC JWT、AWS 一時認証情報 | 上記すべてと Output の `token` | 現れない |
+| トークン | GATES 用 OIDC JWT | GitHub App JWT、Installation Access Token。GATES 用 OIDC JWT は認証へ渡すだけで読まない | AWS 用 OIDC JWT、AWS 一時認証情報 | 上記すべてと、Output の `token`、`GITHUB_STATE` に書く値 | 現れない |
 | オーナー | GATES 用 OIDC JWT の主体と Claim に現れる不変 Owner ID | 不変 Owner ID で同定する実体。名前と種別は設定値 | OIDC JWT の主体の先頭に現れる、オーナー名と Owner ID を並べた文字列パターン | 完全名の `owner` 部分 | 現れない |
 | 主体 | GATES 用 OIDC JWT の `sub`。Owner ID と Repository ID を含む文字列 | 現れない。認証が確定した呼び出し元は Caller と呼ぶ | AWS 用 OIDC JWT の `sub` と、Invoke を許す IAM の主体 | 現れない | 現れない |
 | Issuer | GitHub Actions の OIDC Provider。固定設定の値で、Discovery と公開鍵の取得先 | 現れない。コンポーネント名の Token Issuer は Installation Access Token の発行を担うもので、Issuer とは別の概念 | IAM OIDC Provider が信頼する発行元 | 現れない | 現れない |
@@ -551,6 +570,7 @@ Lambda の Invoke API が JSON として読めずに拒否した Payload も、�
 | 権限 / permissions | 現れない | GitHub App の Permissions（`contents:read`） | IAM の許可（`lambda:InvokeFunction`、`kms:Sign`） | 入力の `permissions`（カンマ区切り）とワークフローの `permissions: id-token: write` | KMS Key Policy の署名権限と管理権限 |
 | repositories | 現れない | 発行要求の完全名の列。GitHub API へはリポジトリ名の配列に変換する | 現れない | 入力と Output のカンマ区切り文字列 | 現れない |
 | 鍵 | Issuer の公開鍵（検証だけに使う） | 署名鍵の KMS Key ARN（署名だけを依頼する） | 現れない | 現れない | 鍵素材、KMS Key、Private Key のコピー |
+| 失効 | GATES 用 OIDC JWT の失効時刻（`exp`）。時刻の経過で効力を失うこと | 照合を通らなかった発行結果のトークンを GitHub API で無効にする操作（Revoke）。発行処理の不変条件が試行を求め、失効の結果を監査記録に残す | 現れない | 受け取った Installation Access Token を GitHub API で無効にする操作（Revoke）。「ジョブの終了時の失効」と「失敗時の失効」がある。どちらもベストエフォートで、結果はワークフローのログにだけ残る | GitHub 側での旧 Private Key の失効。GATES は代行しない |
 
 ## 7. Unverified GitHub Behavior
 

@@ -2,19 +2,22 @@
 
 ## 1. Responsibility
 
-Composite Action は、GitHub Actions の利用者にトークン取得手段を提供します。AWS 用 OIDC JWT による一時認証情報の取得、GATES 用 OIDC JWT の取得、Lambda の同期 Invoke、応答の処理と同一ジョブ内の後続ステップへのトークン出力を担当します。発行の可否の判定は Lambda 側が行います。
+Docker Action は、GitHub Actions の利用者にトークン取得手段を提供します。AWS 用 OIDC JWT による AWS STS からの一時認証情報の取得、GATES 用 OIDC JWT の取得、Lambda の同期 Invoke、応答の処理と同一ジョブ内の後続ステップへのトークン出力、受け取ったトークンの失効を担当します。発行の可否の判定は Lambda 側が行います。
 
-Composite Action は GATES 運用者が提供し、利用者向けの安定した境界とします。利用者に求めるのは、ワークフローでの `permissions: id-token: write` の宣言、対象リポジトリおよび権限の指定、運用者が用意した接続情報の参照だけです（セルフホストの Runner では、[5.1 Runner Requirements](#51-runner-requirements) のコマンドの用意も求めます）。
+これらの処理は、Docker Action のイメージに入れた Go のプログラムが 1 つのプロセスで行います。このプロセスは、同じプログラムの親のプロセスが起動して見張る子のプロセスです（[§3.2](#32-failure-output)）。
+GATES 用 OIDC JWT、AWS 用 OIDC JWT、AWS 一時認証情報、Payload、応答は、プロセスのメモリの中だけで扱い、ファイルに書きません。
 
-Composite Action は、Lambda と同じこのリポジトリの `.github/actions/issue-token/action.yml` に置きます。
-Lambda の入出力契約と Composite Action を同じ PR で変更でき、両者の食い違いを防げるためです。
-Composite Action はデプロイ固有の値を持たないため、公開リポジトリに置いても AWS アカウント ID は公開されません。
-公開リポジトリであることから、許可オーナーのワークフローもこの Composite Action を参照できます。
-名前の `issue` は、Composite Action が起動する処理が [Domain Model](domain.md) の発行であることを表します。
+Docker Action は GATES 運用者が提供し、利用者向けの安定した境界とします。利用者に求めるのは、ワークフローでの `permissions: id-token: write` の宣言、対象リポジトリおよび権限の指定、運用者が用意した接続情報の参照だけです（セルフホストの Runner では、[5.4 Runner Requirements](#54-runner-requirements) の Linux と Docker の用意と、通信の許可も求めます）。
+
+Docker Action は、Lambda と同じこのリポジトリの `.github/actions/issue-token/` に置きます。
+Lambda の入出力契約と Docker Action を同じ PR で変更でき、両者の食い違いを防げるためです。
+Docker Action はデプロイ固有の値を持たないため、公開リポジトリに置いても AWS アカウント ID は公開されません。
+公開リポジトリであることから、許可オーナーのワークフローもこの Docker Action を参照できます。
+名前の `issue` は、Docker Action が起動する処理が [Domain Model](domain.md) の発行であることを表します。
 
 IAM Role と Lambda の AWS リソース設定は [AWS Infrastructure Design](aws-infrastructure.md) に記述します。Lambda Invoke の Payload、応答、エラーコードは [Lambda Design](lambda.md) を正本とします。
 
-## 2. Composite Action Interface
+## 2. Docker Action Interface
 
 ### 2.1 Inputs and Outputs
 
@@ -27,14 +30,18 @@ IAM Role と Lambda の AWS リソース設定は [AWS Infrastructure Design](aw
 | `aws-region` | はい | 呼び出す Lambda を置く AWS リージョン。AWS STS の呼び出しにも使う |
 | `audience` | はい | GATES 用 OIDC JWT の Audience |
 
-`role-arn`、`function-name`、`aws-region`、`audience` を **接続情報** と呼びます。接続情報は Composite Action の中に固定せず、入力として受け取ります。Composite Action の定義にデプロイ固有の値を持たせないためです。全リポジトリを対象にする入力は設けません。GATES は対象を明示した要求だけを受け付けるためです。
+`role-arn`、`function-name`、`aws-region`、`audience` を **接続情報** と呼びます。接続情報は Docker Action の中に固定せず、入力として受け取ります。Docker Action の定義にデプロイ固有の値を持たせないためです。全リポジトリを対象にする入力は設けません。GATES は対象を明示した要求だけを受け付けるためです。
+
+入力は、Runner が `INPUT_<大文字の入力名>` の環境変数としてコンテナに渡すものを読みます（`INPUT_ROLE-ARN` のようにハイフンは残ります）。
+`action.yml` に `args` を書かず、入力をコマンドの引数にしません。
+Runner はコンテナを起動する `docker run` の行に環境変数の名前だけを載せ、値を載せないためです（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#inputs)）。
 
 接続情報は GATES 運用者が GitHub の Secrets と Variables に用意し、ワークフローはそれを参照します。AWS アカウント ID は Secrets に置き、その他の値は Variables に置きます。ワークフローに値を直接書かず参照だけにするのは、Role 名や関数名を変えたときに、Secrets と Variables の更新だけで済ませ、利用者のワークフロー定義を変えずに済ませるためです（[Requirements](../spec/requirements.md) AC-23）。
 
 Secrets と Variables を置く単位は、許可オーナーの種別で決まります（GitHub 側の仕様は [GitHub Constraints](../spec/github-constraints.md#7-github-actions-integration)）。
 オーナーが Organization なら Organization 単位に一度だけ登録します。
 ただし、GitHub Free の private リポジトリと、ポリシーで利用を制限したリポジトリからは Organization 単位の値を参照できないため、それらのリポジトリには個別に登録します。
-ユーザーアカウントには Organization 単位に相当する Secrets と Variables がないため、Composite Action を使う各リポジトリに登録します。
+ユーザーアカウントには Organization 単位に相当する Secrets と Variables がないため、Docker Action を使う各リポジトリに登録します。
 ワークフローからの参照の書き方は `secrets.*` と `vars.*` で共通なので、どちらの単位でも利用者のワークフロー定義は変わりません。
 
 | Input | 参照する値の例 |
@@ -57,17 +64,27 @@ Secrets と Variables を置く単位は、許可オーナーの種別で決ま�
 | `repositories` | Lambda 応答が示す発行対象のリポジトリ。入力と同じ形式のカンマ区切りの `owner/repo` |
 | `permissions` | Lambda 応答が示す実効権限。入力と同じ形式のカンマ区切りの `permission:level`。要求にかかわらず GitHub が付与する `metadata:read` を含み得る |
 
-対象と実効権限を Output に含めるのは、利用者が受け取ったトークンの範囲を確認できるようにするためです（[Requirements](../spec/requirements.md) FR-016）。Output は呼び出したステップの `steps.<id>.outputs` から同一ジョブ内の後続ステップが利用できます。Action はジョブ間のトークン転送を提供しません。内部ステップの `GITHUB_OUTPUT` に設定した値は `action.yml` の `outputs` へマッピングします。
+対象と実効権限を Output に含めるのは、利用者が受け取ったトークンの範囲を確認できるようにするためです（[Requirements](../spec/requirements.md) FR-016）。Output は呼び出したステップの `steps.<id>.outputs` から同一ジョブ内の後続ステップが利用できます。Action はジョブ間のトークン転送を提供しません。
 
-4 つの Output は、応答から `jq` で取り出した値を、`GITHUB_OUTPUT` に `name=value` の 1 行の形式で 1 つずつ書きます。
+4 つの Output は、`GITHUB_OUTPUT` に `name=value` の 1 行の形式で 1 つずつ書きます。
 どの値も改行を含まないため、1 行の形式で足ります。
 値が改行を含むと `GITHUB_OUTPUT` に別の Output の行を書き足せるため、成功応答の値が改行を含めば、不正な応答として失敗します（[3.2 Failure Output](#32-failure-output)）。
 `repositories` は応答の `repositories` の順のまま `,` で結びます。
 `permissions` は応答の `permissions` を権限名の昇順に並べ、`name:level` を `,` で結びます。
 
-Composite Action の内部ステップでマスクしたトークンは、呼び出し元の後続ステップのログでもマスクされます（[GitHub Constraints](../spec/github-constraints.md#7-github-actions-integration)）。
+トークンは、ジョブの終了時の失効（[3.5 Revocation](#35-revocation)）に渡すため、`GITHUB_STATE` にも `token=<トークン>` の 1 行で書きます。
+`GITHUB_STATE` は `GITHUB_OUTPUT` と同じ Runner のファイルコマンドのディレクトリにあり、トークンを書く場所は増えても、読める主体は増えません。
+
+Output と `GITHUB_STATE` は、応答をすべて判定して成功が決まった後にだけ書きます。
+メインの処理が失敗で終わっても、それより前に書いた Output は呼び出し元の後続ステップに届くためです（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#output-and-mask)）。
+`GITHUB_STATE` を先に、`GITHUB_OUTPUT` を後に書きます。
+後続ステップに渡したトークンが、ジョブの終了時の失効の対象から漏れないようにするためです。
+どちらへの書き込みの失敗もエラー終了にします。
+書き込みに失敗してもステップが成功で終わると、後続ステップは空のトークンで動き、失敗の原因を追えないためです。
+
+Docker Action の中でマスクしたトークンは、呼び出し元の後続ステップのログでもマスクされます（[GitHub Constraints](../spec/github-constraints.md#7-github-actions-integration)）。
 そのため呼び出し元はトークンをもう一度マスクする必要はありません。
-ただし、マスクはトークン全体の文字列に効くため、後続ステップがトークンの一部を切り出してログに出すと、その部分はマスクされません（[GitHub Composite Action Outputs](../research/github/composite-action-outputs.md)）。
+ただし、マスクは登録した文字列の全体に一致する箇所に効くため、後続ステップがトークンの一部を切り出してログに出すと、その部分はマスクされません（[GitHub Composite Action Outputs](../research/github/composite-action-outputs.md#mask)）。
 
 ### 2.2 List Syntax
 
@@ -78,11 +95,11 @@ with:
 ```
 
 区切りは `,` とし、要素の前後の空白（スペース、タブ、CR、LF）を除きます。
-Composite Action 内では `repositories` を配列、`permissions` を JSON オブジェクトへ変換します。
+Docker Action 内では `repositories` を配列、`permissions` を JSON オブジェクトへ変換します。
 空白を除くほかは要素を書き換えず、大文字小文字もそろえずに、入力の順のまま変換します。
 独自のエスケープ構文は設けません。
 
-Composite Action が検証するのは、リストの構造だけです。
+Docker Action が検証するのは、リストの構造だけです。
 次のどれかに当たる入力は、Lambda を呼ばずに失敗します。
 
 - 空の要素がある
@@ -92,139 +109,271 @@ Composite Action が検証するのは、リストの構造だけです。
 - `permissions` に、権限名が文字列として完全に一致する要素が 2 つ以上ある
 
 空の要素や区切りの誤りは Lambda も `invalid_request` で拒否しますが、その `message` は固定の文言で、どの要素が不正かを示しません（[Lambda Design](lambda.md#32-failure)）。
-Composite Action で先に止めると、利用者に該当する要素を示せます。
+Docker Action で先に止めると、利用者に該当する要素を示せます。
 `permissions` の権限名の重複は、Lambda に任せることもできません。
 JSON オブジェクトに変換すると後の要素が前の要素を上書きし、`contents:write,contents:read` が `{"contents":"read"}` として送られ、利用者が書いた要求と監査記録に残る要求が食い違うためです。
 
-名前と権限の文字種、対象の件数の上限、許可条件に合うかは、Composite Action では判定しません。
+名前と権限の文字種、対象の件数の上限、許可条件に合うかは、Docker Action では判定しません。
 これらの規則は [Lambda Design](lambda.md#22-validation) が定め、Lambda が `invalid_request` か `authorization_denied` で返します。
 リストの構造は GATES が決めた文字種や上限に左右されませんが、これらの規則は GATES の判断で変わり得ます。
-Composite Action に写すと規則の定義が 2 か所になり、Lambda の規則だけを変えたときに、Lambda が受け付ける要求を Composite Action が拒否し得ます。
+Docker Action に写すと規則の定義が 2 か所になり、Lambda の規則だけを変えたときに、Lambda が受け付ける要求を Docker Action が拒否し得ます。
 許可条件の判定を Lambda に委ねるのは、認証済み Caller とともに許可外の要求を監査記録に残すためです（[Security Design](security.md#31-authorization-rule)）。
 
 ## 3. Processing Flow
 
-Composite Action は、`action.yml` の次の手順を順に実行します。
+Docker Action のメインの処理は、次の段階を 1 つの子のプロセスで順に行います。
+各段階で得た資格情報は、[3.4 Masking](#34-masking) に示す時点でマスクします。
 
-1. 前提を確かめる。Runner の OS が Linux であること、必要なコマンドがあること（[5.1 Runner Requirements](#51-runner-requirements)）、`ACTIONS_ID_TOKEN_REQUEST_URL` と要求用トークン（`ACTIONS_ID_TOKEN_REQUEST_TOKEN`）があること、接続情報の 4 つの入力が空でないことである。要求用トークンがなければ、`permissions: id-token: write` の宣言を促して失敗する。
-2. `umask 077` のもとで `mktemp -d "${RUNNER_TEMP}/gates.XXXXXX"` により **作業ディレクトリ** を作り、そのパスをステップの Output で後続の手順に渡す。GATES 用 OIDC JWT、Payload、応答のファイルは、作業ディレクトリの中にだけ置く。
-3. `aws-actions/configure-aws-credentials` を用い、入力の `role-arn` と `aws-region` で AWS STS の一時認証情報を取得する。`output-env-credentials: false` と `output-credentials: true` を指定し、一時認証情報を環境変数ではなくステップの Output として受け取る。
-4. `request-id-token.sh` が、入力の `audience` を Audience とする GATES 用 OIDC JWT を取得する。
-5. `build-payload.sh` が、入力のリストを検証し（[§2.2](#22-list-syntax)）、Payload を作る。
-6. `invoke.sh` が、AWS CLI `lambda invoke` で Lambda を同期実行する。
-7. `handle-response.sh` が結果を判定し、成功ならトークン、有効期限、対象、実効権限を Output に書く。
-8. `if: always()` の手順で作業ディレクトリを削除する。作業ディレクトリを作る前に失敗した場合は、何もせずに終える。
+1. 前提を確かめる。`ACTIONS_ID_TOKEN_REQUEST_URL` と要求用トークン（`ACTIONS_ID_TOKEN_REQUEST_TOKEN`）があること、`GITHUB_OUTPUT` と `GITHUB_STATE` があること、6 つの入力が空でないことである。要求用トークンがなければ、`permissions: id-token: write` の宣言を促して失敗する
+2. 入力のリストを検証し（[§2.2](#22-list-syntax)）、`repositories` の配列と `permissions` のオブジェクトを作る。この段階は通信しない
+3. `sts.amazonaws.com` を Audience とする AWS 用 OIDC JWT を取得する
+4. AWS STS の `AssumeRoleWithWebIdentity` で、入力の `role-arn` の IAM Role を引き受ける。AWS 用 OIDC JWT はこの段階の後に使わない
+5. 入力の `audience` を Audience とする GATES 用 OIDC JWT を取得する
+6. [Lambda Request](lambda.md#21-invoke-payload) の `version`、`id_token`、`repositories`、`permissions` を持つ Payload を組み立て、Invoke の時刻をログに出してから、一時認証情報で Lambda を `RequestResponse` で Invoke する。`LogType` を指定しない
+7. 結果を判定する。SDK のエラー、`StatusCode`、`FunctionError`、応答の `ok` の順に見る。成功なら、トークンを取り出し、残りの項目を判定する。すべて満たせば、トークンを `GITHUB_STATE` に、4 つの Output を `GITHUB_OUTPUT` に書き（[§2.1](#21-inputs-and-outputs)）、`request_id`、`expires_at`、対象、実効権限をログに出す。トークンを取り出した後に失敗すれば、失敗時の失効を試みてから終える（[§3.5](#35-revocation)）
 
-手順 1 と手順 4 から 7 の処理は `action.yml` の `run:` に書かず、[3.1 Scripts](#31-scripts) のスクリプトに書きます。
-`run:` の手順には、入力を `env:` の環境変数で渡し、`${{ inputs.* }}` を展開しません。
-展開すると、入力の値をシェルがコマンドとして解釈し得るためです。
-各スクリプトは先頭で `set -euo pipefail` と `umask 077` を設定します。
-手順はそれぞれ別のシェルで動き、手順 2 の umask は引き継がれないためです。
-umask は新しく作るファイルにだけ効くため、出力先のファイルが前からあれば、消してから書きます。
-`set -x`、AWS CLI の `--debug`、`--log-type Tail` は使いません。
+入力の検証を AWS STS より前に置くのは、通信を要らない失敗を先に返し、検証に失敗する入力で IAM Role を引き受けないためです。
+前提を最初に確かめるのは、OIDC JWT の取得と AWS STS が `id-token: write` を要し、欠けたまま進むと原因の分かりにくい失敗になるためです。
 
-手順 1 で前提を先に確かめるのは、AWS STS の一時認証情報を取得する手順 3 が `id-token: write` を要し、手順 4 以降がコマンドを要するためです。
-前提が欠けたまま進むと、手順 3 以降で原因の分かりにくい失敗になります。
+AWS STS の一時認証情報はプロセスの中の Lambda のクライアントにだけ渡し、環境変数にも `GITHUB_ENV` にも書きません。
+書くと、呼び出し元の後続ステップが一時認証情報を有効期限まで使え、利用者が先に設定した AWS の認証情報とリージョンも置き換わるためです。
+`AssumeRoleWithWebIdentity` では有効期間に下限の 900 秒を指定します。
+一時認証情報を使うのは 1 回の Invoke だけで、長く有効にしておく理由がないためです。
+セッション名は固定の `gates-issue-token` とします。
 
-手順 3 で一時認証情報を環境変数に書き出さないのは、Composite Action の内部の手順が書き出した環境変数が、呼び出し元のジョブの後続ステップにも残るためです。
-残ると、後続ステップが一時認証情報を有効期限まで使え、利用者が先に設定した AWS の認証情報とリージョンも置き換わります（[AWS — configure-aws-credentials](https://github.com/aws-actions/configure-aws-credentials)）。
-一時認証情報は、手順 3 の Output から `invoke.sh` の `env:` にだけ渡します。
+Docker Action は入力値を [Lambda Request](lambda.md#2-request) に従って変換し、[Lambda Responses](lambda.md#3-responses) に従って結果を判定します。GATES 用 OIDC JWT、AWS 用 OIDC JWT、AWS 一時認証情報、発行されたトークンは、成功と失敗のどちらでもログへ出しません。
+資格情報をプロセスのメモリの中だけで扱うことは、ランナーで動作する信頼できないコードから資格情報を保護するものではありません。
+同じジョブで信頼できないコードを動かさないことは利用者の責任です（[Security Design](security.md#5-failure-audit-and-security-risks)）。
 
-OIDC JWT の取得、`GITHUB_OUTPUT`、マスク登録の GitHub 側の仕様は [GitHub Constraints](../spec/github-constraints.md#7-github-actions-integration) を参照します。
+OIDC JWT の取得、`GITHUB_OUTPUT`、`GITHUB_STATE`、マスク登録、Docker Action の実行環境の GitHub 側の仕様は [GitHub Constraints](../spec/github-constraints.md#7-github-actions-integration) を参照します。
 
-Composite Action は入力値を [Lambda Request](lambda.md#2-request) に従って変換し、[Lambda Responses](lambda.md#3-responses) に従って結果を判定します。GATES 用 OIDC JWT、AWS 一時認証情報、発行されたトークンは、成功と失敗のどちらでもログへ出しません。一時ファイルの削除は処理後の残留リスクを減らす対策であり、ランナーで動作する信頼できないコードから資格情報を保護するものではありません。
+OIDC JWT の取得では、`ACTIONS_ID_TOKEN_REQUEST_URL` に URI エンコードした Audience を `audience` のパラメーターで付けて GET し、要求用トークンを `Authorization: Bearer` のヘッダーで送ります。
+リダイレクトには従わず、`3xx` は失敗にします。
+従うと、要求用トークンを含むヘッダーを別の宛先へ送り得るためです。
+応答本文は 64 KiB までを読み、超えれば失敗にします。
+JWT は数 KB であり、上限を設けないと、想定と異なる応答でプロセスのメモリを使い切り得るためです。
+マスクは行ごとに効くため、`200` の応答の `value` が改行を含むか、応答が JSON のオブジェクト 1 つでなければ失敗にします。
 
-### 3.1 Scripts
+### 3.1 Packages
 
-通信するスクリプトと、ファイルを変換するだけのスクリプトを分けます。
-変換の試験に通信を要らなくするためです。
-各スクリプトは、入力の値とファイルのパスを環境変数で受け取ります。
-スクリプトは `action.yml` の隣の `scripts/` に置き、ローカルの試験（[6.1 Local Tests](#61-local-tests)）もその中の `tests/` に置きます。
-`action.yml` の隣には、ほかに利用者向けの README だけを置きます。
+Docker Action は、`.github/actions/issue-token/` を独立した Go モジュールとし、`main.go` をその直下に、ほかの package を `internal/` に置きます。
+ルートの Go モジュールと分けるのは、Go の `./...` がドットで始まる `.github` を対象にせず、ルートのモジュールに置くとビルド、試験、lint から黙って外れるためです。
+`action.yml`、`Dockerfile`、`.dockerignore`、利用者向けの README も同じディレクトリに置きます。
+Runner は `Dockerfile` のあるディレクトリをビルドコンテキストにし、その外のファイルを `Dockerfile` から参照できないためです（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#runner-source)）。
 
-| スクリプト | 環境変数 | 処理 | 通信 |
-|---|---|---|---|
-| `check-prerequisites.sh` | `ROLE_ARN`、`FUNCTION_NAME`、`REGION`、`AUDIENCE` | 手順 1 の前提を確かめ、満たさなければ、満たさなかった前提をすべて示して失敗する。要求用トークンは有無だけを確かめ、値を出さない | なし |
-| `request-id-token.sh` | `AUDIENCE`、`OUT` | `ACTIONS_ID_TOKEN_REQUEST_URL` に URI エンコードした Audience を付けて GET し、応答の `value` を末尾の改行なしで `OUT` に書く。マスクは行ごとに効くため、`value` が改行を含むか、応答が複数の JSON を含めば失敗する。要求用トークンを含む `Authorization` ヘッダーは `curl -H @-` で標準入力から渡し、コマンドの引数に置かない。`curl` には最初の引数に `--disable` を渡し、ヘッダーを記録する設定を `~/.curlrc` から読ませない。応答を受けた一時ファイルは成否によらず削除し、削除できなければ失敗する。失敗したときは、前からあった `OUT` も残さない | `curl` |
-| `build-payload.sh` | `REPOSITORIES`、`PERMISSIONS`、`ID_TOKEN_FILE`、`OUT` | [§2.2](#22-list-syntax) の検証を行い、[Lambda Request](lambda.md#21-invoke-payload) の `version`、`id_token`、`repositories`、`permissions` を持つ Payload を `OUT` に書く。JWT は `jq --rawfile` でファイルから読み、コマンドの引数にもログにも出さない。終了時に、成否によらず `ID_TOKEN_FILE` を削除し、削除できなければ失敗する。失敗したときは、書きかけの `OUT` を残さない | なし |
-| `invoke.sh` | `FUNCTION_NAME`、`PAYLOAD`、`RESPONSE`、`METADATA`、`STDERR`、`STATUS`。AWS CLI 用に、手順 3 の Output の一時認証情報を `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY`、`AWS_SESSION_TOKEN`、入力の `aws-region` を `AWS_REGION` | 一時認証情報をマスクし、Invoke の時刻をログに出してから、`aws lambda invoke --invocation-type RequestResponse --payload fileb://... --output json --no-cli-pager` を実行する。応答を `RESPONSE`、標準出力を `METADATA`、標準エラーを `STDERR`、終了コードを `STATUS` に書き、AWS CLI が失敗してもスクリプトは失敗しない。終了時に、成否によらず `PAYLOAD` を削除する | `aws` |
-| `handle-response.sh` | `STATUS`、`STDERR`、`METADATA`、`RESPONSE` | AWS CLI の終了コード、`StatusCode`、`FunctionError`、応答の `ok` の順に判定する。成功なら Output を書き（[§2.1](#21-inputs-and-outputs)）、`request_id`、`expires_at`、対象、実効権限をログに出す。失敗なら [3.2 Failure Output](#32-failure-output) に従ってログに出し、終了コード 1 で終える。終了時に、成否によらず `RESPONSE` を削除する | なし |
+通信する package と、値を受けて値を返すだけの package を分けます。
+入力の検証、Payload の組み立て、応答の判定、Output への変換の試験に通信を要らなくするためです。
 
-要求用トークンと JWT をコマンドの引数に置かないのは、引数が同じ Runner のほかのプロセスから読めるためです。
-Payload を `fileb://` で渡すのも同じ理由です。
-`--output json` を指定するのは、Runner の AWS の設定で出力形式が変わっても、`METADATA` を JSON として読めるようにするためです。
+| package | 責務 | 通信 |
+|---|---|---|
+| `main.go` | 起動したパスによる親と子の選択。親ならシグナルの受け口を作って子の起動と見張りを呼び、子なら環境変数を読み取り、シグナルの受け方を設定して入口関数を呼ぶ（[§3.6](#36-cancellation)）。終了コード。panic を回復し、その値を出さずに失敗として終える | なし |
+| `internal/supervise` | 親の処理。同じ実行ファイルを子として起動し、受けたシグナルを子へ送り、子の終了の仕方から親の終了コードと注釈を決める（[§3.2](#32-failure-output)、[§3.6](#36-cancellation)） | なし |
+| `internal/issue` | メインの入口関数。前提の確認から Output の書き込みまでの段階（[§3](#3-processing-flow)）を順に呼び、トークンを取り出した後の失敗では失効を呼ぶ（[§3.5](#35-revocation)）。キャンセルの要求を受けた時点に応じて終える（[§3.6](#36-cancellation)） | なし。部品に任せる |
+| `internal/revoke` | post-entrypoint の入口関数。`GITHUB_STATE` から渡ったトークンがあれば失効を呼ぶ（[§3.5](#35-revocation)） | なし。部品に任せる |
+| `internal/request` | 入力のリストの検証（[§2.2](#22-list-syntax)）と Payload の組み立て | なし |
+| `internal/response` | Invoke の結果を SDK のエラー、`StatusCode`、`FunctionError`、`ok` の順に判定し、成功なら 4 つの Output の値とログに出す項目を、失敗なら段階とログに出す文言を返す | なし |
+| `internal/workflow` | ワークフローコマンド（`::add-mask::`、`::error::`、`::warning::`）の符号化と標準出力への書き込み、`GITHUB_OUTPUT` と `GITHUB_STATE` への `name=value` の書き込みと、改行を含む値の拒否 | なし |
+| `internal/credential` | 資格情報の型。`fmt` と JSON で値を出さず、値を取り出す口を使う側に限る | なし |
+| `internal/oidc` | OIDC JWT の取得。AWS 用と GATES 用の両方に使う | GitHub OIDC Provider |
+| `internal/awsapi` | `AssumeRoleWithWebIdentity` と Lambda の Invoke。AWS SDK を使う唯一の package | AWS STS、Lambda Invoke API |
+| `internal/githubapi` | `DELETE /installation/token` を呼び、HTTP ステータスを返す。失効の結果をログに出すのは呼び出した入口関数 | GitHub API |
+
+`os.Getenv`、`os.Args`、`os.Executable`、`os.Exit`、`os.Stdout`、`os/signal` を参照するのは `main.go` だけとします。
+`internal/` の package は、読み取った値と書き込み先を引数で受け取るため、環境変数とファイルを用意せずに試験できます。
+
+メインと post-entrypoint は、同じ実行ファイルを置いた 2 つのパスで区別します。
+イメージには実行ファイルを `/issue-token` に置き、`/revoke-token` をそれを指すシンボリックリンクにし、`action.yml` の `entrypoint` を `/issue-token`、`post-entrypoint` を `/revoke-token` にします。
+シンボリックリンクで起動しても、起動したパスはリンクのパスのまま実行ファイルに渡ります。
+実行ファイルを 2 つ複製しないのは、AWS SDK を含む実行ファイルの大きさの分だけ、ジョブのたびにビルドするイメージが大きくなるためです。
+`main.go` は、起動したパスの末尾の名前で役割を選び、どれでもなければ終了コード 1 で終えます。
+
+| 末尾の名前 | 役割 |
+|---|---|
+| `issue-token` | メインの親。`issue-token-child` の子を起動して見張る |
+| `revoke-token` | post-entrypoint の親。`revoke-token-child` の子を起動して見張る |
+| `issue-token-child` | メインの子。メインの入口関数を呼ぶ |
+| `revoke-token-child` | post-entrypoint の子。post-entrypoint の入口関数を呼ぶ |
+
+親は、自身の実行ファイルを、起動したパスの末尾の名前に `-child` を付けた名前を `argv[0]` にして起動します。
+子の名前は、`action.yml` が固定する `entrypoint` と `post-entrypoint` のパスには現れず、利用者は子を直接起動させられません。
+子であることを環境変数で示さないのは、利用者がステップの `env:` で同じ環境変数を渡すと、親の見張りを外せるためです。
+引数で区別しないのは、Runner が `runs.args` をメインと post-entrypoint に同じ値で渡し、段階ごとに切り替えるのは `docker run` の `--entrypoint` に渡す `entrypoint` と `post-entrypoint` の値だけだからです（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#runner-source)）。
+`STATE_` の環境変数の有無で区別しないのは、メインが失敗して `GITHUB_STATE` を書かなかったジョブの post-entrypoint が、メインの処理をもう一度行うことになるためです。
 
 ### 3.2 Failure Output
 
-Composite Action は、どの段階で失敗しても終了コード 1 で終え、`::error::` の注釈に失敗した段階と原因を書きます。
+Docker Action のメインの処理は、どの段階で失敗しても終了コード 1 で終え、`::error::` の注釈に、失敗した段階を示す固定の文言と原因を書きます。
 各段階でログに出すものと出さないものは次のとおりです。
 
 | 段階 | ログに出すもの | 出さないもの |
 |---|---|---|
-| 前提の確認 | 満たさなかった前提（OS、足りないコマンドの名前、要求用トークンの欠落、空の入力の名前） | なし |
-| GATES 用 OIDC JWT の取得 | HTTP ステータス。`4xx` と `5xx` なら、応答本文の先頭の 4096 バイトも。通信に失敗して HTTP ステータスがなければ `curl` の終了コードと文言。`200` の応答に 1 行の `value` がなければ、そのこと | 要求用トークン、JWT。`200` 以外の `2xx` と `3xx` の応答本文は、マスクする前の JWT を含み得るため出さない |
+| 前提の確認 | 満たさなかった前提（環境変数の欠落、空の入力の名前） | 要求用トークン |
 | 入力の検証 | 満たさなかった条件と、該当する要素 | なし。入力は資格情報ではない |
-| AWS CLI の失敗（終了コードが 0 でない） | 標準エラーが `An error occurred (` を含めば、その括弧の中の例外の名前だけ。含まなければ標準エラーの全文 | AWS のエラー応答の文言 |
-| `METADATA` を読めないか、`StatusCode` がないか `200` でない | そのことと、読み取れれば `StatusCode` の値 | なし |
+| OIDC JWT の取得（AWS 用、GATES 用） | HTTP ステータス。`4xx` と `5xx` なら、応答本文の先頭の 4096 バイトも。通信に失敗して HTTP ステータスがなければ、失敗の種類。`200` の応答に 1 行の `value` がなければ、そのこと | 要求用トークン、JWT。`200` 以外の `2xx` と `3xx` の応答本文は、マスクする前の JWT を含み得るため出さない |
+| AWS STS | AWS のエラーコード（`AccessDenied`、`InvalidIdentityToken` など）と HTTP ステータス。通信の失敗なら失敗の種類 | AWS のエラー応答の文言、要求の内容 |
+| Invoke の SDK の失敗 | AWS のエラーコード（`AccessDeniedException`、`InvalidRequestContentException` など）と HTTP ステータス。通信の失敗なら失敗の種類 | AWS のエラー応答の文言 |
+| `StatusCode` が `200` でない | `StatusCode` の値 | なし |
 | `FunctionError` がある | `FunctionError` の値と、読み取れれば応答の `errorType` | 応答の `errorMessage` |
-| 応答のファイルがないか、JSON として読めないか、`ok` が真偽値でない | そのことと、応答の大きさ | 応答本文 |
+| 応答を JSON として読めないか、`ok` が真偽値でない | そのことと、応答の大きさ | 応答本文 |
 | `ok` が `false` | `error.code`、`error.message`、`request_id`。どれも文字列のときだけ出す | 文字列でない値 |
 | `ok` が `true` だが、成功応答の項目が欠けるか、型が違うか、値が改行を含む | そのことと、読み取れれば `request_id` | 応答本文 |
+| `GITHUB_STATE` か `GITHUB_OUTPUT` への書き込み | 書けなかったファイルの環境変数の名前 | 書こうとした値、ライブラリのエラー文言 |
+| 想定外の失敗（panic） | 想定外の失敗が起きたこと | panic の値 |
+| キャンセル（[§3.6](#36-cancellation)） | キャンセルされたこと | なし |
 
-作業ディレクトリの作成や Payload の書き込みのように、外部に依存しない処理の失敗では、失敗したことと段階だけを出します。
+AWS のエラー応答の文言を出さないのは、例外によっては文言に要求の一部が入り、Invoke の Payload には GATES 用 OIDC JWT が、`AssumeRoleWithWebIdentity` の要求には AWS 用 OIDC JWT が入るためです。
+Lambda Developer Guide の例では、JSON として読めない Payload への `InvalidRequestContentException` の文言に、読めなかった Payload の一部が入ります（[AWS Lambda Invoke Rejection](../research/aws/lambda-invoke-rejection.md)）。
+どの例外の文言が要求の一部を含むかは列挙できないため、例外によらずエラーコードと HTTP ステータスだけを出します。
+
+通信の失敗の種類は、タイムアウトとそれ以外の通信の失敗の 2 つに分け、Go の標準ライブラリの種別（`context.DeadlineExceeded` と、`net.Error` の `Timeout()`）で判定します。
+SDK とライブラリのエラー文言は出しません。
+文言には接続先の URL や要求の一部が入り得るためです。
+panic の値を出さないのも、値に資格情報が入っていない保証がないためです。
+
+`main.go` の回復が効くのは、入口関数を呼ぶ goroutine の panic だけです。
+そのため子のコードは goroutine を起動せず、すべての処理を入口関数の goroutine で行います。
+親は、子の終了を待ちながらシグナルを子へ送るために goroutine を使います（[§3.6](#36-cancellation)）。
+親は資格情報を読まないため、親の panic の値が資格情報を含むことはありません。
+`net/http` と AWS SDK が内部で起動する goroutine の panic は回復できず、Go のランタイムが panic の値とスタックを標準エラー出力に書き、終了コード 2 でプロセスを終えます。
+panic の値には資格情報の一部が入り得て、一部だけではログのマスクが効きません。
+
+この出力をログに出さず、落ちたことだけをログに残すため、資格情報を扱う処理は子のプロセスで行い、親のプロセスが子を見張ります（[§3.1](#31-packages)）。
+
+- 親は資格情報を読まず、子を起動し、受けたシグナルを子へ送り（[§3.6](#36-cancellation)）、終了を待つだけとする
+- 子の標準出力は親の標準出力をそのまま引き継ぎ、子のワークフローコマンドと注釈はそのまま Runner に届く
+- 子の標準エラー出力は `/dev/null` につなぎ、Go のランタイムが書く panic の値とスタックを捨てる
+- 子のコードが使う終了コードは 0 と 1 だけとする。子が 0 か 1 で終われば、親は何も書かずに同じ終了コードで終える
+- 子がそれ以外の終了コードかシグナルで終われば、親は想定外の失敗で終了したことを固定の文言で `::error::` に書き、終了コード 1 で終える。回復されない panic、Go のランタイムの致命的なエラー、メモリ不足による強制終了がこれに当たる
+- 子を起動できなければ、親はそのことを固定の文言で `::error::` に書き、終了コード 1 で終える
+
+post-entrypoint の子が想定外に終わった場合は、親は同じ固定の文言を `::warning::` に書き、終了コード 0 で終えます。
+失効の失敗でジョブを失敗させず、`::warning::` で知らせる（[§3.5](#35-revocation)）のと同じ扱いにするためです。
+`::error::` にすると、すべてのステップが成功したジョブにエラーの注釈だけが残り、利用者が存在しない失敗を探すことになります。
+
+親が SIGINT か SIGTERM を受けたときの扱いは [3.6 Cancellation](#36-cancellation) に記述します。
+
+トークンを取り出した後の失敗では、失敗の注釈に加えて、失敗時の失効の結果をログに出します（[§3.5](#35-revocation)）。
+
+`errorMessage` と、JSON として読めない応答本文を出さないのは、内容を GATES が定めておらず、資格情報を含まないと保証できないためです。
+`FunctionError` のときは応答に `request_id` がないため、運用者は段階 6 で出した Invoke の時刻と `run_id` で CloudWatch Logs の記録を探します（[Lambda Design](lambda.md#32-failure)）。
+`ok` が `false` の `message` はエラーコードごとに固定の文言で、資格情報を含みません。
 
 注釈は標準出力に書き、注釈と `::add-mask::` に入れる値は `%`、CR、LF をそれぞれ `%25`、`%0D`、`%0A` に符号化して 1 行に収めます（[GitHub — actions/toolkit command.ts](https://github.com/actions/toolkit/blob/main/packages/core/src/command.ts) の `escapeData`）。
 値に改行が残ると、その後の行を Runner がワークフローコマンドとして読み得るためです。
 マスクの値に `%` が符号化されずに残ると、Runner が `%25`、`%0D`、`%0A` を戻した後の別の文字列をマスクし、資格情報そのものはマスクされません。
 入力の検証の注釈では、該当する要素を JSON の文字列として示し、前後の空白や制御文字を見分けられるようにします。
 
-AWS のエラー応答の文言を出さないのは、例外によっては文言に要求の一部が入り、Payload には GATES 用 OIDC JWT が入るためです。
-Lambda Developer Guide の例では、JSON として読めない Payload への `InvalidRequestContentException` の文言に、読めなかった Payload の一部が入ります（[AWS Lambda Invoke Rejection](../research/aws/lambda-invoke-rejection.md)）。
-どの例外の文言が要求の一部を含むかは列挙できないため、例外によらず名前だけを出します。
-エラー応答かどうかを、標準エラーの形の一致ではなく `An error occurred (` を含むかで判定するのは、AWS CLI の文言の形が変わったときに、エラー応答の文言を全文として出さないためです。
-エラー応答を含まない標準エラーは、接続の失敗やタイムアウトのように AWS CLI が手元で作る文言です。
-AWS CLI は Payload をファイルから読んで送るだけで、手元で JSON として解釈しないため、この文言には Payload の内容が入らない見込みです（推論）。
-
-`errorMessage` と、JSON として読めない応答本文を出さないのは、内容を GATES が定めておらず、資格情報を含まないと保証できないためです。
-`FunctionError` のときは応答に `request_id` がないため、運用者は `invoke.sh` が出した Invoke の時刻と `run_id` で CloudWatch Logs の記録を探します（[Lambda Design](lambda.md#32-failure)）。
-`ok` が `false` の `message` はエラーコードごとに固定の文言で、資格情報を含みません。
-
-AWS STS の一時認証情報の取得の失敗は、`configure-aws-credentials` のログに現れ、Composite Action は出力を加えません。
-
 ### 3.3 Retry and Timeout
 
-Composite Action は、どの要求も自動で送り直しません。
-AWS CLI は既定で、接続の失敗、タイムアウト、`500`、`502`、`503`、`504`、スロットリングのときに同じ要求を送り直します（[AWS — AWS CLI retries](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-retries.html)）。
-Lambda が発行を終えた後に応答が届かなかった場合、送り直した要求は 2 つ目のトークンを発行し、1 つ目のトークンは誰も持たないまま有効期限まで GitHub 側に残ります。
-そのため Invoke では、環境変数 `AWS_MAX_ATTEMPTS=1` と `AWS_RETRY_MODE=standard` で AWS CLI の再試行を止めます。
-`AWS_MAX_ATTEMPTS` は最初の呼び出しを含む試行の回数で、`1` は送り直さないことを表します。
-再試行のモードも指定するのは、AWS CLI の資料の間で既定のモードの記述が異なり（同上、[AWS — AWS CLI environment variables](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html)）、既定に頼らずに挙動を決めるためです。
-設定ファイルではなく環境変数で指定するのは、環境変数が設定ファイルの値より優先され（同上）、Runner の AWS の設定によらず再試行を止められるためです。
+Docker Action は、どの要求も自動で送り直しません。
+Lambda が発行を終えた後に応答が届かなかった場合、送り直した要求は 2 つ目のトークンを発行し、1 つ目のトークンは誰も持たないまま有効期限まで GitHub 側に残るためです。
+AWS SDK for Go v2 が既定で行う再試行は、AWS STS と Lambda のクライアントの両方で `aws.NopRetryer` により止めます。
+Lambda の KMS の呼び出しと同じ扱いです（[Lambda Design](lambda.md#64-call-time-budget)）。
 
-Lambda もどの呼び出しも再試行せず、一時的な障害を呼び出し元の再実行に任せます（[Lambda Design](lambda.md#64-call-time-budget)）。
-Composite Action も、一時的な障害をステップの失敗として利用者に伝え、再実行するかは利用者が判断します。
+AWS のクライアントの設定は、Region、一時認証情報、再試行、HTTP のクライアントを Docker Action のプログラムが組み立て、共有の設定ファイルと `AWS_*` の環境変数を読みません。
+読むと、利用者がステップに渡した環境変数や Runner の AWS の設定で、接続先、認証情報、再試行が変わり得るためです。
+AWS STS の呼び出しは認証情報を要らないため、認証情報を持たないクライアントで行います。
 
-GATES 用 OIDC JWT の取得では、`curl` に `--connect-timeout 10` と `--max-time 30` を渡します。
-`curl` は既定では全体の時間を区切らないため、接続した相手が応答しないと、ジョブのタイムアウトまで失敗を伝えられません（[curl — man page](https://curl.se/docs/manpage.html)）。
+Lambda もどの呼び出しも再試行せず、一時的な障害を呼び出し元の再実行に任せます。
+Docker Action も、一時的な障害をステップの失敗として利用者に伝え、再実行するかは利用者が判断します。
 
-AWS CLI の読み取りのタイムアウトは、既定の 60 秒のままとします（[AWS — AWS CLI command line options](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-options.html)）。
+| 呼び出し | タイムアウト |
+|---|---|
+| OIDC JWT の取得（AWS 用、GATES 用） | 接続 10 秒、全体 30 秒 |
+| AWS STS | 全体 30 秒 |
+| Lambda Invoke | 全体 90 秒 |
+| 失効（失敗時の失効、ジョブの終了時の失効） | 全体 5 秒 |
+
+どの呼び出しにも全体の時間の上限を設けます。
+上限がないと、接続した相手が応答しないとき、ジョブのタイムアウトまで失敗を伝えられないためです。
+
+失効の上限は、Lambda の失効と同じ 5 秒とします（[Lambda Design](lambda.md#64-call-time-budget)）。
+失効はベストエフォートで失敗を再試行しないため、応答しない相手を長く待っても結果は変わらず、ジョブの時間だけが延びるためです。
+
+Lambda Invoke の上限は、関数のタイムアウト（[AWS Infrastructure Design](aws-infrastructure.md#5-lambda-deployment-and-operation)）に初期化の時間を足した値より長くします。
 同期 Invoke では関数が終わるまで応答が届かず、新しい実行環境では関数の初期化の時間も待ちます。
-読み取りのタイムアウトがこの合計より短いと、関数が応答を書く前に AWS CLI が打ち切り、発行したトークンを受け取れません。
-関数のタイムアウト（[AWS Infrastructure Design](aws-infrastructure.md#5-lambda-deployment-and-operation)）に初期化の時間を足した値が 60 秒に近づくときは、`--cli-read-timeout` を合わせて延ばします。
+上限がこの合計より短いと、関数が応答を書く前に Docker Action が打ち切り、発行したトークンを受け取れません。
+関数のタイムアウトを延ばすときは、この上限も合わせて見直します。
 
 ### 3.4 Masking
 
-資格情報は、変数に入れた直後、ほかのコマンドより先に `::add-mask::` でマスクします。
-マスクより前に実行したコマンドの出力には、マスクが効かないためです。
+資格情報は、値を得た直後、その値を含み得るほかの出力より先に `::add-mask::` でマスクします。
+マスクより前の出力には、マスクが効かないためです。
 
 | 値 | マスクする時点 |
 |---|---|
-| OIDC JWT の要求用トークン（`ACTIONS_ID_TOKEN_REQUEST_TOKEN`） | `request-id-token.sh` の先頭 |
-| GATES 用 OIDC JWT | `request-id-token.sh` が応答から取り出した直後。ファイルに書く前 |
-| AWS 一時認証情報（アクセスキー ID、シークレットアクセスキー、セッショントークン） | `invoke.sh` の先頭 |
-| Installation Access Token | `handle-response.sh` が応答から取り出した直後。応答のほかの項目を判定する前 |
+| OIDC JWT の要求用トークン（`ACTIONS_ID_TOKEN_REQUEST_TOKEN`） | 環境変数から読んだ直後。ほかのどの出力よりも先 |
+| AWS 用 OIDC JWT | 応答から取り出した直後 |
+| AWS 一時認証情報（アクセスキー ID、シークレットアクセスキー、セッショントークン） | AWS STS の応答を受け取った直後 |
+| GATES 用 OIDC JWT | 応答から取り出した直後 |
+| Installation Access Token | 応答から取り出した直後。応答のほかの項目を判定する前。post-entrypoint では `STATE_token` から読んだ直後 |
 
-AWS 一時認証情報は `configure-aws-credentials` もマスクし得ますが、手順 3 の Output から受け取る経路でのマスクを確かめていないため、`invoke.sh` でもマスクします。
+マスクはジョブごとに効くため、メインで登録したトークンのマスクは、別のコンテナで動く post-entrypoint のログにも効きます（[GitHub Constraints](../spec/github-constraints.md#7-github-actions-integration)）。
+post-entrypoint でもトークンを読んだ直後にもう一度マスクするのは、マスクがメインの登録の成否に依存しないようにするためです。
+
+### 3.5 Revocation
+
+Docker Action は、受け取ったトークンの失効を 2 つの時点に分けて試みます（[Domain Model](domain.md#61-contexts)）。
+
+- **ジョブの終了時の失効**：`GITHUB_STATE` に書いたトークンを、ジョブの終了時に post-entrypoint で失効させる。`GITHUB_STATE` を `GITHUB_OUTPUT` より先に書くため（[§2.1](#21-inputs-and-outputs)）、後続ステップへ渡したトークンはすべて含む
+- **失敗時の失効**：メインの処理がトークンを取り出した後に、後続ステップへ渡す前に失敗するかキャンセルの要求を受けた場合に、そのトークンをメインの処理がその場で失効させる
+
+失敗時の失効をジョブの終了時に任せないのは、`GITHUB_STATE` に書く前の失敗では post-entrypoint にトークンが渡らず、誰も持たないトークンが有効期限まで GitHub 側に残るためです。
+失敗時の失効を試みるのは、トークンを取り出した後に、成功応答の項目が欠けるか、型が違うか、値が改行を含む場合と、`GITHUB_STATE` か `GITHUB_OUTPUT` への書き込みに失敗した場合と、`GITHUB_STATE` に書く前にキャンセルの要求を受けた場合（[§3.6](#36-cancellation)）です。
+失効を試みた後も、メインの処理は終了コード 1 で終えます。
+`GITHUB_STATE` に書いた後に `GITHUB_OUTPUT` への書き込みに失敗した場合は、post-entrypoint も同じトークンの失効を試みます。
+この要求は失効済みのトークンで送るため `204` 以外で終わり得ます。その場合も警告を出すだけで、ジョブの結果は変えません。
+
+post-entrypoint は、メインと同じイメージの新しいコンテナで動き、メインが `GITHUB_STATE` に書いたトークンを `STATE_token` の環境変数で受け取ります。
+`runs.post-if` は書かず、既定の `always()` のまま、メインの成否によらず動かします。
+
+1. `STATE_token` がないか空なら、何もせずに終える。メインの処理が `GITHUB_STATE` に書く前に失敗かキャンセルで終えたジョブに当たる
+2. トークンをマスクする
+3. 失効の要求を送り、結果をログに出す
+
+失効の要求とログへの出し方は、2 つの失効で同じです。
+
+- `https://api.github.com/installation/token` へ、トークンを `Authorization: Bearer` のヘッダーに入れて `DELETE` を送る。Lambda と同じ版の `X-GitHub-Api-Version` と、GATES を示す固定の `User-Agent` を付ける。リダイレクトには従わない
+- HTTP ステータスをログに出す。`204` 以外か、通信に失敗した場合は、HTTP ステータスか失敗の種類を `::warning::` で出す。応答本文は出さない
+
+post-entrypoint は、失効の成否によらず終了コード 0 で終えます。
+失効はベストエフォートであり、トークンは GitHub が定めた有効期限を過ぎれば使えなくなるため、失効の失敗でジョブを失敗させるより、利用者の処理の結果をそのまま残すことを選びます。
+
+失効の宛先は固定し、Runner の環境変数（`GITHUB_API_URL` など）から読みません。
+GATES は GitHub.com だけを対象とし（[Requirements](../spec/requirements.md) §2.2）、トークンを送る宛先を実行環境の値で変えられないようにするためです。
+`X-GitHub-Api-Version` を Lambda と同じ版にするのは、Lambda Design が GitHub API を確認した版にそろえるためです（[Lambda Design](lambda.md#63-github-client)）。
+
+入力で失効を止める手段は設けません。
+Action はジョブ間のトークン転送を提供せず（[§2.1](#21-inputs-and-outputs)）、ジョブの終了後にトークンを使う正当な経路がないためです。
+
+### 3.6 Cancellation
+
+ジョブをキャンセルすると、Runner は Docker Action のコンテナを起動した `docker run` のプロセスに SIGINT を送ります。
+7.5 秒で終わらなければ SIGTERM を送り、さらに 2.5 秒で終わらなければ `docker run` のプロセスを強制終了します（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#runner-source)）。
+`docker run` は、受け取ったシグナルをコンテナの最初のプロセスである親へ中継します（`--sig-proxy` の既定値。[Docker Docs — docker container run](https://docs.docker.com/reference/cli/docker/container/run/)）。
+Runner はコンテナに `docker kill` も `docker stop` も送らないため、`docker run` のプロセスを強制終了した後もコンテナは動き続けます（推論：コンテナのプロセスは `docker run` のプロセスの子ではなく、強制終了するプロセスの木に含まれないため）。
+
+シグナルを受けた子をその場で終えると、トークンが残り得ます。
+Lambda がトークンを発行した後、子が `GITHUB_STATE` に書く前に終わると、メインの処理も post-entrypoint もそのトークンを失効できないためです。
+そのため、Docker Action はシグナルをキャンセルの要求として受け取り、要求を受けた時点に応じて終えます。
+
+- 親は、SIGINT か SIGTERM を受けると同じシグナルを子へ送り、子の終了を待ち続ける。親が先に終わると、カーネルが同じコンテナの子を強制終了するため
+- メインの子は、Invoke を始める前に要求を受けたら、進行中の通信を打ち切り、キャンセルされたことを `::error::` に書いて終了コード 1 で終える。Lambda をまだ呼んでいないため、トークンは発行されていない
+- メインの子は、Invoke の最中に要求を受けても Invoke を打ち切らず、[§3.3](#33-retry-and-timeout) の上限まで結果を待つ。打ち切ると、Lambda が発行したトークンを受け取れず、Docker Action も Lambda もそのトークンを失効できないため
+- メインの子は、トークンを取り出してマスクした後、残りの項目を判定する前に要求の有無を確かめる。要求があれば、Output と `GITHUB_STATE` に書かずに失敗時の失効を試み（[§3.5](#35-revocation)）、キャンセルされたことを `::error::` に書いて終了コード 1 で終える
+- メインの子は、この確認の後に要求を受けたら、残りの判定と書き込みを要求がない場合と同じく終える。Runner はキャンセルで終わったステップの `GITHUB_STATE` も読むため（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#runner-source)）、書いたトークンはジョブの終了時の失効が扱う
+- post-entrypoint の子は、SIGINT と SIGTERM を無視し、失効を終えてから終える。失効の上限の 5 秒は、SIGINT から強制終了までの 10 秒より短いため
+
+子のシグナルの受け方は `main.go` が Go の `os/signal` で設定します。
+メインの子では SIGINT と SIGTERM を受け取ってキャンセルの要求として入口関数に渡し、post-entrypoint の子では無視します。
+どちらも設定しないと、Go のランタイムがシグナルを受けた子を終えるためです。
+
+Invoke の結果を待つ間に SIGINT から 10 秒を過ぎると、Runner は `docker run` のプロセスを強制終了します。
+その後もコンテナは動き続けるため、子はトークンを受け取れば失敗時の失効を試みます。
+ただしこの場合、失効の結果はワークフローのログに残りません（推論：Runner はコンテナの出力を `docker run` のプロセスの標準出力から読むため）。
+
+キャンセルしても、Runner がコンテナを強制終了した場合や、Runner が停止した場合は、子が失効を試みる前に終わり得ます。
+このリスクは [Security Design](security.md#5-failure-audit-and-security-risks) が受容します。
 
 ## 4. Usage
 
@@ -259,86 +408,135 @@ jobs:
         run: gh api repos/example-org/repo-a/contents/README.md
 ```
 
+ジョブの最後に、Runner は `Post Issue token` のステップとして post-entrypoint を動かし、トークンの失効を試みます。
+
 ## 5. Technology Decisions
 
 | 用途 | 採用技術・方針 | 理由 |
 |---|---|---|
-| AWS 一時認証情報の取得 | `aws-actions/configure-aws-credentials` | GitHub OIDC と AWS STS の処理を公式 Action に委譲 |
-| Lambda Invoke | AWS CLI | SigV4 署名と同期呼び出しを AWS CLI に委譲 |
-| JWT 取得と入力変換 | GitHub Actions の OIDC 取得機能、`curl`、Bash、`jq` | GitHub の標準機構を利用して Payload を組み立てる |
+| Action の形式 | Docker Action（`runs.using: docker`、`image: Dockerfile`） | 利用者の Runner がジョブのたびに、利用者が commit SHA で固定した参照先の `Dockerfile` からイメージをビルドする。レジストリにイメージを公開する作業と、公開したイメージを信頼する前提が要らない |
+| AWS STS と Lambda Invoke | AWS SDK for Go v2（`service/sts`、`service/lambda`） | SigV4 の署名と AWS STS の呼び出しは、誤りが脆弱性になるため SDK に委ねる |
+| OIDC JWT の取得、失効、ワークフローコマンド、Payload と応答の JSON | Go の標準ライブラリ | 処理が小さく、外部ライブラリの依存を増やすほどの理由がない |
 
-外部 Action は `aws-actions/configure-aws-credentials` だけとし、固定コミット SHA で参照します。
+外部ライブラリは AWS SDK for Go v2 だけとします。
+ワークフローコマンドのライブラリ（actions/toolkit に相当する Go のライブラリ）も使わず、符号化と書き込みを自前で書きます。
 
-### 5.1 Runner Requirements
+### 5.1 Exceptions to the Go Coding Rules
 
-Composite Action は Linux の Runner で動かし、次のコマンドを使います。
+Docker Action の Go のコードは、Go コーディングルールが既定とする方式のうち、次の 2 つを使いません。
+どちらもモジュール全体に及ぶため、コードのコメントではなく本ドキュメントに理由を書きます。
 
-| コマンド | 用途 | 条件 |
-|---|---|---|
-| `bash` | スクリプトの実行 | なし |
-| `curl` | GATES 用 OIDC JWT の取得 | `-H @-` で標準入力からヘッダーを読める版（[curl — man page](https://curl.se/docs/manpage.html)） |
-| `jq` | Payload の組み立てと応答の読み取り | 1.6 以上。`--rawfile` を使うため（[jq 1.6 Manual](https://jqlang.org/manual/v1.6/)） |
-| `aws` | Lambda Invoke | AWS CLI v2 |
+- **cobra を使わない**：Docker Action は flag を受け取らず、入力は GitHub が名前を定める `INPUT_*` の環境変数で届く。外部の標準で名前が決まっている入力に当たる。メインと post-entrypoint の区別は、起動したパスで行う（[§3.1](#31-packages)）
+- **slog を使わない**：Docker Action の出力は、Runner が読むワークフローコマンド（`::add-mask::`、`::error::`、`::warning::`）と、利用者が読む数行の情報であり、構造化したログを読む主体がない。失敗は `::error::` の注釈を標準出力に書き、終了コード 1 で終える
 
-GitHub がホストする `ubuntu-latest` の Runner には、どのコマンドも条件を満たす版が入っており（[GitHub — runner-images](https://github.com/actions/runner-images)）、利用者の準備は要りません。
-セルフホストの Runner など、ほかの Runner では、利用者がこれらのコマンドを用意します。
-最初の手順（[§3](#3-processing-flow)）で OS も確かめるのは、Linux 以外の Runner では同じ名前のコマンドがあっても、`bash` の版や `mktemp` の挙動が異なり得るためです。
+### 5.2 Image
+
+- マルチステージビルドとし、ビルド用のイメージは `docker.io/library/golang` の Debian 版（`<版>-trixie`）を、タグと digest で固定する。Go の版は Docker Action の Go モジュールの `go.mod`（`.github/actions/issue-token/go.mod`）に合わせる。`GOTOOLCHAIN=local` ではビルド用のイメージの Go が `go.mod` の版より古いとビルドが失敗するため、`go.mod` の版を上げるときはビルド用のイメージも合わせて上げる
+- `CGO_ENABLED=0`、`-trimpath`、`-buildvcs=false`、`GOTOOLCHAIN=local` でビルドする。`go build` は既定で `go.mod` と `go.sum` を書き換えず、`go.sum` にない依存を取り込まない
+- 実行用のイメージは `scratch` に、実行ファイル（`/issue-token` と、それを指すシンボリックリンクの `/revoke-token`）と、ビルド用のイメージから複製した CA 証明書（`/etc/ssl/certs/ca-certificates.crt`）だけを置く。GitHub と AWS への HTTPS に CA 証明書が要る
+- `ENTRYPOINT` は exec 形式と絶対パスで書き、`WORKDIR` を使わない
+- `.dockerignore` は `*` ですべて除外してから、ビルドに使うファイル（`go.mod`、`go.sum`、`main.go`、`internal/` の試験以外のファイル）だけを許可する
+- `USER` を置かず、root で動かす
+- Dependabot の `docker` で `FROM` のイメージを、`gomod` で Go の依存を更新する。`docker` が `FROM` の digest も更新するかは、GitHub の資料に明記がない（[GitHub Constraints](../spec/github-constraints.md#7-github-actions-integration)）
+
+ビルド用のイメージを Alpine 版ではなく Debian 版にするのは、Alpine 版が Go プロジェクトの公式サポートの対象外だからです（[Docker Hub — golang](https://hub.docker.com/_/golang)）。
+`CGO_ENABLED=0` でビルドするため、C ライブラリの違いは実行ファイルに影響しません。
+イメージのビルドの時間は、Alpine 版と Debian 版でほぼ同じでした（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#build-time)）。
+
+実行ユーザーを root にするのは、root 以外では `GITHUB_OUTPUT` と `GITHUB_STATE` に書けないためです。
+GitHub の資料は Docker Action を既定の Docker ユーザー（root）で動かすよう求めています（[GitHub Constraints](../spec/github-constraints.md#7-github-actions-integration)）。
+ファイルコマンドのファイルの所有者は Runner を動かすユーザーで、ほかのユーザーに書き込みの権限がなく、その uid は Runner の環境ごとに決まるため、イメージに固定の uid を置いても書き込める保証がありません。
+コンテナに入るのはこのリポジトリでビルドした実行ファイルと CA 証明書だけであり、root で動くことの影響は Security Design が受容するリスクの範囲にとどめます（[Security Design](security.md#5-failure-audit-and-security-risks)）。
+
+### 5.3 Image Build Time
+
+Docker Action のイメージは、利用者の Runner がジョブのたびにビルドします。
+利用者向けの README には、ジョブのたびにイメージをビルドすることを書き、時間の値は書きません。
+時間は Runner と回線によって変わり、値を書くと実測と食い違い得るためです。
+
+### 5.4 Runner Requirements
+
+Docker Action は、Linux の Runner と Docker を要します（[GitHub Constraints](../spec/github-constraints.md#7-github-actions-integration)）。
+加えて、Runner から次の宛先へ通信できる必要があります。
+
+- イメージのビルド：Docker Hub（ビルド用のイメージの取得）と Go module proxy（`proxy.golang.org`、Go の依存の取得）
+- メインの処理：`ACTIONS_ID_TOKEN_REQUEST_URL` の宛先（OIDC JWT の取得）、入力の `aws-region` の AWS STS と Lambda の API
+- 失効：`api.github.com`
+
+GitHub がホストする `ubuntu-latest` の Runner はこれらをすべて満たし（[GitHub — runner-images](https://github.com/actions/runner-images)）、利用者の準備は要りません。
+セルフホストの Runner では、利用者が Linux と Docker を用意し、これらの宛先への通信を許可します。
+Docker Hub は認証しないイメージの取得の回数を制限するため、ジョブのたびにビルドするセルフホストの Runner では、利用者がこの制限に達しないように Docker Hub の認証やミラーを用意します（[Docker Docs — Usage and limits](https://docs.docker.com/docker-hub/usage/)）。
+Windows と macOS の Runner では Docker Action が動かないため、対象外とします。
 
 ## 6. Testability
 
 受け入れ条件は [Requirements](../spec/requirements.md) を正本とします。
-GitHub の Installation Access Token は固定長と仮定せず、トークンの形式と長さによらず、マスク、非記録、Output への書き込みが正しく行われることを検証します。
+GitHub の Installation Access Token は固定長と仮定せず、トークンの形式と長さによらず、マスク、非記録、Output と `GITHUB_STATE` への書き込みが正しく行われることを検証します。
 
 ### 6.1 Local Tests
 
-[3.1 Scripts](#31-scripts) のスクリプトは、AWS と GitHub に接続しないローカルの試験で検証します。
-試験は bats-core をコンテナで動かし、コンテナはネットワークに接続せず、スクリプトのディレクトリだけを読み取り専用でマウントします。
-通信するスクリプトは、試験のときに PATH の先頭へ置いたスタブの `curl` と `aws` を呼びます。
-スタブは受け取った引数をファイルに記録し、用意した応答と終了コードを返します。
-`jq` もスタブで包み、引数を記録してから本物の `jq` に渡します。資格情報が `jq` の引数に現れないことを確かめるためです。
-`rm` のスタブは、指定したパスの削除だけを失敗させ、資格情報を含み得るファイルを消せないときの振る舞いを確かめます。
+[3.1 Packages](#31-packages) の `internal/` の package は、AWS と GitHub に接続しない Go の単体テストで検証します。
+通信する package の試験では、`httptest` のサーバーを相手にします。
+OIDC JWT の取得と失効は宛先の URL を、AWS STS と Lambda のクライアントは AWS SDK の `BaseEndpoint` を、試験のサーバーに差し替えます。
+`internal/` のカバレッジは 100% とします。
 
 ローカルの試験で確かめるのは次の事項です。
 
 - 入力のリストの検証（[§2.2](#22-list-syntax)）と、Payload への変換
-- GATES 用 OIDC JWT、要求用トークン、AWS 一時認証情報が、スタブが記録したコマンドの引数とログに現れないこと
-- AWS CLI の終了コード、`StatusCode`、`FunctionError`、`ok` の判定と、各段階でログに出すものと出さないもの（[3.2 Failure Output](#32-failure-output)）
-- 応答の配列とオブジェクトからカンマ区切りへの変換と、`GITHUB_OUTPUT` に書く 4 行
-- 資格情報の `::add-mask::` が、その値を含むほかの出力より先にあること
-- 成功と失敗のどちらでも、各スクリプトが受け持つファイルを削除すること
+- OIDC JWT の取得の要求（Audience の URI エンコード、ヘッダー）と、応答の `value` の取り出し、リダイレクトと応答の大きさの上限
+- SDK のエラー、`StatusCode`、`FunctionError`、`ok` の判定と、各段階でログに出すものと出さないもの（[3.2 Failure Output](#32-failure-output)）
+- 応答の配列とオブジェクトからカンマ区切りへの変換と、`GITHUB_OUTPUT` に書く 4 行と `GITHUB_STATE` に書く 1 行、その書く順序
+- `GITHUB_OUTPUT` と `GITHUB_STATE` への書き込みの失敗がエラー終了になること
+- 資格情報の `::add-mask::` が、その値を含み得るほかの出力より先にあること
+- 失効の要求（宛先、ヘッダー）と、HTTP ステータスごとのログ、トークンがないときに何もしないこと
+- トークンを取り出した後の失敗（成功応答の項目の欠落、型の違い、改行を含む値、`GITHUB_STATE` と `GITHUB_OUTPUT` への書き込みの失敗）のそれぞれで、メインの処理が失効を試みてから終了コード 1 で終えること
+- トークンを取り出す前の失敗では、メインの処理が失効を試みないこと
+- 試験のサーバーへの要求の回数が、失敗した場合も 1 回であること
+- 親が、子の終了コード 0 と 1 をそのまま返し、それ以外の終了コードとシグナルによる終了では固定の文言の注釈だけを書くこと。別の goroutine で panic する子を起動し、panic の値が親の出力に現れないことを確かめる。注釈はメインでは `::error::`、post-entrypoint では `::warning::` であること
+- 親が、受けた SIGINT と SIGTERM を子へ送り、子が終わるまで待つこと
+- メインの子が、キャンセルの要求を受けた時点（Invoke を始める前、Invoke の最中、トークンを取り出した後、その後の確認を過ぎた後）ごとに、[§3.6](#36-cancellation) のとおりに終えること。試験では、シグナルの代わりにキャンセルの要求を入口関数に渡す
 
 ### 6.2 Tests on GitHub Actions
 
-GitHub と AWS の挙動に依存する事項は、許可オーナーのワークフローから Composite Action を呼んで確かめます。
+GitHub と AWS の挙動に依存する事項は、許可オーナーのワークフローから Docker Action を呼んで確かめます。
 
 - 接続情報と対象と権限だけを渡してトークンを受け取り、同一ジョブ内の後続ステップで使えること
-- ワークフローのログで、GATES 用 OIDC JWT、AWS 一時認証情報、トークンがマスクされているか現れないこと
-- 成功と失敗のどちらでも、作業ディレクトリが Runner に残らないこと
+- ワークフローのログで、GATES 用 OIDC JWT、AWS 用 OIDC JWT、AWS 一時認証情報、トークンがマスクされているか現れないこと
 - 呼び出し元の後続ステップの環境変数に、AWS 一時認証情報が現れないこと
-- AWS STS の一時認証情報の取得の失敗と、Lambda が返す失敗で、Composite Action がエラー終了すること
+- AWS STS での引き受けの失敗と、Lambda が返す失敗で、Docker Action がエラー終了すること
+- メインと post-entrypoint のそれぞれで、`main.go` が起動したパス（`os.Args[0]`）から正しい入口関数を選ぶこと。Docker が `--entrypoint` のパスを、シンボリックリンクのパスのまま `argv[0]` にして実行ファイルを起動することと、親が子を起動できることは、実環境でまだ確かめていない
+- ジョブの終了時に post-entrypoint がトークンの失効を試み、HTTP ステータスをログに出し、失効したトークンが使えないこと
+- 後続ステップが失敗したジョブと、後続ステップの実行中にキャンセルしたジョブでも、post-entrypoint がトークンの失効を試みること。どちらの場合に post-entrypoint が動くかは、まだ確かめていない（[GitHub Constraints](../spec/github-constraints.md#9-outstanding-verification)）
+- メインがトークンを取り出す前に失敗したジョブで、post-entrypoint が何もせずに終わること
+- メインの処理の最中にキャンセルしたジョブで、親がシグナルを受けて子へ送り、子が [§3.6](#36-cancellation) のとおりに終えること。`docker run` がシグナルをコンテナへ中継することと、`docker run` のプロセスを強制終了した後もコンテナが動き続けることは、実環境でまだ確かめていない
+- 別のリポジトリから commit SHA で参照したとき、Runner が `Dockerfile` からイメージをビルドして動かせること
 
-ローカルの試験のコンテナの `mktemp` などの基本コマンドは、Runner のものと実装が異なり得ます。
-基本コマンドの挙動に依存する作業ディレクトリの作成と削除は、GitHub Actions 上の試験で確かめます。
+失効したトークンが使えないことは、post-entrypoint より後に動くステップから確かめます。
+post-entrypoint はジョブの最後に動くため、利用者のステップからはトークンを試せないためです。
+試験のワークフローでは、Docker Action のステップより前に、post でファイルからトークンを読んで GitHub API を呼ぶ試験用の Action を置き、Docker Action の後続ステップがトークンを `RUNNER_TEMP` のファイルに書きます。
+この確かめ方は、post がメインの処理と逆の順で動き、試験用の Action の post が Docker Action の post-entrypoint より後に動くことを前提とします（推論：GitHub の資料に明記はない）。
+試験では、2 つの post の順序もログで確かめます。
 
 ## 7. Sources
 
 - [GitHub Constraints](../spec/github-constraints.md)
-- [GitHub — Creating a composite action](https://docs.github.com/en/actions/tutorials/create-actions/create-a-composite-action)
-- [AWS — configure-aws-credentials](https://github.com/aws-actions/configure-aws-credentials)
-- [AWS — AWS CLI Lambda Invoke](https://docs.aws.amazon.com/cli/latest/reference/lambda/invoke.html)
-- [AWS — AWS CLI retries](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-retries.html)
-- [AWS — AWS CLI environment variables](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html)
-- [AWS — AWS CLI command line options](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-options.html)
+- [GitHub Docker Action Runtime](../research/github/docker-action-runtime.md)
+- [GitHub — Creating a Docker container action](https://docs.github.com/en/actions/tutorials/use-containerized-services/create-a-docker-container-action)
+- [GitHub — Dockerfile support for GitHub Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/dockerfile-support)
+- [GitHub — Metadata syntax reference](https://docs.github.com/en/actions/reference/workflows-and-actions/metadata-syntax)
 - [GitHub — Workflow commands for GitHub Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-commands)
 - [GitHub — actions/toolkit command.ts](https://github.com/actions/toolkit/blob/main/packages/core/src/command.ts)
-- [jq 1.6 Manual](https://jqlang.org/manual/v1.6/)
-- [curl — man page](https://curl.se/docs/manpage.html)
 - [GitHub — runner-images](https://github.com/actions/runner-images)
 - [GitHub — REST API endpoints for repository contents](https://docs.github.com/en/rest/repos/contents)
+- [GitHub — REST API endpoints for GitHub App installations](https://docs.github.com/en/rest/apps/installations)
+- [AWS — AssumeRoleWithWebIdentity](https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRoleWithWebIdentity.html)
+- [AWS — Lambda Invoke API](https://docs.aws.amazon.com/lambda/latest/api/API_Invoke.html)
+- [Docker Hub — golang](https://hub.docker.com/_/golang)
+- [Docker Docs — docker container run](https://docs.docker.com/reference/cli/docker/container/run/)
 
 ## Appendix: Impact of Future Scope
 
 [Future Scope](../spec/future-scope.md) が想定する機能を取り込む場合、本ドキュメントには次の影響が及びます。
 
-- **細粒度の認可**：発行の可否の判定は Lambda 側が行う（§1）ため、利用者が指定する入力が増えない限り、Composite Action は変わらない
+- **細粒度の認可**：発行の可否の判定は Lambda 側が行う（§1）ため、利用者が指定する入力が増えない限り、Docker Action は変わらない
 - **発行可能な権限の拡大**：`permissions` 入力の値（§2.1）と利用例（§4.1）が変わる。許可条件の判定を Lambda の認可に委ねる方針（§2.2）は変わらない。Account / Organization に関係する権限の対象を `repositories` 入力で表せないなら、入力も見直す

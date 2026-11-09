@@ -40,7 +40,7 @@ JWT の発行者と署名検証鍵を結び付け、JWT や要求の内容で鍵
 JWT が受理条件を満たしても、発行要求を認可したことにはなりません。
 発行の可否は、§3 の認可条件で別に判定します。
 
-AWS 一時認証情報と GATES 用 OIDC JWT が同じジョブで取得されたことを、暗号学的に検証しません。AWS IAM による Invoke の許可と、GATES 用 OIDC JWT に基づく発行認可は独立した境界です。トークンの発行可否は GATES 用 OIDC JWT と固定された許可条件から判断し、Composite Action 側の自己申告による照合を認可根拠としません。
+AWS 一時認証情報と GATES 用 OIDC JWT が同じジョブで取得されたことを、暗号学的に検証しません。AWS IAM による Invoke の許可と、GATES 用 OIDC JWT に基づく発行認可は独立した境界です。トークンの発行可否は GATES 用 OIDC JWT と固定された許可条件から判断し、Docker Action 側の自己申告による照合を認可根拠としません。
 
 ## 3. Authorization
 
@@ -122,8 +122,8 @@ KMS Key の構成・IAM 権限は Terraform で管理します。GitHub App Priv
 | GitHub App Private Key | KMS インポート前は運用者が別の運用境界で扱う。Lambda と Runner には渡さない。インポート後、インポート前のコピーは運用者の手元から削除する。KMS にインポートした鍵素材は取り出せないため、KMS Key を失った場合は GitHub 側で新しい秘密鍵を発行して切り替える |
 | AWS KMS Key | インポート済みの非対称署名鍵。Lambda 実行 Role に当該キーの `kms:Sign` のみ許可。鍵更新時は新 KMS Key を用意 |
 | GitHub App JWT | KMS 署名で Lambda が短時間生成し、GitHub API 呼び出しにのみ使用。外部返却・ログ出力禁止 |
-| Installation Access Token | 要求・認可された対象と `contents:read`（付随する `metadata:read` を許容）に限定して Runner へ返す。短命でも窃取リスクは残る。照合に失敗したものは返さず、文字列を取得できた場合に失効を試みる |
-| AWS 一時認証情報・GATES 用 OIDC JWT | Runner で短時間だけ保持し、ログやデバッグ出力に含めない |
+| Installation Access Token | 要求・認可された対象と `contents:read`（付随する `metadata:read` を許容）に限定して Runner へ返す。短命でも窃取リスクは残る。照合に失敗したものは返さず、文字列を取得できた場合に失効を試みる。Runner へ返したものは、ジョブの終了時に Docker Action がトークン自身で認証して失効を試みる（ジョブの終了時の失効）。Docker Action がトークンを取り出した後に失敗するかキャンセルされ、後続ステップへ渡せなかったものは、その場で失効を試みる（失敗時の失効）。Runner の上では、Output（`GITHUB_OUTPUT`）と `GITHUB_STATE` の 2 つのファイルにだけ書く。どちらも Runner のファイルコマンドのディレクトリにある |
+| AWS 一時認証情報・AWS 用 OIDC JWT・GATES 用 OIDC JWT | Runner の上で Docker Action の子のプロセスのメモリの中だけで扱い、ファイル、環境変数、Output に書かない。プロセスの終了とともに手放す。ログやデバッグ出力に含めない |
 
 ## 5. Failure, Audit, and Security Risks
 
@@ -133,9 +133,13 @@ KMS Key の構成・IAM 権限は Terraform で管理します。GitHub App Priv
 - 初期化の失敗（固定設定の欠落か不正、AWS SDK の設定の読み込みの失敗）のログには、満たさなかった条件と、どの値の条件かを示す環境変数の名前か固定設定の概念名だけを書き、値を書かない。GATES 用 Audience と KMS Key ARN は資格情報ではないが、ログに書く値を増やさない。
 - Handler が回復した panic の値は、応答、監査記録、ログのどれにも書かない。値に資格情報が入っていない保証がないためである。
 - 相関 ID は成功応答と失敗応答の両方に、同じ位置で含める。ワークフローのログに残った相関 ID から監査記録へたどれるようにするためである。
-- AWS Invoke の成功と Lambda の業務成功を区別し、Composite Action は `FunctionError` と応答の両方を確認する。
+- AWS Invoke の成功と Lambda の業務成功を区別し、Docker Action は `FunctionError` と応答の両方を確認する。
 - 許可オーナー配下のリポジトリであることは、ワークフロー内のコードの信頼性を保証しない。`pull_request_target` などで信頼できない Pull Request のコードを実行すると、正当な JWT と AWS 認証情報を取得できるジョブの権限を悪用され得る。利用者は資格情報を取得するジョブで信頼できないコードを実行しない。
 - JWT、AWS 認証情報、Installation Access Token の漏えい・再利用を完全には防止しない。許可範囲、期限、権限とインストール対象の限定で影響を抑える。
+- Docker Action のコンテナは root で動き、Runner はそこに Docker ソケット（`/var/run/docker.sock`）を読み書きできる権限でマウントするため、次のリスクを受容する。コンテナの中のコードは、ソケットを通じて Runner の Docker を操作でき、Runner のホストの root に相当する権限を得られる見込みである（推論：ホストのファイルシステムをマウントしたコンテナを起動できるため。ソケットを通じた操作は試していない）。コンテナの中で動くのは Docker Action のプログラムだけで、そのプログラムはソケットを使わない。このリスクが現れるのは、Docker Action のプログラム、その依存、ビルド用のイメージが改ざんされた場合である。マウントは Runner が決め、Docker Action からは外せない。依存とビルド用のイメージを版と digest で固定し、利用者が Docker Action を commit SHA で参照することで、改ざんされたものが取り込まれる機会を抑える（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#mounts)）
+- Docker Action のコンテナには、`RUNNER_TEMP` と `HOME` が、同じジョブのほかのステップと共有されるディレクトリとしてマウントされる。Docker Action はこれらに資格情報を書かない。同じジョブのほかのステップは、Output と `GITHUB_STATE` のファイルを含めて Runner のファイルを読めるため、トークンを同じジョブのほかのステップから隠すことはできない。資格情報を取得するジョブで信頼できないコードを実行しない前提（前述）で、このリスクを受容する
+- Runner は、`id-token: write` の有無によらず、GitHub Actions のランタイムの操作に使う `ACTIONS_RUNTIME_TOKEN` を Docker Action のコンテナに渡す。`id-token: write` を宣言したジョブで渡る要求用トークン（`ACTIONS_ID_TOKEN_REQUEST_TOKEN`）も、同じ接続情報のアクセストークンである（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#runner-source)）。Docker Action は `ACTIONS_RUNTIME_TOKEN` を読まず、要求用トークンを OIDC JWT の取得にだけ使うが、どちらも渡されることは止められない。改ざんされた Docker Action のプログラムは、このアクセストークンでジョブのランタイムの操作を行い得る。上記の Docker ソケットと同じく、改ざんの機会を抑えることで対処する
+- ジョブの終了時の失効と失敗時の失効はベストエフォートであり、次の場合に、Runner へ返したトークンが GitHub 側の有効期限まで有効なまま残るリスクを受容する。失効の要求が失敗した場合と、Runner がコンテナを強制終了するか Runner が停止して、失効を試みる前に Docker Action が終わった場合である。ジョブのキャンセルでは、Docker Action はシグナルを受けてから失効を試みて終えるため、このリスクは Runner がそれより先にコンテナを止めた場合に限られる。残ったトークンの範囲は、要求した対象と `contents:read` に限られる。
 - 保持した Issuer の公開鍵に有効期限を設けず、次のリスクを受容する。Issuer が JWKS から鍵を取り下げても、保持した鍵で検証できない `kid` のある JWT が届いて JWKS の取得に成功するか、実行環境が入れ替わるまで、取り下げた鍵で検証できる JWT を受理し続ける。Lambda は呼び出しが続く関数でも実行環境を数時間ごとに終了するため、受理し続ける期間はその程度に収まる見込みだが、AWS は正確な間隔を公開しておらず、GATES はこの期間の上限を保証しない。取り下げた鍵で新しい JWT を偽造するには、対応する秘密鍵が必要である。一方、取り下げ前に発行された JWT の再提示には秘密鍵が要らず、その JWT の `exp` までは受理され得る。どちらの悪用にも、Lambda の Invoke を許可された IAM 認証情報が別に必要である。期限を設けると、期限切れのたびに取得が発生し、Issuer の障害で正当な JWT まで拒否し得る。この可用性の低下を避ける。Issuer の鍵の漏えいが判明したときは、運用者が関数のコードか設定を更新する。AWS は更新の完了まで呼び出しが更新前のコードと設定を使うと定めており、完了後の呼び出しが保持した鍵を持たない実行環境で動くことは、この定めからの推論である（公式文書に明記はなく、実環境では未確認）。
 - Discovery と JWKS の再取得の上限は実行環境ごとであり、関数全体の上限を設けず、次のリスクを受容する。IAM の認可を得た呼び出し元は、手元の鍵で検証できない JWT を送ることで、実行環境ごとに、再取得の上限が許す頻度まで取得を起こせる。署名の検証には鍵が要るため、取得の前に不正な JWT を見分けることはできない。Issuer がレート制限を返すと、鍵を持たない実行環境とローテーション後の鍵を要する JWT は、再試行できる失敗で拒否され続け得る（Issuer のレート制限の有無は未確認）。影響は可用性にとどまり、この場合も GATES はトークンを返さない。実行環境をまたいで上限を共有すると、そのためだけに外部の状態、権限、障害の経路が増えるため採らない。同時に動く実行環境の数は Reserved Concurrency で抑えられるが、実行環境が入れ替わると新しい環境は取得の履歴を持たないため、厳密な上限にはならない。
 
@@ -191,7 +195,7 @@ GATES は不正な変更や署名を通知する仕組みを持たないため�
 | 入口制御と Caller の識別（§2） | FR-001〜005、FR-025、QR-007 |
 | 発行認可（§3.1〜3.3） | FR-006〜012、FR-024、QR-002、QR-007 |
 | 署名と発行結果の検証（§3.4、§4） | FR-013〜018、QR-001、QR-003、QR-006 |
-| 失敗時の扱いと監査（§5） | FR-020、FR-021、QR-003、QR-004 |
+| 失敗時の扱いと監査（§5） | FR-020、FR-021、FR-026、QR-003、QR-004 |
 | 署名鍵のリスクの抑制と受容（§5.1） | FR-013、FR-023、QR-001、QR-006 |
 
 受け入れ条件は [Requirements](../spec/requirements.md) を正本とします。

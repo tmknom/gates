@@ -212,7 +212,9 @@ actions/runner v2.338.2 のソースから読み取れる実装です。
 - マウント：`ContainerActionHandler.cs` は `/var/run/docker.sock`、`_temp` を `/github/runner_temp`、`_temp/_github_home` を `/github/home`、`_temp/_github_workflow` を `/github/workflow`、`_temp/_runner_file_commands` を `/github/file_commands`、ワークスペースを `/github/workspace` にマウントし、`HOME` を `/github/home` にする
 - 環境変数：`ContainerActionHandler.cs` は、`ACTIONS_RUNTIME_URL` と `ACTIONS_RUNTIME_TOKEN` を常に、`ACTIONS_ID_TOKEN_REQUEST_URL` と `ACTIONS_ID_TOKEN_REQUEST_TOKEN` をジョブの接続情報に ID トークンの URL があるときだけ設定する。`ACTIONS_ID_TOKEN_REQUEST_TOKEN` の値は `ACTIONS_RUNTIME_TOKEN` と同じ接続情報のアクセストークンである
 - 実行ユーザー：`src/Runner.Worker/Container/DockerCommandManager.cs` の `docker run` の組み立てに `--user` はない。実行ユーザーはイメージの `USER` で決まる
-- `args`：`runs.args` がないときは、入力 `args` の値（未指定なら空）を `docker run` のコマンドの引数にする
+- `entrypoint` と `args`：`ContainerActionHandler.cs` は、`docker run` の `--entrypoint` に、メインでは `runs.entrypoint` を、post-entrypoint では `runs.post-entrypoint` を使う。`runs.args` は段階によらず同じように評価して `docker run` のコマンドの引数にし、`runs.args` がないときは、入力 `args` の値（未指定なら空）を引数にする
+- キャンセル：`DockerCommandManager.cs` は、`docker run` を `--rm` 付きで、`--sig-proxy` を指定せず、`killProcessOnCancel: false` で起動する。この場合 `src/Runner.Sdk/ProcessInvoker.cs` は、キャンセルされた `docker run` のプロセスに SIGINT を送って 7.5 秒待ち、終わらなければ SIGTERM を送って 2.5 秒待ち、それでも終わらなければプロセスの木を強制終了する。`DockerCommandManager.cs` に `docker kill` と `docker stop` を送る処理はない
+- キャンセルとファイルコマンド：`src/Runner.Worker/ActionRunner.cs` は、ハンドラーの実行を `try` に、ファイルコマンド（`GITHUB_OUTPUT`、`GITHUB_STATE` など）の処理を `finally` に置く。キャンセルか失敗で終わったステップでも、ファイルコマンドを処理する
 
 ## Action Files
 

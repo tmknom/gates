@@ -12,7 +12,7 @@ GitHub App Private Key を GitHub Secrets や Actions Runner に置かず、署�
 許可された単一の **オーナー**（リポジトリを所有する GitHub の Organization またはユーザーアカウント）配下のワークフローは、GitHub App の **Installation**（GitHub App をオーナーにインストールした単位）に含まれるリポジトリに対して `contents:read` のトークンをセルフサービスで要求できます。
 対象リポジトリと権限を利用者に明示させ、GitHub App に付与された権限全体の払い出しを防ぎます。
 
-利用者向けの操作は Composite Action に集約し、ワークフローが GATES の認証・発行処理の詳細に依存しない構成とします。
+利用者向けの操作は Docker Action に集約し、ワークフローが GATES の認証・発行処理の詳細に依存しない構成とします。
 
 ## 2. Scope and Constraints
 
@@ -44,9 +44,9 @@ GitHub App Private Key を GitHub Secrets や Actions Runner に置かず、署�
 
 | 主体 | 必要とすること | 責任 |
 |---|---|---|
-| ワークフロー利用者 | 必要なリポジトリと権限を指定し、運用者が用意した接続情報を参照するだけでトークンを取得できる | Composite Action を呼び出すワークフローで `permissions: id-token: write` を宣言する。Composite Action に対象リポジトリと権限、および GATES 運用者が提供する接続情報を渡す。セルフホストの Runner で実行する場合は、Composite Action が必要とするコマンドを Runner に用意する。取得したトークンを自身のワークフロー内で適切に扱う。 |
+| ワークフロー利用者 | 必要なリポジトリと権限を指定し、運用者が用意した接続情報を参照するだけでトークンを取得できる | Docker Action を呼び出すワークフローで `permissions: id-token: write` を宣言する。Docker Action に対象リポジトリと権限、および GATES 運用者が提供する接続情報を渡す。セルフホストの Runner で実行する場合は、Linux と Docker を Runner に用意し、イメージのビルドと Docker Action の処理に要る宛先（Docker Hub、Go module proxy、GitHub、AWS）への通信を許可する。取得したトークンを自身のワークフロー内で適切に扱う。 |
 | GitHub App / オーナーの管理者 | GATES を通じて読み取られ得るリポジトリを Installation の対象で管理できる | GitHub App の Installation の対象を管理する。 |
-| GATES 運用者 | 秘密鍵・認可・最小権限の発行を少ない構成要素で保守できる | 認証、認可、トークン発行、秘密鍵の保護、監査を担う。GATES の呼び出しに使う IAM Role を引き受けられる主体の条件（信頼ポリシー）を管理する。Composite Action を提供し、そのインターフェースを維持する。Composite Action に渡す接続情報（IAM Role、Lambda 関数、AWS リージョン、GATES 用 Audience）を、ワークフローから参照できるよう GitHub 側に用意する。 |
+| GATES 運用者 | 秘密鍵・認可・最小権限の発行を少ない構成要素で保守できる | 認証、認可、トークン発行、秘密鍵の保護、監査を担う。GATES の呼び出しに使う IAM Role を引き受けられる主体の条件（信頼ポリシー）を管理する。Docker Action を提供し、そのインターフェースを維持する。Docker Action に渡す接続情報（IAM Role、Lambda 関数、AWS リージョン、GATES 用 Audience）を、ワークフローから参照できるよう GitHub 側に用意する。 |
 
 ## 4. Use Cases
 
@@ -90,12 +90,13 @@ GitHub App Private Key を GitHub Secrets や Actions Runner に置かず、署�
 | FR-016 | 成功応答には Installation Access Token、有効期限、対象リポジトリと実効権限、相関 ID を返す。秘密鍵・内部 GitHub App JWT は返さない。 |
 | FR-017 | 新しい GitHub App Private Key へ更新でき、更新後も発行が継続する。 |
 | FR-018 | GitHub API の発行応答で対象一覧・権限の欠落・不整合、要求範囲を超える対象・権限（現在許容する付随権限 `metadata:read` を除く）、不変 Owner ID の不一致を検出した場合は、トークンを返さない。応答から空でないトークン文字列を取得できた場合は失効 API の呼び出しを試み、その成否を監査する。GitHub 側の失効成功および通信断等で取得できなかったトークンの不存在は保証しない。 |
+| FR-026 | Docker Action は、受け取った Installation Access Token の失効を試み、その成否をワークフローのログに出す。後続ステップへ渡したトークンはジョブの終了時に、受け取った後、後続ステップへ渡す前に失敗した場合はその時点で失効を試みる。ジョブがキャンセルされた場合も、受け取ったトークンの失効をこのどちらかで試みるが、その成否がワークフローのログに残ることは保証しない。失効はベストエフォートとし、失効の失敗でジョブを失敗させない。トークンを受け取る前に失敗した場合は失効を試みない。利用者が失効を止める手段は設けない。 |
 
 ### 5.4 Usability and Operations
 
 | ID | Requirement |
 |---|---|
-| FR-019 | Composite Action が AWS の認証情報の取得、認証、トークン取得の手順を利用者から隠蔽する。利用者に求める作業は、責任分界（§3）に定めたものだけとする。 |
+| FR-019 | Docker Action が AWS の認証情報の取得、認証、トークン取得の手順を利用者から隠蔽する。利用者に求める作業は、責任分界（§3）に定めたものだけとする。 |
 | FR-020 | 入力不正、認証失敗、GATES による認可拒否、Installation 利用不可（発行に使える Installation を得られない）、原因が未確定の GitHub 発行拒否、発行結果の照合失敗、外部 API・KMS の一時的な障害を区別したエラーを返す。 |
 | FR-021 | 認証済み Caller（Owner ID と Repository ID、ワークフロー実行 ID と試行番号、ワークフロー起動属性）、要求対象、要求権限、結果、相関 ID を資格情報を含めず監査可能にする。ワークフロー起動属性は JWT に含まれる範囲で記録する。相関 ID は成功・失敗のどちらの応答にも含め、呼び出し元が監査記録と突き合わせられるようにする。 |
 | FR-022 | AWS リソースの設定と変更を Terraform で管理する。秘密鍵素材の取得・変換・インポートと、IAM OIDC Provider の用意は Terraform 管理外とする。 |
@@ -113,7 +114,7 @@ GitHub App Private Key を GitHub Secrets や Actions Runner に置かず、署�
 | QR-002 | 最小権限 | 利用者が明示した対象・権限に限定し、Installation の広い権限をそのまま付与しない。GitHub が要求とは別に付与する権限は FR-018 の許容条件に従う。 |
 | QR-003 | Fail Closed | JWT 検証、Installation の解決、認可、署名、発行結果の照合が成立しなければ、利用者に Installation Access Token を返却しない。発行 API の応答を取得できない場合、GitHub 側でトークンが発行されたかは確定できず、残留トークンの不存在までは保証しない。 |
 | QR-004 | 秘密情報保護 | 秘密鍵、OIDC JWT、GitHub App JWT、Installation Access Token、AWS 一時認証情報をログ・エラー本文に記録しない。 |
-| QR-005 | 置換容易性 | 利用者向け Composite Action を安定した境界とする。 |
+| QR-005 | 置換容易性 | 利用者向け Docker Action を安定した境界とする。 |
 | QR-006 | 秘密鍵管理 | 秘密鍵素材を Git、Terraform State / Plan、CI の成果物へ保存しない。KMS へのインポート後は、インポート前の秘密鍵のコピーを、インポートを実施した運用者の手元から削除する。Lambda は鍵を署名にのみ使え、鍵素材のインポート・置換・削除や、鍵の管理設定の変更はできない。 |
 | QR-007 | 認可の分離 | 呼び出し元の認証の成功だけでトークン発行を許可しない。対象と権限の認可を別に行う。 |
 
@@ -137,8 +138,8 @@ GitHub App Private Key を GitHub Secrets や Actions Runner に置かず、署�
 | AC-12 | GitHub API の発行応答が対象・権限（FR-018 の例外を除く）の範囲外、不変 Owner ID 不一致、必要な対象一覧の欠落、または不整合 | トークンを返さない。空でないトークン文字列を取得した場合は失効 API を試み、成否を監査する。失効成功は保証しない | FR-007, FR-010, FR-018 |
 | AC-13 | OIDC 公開鍵・KMS・GitHub API の取得・通信障害 | Fail Closed。資格情報を露出しない | QR-003 |
 | AC-14 | GitHub App Private Key の更新と GitHub 側の旧鍵失効 | 更新後も署名と発行が成立 | FR-013, FR-017 |
-| AC-15 | GitHub がホストする Runner で、利用者が `id-token: write` を宣言し、Composite Action に対象と権限、および運用者が提供する接続情報だけを渡す | 他の手順や設定なしでトークンを取得できる | FR-019 |
-| AC-16 | Composite Action が発行処理のエラーを受け取る | エラー終了し、JWT・トークンをログへ出さない | FR-019, QR-004 |
+| AC-15 | GitHub がホストする Runner で、利用者が `id-token: write` を宣言し、Docker Action に対象と権限、および運用者が提供する接続情報だけを渡す | 他の手順や設定なしでトークンを取得できる | FR-019 |
+| AC-16 | Docker Action が発行処理のエラーを受け取る | エラー終了し、JWT・トークンをログへ出さない | FR-019, QR-004 |
 | AC-17 | 入力不正、認証失敗、認可拒否、Installation 利用不可、GitHub 発行 API の `422`、発行結果の照合失敗、外部 API・KMS の一時的な障害をそれぞれ発生させる | 種別ごとに区別したエラーを返す | FR-020 |
 | AC-18 | 発行の成功と、認証後の拒否（認可拒否、発行結果の照合失敗など）をそれぞれ実行する | 監査記録に Caller（Owner ID、Repository ID、ワークフロー実行 ID、試行番号、JWT に含まれていたワークフロー起動属性）、対象、権限、結果、相関 ID が残り、資格情報を含まない。成功応答にも相関 ID が含まれる | FR-016, FR-021 |
 | AC-19 | 正常系と異常系を実行する | 発行処理のログとエラー本文に、秘密鍵・OIDC JWT・GitHub App JWT・トークンが含まれない | QR-004 |
@@ -153,3 +154,6 @@ GitHub App Private Key を GitHub Secrets や Actions Runner に置かず、署�
 | AC-28 | JOSE Header の未対応 `crit`、JWT の `b64:false`、2048 bit 未満の RSA 公開鍵、用途やアルゴリズムが不整合な JWK を用いた署名済み JWT | 検証鍵として採用せず認証失敗として拒否する。JWKS の取得自体の障害と、使用可能な鍵が 1 つもない JWKS は、認証失敗とは別のエラーとする | FR-002, FR-003 |
 | AC-29 | 発行 API が `422` を返す | GATES 自身の認可拒否と区別した GitHub 発行拒否として扱い、トークンを返さない | FR-020, QR-003 |
 | AC-30 | GitHub 発行 API に要求が到達した後、応答の受信に失敗してトークン文字列を取得できない | トークンを返さず、GitHub 側の発行有無・失効成功を保証しない。取得できないトークンに対する失効は要求しない | FR-018, QR-003 |
+| AC-31 | Docker Action がトークンを後続ステップへ渡したジョブが終了する | ジョブの終了時に Docker Action がそのトークンの失効を試み、失効の成否をワークフローのログに出し、トークンをログに出さない。失効が失敗してもジョブの結果は変わらない | FR-026, QR-004 |
+| AC-32 | Docker Action がトークンを受け取った後、成功応答の判定か、Output か `GITHUB_STATE` への書き込みに失敗する | Docker Action がその時点でトークンの失効を試み、失効の成否をワークフローのログに出し、トークンをログに出さずにエラー終了する | FR-026, QR-004 |
+| AC-33 | Docker Action が Lambda の Invoke を始めた後、メインの処理を終える前にジョブがキャンセルされる | Docker Action はトークンを受け取った場合、後続ステップへ渡す前ならその時点で、渡した後ならジョブの終了時に、トークンの失効を試み、トークンをログに出さない。Runner が Docker Action を強制終了した場合は失効の試行を保証しない | FR-026, QR-004 |

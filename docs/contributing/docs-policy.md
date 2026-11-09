@@ -81,7 +81,7 @@ flowchart TD
 | `github-app-jwt.md` | GitHub App JWT の生成条件 |
 | `lambda.md` | Lambda の入出力契約、コンポーネント、外部連携 |
 | `aws-infrastructure.md` | AWS リソースの構成 |
-| `github-actions.md` | Composite Action の入出力と処理手順 |
+| `github-actions.md` | Docker Action の入出力と処理手順 |
 
 `architecture.md` は、`docs/design/` の他のドキュメントと `future-scope.md` に依存しません。
 将来の機能を取り込むときは先に `requirements.md` を変更するため、`architecture.md` への影響は `requirements.md` への依存を通じて確かめられます。
@@ -115,9 +115,9 @@ flowchart TD
 - リポジトリ内の他のドキュメントに依存しない
 - `CONSTITUTION.md` に依存してよいのは、`requirements.md`、`future-scope.md`、`docs/design/`、`docs/contributing/` に限る
 
-### 2.7 Composite Action README
+### 2.7 Docker Action README
 
-`.github/actions/` の各 Composite Action の隣に置く `README.md` は、利用者向けの手引きです。
+`.github/actions/` の各 Docker Action の隣に置く `README.md` は、利用者向けの手引きです。
 `docs/` の外にありますが、依存の扱いは [§2.4](#24-docscontributing) と同じとします。
 この `README.md` は `docs/` 配下のドキュメントに依存してよく、`docs/` 配下のドキュメントはこの `README.md` に依存しません。
 
@@ -193,7 +193,7 @@ flowchart TD
 | コンポーネントの全体構成と処理の流れ | `architecture.md` | `docs/design/` の他のドキュメント |
 | 概念の名前と意味 | `domain.md` | `requirements.md`、`future-scope.md`、`docs/design/` の他のドキュメント、コード、`formal/` |
 | JWT の Claim・JOSE・JWK の受理・生成条件 | `gates-oidc-jwt-claims.md`、`gates-oidc-jwt-signature.md`、`aws-oidc-jwt.md`、`github-app-jwt.md` | `docs/design/` の他のドキュメント、コード |
-| Composite Action の入出力と処理手順 | `github-actions.md` | Composite Action の `README.md`、コード |
+| Docker Action の入出力と処理手順 | `github-actions.md` | Docker Action の `README.md`、コード |
 
 外部仕様の事実は GATES の文書では決められないため、事実と食い違う要求は `requirements.md` の側を直します。
 `domain.md` の定義が要求の内容と食い違うときも、`domain.md` の側を直します。
