@@ -1,0 +1,1 @@
+{"ok":true,"token":"ghs_issueTestToken+/=","expires_at":"2030-01-01T01:00:00Z","repositories":["example-org/repo-b","example-org/repo-a"],"permissions":{"metadata":"read","contents":"read"},"request_id":"req-issue-1"}

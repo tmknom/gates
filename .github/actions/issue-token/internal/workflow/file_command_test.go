@@ -13,7 +13,18 @@ func TestAppendFileCommand(t *testing.T) {
 		if err := os.WriteFile(path, []byte("a=1\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if err := AppendFileCommand(path, "b", "2"); err != nil {
+		if err := AppendFileCommand(path, FileCommand{"b", "2"}); err != nil {
+			t.Fatalf("AppendFileCommand() error = %v", err)
+		}
+		assertFile(t, path, "a=1\nb=2\n")
+	})
+
+	t.Run("commands are appended in the given order", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "output")
+		if err := os.WriteFile(path, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := AppendFileCommand(path, FileCommand{"a", "1"}, FileCommand{"b", "2"}); err != nil {
 			t.Fatalf("AppendFileCommand() error = %v", err)
 		}
 		assertFile(t, path, "a=1\nb=2\n")
@@ -24,22 +35,22 @@ func TestAppendFileCommand(t *testing.T) {
 		if err := os.WriteFile(path, nil, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if err := AppendFileCommand(path, "token", "100%"); err != nil {
+		if err := AppendFileCommand(path, FileCommand{"token", "100%"}); err != nil {
 			t.Fatalf("AppendFileCommand() error = %v", err)
 		}
 		assertFile(t, path, "token=100%\n")
 	})
 
 	for _, tt := range []struct{ name, value string }{
-		{"value with LF is rejected with ErrMultilineValue and the file is unchanged", "a\nb"},
-		{"value with CR is rejected with ErrMultilineValue and the file is unchanged", "a\rb"},
+		{"value with LF in any command is rejected with ErrMultilineValue and nothing is written", "a\nb"},
+		{"value with CR in any command is rejected with ErrMultilineValue and nothing is written", "a\rb"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "output")
 			if err := os.WriteFile(path, []byte("a=1\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			err := AppendFileCommand(path, "b", tt.value)
+			err := AppendFileCommand(path, FileCommand{"b", "2"}, FileCommand{"c", tt.value})
 			if !errors.Is(err, ErrMultilineValue) {
 				t.Fatalf("AppendFileCommand() error = %v, want ErrMultilineValue", err)
 			}
@@ -49,7 +60,7 @@ func TestAppendFileCommand(t *testing.T) {
 
 	t.Run("missing file returns an error and is not created", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "missing")
-		if err := AppendFileCommand(path, "a", "1"); err == nil {
+		if err := AppendFileCommand(path, FileCommand{"a", "1"}); err == nil {
 			t.Fatal("AppendFileCommand() error = nil, want an error")
 		}
 		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {

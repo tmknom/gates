@@ -71,6 +71,12 @@ Secrets と Variables を置く単位は、許可オーナーの種別で決ま�
 値が改行を含むと `GITHUB_OUTPUT` に別の Output の行を書き足せるため、成功応答の値が改行を含めば、不正な応答として失敗します（[3.2 Failure Output](#32-failure-output)）。
 `repositories` は応答の `repositories` の順のまま `,` で結びます。
 `permissions` は応答の `permissions` を権限名の昇順に並べ、`name:level` を `,` で結びます。
+`repositories` か `permissions` が空であるか、要素が空であるか、`repositories` の要素が `,` を含むか、`permissions` の権限名か水準が `,` か `:` を含めば、不正な応答として失敗します。
+後続ステップは Output を入力と同じ形式として読むため、区切りの文字を含む要素は別の要素として読まれ、応答が示した範囲と食い違うためです。
+`expires-at` か `request_id` が空である場合も、不正な応答として失敗します。
+空の `expires-at` では利用者が有効期限を確かめられず、空の `request_id` では運用者が監査記録を探せないためです。
+`token` 以外の Output の値と `request_id` が `##[` を含む場合も、不正な応答として失敗します。
+これらの値は成功のログの行にも出し、Runner は `::` で始まるワークフローコマンドを行頭でだけ読む一方、`##[` で始まる旧形式のワークフローコマンドは行の途中からも読むためです（[GitHub — actions/runner ActionCommand.cs](https://github.com/actions/runner/blob/v2.338.2/src/Runner.Common/ActionCommand.cs) の `TryParseV2` と `TryParse`）。
 
 トークンは、ジョブの終了時の失効（[3.5 Revocation](#35-revocation)）に渡すため、`GITHUB_STATE` にも `token=<トークン>` の 1 行で書きます。
 `GITHUB_STATE` は `GITHUB_OUTPUT` と同じ Runner のファイルコマンドのディレクトリにあり、トークンを書く場所は増えても、読める主体は増えません。
@@ -126,13 +132,13 @@ Docker Action に写すと規則の定義が 2 か所になり、Lambda の規�
 Docker Action のメインの処理は、次の段階を 1 つの子のプロセスで順に行います。
 各段階で得た資格情報は、[3.4 Masking](#34-masking) に示す時点でマスクします。
 
-1. 前提を確かめる。`ACTIONS_ID_TOKEN_REQUEST_URL` と要求用トークン（`ACTIONS_ID_TOKEN_REQUEST_TOKEN`）があること、`GITHUB_OUTPUT` と `GITHUB_STATE` があること、6 つの入力が空でないことである。要求用トークンがなければ、`permissions: id-token: write` の宣言を促して失敗する
+1. 前提を確かめる。`ACTIONS_ID_TOKEN_REQUEST_URL` と要求用トークン（`ACTIONS_ID_TOKEN_REQUEST_TOKEN`）があること、`GITHUB_OUTPUT` と `GITHUB_STATE` があること、6 つの入力が空でないことである。要求用トークンがなければ、`permissions: id-token: write` の宣言を促して失敗する。続けて、`ACTIONS_ID_TOKEN_REQUEST_URL` がホストを持つ `https` の URL であることを通信の前に確かめる。要求用トークンを平文で送らないためである
 2. 入力のリストを検証し（[§2.2](#22-list-syntax)）、`repositories` の配列と `permissions` のオブジェクトを作る。この段階は通信しない
 3. `sts.amazonaws.com` を Audience とする AWS 用 OIDC JWT を取得する
 4. AWS STS の `AssumeRoleWithWebIdentity` で、入力の `role-arn` の IAM Role を引き受ける。AWS 用 OIDC JWT はこの段階の後に使わない
 5. 入力の `audience` を Audience とする GATES 用 OIDC JWT を取得する
-6. [Lambda Request](lambda.md#21-invoke-payload) の `version`、`id_token`、`repositories`、`permissions` を持つ Payload を組み立て、Invoke の時刻をログに出してから、一時認証情報で Lambda を `RequestResponse` で Invoke する。`LogType` を指定しない
-7. 結果を判定する。SDK のエラー、`StatusCode`、`FunctionError`、応答の `ok` の順に見る。成功なら、トークンを取り出し、残りの項目を判定する。すべて満たせば、トークンを `GITHUB_STATE` に、4 つの Output を `GITHUB_OUTPUT` に書き（[§2.1](#21-inputs-and-outputs)）、`request_id`、`expires_at`、対象、実効権限をログに出す。トークンを取り出した後に失敗すれば、失敗時の失効を試みてから終える（[§3.5](#35-revocation)）
+6. [Lambda Request](lambda.md#21-invoke-payload) の `version`、`id_token`、`repositories`、`permissions` を持つ Payload を組み立て、Invoke の時刻をログに出してから、一時認証情報で Lambda を `RequestResponse` で Invoke する。`InvocationType` は省略せずに指定する。AWS SDK for Go v2 は省略すると `X-Amz-Invocation-Type` を送らず、呼び方を Lambda の既定に任せることになるためである。`LogType` を指定しない
+7. 結果を判定する。SDK のエラー、`StatusCode`、`FunctionError`、応答の `ok` の順に見る。成功なら、トークンを取り出し、残りの項目を判定する。トークンとして取り出すのは、空でなく ASCII の制御文字を含まない文字列だけである。改行を含む値は 1 行の形式で書く `GITHUB_STATE` と `GITHUB_OUTPUT` に別の行を書き足せ（[§2.1](#21-inputs-and-outputs)）、タブ以外の制御文字を含む値は Go の `net/http` が失効の要求のヘッダーに載せない。トークンの文字種に制御文字はないため、タブを含む ASCII の制御文字をまとめて、取り出せない応答として失敗する。すべて満たせば、トークンを `GITHUB_STATE` に、4 つの Output を `GITHUB_OUTPUT` に書き（[§2.1](#21-inputs-and-outputs)）、`request_id`、`expires_at`、対象、実効権限をログに出す。トークンを取り出した後に失敗すれば、失敗時の失効を試みてから終える（[§3.5](#35-revocation)）
 
 入力の検証を AWS STS より前に置くのは、通信を要らない失敗を先に返し、検証に失敗する入力で IAM Role を引き受けないためです。
 前提を最初に確かめるのは、OIDC JWT の取得と AWS STS が `id-token: write` を要し、欠けたまま進むと原因の分かりにくい失敗になるためです。
@@ -154,7 +160,8 @@ OIDC JWT の取得では、`ACTIONS_ID_TOKEN_REQUEST_URL` に URI エンコー�
 従うと、要求用トークンを含むヘッダーを別の宛先へ送り得るためです。
 応答本文は 64 KiB までを読み、超えれば失敗にします。
 JWT は数 KB であり、上限を設けないと、想定と異なる応答でプロセスのメモリを使い切り得るためです。
-マスクは行ごとに効くため、`200` の応答の `value` が改行を含むか、応答が JSON のオブジェクト 1 つでなければ失敗にします。
+`200` の応答の `value` が改行を含むか、応答が JSON のオブジェクト 1 つでなければ失敗にします。
+JWS Compact Serialization の構成要素は改行を含められないため（[GATES OIDC JWT Signature](gates-oidc-jwt-signature.md)）、改行を含む `value` は JWT ではないためです。
 
 ### 3.1 Packages
 
@@ -170,15 +177,17 @@ Runner は `Dockerfile` のあるディレクトリをビルドコンテキス�
 |---|---|---|
 | `main.go` | 起動したパスによる親と子の選択。親ならシグナルの受け口を作って子の起動と見張りを呼び、子なら環境変数を読み取り、シグナルの受け方を設定して入口関数を呼ぶ（[§3.6](#36-cancellation)）。終了コード。panic を回復し、その値を出さずに失敗として終える | なし |
 | `internal/supervise` | 親の処理。同じ実行ファイルを子として起動し、受けたシグナルを子へ送り、子の終了の仕方から親の終了コードと注釈を決める（[§3.2](#32-failure-output)、[§3.6](#36-cancellation)） | なし |
-| `internal/issue` | メインの入口関数。前提の確認から Output の書き込みまでの段階（[§3](#3-processing-flow)）を順に呼び、トークンを取り出した後の失敗では失効を呼ぶ（[§3.5](#35-revocation)）。キャンセルの要求を受けた時点に応じて終える（[§3.6](#36-cancellation)） | なし。部品に任せる |
+| `internal/issue` | メインの入口関数。前提の確認から Output の書き込みまでの段階（[§3](#3-processing-flow)）を順に呼び、トークンを取り出した後の失敗では失効を呼ぶ（[§3.5](#35-revocation)）。失敗の注釈を書く（[§3.2](#32-failure-output)）。キャンセルの要求を受けた時点に応じて終える（[§3.6](#36-cancellation)） | なし。部品に任せる |
 | `internal/revoke` | post-entrypoint の入口関数。`GITHUB_STATE` から渡ったトークンがあれば失効を呼ぶ（[§3.5](#35-revocation)） | なし。部品に任せる |
 | `internal/request` | 入力のリストの検証（[§2.2](#22-list-syntax)）と Payload の組み立て | なし |
-| `internal/response` | Invoke の結果を SDK のエラー、`StatusCode`、`FunctionError`、`ok` の順に判定し、成功なら 4 つの Output の値とログに出す項目を、失敗なら段階とログに出す文言を返す | なし |
+| `internal/response` | Invoke の結果を SDK のエラー、`StatusCode`、`FunctionError`、`ok` の順に判定し、成功なら 4 つの Output の値とログに出す項目を、失敗なら段階とログに出す文言を返す。トークンを取り出す判定と残りの項目の判定を分け、その間で入口関数がマスクとキャンセルの確認を行う（[§3.4](#34-masking)、[§3.6](#36-cancellation)） | なし |
+| `internal/revocation` | 失効の要求と、その結果のログへの出し方（[§3.5](#35-revocation)）。失敗時の失効とジョブの終了時の失効で共有する | なし。部品に任せる |
+| `internal/communication` | 通信の失敗の error。タイムアウトとそれ以外の判定（[§3.2](#32-failure-output)）を、通信する package で共有する | なし |
 | `internal/workflow` | ワークフローコマンド（`::add-mask::`、`::error::`、`::warning::`）の符号化と標準出力への書き込み、ファイルコマンド（`GITHUB_OUTPUT` と `GITHUB_STATE` への `name=value` の書き込み）と、改行を含む値の拒否 | なし |
 | `internal/credential` | 資格情報の型。`fmt` と JSON で値を出さず、値を取り出す口を使う側に限る | なし |
 | `internal/oidc` | OIDC JWT の取得。AWS 用と GATES 用の両方に使う | GitHub OIDC Provider |
 | `internal/awsapi` | `AssumeRoleWithWebIdentity` と Lambda の Invoke。AWS SDK を使う唯一の package | AWS STS、Lambda Invoke API |
-| `internal/githubapi` | `DELETE /installation/token` を呼び、HTTP ステータスを返す。失効の結果をログに出すのは呼び出した入口関数 | GitHub API |
+| `internal/githubapi` | `DELETE /installation/token` を呼び、HTTP ステータスを返す。失効の結果をログに出すのは `internal/revocation` | GitHub API |
 
 `os.Getenv`、`os.Args`、`os.Executable`、`os.Exit`、`os.Stdout`、`os/signal` を参照するのは `main.go` だけとします。
 `internal/` の package は、読み取った値と書き込み先を引数で受け取るため、環境変数とファイルを用意せずに試験できます。
@@ -210,15 +219,16 @@ Docker Action のメインの処理は、どの段階で失敗しても終了コ
 | 段階 | ログに出すもの | 出さないもの |
 |---|---|---|
 | 前提の確認 | 満たさなかった前提（環境変数の欠落、空の入力の名前） | 要求用トークン |
+| OIDC JWT の要求先の形 | `ACTIONS_ID_TOKEN_REQUEST_URL` がホストを持つ `https` の URL でないこと | URL の値 |
 | 入力の検証 | 満たさなかった条件と、該当する要素 | なし。入力は資格情報ではない |
 | OIDC JWT の取得（AWS 用、GATES 用） | HTTP ステータス。`4xx` と `5xx` なら、応答本文の先頭の 4096 バイトも。通信に失敗して HTTP ステータスがなければ、失敗の種類。`200` の応答に 1 行の `value` がなければ、そのこと | 要求用トークン、JWT。`200` 以外の `2xx` と `3xx` の応答本文は、マスクする前の JWT を含み得るため出さない |
-| AWS STS | AWS のエラーコード（`AccessDenied`、`InvalidIdentityToken` など）と HTTP ステータス。通信の失敗なら失敗の種類 | AWS のエラー応答の文言、要求の内容 |
-| Invoke の SDK の失敗 | AWS のエラーコード（`AccessDeniedException`、`InvalidRequestContentException` など）と HTTP ステータス。通信の失敗なら失敗の種類 | AWS のエラー応答の文言 |
+| AWS STS | AWS のエラーコード（`AccessDenied`、`InvalidIdentityToken` など）と HTTP ステータス。エラーコードを読み取れない応答なら HTTP ステータスだけ。通信の失敗なら失敗の種類。要求を送る前の失敗なら、送れなかったこと。成功の応答に一時認証情報の 3 つの値がそろわなければ、そのこと | AWS のエラー応答の文言、要求の内容、SDK のエラー文言 |
+| Invoke の SDK の失敗 | AWS のエラーコード（`AccessDeniedException`、`InvalidRequestContentException` など）と HTTP ステータス。エラーコードを読み取れない応答なら HTTP ステータスだけ。通信の失敗なら失敗の種類。要求を送る前の失敗なら、送れなかったこと | AWS のエラー応答の文言、SDK のエラー文言 |
 | `StatusCode` が `200` でない | `StatusCode` の値 | なし |
-| `FunctionError` がある | `FunctionError` の値と、読み取れれば応答の `errorType` | 応答の `errorMessage` |
+| `FunctionError` がある | `FunctionError` の値と、読み取れれば応答の `errorType`。どちらも `##[` を含まないときだけ出す | 応答の `errorMessage`、`##[` を含む値 |
 | 応答を JSON として読めないか、`ok` が真偽値でない | そのことと、応答の大きさ | 応答本文 |
-| `ok` が `false` | `error.code`、`error.message`、`request_id`。どれも文字列のときだけ出す | 文字列でない値 |
-| `ok` が `true` だが、成功応答の項目が欠けるか、型が違うか、値が改行を含む | そのことと、読み取れれば `request_id` | 応答本文 |
+| `ok` が `false` | `error.code`、`error.message`、`request_id`。どれも文字列で `##[` を含まないときだけ出す | 文字列でない値、`##[` を含む値 |
+| `ok` が `true` だが、成功応答の項目が欠けるか、型が違うか、値が [§2.1](#21-inputs-and-outputs) と [§3](#3-processing-flow) の段階 7 の条件を満たさない | そのことと、文字列で `##[` を含まなければ `request_id` | 応答本文、`##[` を含む `request_id` |
 | `GITHUB_STATE` か `GITHUB_OUTPUT` への書き込み | 書けなかったファイルの環境変数の名前 | 書こうとした値、ライブラリのエラー文言 |
 | 想定外の失敗（panic） | 想定外の失敗が起きたこと | panic の値 |
 | キャンセル（[§3.6](#36-cancellation)） | キャンセルされたこと | なし |
@@ -262,6 +272,7 @@ post-entrypoint の子が想定外に終わった場合は、親は同じ固定�
 `errorMessage` と、JSON として読めない応答本文を出さないのは、内容を GATES が定めておらず、資格情報を含まないと保証できないためです。
 `FunctionError` のときは応答に `request_id` がないため、運用者は段階 6 で出した Invoke の時刻と `run_id` で CloudWatch Logs の記録を探します（[Lambda Design](lambda.md#32-failure)）。
 `ok` が `false` の `message` はエラーコードごとに固定の文言で、資格情報を含みません。
+応答から注釈に出す値のうち `##[` を含むものを出さないのは、Runner が旧形式のワークフローコマンドを行の途中からも読むためです（[§2.1](#21-inputs-and-outputs)）。
 
 注釈は標準出力に書き、注釈と `::add-mask::` に入れる値は `%`、CR、LF をそれぞれ `%25`、`%0D`、`%0A` に符号化して 1 行に収めます（[GitHub — actions/toolkit command.ts](https://github.com/actions/toolkit/blob/main/packages/core/src/command.ts) の `escapeData`）。
 値に改行が残ると、その後の行を Runner がワークフローコマンドとして読み得るためです。
@@ -275,9 +286,8 @@ Lambda が発行を終えた後に応答が届かなかった場合、送り直�
 AWS SDK for Go v2 が既定で行う再試行は、AWS STS と Lambda のクライアントの両方で `aws.NopRetryer` により止めます。
 Lambda の KMS の呼び出しと同じ扱いです（[Lambda Design](lambda.md#64-call-time-budget)）。
 
-AWS のクライアントの設定は、Region、一時認証情報、再試行、HTTP のクライアントを Docker Action のプログラムが組み立て、共有の設定ファイルと `AWS_*` の環境変数を読みません。
-読むと、利用者がステップに渡した環境変数や Runner の AWS の設定で、接続先、認証情報、再試行が変わり得るためです。
-AWS STS の呼び出しは認証情報を要らないため、認証情報を持たないクライアントで行います。
+AWS のクライアントの設定は、Region、一時認証情報、再試行、HTTP のクライアントを Docker Action のプログラムが組み立て、これらと接続先の設定を共有の設定ファイルと `AWS_*` の環境変数から読みません。
+読むと、利用者がステップに渡した環境変数や Runner の AWS の設定で、接続先、認証情報、再試行が変わり得るためです。AWS STS の呼び出しは認証情報を要らないため、認証情報を持たないクライアントで行います。
 
 Lambda もどの呼び出しも再試行せず、一時的な障害を呼び出し元の再実行に任せます。
 Docker Action も、一時的な障害をステップの失敗として利用者に伝え、再実行するかは利用者が判断します。
@@ -324,7 +334,8 @@ Docker Action は、受け取ったトークンの失効を 2 つの時点に分
 - **失敗時の失効**：メインの処理がトークンを取り出した後に、後続ステップへ渡す前に失敗するかキャンセルの要求を受けた場合に、そのトークンをメインの処理がその場で失効させる
 
 失敗時の失効をジョブの終了時に任せないのは、`GITHUB_STATE` に書く前の失敗では post-entrypoint にトークンが渡らず、誰も持たないトークンが有効期限まで GitHub 側に残るためです。
-失敗時の失効を試みるのは、トークンを取り出した後に、成功応答の項目が欠けるか、型が違うか、値が改行を含む場合と、`GITHUB_STATE` か `GITHUB_OUTPUT` への書き込みに失敗した場合と、`GITHUB_STATE` に書く前にキャンセルの要求を受けた場合（[§3.6](#36-cancellation)）です。
+失敗時の失効は、トークンを取り出した後のどの失敗でも試みます。成功応答の残りの項目が不正な場合、`GITHUB_STATE` か `GITHUB_OUTPUT` への書き込みに失敗した場合、`GITHUB_STATE` に書く前にキャンセルの要求を受けた場合（[§3.6](#36-cancellation)）がこれに当たり、トークンのマスクや成功のログを標準出力に書けなかった場合も含みます。
+失敗で終わるステップのトークンを残さないためです。
 失効を試みた後も、メインの処理は終了コード 1 で終えます。
 `GITHUB_STATE` に書いた後に `GITHUB_OUTPUT` への書き込みに失敗した場合は、post-entrypoint も同じトークンの失効を試みます。
 この要求は失効済みのトークンで送るため `204` 以外で終わり得ます。その場合も警告を出すだけで、ジョブの結果は変えません。
@@ -338,7 +349,7 @@ post-entrypoint は、メインと同じイメージの新しいコンテナで�
 
 失効の要求とログへの出し方は、2 つの失効で同じです。
 
-- `https://api.github.com/installation/token` へ、トークンを `Authorization: Bearer` のヘッダーに入れて `DELETE` を送る。Lambda と同じ版の `X-GitHub-Api-Version` と、GATES を示す固定の `User-Agent` を付ける。リダイレクトには従わない
+- `https://api.github.com/installation/token` へ、トークンを `Authorization: Bearer` のヘッダーに入れて `DELETE` を送る。Lambda と同じ版の `X-GitHub-Api-Version` と、GATES の Docker Action を示す固定の `User-Agent`（`gates-issue-token`）を付ける。リダイレクトには従わない
 - HTTP ステータスをログに出す。`204` 以外か、通信に失敗した場合は、HTTP ステータスか失敗の種類を `::warning::` で出す。応答本文は出さない
 
 post-entrypoint は、失効の成否によらず終了コード 0 で終えます。
@@ -372,6 +383,7 @@ Lambda がトークンを発行した後、子が `GITHUB_STATE` に書く前に
 子のシグナルの受け方は `main.go` が Go の `os/signal` で設定します。
 メインの子では SIGINT と SIGTERM を受け取ってキャンセルの要求として入口関数に渡し、post-entrypoint の子では無視します。
 どちらも設定しないと、Go のランタイムがシグナルを受けた子を終えるためです。
+入口関数はキャンセルの要求を ctx のキャンセルとして受け、Invoke と失敗時の失効には、キャンセルを引き継がない ctx を渡します。
 
 Invoke の結果を待つ間に SIGINT から 10 秒を過ぎると、Runner は `docker run` のプロセスを強制終了します。
 その後もコンテナは動き続けるため、子はトークンを受け取れば失敗時の失効を試みます。
@@ -494,7 +506,9 @@ OIDC JWT の取得と失効は宛先の URL を、AWS STS と Lambda のクラ�
 - `GITHUB_OUTPUT` と `GITHUB_STATE` への書き込みの失敗がエラー終了になること
 - 資格情報の `::add-mask::` が、その値を含み得るほかの出力より先にあること
 - 失効の要求（宛先、ヘッダー）と、HTTP ステータスごとのログ、トークンがないときに何もしないこと
-- トークンを取り出した後の失敗（成功応答の項目の欠落、型の違い、改行を含む値、`GITHUB_STATE` と `GITHUB_OUTPUT` への書き込みの失敗）のそれぞれで、メインの処理が失効を試みてから終了コード 1 で終えること
+- 通信の失敗の種類の判定が、OIDC JWT の取得、AWS STS、Invoke、失効で同じであること
+- AWS のクライアントが、`AWS_*` の環境変数と共有の設定ファイルがあっても、組み立てた接続先、認証情報、再試行で要求を送ること
+- トークンを取り出した後の失敗（成功応答の残りの項目が不正な場合、`GITHUB_STATE` と `GITHUB_OUTPUT` への書き込みの失敗）のそれぞれで、メインの処理が失効を試みてから終了コード 1 で終えること
 - トークンを取り出す前の失敗では、メインの処理が失効を試みないこと
 - 試験のサーバーへの要求の回数が、失敗した場合も 1 回であること
 - 親が、子の終了コード 0 と 1 をそのまま返し、それ以外の終了コードとシグナルによる終了では固定の文言の注釈だけを書くこと。別の goroutine で panic する子を起動し、panic の値が親の出力に現れないことを確かめる。注釈はメインでは `::error::`、post-entrypoint では `::warning::` であること
@@ -531,6 +545,7 @@ post-entrypoint はジョブの最後に動くため、利用者のステップ�
 - [GitHub — Metadata syntax reference](https://docs.github.com/en/actions/reference/workflows-and-actions/metadata-syntax)
 - [GitHub — Workflow commands for GitHub Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-commands)
 - [GitHub — actions/toolkit command.ts](https://github.com/actions/toolkit/blob/main/packages/core/src/command.ts)
+- [GitHub — actions/runner ActionCommand.cs](https://github.com/actions/runner/blob/v2.338.2/src/Runner.Common/ActionCommand.cs)
 - [GitHub — runner-images](https://github.com/actions/runner-images)
 - [GitHub — REST API endpoints for repository contents](https://docs.github.com/en/rest/repos/contents)
 - [GitHub — REST API endpoints for GitHub App installations](https://docs.github.com/en/rest/apps/installations)

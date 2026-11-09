@@ -259,8 +259,6 @@ func TestRetrieve_BodySizeLimit(t *testing.T) {
 	})
 }
 
-const communicationMessage = "could not get a response"
-
 func TestRetrieve_Timeout(t *testing.T) {
 	t.Parallel()
 
@@ -279,8 +277,8 @@ func TestRetrieve_Timeout(t *testing.T) {
 	if !errors.As(err, &netErr) || !netErr.Timeout() {
 		t.Errorf("errors.As(%v, net.Error) with Timeout() = false", err)
 	}
-	if err.Error() != communicationMessage {
-		t.Errorf("error = %q, want %q", err, communicationMessage)
+	if want := "the request timed out"; err.Error() != want {
+		t.Errorf("error = %q, want %q", err, want)
 	}
 }
 
@@ -350,8 +348,8 @@ func TestRetrieve_CommunicationFailure(t *testing.T) {
 			if got := requests.Load(); got != 1 {
 				t.Errorf("requests = %d, want 1", got)
 			}
-			if err.Error() != communicationMessage {
-				t.Errorf("error = %q, want %q", err, communicationMessage)
+			if want := "the request failed without a response"; err.Error() != want {
+				t.Errorf("error = %q, want %q", err, want)
 			}
 			if errors.Unwrap(err) == nil {
 				t.Errorf("error %q does not wrap the cause", err)

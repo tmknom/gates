@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/tmknom/gates/.github/actions/issue-token/internal/communication"
 	"github.com/tmknom/gates/.github/actions/issue-token/internal/credential"
 )
 
@@ -20,7 +21,7 @@ func (c *Client) Retrieve(ctx context.Context, audience string) (credential.OIDC
 
 	response, err := c.httpClient.Do(c.newRequest(ctx, audience))
 	if err != nil {
-		return credential.OIDCJWT{}, communicationError{cause: err}
+		return credential.OIDCJWT{}, communication.Failed(err)
 	}
 	defer func() { _ = response.Body.Close() }() // 読み終えた本文の Close の失敗は結果に影響しない
 
@@ -59,7 +60,7 @@ func (c *Client) newRequest(ctx context.Context, audience string) *http.Request 
 func readBody(response *http.Response) ([]byte, error) {
 	body, err := io.ReadAll(io.LimitReader(response.Body, responseSizeLimit+1))
 	if err != nil {
-		return nil, communicationError{cause: err}
+		return nil, communication.Failed(err)
 	}
 	if len(body) > responseSizeLimit {
 		return nil, fmt.Errorf("the response with HTTP status %d exceeds %d bytes", response.StatusCode, responseSizeLimit)

@@ -1,0 +1,1 @@
+{"ok":true,"token":"ghs_exampleToken123","repositories":["example-org/repo-b","example-org/repo-a"],"permissions":{"metadata":"read","contents":"read"},"request_id":"abc"}
