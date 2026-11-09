@@ -10,7 +10,6 @@
 | コンテナ | 内容 |
 |---|---|
 | [Alloy](alloy/README.md) | 形式モデルを検証する |
-| [bats](bats/README.md) | Composite Action のスクリプトを試験する |
 | [golangci-lint](golangci-lint/README.md) | Go のコードを静的解析する |
 | [Terraform](terraform/README.md) | AWS のインフラを管理する |
 | [tflint](tflint/README.md) | Terraform のコードを静的解析する |
@@ -28,6 +27,7 @@
 |---|---|---|---|
 | `make alloy` | Alloy | `formal/alloy/` の `authorization.als` と `issuance-temporal.als` にある `run` と `check` をすべて実行する | |
 | `make lint` | golangci-lint | リポジトリのルートのモジュールを lint する | Go と、取得済みの依存モジュール |
+| `make action-lint` | golangci-lint | `.github/actions/issue-token/` の Docker Action のモジュールを lint する | Go と、取得済みの依存モジュール |
 | `make tflint` | tflint | `terraform/` を再帰的に lint する | |
 | `make trivy` | trivy | リポジトリのルートを検査する | |
 | `make trivy-update` | trivy | イメージをキャッシュなしでビルドし直し、脆弱性 DB とチェックを更新する | |
@@ -39,7 +39,6 @@
 | `make tf-show` | Terraform | 保存した Plan を表示する | |
 | `make tf-apply` | Terraform | 保存した Plan を適用する | AWS の認証情報 |
 | `make z3` | Z3 | `formal/z3/` の検査をすべて実行し、期待する判定と比べる | |
-| `make test-action` | bats | `.github/actions/issue-token/scripts/tests/` の試験をすべて実行する | |
 
 Alloy のモデルを追加するときは、Makefile の `alloy` に実行の行を追加します。
 Z3 の検査を追加するときは、Makefile ではなく `formal/z3/checks/` にファイルを追加します。
@@ -86,5 +85,5 @@ make tflint TF_DIR=path/to/terraform
 
 Makefile は、コンテナを起動する前に次の処理を行います。
 
-- `make lint`、`make trivy`、`make tflint` は、読み取り専用の `/src` にはマウントポイントを作れないため、`compose.yaml` が隠すパスをホスト側に用意する
-- `make lint`、`make trivy`、`make tflint`、`make tf-fmt`、`make tf-check` は、`tf-misplaced-values` で `terraform/local/` の外に置かれた `.tfvars` や State などを検出して失敗する
+- `make lint`、`make action-lint`、`make trivy`、`make tflint` は、読み取り専用の `/src` にはマウントポイントを作れないため、`compose.yaml` が隠すパスをホスト側に用意する
+- `make lint`、`make action-lint`、`make trivy`、`make tflint`、`make tf-fmt`、`make tf-check` は、`tf-misplaced-values` で `terraform/local/` の外に置かれた `.tfvars` や State などを検出して失敗する

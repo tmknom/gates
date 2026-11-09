@@ -183,6 +183,12 @@ GitHub App JWT を外に出さないのは、GitHub App の権限全体を行使
 一方、値を取り出せるコンポーネントは資格情報ごとに異なります（事実：Lambda Design §4）。
 資格情報のうち利用者に返すのは Installation Access Token だけです（事実：Requirements FR-016）。
 
+利用者接点には、これらに加えて **要求用トークン**（OIDC Request Token）が現れます。
+Runner がジョブに渡す、GitHub OIDC Provider に OIDC JWT を要求するための資格情報です（事実：GitHub Actions Design §3）。
+発行の判定には現れないため上の 5 種類に含めませんが、ログに出さず、値を取り出せるコンポーネントを限る点は同じです（事実：GitHub Actions Design §3.1、§3.4）。
+利用者接点は、AWS 用 OIDC JWT と GATES 用 OIDC JWT を同じ手順で取得し、どちらになるかは要求した Audience で決まります。
+そのため取得の手順では、両者をまとめて **OIDC JWT** と呼びます（事実：GitHub Actions Design §3.1）。
+
 ### 3.6 Audit Record
 
 **監査記録**（Audit Record）は、一回の発行処理の結果を、資格情報を含めずに残したものです（事実：Requirements FR-021）。
@@ -491,7 +497,7 @@ GitHub が発行した後に不整合を検出して失効に失敗した場合�
 | **認証** | Authentication | 未検証の GATES 用 OIDC JWT を、Issuer の公開鍵と固定設定の Issuer と Audience で検証し、Caller を確定する | Lambda の Go アプリケーションのうち OIDC Verifier | JWT、JOSE Header、Claim、主体（`sub`）、Issuer、Audience、Discovery、JWK / JWKS、`kid`、使用可能な鍵 |
 | **発行** | Issuance | 発行要求と Caller から発行許可を確定し、発行結果を照合して返す | Lambda の Go アプリケーションのうち OIDC Verifier を除く部分 | 本ドキュメント §3 の概念のうち、Issuer、GATES 用 Audience、Issuer の公開鍵集合、Discovery を除くもの |
 | **入口制御** | Entry Control | 許可オーナーのワークフローだけに Lambda の Invoke を許す | IAM OIDC Provider、IAM Role、Terraform | OIDC JWT の主体の文字列パターン、Audience、AWS 一時認証情報、`lambda:InvokeFunction` |
-| **利用者接点** | Workflow Integration | 利用者の入力を発行要求に変換し、発行結果を後続ステップへ渡し、受け取ったトークンの失効（失敗時の失効、ジョブの終了時の失効）を試みる | Docker Action | `repositories` と `permissions` のカンマ区切り、接続情報、`GITHUB_OUTPUT`、`GITHUB_STATE` |
+| **利用者接点** | Workflow Integration | 利用者の入力を発行要求に変換し、発行結果を後続ステップへ渡し、受け取ったトークンの失効（失敗時の失効、ジョブの終了時の失効）を試みる | Docker Action | `repositories` と `permissions` のカンマ区切り、接続情報、要求用トークン、OIDC JWT、ワークフローコマンド（マスク、注釈）、ファイルコマンド（`GITHUB_OUTPUT`、`GITHUB_STATE`） |
 | **鍵管理** | Key Custody | KMS Key の作成、鍵素材のインポート、鍵の更新 | Terraform と独立した運用手順 | KMS Key、鍵素材、`PendingImport` と `Enabled`、`key_spec` |
 
 GitHub は、オーナー、リポジトリ、GitHub App、Installation を所有する上流です。
@@ -502,7 +508,7 @@ GitHub は、オーナー、リポジトリ、GitHub App、Installation を所�
 固定設定のうち Issuer と Audience は認証 Context が、それ以外は発行 Context が読みます。
 失敗の種別は両 Context で共通です。
 
-利用者接点は、利用者の入力を Invoke Payload に変換するために、リストの構造（空の要素、区切りの数、重複）だけを確かめます（事実：GitHub Actions Design §2.2）。
+利用者接点は、利用者の入力を Invoke Payload に変換するために、リストの構造（空の要素、区切りの数、重複）と、要素が UTF-8 として正しいことだけを確かめます（事実：GitHub Actions Design §2.2）。
 対象の重複は [5.1](#51-identity-rules) の名前の比較規則で、権限名の重複は文字列の完全一致で判定します。
 変換では要素の前後の空白を除くだけで、大文字小文字をそろえず、入力の順のまま Invoke Payload に入れます（事実：GitHub Actions Design §2.2）。
 値を書き換えないのは、利用者が書いた要求と監査記録に残る要求を一致させるためです（推論）。
@@ -562,7 +568,7 @@ Lambda の Invoke API が JSON として読めずに拒否した Payload も、�
 
 | 語 | 認証 | 発行 | 入口制御 | 利用者接点 | 鍵管理 |
 |---|---|---|---|---|---|
-| トークン | GATES 用 OIDC JWT | GitHub App JWT、Installation Access Token。GATES 用 OIDC JWT は認証へ渡すだけで読まない | AWS 用 OIDC JWT、AWS 一時認証情報 | 上記すべてと、Output の `token`、`GITHUB_STATE` に書く値 | 現れない |
+| トークン | GATES 用 OIDC JWT | GitHub App JWT、Installation Access Token。GATES 用 OIDC JWT は認証へ渡すだけで読まない | AWS 用 OIDC JWT、AWS 一時認証情報 | 上記すべてと、要求用トークン、Output の `token`、`GITHUB_STATE` に書く値 | 現れない |
 | オーナー | GATES 用 OIDC JWT の主体と Claim に現れる不変 Owner ID | 不変 Owner ID で同定する実体。名前と種別は設定値 | OIDC JWT の主体の先頭に現れる、オーナー名と Owner ID を並べた文字列パターン | 完全名の `owner` 部分 | 現れない |
 | 主体 | GATES 用 OIDC JWT の `sub`。Owner ID と Repository ID を含む文字列 | 現れない。認証が確定した呼び出し元は Caller と呼ぶ | AWS 用 OIDC JWT の `sub` と、Invoke を許す IAM の主体 | 現れない | 現れない |
 | Issuer | GitHub Actions の OIDC Provider。固定設定の値で、Discovery と公開鍵の取得先 | 現れない。コンポーネント名の Token Issuer は Installation Access Token の発行を担うもので、Issuer とは別の概念 | IAM OIDC Provider が信頼する発行元 | 現れない | 現れない |

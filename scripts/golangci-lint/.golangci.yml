@@ -88,8 +88,25 @@ linters:
         linters:
           - forbidigo
         text: "only internal/nonzero may panic"
+      # Docker Action の除外。path はモジュールのルートを基準にするため、ルートのモジュールと重ならないメッセージで限る
+      - path: ^internal/(oidc/|credential/.*_test\.go$)
+        linters:
+          - forbidigo
+        text: "only internal/oidc may expose the OIDC request token"
+      # oidc のテストは、取得した OIDC JWT の値を応答と照合する
+      - path: ^internal/(request/|oidc/.*_test\.go$|credential/.*_test\.go$)
+        linters:
+          - forbidigo
+        text: "only internal/request may expose the OIDC JWT"
+      # テストは、任意の値の OIDC JWT を作る
+      - path: ^internal/oidc/|_test\.go$
+        linters:
+          - forbidigo
+        text: "only internal/oidc may create an OIDC JWT"
   settings:
     depguard:
+      # 規則はルートのモジュールと Docker Action のモジュール（.github/actions/issue-token）で分ける。
+      # 両者は internal/request と internal/credential の名前が重なり、また否定だけの files は全ファイルに効くため、ルートの規則から .github/ を外す
       rules:
         archived:
           list-mode: lax
@@ -108,6 +125,7 @@ linters:
             - "**/internal/repository/**"
             - "**/internal/request/**"
             - "**/internal/revocation/**"
+            - "!**/.github/**"
           allow:
             - github.com/tmknom/gates/internal
           deny:
@@ -145,6 +163,7 @@ linters:
           files:
             - "!**/internal/signer/**"
             - "!**/main.go"
+            - "!**/.github/**"
           deny:
             - pkg: github.com/aws/aws-sdk-go-v2
               desc: only internal/signer and main may use the AWS SDK
@@ -155,6 +174,7 @@ linters:
           list-mode: lax
           files:
             - "**/internal/**"
+            - "!**/.github/**"
           deny:
             - pkg: github.com/aws/aws-lambda-go
               desc: only main may use the Lambda Runtime library
@@ -163,6 +183,7 @@ linters:
           list-mode: strict
           files:
             - "**/internal/credential/**"
+            - "!**/.github/**"
           allow:
             - $gostd
             - github.com/tmknom/gates/internal/credential
@@ -176,6 +197,30 @@ linters:
               desc: internal/github must not depend on internal/signer
             - pkg: github.com/tmknom/gates/internal/tokenissuer
               desc: internal/github must not depend on internal/tokenissuer
+        # Docker Action：入力の検証、ワークフローコマンド、資格情報の package は通信と外部ライブラリを持たない。入力の検証と Payload の試験を通信なしで書けるようにするため
+        action-no-communication:
+          list-mode: lax
+          files:
+            - "**/.github/actions/issue-token/internal/credential/**"
+            - "**/.github/actions/issue-token/internal/request/**"
+            - "**/.github/actions/issue-token/internal/workflow/**"
+          allow:
+            - github.com/tmknom/gates/.github/actions/issue-token/internal
+          deny:
+            - pkg: net
+              desc: the docker action's input, workflow command, and credential packages must not communicate
+            - pkg: crypto/tls
+              desc: the docker action's input, workflow command, and credential packages must not communicate
+            - pkg: github.com/
+              desc: the docker action's input, workflow command, and credential packages must not depend on external libraries
+        # Docker Action：資格情報の型は、資格情報の型を使うどの package からも使えるよう、標準ライブラリだけに依存する
+        action-credential-standard-library-only:
+          list-mode: strict
+          files:
+            - "**/.github/actions/issue-token/internal/credential/**"
+          allow:
+            - $gostd
+            - github.com/tmknom/gates/.github/actions/issue-token/internal/credential
         # 監査記録は資格情報を含めない（Domain Model の「資格情報の非記録」）。資格情報の型を import しないことは型単位では禁じられないため、package 単位で限る。
         # 許可する package を完全一致で列挙し、資格情報の型を公開する package を既定で拒否する。
         # internal/request は発行要求のために許し、監査記録が未検証の GATES 用 OIDC JWT を持たないことはレビューで確かめる。テストも対象にし、監査記録に渡せる型を閉じたままにする
@@ -207,7 +252,7 @@ linters:
         - pattern: ^time\.(Now|Since|Until)$
         - pattern: ^os\.(Getenv|LookupEnv|Environ)$
         - pattern: ^slog\.(SetDefault|Default|With|Log|LogAttrs|Debug|Info|Warn|Error|DebugContext|InfoContext|WarnContext|ErrorContext)$
-        # panic してよい場合は Lambda Design の「Failure」に記述する
+        # panic してよい場合は Lambda Design の「Failure」と GitHub Actions Design の「Failure Output」に記述する
         - pattern: ^panic$
           msg: only internal/nonzero may panic; return an error, or use nonzero.Require for a zero value
         # Caller は検証済みの GATES 用 OIDC JWT だけから作る（Domain Model の Caller の不変条件）。NewCaller は公開関数で、呼び出せる package を型で限定できないため
@@ -226,6 +271,20 @@ linters:
         - pattern: ^github\.InstallationAccessToken\.Expose$
           pkg: ^github\.com/tmknom/gates/internal/github$
           msg: only internal/handler may expose the installation access token
+        # Docker Action の資格情報の Expose は、静的な型が資格情報の型である呼び出しだけを限る。
+        # internal/workflow はマスクのために Expose を持つ値を interface で受けて呼び、この規則の対象にならない
+        # Docker Action：要求用トークンの値を取り出せるのは、OIDC JWT の要求に付ける internal/oidc だけ（GitHub Actions Design の Packages）。Expose は公開メソッドで、呼び出せる package を型で限定できないため
+        - pattern: ^credential\.OIDCRequestToken\.Expose$
+          pkg: ^github\.com/tmknom/gates/\.github/actions/issue-token/internal/credential$
+          msg: only internal/oidc may expose the OIDC request token
+        # Docker Action：OIDC JWT の値を取り出せるのは、Payload に入れる internal/request だけ。Expose は公開メソッドで、呼び出せる package を型で限定できないため
+        - pattern: ^credential\.OIDCJWT\.Expose$
+          pkg: ^github\.com/tmknom/gates/\.github/actions/issue-token/internal/credential$
+          msg: only internal/request may expose the OIDC JWT
+        # Docker Action：OIDC JWT を作れるのは、応答の JSON を復号した文字列から作る internal/oidc だけ。Payload の符号化は、OIDC JWT が UTF-8 として正しいことを前提にする。NewOIDCJWT は公開関数で、呼び出せる package を型で限定できないため
+        - pattern: ^credential\.NewOIDCJWT$
+          pkg: ^github\.com/tmknom/gates/\.github/actions/issue-token/internal/credential$
+          msg: only internal/oidc may create an OIDC JWT
     gocritic:
       disable-all: true
       enabled-checks:

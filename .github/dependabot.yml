@@ -2,7 +2,9 @@ version: 2
 
 updates:
   - package-ecosystem: gomod
-    directory: /
+    directories:
+      - /
+      - /.github/actions/issue-token
     schedule:
       interval: daily
 

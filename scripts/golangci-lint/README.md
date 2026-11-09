@@ -34,13 +34,22 @@ LINT_MODULE="$PWD" LINT_GOMODCACHE="$(go env GOMODCACHE)" \
   lint golangci-lint run --config=/config/.golangci.yml ./internal/...
 ```
 
+Docker Action のモジュール（`.github/actions/issue-token`）は、リポジトリのルートをマウントしたまま、作業ディレクトリをそのモジュールに移して lint します（`make action-lint`）。
+隠すパスはルートを渡すときと同じで、モジュールのディレクトリにマウントポイントを用意する必要がありません。
+
+```sh
+LINT_MODULE="$PWD" LINT_GOMODCACHE="$(go env GOMODCACHE)" \
+  docker compose -f scripts/golangci-lint/compose.yaml run --rm -T --interactive=false \
+  --workdir /src/.github/actions/issue-token lint
+```
+
 ## 環境変数
 
 次の変数をすべて指定します。
 
 | 変数 | 内容 |
 |---|---|
-| `LINT_MODULE` | lint する Go モジュールのディレクトリの絶対パス |
+| `LINT_MODULE` | `/src` にマウントするディレクトリの絶対パス。lint する Go モジュールか、それを含むリポジトリのルート |
 | `LINT_GOMODCACHE` | ホストのモジュールキャッシュの絶対パス。`go env GOMODCACHE` の値を指定する |
 
 ## 設計と実装
@@ -62,3 +71,7 @@ LINT_MODULE="$PWD" LINT_GOMODCACHE="$(go env GOMODCACHE)" \
 **設定ファイル**：`.golangci.yml` は検査対象の外の `/config` にマウントします。
 既定ではパスが `/config` を基準にして `../src/` で始まるため、`run.relative-path-mode` を `gomod` にしています。
 `linters.default` が `none` のため、有効な linter は `linters.enable` に列挙したものだけです。
+
+**2 つのモジュールの規則**：1 つの `.golangci.yml` で、ルートのモジュールと Docker Action のモジュールの両方を lint します。
+depguard の `files` は絶対パスと照合するため、`.github/` の有無で規則を分けます。
+除外の `path` はモジュールのルートを基準にしたパスと照合し、2 つのモジュールを区別できないため、ルートのモジュールと重ならないメッセージで限ります。
