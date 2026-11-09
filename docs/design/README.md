@@ -17,4 +17,4 @@
 | [GitHub App JWT](github-app-jwt.md) | GitHub App JWT の生成条件 |
 | [Lambda Design](lambda.md) | Lambda の入出力契約、コンポーネント、外部連携 |
 | [AWS Infrastructure Design](aws-infrastructure.md) | Terraform で管理する AWS リソースの構成 |
-| [GitHub Actions Design](github-actions.md) | Composite Action の入出力と処理手順 |
+| [GitHub Actions Design](github-actions.md) | Docker Action の入出力と処理手順 |
