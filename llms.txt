@@ -11,6 +11,7 @@ Identify and read task-related sections below when the "Use when" trigger matche
 - Deciding what GATES must do, what is out of scope, or what may be added later → read **Specification**
 - Implementing, changing, or reviewing Go code → read the Domain Model and Lambda Design in **Design**
 - Touching authentication, authorization, credentials, or tokens → read the Security Design in **Design**
+- Changing the Docker Action, or checking how a workflow should call it → read **Docker Action**, then the GitHub Actions Design in **Design**
 - Running a build, test, lint, scan, or Terraform command, or changing how they run → read **Tooling**
 - Creating, editing, or moving a document under `docs/`, or resolving a conflict between documents → read **Documentation Rules**
 - Changing AWS resources → read the AWS Infrastructure Design in **Design**, then **Infrastructure**
@@ -37,6 +38,11 @@ Identify and read task-related sections below when the "Use when" trigger matche
 - [GitHub App JWT](docs/design/github-app-jwt.md): Claim and Header generation rules for the GitHub App JWT signed by KMS, with GAJ- rule IDs - Use when implementing or reviewing GitHub App JWT generation or its lifetime
 - [GitHub Actions Design](docs/design/github-actions.md): Docker Action name and location, inputs and outputs and how they and the state for the post-entrypoint are written, connection information, list syntax and the validation it leaves to Lambda, the flow from AWS STS to outputs in one child process watched by a parent process, Go packages and their responsibilities, how main, the post-entrypoint, the parent, and the child are told apart, what each failure logs and hides, disabled retries and timeouts, masking order, revocation on failure and at job end, handling of job cancellation signals, exceptions to the Go coding rules, image rules including the root user, Runner requirements including network access, workflow usage, and local and real-environment tests - Use when implementing or changing the Docker Action, its Go code, `Dockerfile`, or `action.yml`, setting up its connection information, writing a workflow that requests a token from GATES, or deciding what the Action may print on failure
 
+## Docker Action
+
+- [Issue Token README](.github/actions/issue-token/README.md): User guide of the Docker Action, covering prerequisites, inputs and outputs, list syntax and what the Action validates, the workflow example, how to read failure annotations, revocation at job end, and cautions on outputs, untrusted code, Dependabot, and masking - Use when writing or reviewing a workflow that requests a token from GATES, or when changing what the Action tells its users
+- [Issue Token action.yml](.github/actions/issue-token/action.yml): Declares the Docker Action's input and output names and its main and post entrypoints - Use when changing the Action's inputs, outputs, or entrypoints, or when checking that a workflow example uses the actual input names
+
 ## Specification
 
 - [Requirements](docs/spec/requirements.md): Purpose, scope, technical constraints, responsibilities, functional and quality requirements, and acceptance criteria - Use when deciding whether a behavior is required or out of scope, looking up an ID such as FR-006, QR-003, or AC-30, or checking a change against acceptance criteria
@@ -46,7 +52,7 @@ Identify and read task-related sections below when the "Use when" trigger matche
 
 ## Tooling
 
-- [Makefile](Makefile): Targets for Go checks, the Lambda package, Terraform in containers, Trivy, Alloy, Z3, GitHub Actions lint, and the Go checks of the Docker Action module prefixed with `action-` - Use when looking for the command to run a build, test, coverage check, lint, scan, or Terraform operation, or when checking the prerequisites of `tf-plan` or `tf-apply` before running them
+- [Makefile](Makefile): Targets for Go checks, the Lambda package, Terraform in containers, Trivy, Alloy, Z3, GitHub Actions lint, and the Go checks and image build check of the Docker Action module prefixed with `action-` - Use when looking for the command to run a build, test, coverage check, lint, scan, or Terraform operation, or when checking the prerequisites of `tf-plan` or `tf-apply` before running them
 - [.github/workflows/](.github/workflows/): Pull request labeling and a lint triggered by YAML changes - Use when a pull request check fails, when changing what runs on GitHub, or when deciding what to run locally, because Go and Terraform checks do not run here
 - [scripts/](scripts/): Container definitions and configuration for golangci-lint, tflint, Trivy, Alloy, Z3, and Terraform, including the Go package dependency rules of both Go modules in the golangci-lint configuration and the allowlists of the Terraform proxy - Use when changing a lint or scan rule, a tool version, or what a container or the Terraform proxy may access, or when deciding which Go package or dependency a change belongs to
 

@@ -15,6 +15,6 @@ scan:
     - vuln
     - misconfig
     - secret
-ignorefile: /config/.trivyignore
+ignorefile: /config/.trivyignore.yaml
 # 検出があれば make を失敗させる
 exit-code: 1

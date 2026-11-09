@@ -27,9 +27,10 @@ DB の更新や `Dockerfile` の変更を反映するには、キャッシュな
 TRIVY_TARGET="$PWD" docker compose -f scripts/trivy/compose.yaml build --no-cache scan
 ```
 
-`trivy.yaml` と `.trivyignore` は実行時にマウントするため、ビルドせずに反映されます。
+`trivy.yaml` と `.trivyignore.yaml` は実行時にマウントするため、ビルドせずに反映されます。
 
-検出を無視するときは、ID を `.trivyignore` に追加し、理由をコメントに残します。
+検出を無視するときは、ID と理由（`statement`）を `.trivyignore.yaml` に追加します。
+特定のファイルの検出だけを無視するときは、`paths` でファイルを限ります。
 
 検査の範囲を絞るときは、サービス `scan` の後に trivy のコマンドを続けます。
 指定すると `compose.yaml` の `command` を置き換えるため、`--config` も指定します。

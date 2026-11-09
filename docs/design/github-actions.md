@@ -175,8 +175,8 @@ Runner は `Dockerfile` のあるディレクトリをビルドコンテキス�
 
 | package | 責務 | 通信 |
 |---|---|---|
-| `main.go` | 起動したパスによる親と子の選択。親ならシグナルの受け口を作って子の起動と見張りを呼び、子なら環境変数を読み取り、シグナルの受け方を設定して入口関数を呼ぶ（[§3.6](#36-cancellation)）。終了コード。panic を回復し、その値を出さずに失敗として終える | なし |
-| `internal/supervise` | 親の処理。同じ実行ファイルを子として起動し、受けたシグナルを子へ送り、子の終了の仕方から親の終了コードと注釈を決める（[§3.2](#32-failure-output)、[§3.6](#36-cancellation)） | なし |
+| `main.go` | 起動したパスによる親と子の選択。メインの親ならシグナルの受け口を作り、post-entrypoint の親ならシグナルを無視して、子の起動と見張りを呼び、子なら環境変数を読み取り、シグナルの受け方を設定して入口関数を呼ぶ（[§3.6](#36-cancellation)）。終了コード。panic を回復し、その値を出さずに失敗として終える | なし |
+| `internal/supervise` | 親の処理。同じ実行ファイルを子として起動し、メインでは受けたシグナルを子へ送り、子の終了の仕方から親の終了コードと注釈を決める（[§3.2](#32-failure-output)、[§3.6](#36-cancellation)） | なし |
 | `internal/issue` | メインの入口関数。前提の確認から Output の書き込みまでの段階（[§3](#3-processing-flow)）を順に呼び、トークンを取り出した後の失敗では失効を呼ぶ（[§3.5](#35-revocation)）。失敗の注釈を書く（[§3.2](#32-failure-output)）。キャンセルの要求を受けた時点に応じて終える（[§3.6](#36-cancellation)） | なし。部品に任せる |
 | `internal/revoke` | post-entrypoint の入口関数。`GITHUB_STATE` から渡ったトークンがあれば失効を呼ぶ（[§3.5](#35-revocation)） | なし。部品に任せる |
 | `internal/request` | 入力のリストの検証（[§2.2](#22-list-syntax)）と Payload の組み立て | なし |
@@ -189,7 +189,7 @@ Runner は `Dockerfile` のあるディレクトリをビルドコンテキス�
 | `internal/awsapi` | `AssumeRoleWithWebIdentity` と Lambda の Invoke。AWS SDK を使う唯一の package | AWS STS、Lambda Invoke API |
 | `internal/githubapi` | `DELETE /installation/token` を呼び、HTTP ステータスを返す。失効の結果をログに出すのは `internal/revocation` | GitHub API |
 
-`os.Getenv`、`os.Args`、`os.Executable`、`os.Exit`、`os.Stdout`、`os/signal` を参照するのは `main.go` だけとします。
+`os.Getenv`、`os.Args`、`os.Exit`、`os.Stdout`、`os/signal` を参照するのは `main.go` だけとします。
 `internal/` の package は、読み取った値と書き込み先を引数で受け取るため、環境変数とファイルを用意せずに試験できます。
 
 メインと post-entrypoint は、同じ実行ファイルを置いた 2 つのパスで区別します。
@@ -206,6 +206,7 @@ Runner は `Dockerfile` のあるディレクトリをビルドコンテキス�
 | `revoke-token-child` | post-entrypoint の子。post-entrypoint の入口関数を呼ぶ |
 
 親は、自身の実行ファイルを、起動したパスの末尾の名前に `-child` を付けた名前を `argv[0]` にして起動します。
+自身の実行ファイルは、Linux の `/proc/self/exe` で指します。Runner は Linux に限るためです（[§5.4](#54-runner-requirements)）。
 子の名前は、`action.yml` が固定する `entrypoint` と `post-entrypoint` のパスには現れず、利用者は子を直接起動させられません。
 子であることを環境変数で示さないのは、利用者がステップの `env:` で同じ環境変数を渡すと、親の見張りを外せるためです。
 引数で区別しないのは、Runner が `runs.args` をメインと post-entrypoint に同じ値で渡し、段階ごとに切り替えるのは `docker run` の `--entrypoint` に渡す `entrypoint` と `post-entrypoint` の値だけだからです（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#runner-source)）。
@@ -244,24 +245,26 @@ panic の値を出さないのも、値に資格情報が入っていない保�
 
 子のコードが panic するのは、ほかのコードが保証している不変条件が破れた場合だけです。
 外部入力と外部呼び出しの失敗は、panic にせずエラーで返します。
+メインの入口関数は、トークンを取り出した後の panic を一度回復して失敗時の失効を試み（[§3.5](#35-revocation)）、同じ panic を `main.go` の回復に渡し直します。
 
 `main.go` の回復が効くのは、入口関数を呼ぶ goroutine の panic だけです。
 そのため子のコードは goroutine を起動せず、すべての処理を入口関数の goroutine で行います。
-親は、子の終了を待ちながらシグナルを子へ送るために goroutine を使います（[§3.6](#36-cancellation)）。
+親は、子の終了を待つために goroutine を使います（[§3.6](#36-cancellation)）。
 親は資格情報を読まないため、親の panic の値が資格情報を含むことはありません。
 `net/http` と AWS SDK が内部で起動する goroutine の panic は回復できず、Go のランタイムが panic の値とスタックを標準エラー出力に書き、終了コード 2 でプロセスを終えます。
 panic の値には資格情報の一部が入り得て、一部だけではログのマスクが効きません。
 
 この出力をログに出さず、落ちたことだけをログに残すため、資格情報を扱う処理は子のプロセスで行い、親のプロセスが子を見張ります（[§3.1](#31-packages)）。
 
-- 親は資格情報を読まず、子を起動し、受けたシグナルを子へ送り（[§3.6](#36-cancellation)）、終了を待つだけとする
+- 親は資格情報を読まず、子を起動し、メインでは受けたシグナルを子へ送り（[§3.6](#36-cancellation)）、終了を待つだけとする
 - 子の標準出力は親の標準出力をそのまま引き継ぎ、子のワークフローコマンドと注釈はそのまま Runner に届く
 - 子の標準エラー出力は `/dev/null` につなぎ、Go のランタイムが書く panic の値とスタックを捨てる
-- 子のコードが使う終了コードは 0 と 1 だけとする。子が 0 か 1 で終われば、親は何も書かずに同じ終了コードで終える
-- 子がそれ以外の終了コードかシグナルで終われば、親は想定外の失敗で終了したことを固定の文言で `::error::` に書き、終了コード 1 で終える。回復されない panic、Go のランタイムの致命的なエラー、メモリ不足による強制終了がこれに当たる
-- 子を起動できなければ、親はそのことを固定の文言で `::error::` に書き、終了コード 1 で終える
+- 子のコードが使う終了コードは、メインの子では 0 と 1、post-entrypoint の子では 0 だけとする。メインの子が 0 か 1 で終われば、親は何も書かずに同じ終了コードで終える
+- メインの子がそれ以外の終了コードかシグナルで終われば、親は想定外の失敗で終了したことを固定の文言で `::error::` に書き、終了コード 1 で終える。回復されない panic、Go のランタイムの致命的なエラー、メモリ不足による強制終了がこれに当たる
+- メインの子を起動できなければ、親はそのことを固定の文言で `::error::` に書き、終了コード 1 で終える
 
-post-entrypoint の子が想定外に終わった場合は、親は同じ固定の文言を `::warning::` に書き、終了コード 0 で終えます。
+post-entrypoint では、子を起動できなかった場合と、子が 0 以外の終了コードかシグナルで終わった場合に、親は同じ固定の文言を `::warning::` に書き、終了コード 0 で終えます。
+post-entrypoint の子が panic を回復した場合も、子は想定外の失敗が起きたことを `::warning::` に書き、終了コード 0 で終えます。
 失効の失敗でジョブを失敗させず、`::warning::` で知らせる（[§3.5](#35-revocation)）のと同じ扱いにするためです。
 `::error::` にすると、すべてのステップが成功したジョブにエラーの注釈だけが残り、利用者が存在しない失敗を探すことになります。
 
@@ -334,7 +337,7 @@ Docker Action は、受け取ったトークンの失効を 2 つの時点に分
 - **失敗時の失効**：メインの処理がトークンを取り出した後に、後続ステップへ渡す前に失敗するかキャンセルの要求を受けた場合に、そのトークンをメインの処理がその場で失効させる
 
 失敗時の失効をジョブの終了時に任せないのは、`GITHUB_STATE` に書く前の失敗では post-entrypoint にトークンが渡らず、誰も持たないトークンが有効期限まで GitHub 側に残るためです。
-失敗時の失効は、トークンを取り出した後のどの失敗でも試みます。成功応答の残りの項目が不正な場合、`GITHUB_STATE` か `GITHUB_OUTPUT` への書き込みに失敗した場合、`GITHUB_STATE` に書く前にキャンセルの要求を受けた場合（[§3.6](#36-cancellation)）がこれに当たり、トークンのマスクや成功のログを標準出力に書けなかった場合も含みます。
+失敗時の失効は、トークンを取り出した後のどの失敗でも試みます。成功応答の残りの項目が不正な場合、`GITHUB_STATE` か `GITHUB_OUTPUT` への書き込みに失敗した場合、`GITHUB_STATE` に書く前にキャンセルの要求を受けた場合（[§3.6](#36-cancellation)）がこれに当たり、トークンのマスクや成功のログを標準出力に書けなかった場合と、想定外の失敗（panic）も含みます。
 失敗で終わるステップのトークンを残さないためです。
 失効を試みた後も、メインの処理は終了コード 1 で終えます。
 `GITHUB_STATE` に書いた後に `GITHUB_OUTPUT` への書き込みに失敗した場合は、post-entrypoint も同じトークンの失効を試みます。
@@ -373,12 +376,13 @@ Runner はコンテナに `docker kill` も `docker stop` も送らないため�
 Lambda がトークンを発行した後、子が `GITHUB_STATE` に書く前に終わると、メインの処理も post-entrypoint もそのトークンを失効できないためです。
 そのため、Docker Action はシグナルをキャンセルの要求として受け取り、要求を受けた時点に応じて終えます。
 
-- 親は、SIGINT か SIGTERM を受けると同じシグナルを子へ送り、子の終了を待ち続ける。親が先に終わると、カーネルが同じコンテナの子を強制終了するため
+- メインの親は、SIGINT か SIGTERM を受けると同じシグナルを子へ送り、子の終了を待ち続ける。親が先に終わると、カーネルが同じコンテナの子を強制終了するため
 - メインの子は、Invoke を始める前に要求を受けたら、進行中の通信を打ち切り、キャンセルされたことを `::error::` に書いて終了コード 1 で終える。Lambda をまだ呼んでいないため、トークンは発行されていない
 - メインの子は、Invoke の最中に要求を受けても Invoke を打ち切らず、[§3.3](#33-retry-and-timeout) の上限まで結果を待つ。打ち切ると、Lambda が発行したトークンを受け取れず、Docker Action も Lambda もそのトークンを失効できないため
 - メインの子は、トークンを取り出してマスクした後、残りの項目を判定する前に要求の有無を確かめる。要求があれば、Output と `GITHUB_STATE` に書かずに失敗時の失効を試み（[§3.5](#35-revocation)）、キャンセルされたことを `::error::` に書いて終了コード 1 で終える
 - メインの子は、この確認の後に要求を受けたら、残りの判定と書き込みを要求がない場合と同じく終える。Runner はキャンセルで終わったステップの `GITHUB_STATE` も読むため（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#runner-source)）、書いたトークンはジョブの終了時の失効が扱う
 - post-entrypoint の子は、SIGINT と SIGTERM を無視し、失効を終えてから終える。失効の上限の 5 秒は、SIGINT から強制終了までの 10 秒より短いため
+- post-entrypoint の親も、SIGINT と SIGTERM を無視し、子へ送らない。子が無視を設定する前に届いたシグナルで子が終わると、失効を試みないまま終わるため
 
 子のシグナルの受け方は `main.go` が Go の `os/signal` で設定します。
 メインの子では SIGINT と SIGTERM を受け取ってキャンセルの要求として入口関数に渡し、post-entrypoint の子では無視します。
@@ -448,7 +452,7 @@ Docker Action の Go のコードは、Go コーディングルールが既定�
 
 ### 5.2 Image
 
-- マルチステージビルドとし、ビルド用のイメージは `docker.io/library/golang` の Debian 版（`<版>-trixie`）を、タグと digest で固定する。Go の版は Docker Action の Go モジュールの `go.mod`（`.github/actions/issue-token/go.mod`）に合わせる。`GOTOOLCHAIN=local` ではビルド用のイメージの Go が `go.mod` の版より古いとビルドが失敗するため、`go.mod` の版を上げるときはビルド用のイメージも合わせて上げる
+- マルチステージビルドとし、ビルド用のイメージは `docker.io/library/golang` の Debian 版（`<版>-trixie`）を、タグと digest で固定する。Go の版は、Docker Action の Go モジュールの `go.mod`（`.github/actions/issue-token/go.mod`）の `go` の版と同じマイナー版の、最新のパッチ版とする。`go` の版は言語の最低の版で、パッチ版は標準ライブラリの脆弱性の修正を含むため。`GOTOOLCHAIN=local` ではビルド用のイメージの Go が `go.mod` の版より古いとビルドが失敗するため、`go.mod` の版を上げるときはビルド用のイメージも合わせて上げる
 - `CGO_ENABLED=0`、`-trimpath`、`-buildvcs=false`、`GOTOOLCHAIN=local` でビルドする。`go build` は既定で `go.mod` と `go.sum` を書き換えず、`go.sum` にない依存を取り込まない
 - 実行用のイメージは `scratch` に、実行ファイル（`/issue-token` と、それを指すシンボリックリンクの `/revoke-token`）と、ビルド用のイメージから複製した CA 証明書（`/etc/ssl/certs/ca-certificates.crt`）だけを置く。GitHub と AWS への HTTPS に CA 証明書が要る
 - `ENTRYPOINT` は exec 形式と絶対パスで書き、`WORKDIR` を使わない
@@ -508,12 +512,17 @@ OIDC JWT の取得と失効は宛先の URL を、AWS STS と Lambda のクラ�
 - 失効の要求（宛先、ヘッダー）と、HTTP ステータスごとのログ、トークンがないときに何もしないこと
 - 通信の失敗の種類の判定が、OIDC JWT の取得、AWS STS、Invoke、失効で同じであること
 - AWS のクライアントが、`AWS_*` の環境変数と共有の設定ファイルがあっても、組み立てた接続先、認証情報、再試行で要求を送ること
-- トークンを取り出した後の失敗（成功応答の残りの項目が不正な場合、`GITHUB_STATE` と `GITHUB_OUTPUT` への書き込みの失敗）のそれぞれで、メインの処理が失効を試みてから終了コード 1 で終えること
+- トークンを取り出した後の失敗（成功応答の残りの項目が不正な場合、`GITHUB_STATE` と `GITHUB_OUTPUT` への書き込みの失敗、想定外の失敗（panic））のそれぞれで、メインの処理が失効を試みてから終了コード 1 で終えること
 - トークンを取り出す前の失敗では、メインの処理が失効を試みないこと
 - 試験のサーバーへの要求の回数が、失敗した場合も 1 回であること
-- 親が、子の終了コード 0 と 1 をそのまま返し、それ以外の終了コードとシグナルによる終了では固定の文言の注釈だけを書くこと。別の goroutine で panic する子を起動し、panic の値が親の出力に現れないことを確かめる。注釈はメインでは `::error::`、post-entrypoint では `::warning::` であること
-- 親が、受けた SIGINT と SIGTERM を子へ送り、子が終わるまで待つこと
+- メインの親が、子の終了コード 0 と 1 をそのまま返し、それ以外の終了コードとシグナルによる終了と起動の失敗では固定の文言の `::error::` だけを書いて 1 を返すこと。post-entrypoint の親が、子の 0 以外の終わり方と起動の失敗では固定の文言の `::warning::` だけを書き、どの場合も 0 を返すこと。別の goroutine で panic する子を起動し、panic の値が親の出力に現れないことを確かめる
+- メインの親が、受けた SIGINT と SIGTERM を子へ送り、子が終わるまで待つこと
+- 親が起動した子に、親の環境変数がそのまま渡ること
 - メインの子が、キャンセルの要求を受けた時点（Invoke を始める前、Invoke の最中、トークンを取り出した後、その後の確認を過ぎた後）ごとに、[§3.6](#36-cancellation) のとおりに終えること。試験では、シグナルの代わりにキャンセルの要求を入口関数に渡す
+
+親の試験は、試験の実行ファイル自身を子として起動し、子の振る舞いを本番と同じく `argv[0]` の名前で選びます。
+このため、親の試験のコードは、子の振る舞いのために `os.Args`、`os.Exit`、`os.Getenv`、`os/signal`、`panic` を使います。
+メインの入口関数の試験も、段階の途中の panic を起こすために、標準出力の書き込み先で `panic` を使います。
 
 ### 6.2 Tests on GitHub Actions
 
@@ -523,7 +532,7 @@ GitHub と AWS の挙動に依存する事項は、許可オーナーのワー�
 - ワークフローのログで、GATES 用 OIDC JWT、AWS 用 OIDC JWT、AWS 一時認証情報、トークンがマスクされているか現れないこと
 - 呼び出し元の後続ステップの環境変数に、AWS 一時認証情報が現れないこと
 - AWS STS での引き受けの失敗と、Lambda が返す失敗で、Docker Action がエラー終了すること
-- メインと post-entrypoint のそれぞれで、`main.go` が起動したパス（`os.Args[0]`）から正しい入口関数を選ぶこと。Docker が `--entrypoint` のパスを、シンボリックリンクのパスのまま `argv[0]` にして実行ファイルを起動することと、親が子を起動できることは、実環境でまだ確かめていない
+- メインと post-entrypoint のそれぞれで、`main.go` が起動したパス（`os.Args[0]`）から正しい入口関数を選ぶこと。Docker が `--entrypoint` のパスを、シンボリックリンクのパスのまま `argv[0]` にして実行ファイルを起動することと、親が子を起動できることは、ローカルの Docker では `make action-image` で確かめているが、Runner の上ではまだ確かめていない
 - ジョブの終了時に post-entrypoint がトークンの失効を試み、HTTP ステータスをログに出し、失効したトークンが使えないこと
 - 後続ステップが失敗したジョブと、後続ステップの実行中にキャンセルしたジョブでも、post-entrypoint がトークンの失効を試みること。どちらの場合に post-entrypoint が動くかは、まだ確かめていない（[GitHub Constraints](../spec/github-constraints.md#9-outstanding-verification)）
 - メインがトークンを取り出す前に失敗したジョブで、post-entrypoint が何もせずに終わること

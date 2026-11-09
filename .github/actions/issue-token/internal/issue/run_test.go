@@ -615,3 +615,35 @@ func TestRun_JoinsTheFailureToWriteTheAnnotation(t *testing.T) {
 		t.Errorf("Run() error = %v, want both the failure of the stage and %v", err, errWrite)
 	}
 }
+
+// panicOn は、prefix で始まる行が書かれたときに panic する。段階の途中で不変条件が破れた状況を作るために使う。
+func panicOn(prefix string) func(string) error {
+	return func(p string) error {
+		if strings.HasPrefix(p, prefix) {
+			panic(errPanic) //nolint:forbidigo // 段階の途中の panic を、標準出力への書き込みで起こすため
+		}
+		return nil
+	}
+}
+
+var errPanic = errors.New("panic in a stage")
+
+func TestRun_PanicAfterExtractingTokenRevokesItAndPassesThePanicOn(t *testing.T) {
+	t.Parallel()
+
+	token, _ := expectedSuccess(t)
+	f := newFixture(t, defaultHandlers(t))
+	f.stdout.onWrite = panicOn("::add-mask::" + token)
+
+	recovered := func() (r any) {
+		defer func() { r = recover() }()
+		_ = issue.Run(t.Context(), f.cfg)
+		return nil
+	}()
+	if err, _ := recovered.(error); !errors.Is(err, errPanic) {
+		t.Errorf("recovered = %v, want %v", recovered, errPanic)
+	}
+	if n := len(f.github.received()); n != 1 {
+		t.Errorf("revocation requests = %d, want 1", n)
+	}
+}

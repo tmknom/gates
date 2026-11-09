@@ -83,10 +83,20 @@ func run(ctx context.Context, cfg Config) error {
 		return err
 	}
 
+	// 失敗時の失効も、キャンセルの要求で打ち切らない（GitHub Actions Design の Revocation）
+	revoke := func() error {
+		return revocation.Attempt(context.WithoutCancel(ctx), cfg.Stdout, githubapi.NewClient(cfg.GitHub...), success.Token())
+	}
+	// トークンを取り出した後の panic も失敗として失効を試み、panic は呼び出し元の回復に渡し直す
+	defer func() {
+		if r := recover(); r != nil {
+			// 返る error は失効の結果を標準出力に書けなかったことだけで、panic を渡し直すため返す先がない
+			_ = revoke()
+			panic(r) //nolint:forbidigo // 回復は呼び出し元が担い、ここでは失効を試みるためだけに受け止める
+		}
+	}()
 	if err := deliver(ctx, cfg, success); err != nil {
-		// 失敗時の失効も、キャンセルの要求で打ち切らない（GitHub Actions Design の Revocation）
-		revocationErr := revocation.Attempt(context.WithoutCancel(ctx), cfg.Stdout, githubapi.NewClient(cfg.GitHub...), success.Token())
-		return errors.Join(err, revocationErr)
+		return errors.Join(err, revoke())
 	}
 	return nil
 }
