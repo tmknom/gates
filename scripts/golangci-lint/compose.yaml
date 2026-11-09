@@ -1,7 +1,7 @@
 # golangci-lint を隔離して実行するサービス定義
 #
 # 環境変数は Makefile が設定する。
-#   LINT_MODULE      lint する Go モジュールのディレクトリの絶対パス
+#   LINT_MODULE      /src にマウントするディレクトリの絶対パス。lint する Go モジュールか、それを含むリポジトリのルート
 #   LINT_GOMODCACHE  ホストのモジュールキャッシュの絶対パス（go env GOMODCACHE）
 
 name: golangci-lint

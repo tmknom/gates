@@ -99,7 +99,7 @@ Docker Action 内では `repositories` を配列、`permissions` を JSON オブ
 空白を除くほかは要素を書き換えず、大文字小文字もそろえずに、入力の順のまま変換します。
 独自のエスケープ構文は設けません。
 
-Docker Action が検証するのは、リストの構造だけです。
+Docker Action が検証するのは、リストの構造と、要素が UTF-8 として正しいことだけです。
 次のどれかに当たる入力は、Lambda を呼ばずに失敗します。
 
 - 空の要素がある
@@ -107,9 +107,11 @@ Docker Action が検証するのは、リストの構造だけです。
 - `repositories` に、ASCII の範囲で大文字小文字を区別せずに比べて同じ要素が 2 つ以上ある
 - `permissions` の要素が `:` をちょうど 1 つ含まないか、`:` の前後のどちらかが、空であるか、空白で始まるか終わる
 - `permissions` に、権限名が文字列として完全に一致する要素が 2 つ以上ある
+- 要素が UTF-8 として正しくない
 
 空の要素や区切りの誤りは Lambda も `invalid_request` で拒否しますが、その `message` は固定の文言で、どの要素が不正かを示しません（[Lambda Design](lambda.md#32-failure)）。
 Docker Action で先に止めると、利用者に該当する要素を示せます。
+UTF-8 として正しくない要素は、Payload の JSON の文字列にすると別の文字に置き換わり、要素を書き換えない変換にならないため、Docker Action で止めます。
 `permissions` の権限名の重複は、Lambda に任せることもできません。
 JSON オブジェクトに変換すると後の要素が前の要素を上書きし、`contents:write,contents:read` が `{"contents":"read"}` として送られ、利用者が書いた要求と監査記録に残る要求が食い違うためです。
 
@@ -172,7 +174,7 @@ Runner は `Dockerfile` のあるディレクトリをビルドコンテキス�
 | `internal/revoke` | post-entrypoint の入口関数。`GITHUB_STATE` から渡ったトークンがあれば失効を呼ぶ（[§3.5](#35-revocation)） | なし。部品に任せる |
 | `internal/request` | 入力のリストの検証（[§2.2](#22-list-syntax)）と Payload の組み立て | なし |
 | `internal/response` | Invoke の結果を SDK のエラー、`StatusCode`、`FunctionError`、`ok` の順に判定し、成功なら 4 つの Output の値とログに出す項目を、失敗なら段階とログに出す文言を返す | なし |
-| `internal/workflow` | ワークフローコマンド（`::add-mask::`、`::error::`、`::warning::`）の符号化と標準出力への書き込み、`GITHUB_OUTPUT` と `GITHUB_STATE` への `name=value` の書き込みと、改行を含む値の拒否 | なし |
+| `internal/workflow` | ワークフローコマンド（`::add-mask::`、`::error::`、`::warning::`）の符号化と標準出力への書き込み、ファイルコマンド（`GITHUB_OUTPUT` と `GITHUB_STATE` への `name=value` の書き込み）と、改行を含む値の拒否 | なし |
 | `internal/credential` | 資格情報の型。`fmt` と JSON で値を出さず、値を取り出す口を使う側に限る | なし |
 | `internal/oidc` | OIDC JWT の取得。AWS 用と GATES 用の両方に使う | GitHub OIDC Provider |
 | `internal/awsapi` | `AssumeRoleWithWebIdentity` と Lambda の Invoke。AWS SDK を使う唯一の package | AWS STS、Lambda Invoke API |
@@ -230,6 +232,9 @@ SDK とライブラリのエラー文言は出しません。
 文言には接続先の URL や要求の一部が入り得るためです。
 panic の値を出さないのも、値に資格情報が入っていない保証がないためです。
 
+子のコードが panic するのは、ほかのコードが保証している不変条件が破れた場合だけです。
+外部入力と外部呼び出しの失敗は、panic にせずエラーで返します。
+
 `main.go` の回復が効くのは、入口関数を呼ぶ goroutine の panic だけです。
 そのため子のコードは goroutine を起動せず、すべての処理を入口関数の goroutine で行います。
 親は、子の終了を待ちながらシグナルを子へ送るために goroutine を使います（[§3.6](#36-cancellation)）。
@@ -261,7 +266,7 @@ post-entrypoint の子が想定外に終わった場合は、親は同じ固定�
 注釈は標準出力に書き、注釈と `::add-mask::` に入れる値は `%`、CR、LF をそれぞれ `%25`、`%0D`、`%0A` に符号化して 1 行に収めます（[GitHub — actions/toolkit command.ts](https://github.com/actions/toolkit/blob/main/packages/core/src/command.ts) の `escapeData`）。
 値に改行が残ると、その後の行を Runner がワークフローコマンドとして読み得るためです。
 マスクの値に `%` が符号化されずに残ると、Runner が `%25`、`%0D`、`%0A` を戻した後の別の文字列をマスクし、資格情報そのものはマスクされません。
-入力の検証の注釈では、該当する要素を JSON の文字列として示し、前後の空白や制御文字を見分けられるようにします。
+入力の検証の注釈では、該当する要素を二重引用符で囲み、制御文字と UTF-8 として正しくないバイトをエスケープして示し、前後の空白や制御文字を見分けられるようにします。
 
 ### 3.3 Retry and Timeout
 

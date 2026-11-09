@@ -46,9 +46,9 @@ Identify and read task-related sections below when the "Use when" trigger matche
 
 ## Tooling
 
-- [Makefile](Makefile): Targets for Go checks, the Lambda package, Terraform in containers, Trivy, Alloy, Z3, GitHub Actions lint, and the bats tests of the token action's shell scripts - Use when looking for the command to run a build, test, coverage check, lint, scan, or Terraform operation, or when checking the prerequisites of `tf-plan` or `tf-apply` before running them
+- [Makefile](Makefile): Targets for Go checks, the Lambda package, Terraform in containers, Trivy, Alloy, Z3, GitHub Actions lint, and the Go checks of the Docker Action module prefixed with `action-` - Use when looking for the command to run a build, test, coverage check, lint, scan, or Terraform operation, or when checking the prerequisites of `tf-plan` or `tf-apply` before running them
 - [.github/workflows/](.github/workflows/): Pull request labeling and a lint triggered by YAML changes - Use when a pull request check fails, when changing what runs on GitHub, or when deciding what to run locally, because Go and Terraform checks do not run here
-- [scripts/](scripts/): Container definitions and configuration for golangci-lint, tflint, Trivy, Alloy, Z3, bats-core, and Terraform, including the Go package dependency rules in the golangci-lint configuration and the allowlists of the Terraform proxy - Use when changing a lint or scan rule, a tool version, or what a container or the Terraform proxy may access, or when deciding which Go package or dependency a change belongs to
+- [scripts/](scripts/): Container definitions and configuration for golangci-lint, tflint, Trivy, Alloy, Z3, and Terraform, including the Go package dependency rules of both Go modules in the golangci-lint configuration and the allowlists of the Terraform proxy - Use when changing a lint or scan rule, a tool version, or what a container or the Terraform proxy may access, or when deciding which Go package or dependency a change belongs to
 
 ## Documentation Rules
 

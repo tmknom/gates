@@ -202,33 +202,61 @@ container-mountpoints:
 	@[ -e .envrc ] || touch .envrc
 
 # Targets: GitHub Actions
-# GitHub Actions のディレクトリのシェルのファイル。拡張子のない試験のスタブと bats の試験も含める。
-# 共通の SHELL_FILES はリポジトリ全体の *.sh を対象にするため、上書きせずに別の変数とする
-GHA_SHELL_FILES = $(shell find .github -type f \
-	\( -name '*.sh' -o -name '*.bats' -o -name '*.bash' -o -path '.github/actions/*/scripts/tests/stubs/*' \) -print)
-
-# 共通の makefile の既定は更新され続けるタグのため、版と digest を固定し、検査と整形の結果を版の更新から切り離す。
-# 共通の makefile より後で代入し、共通の lint/shell と fmt/shell にも効かせる
-SHELLCHECK = koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d
-SHFMT = mvdan/shfmt:v3.14.1@sha256:8c06884a35683d8763fba6c0d9484d11a61a96da65f8d497d6f625825a6043f2
-
 .PHONY: lint-gha
-lint-gha: lint/workflow lint/yaml lint-gha-shell ## Lint workflow files, YAML files and shell files
-
-# 共通の lint/shell は shellcheck の指摘を無視して成功するため、指摘があれば失敗する専用のターゲットで検査する。
-# 対象が見つからなければ、何も検査せずに通さないよう失敗する
-.PHONY: lint-gha-shell
-lint-gha-shell:
-	@if [ -z "$(GHA_SHELL_FILES)" ]; then echo "lint-gha-shell: no shell files found under .github" >&2; exit 1; fi
-	$(SECURE_DOCKER_RUN) $(SHELLCHECK) $(GHA_SHELL_FILES)
+lint-gha: lint/workflow lint/yaml ## Lint workflow files and YAML files
 
 .PHONY: fmt-gha
-fmt-gha: fmt/yaml fmt-gha-shell ## Format YAML files and shell files
+fmt-gha: fmt/yaml ## Format YAML files
 
-.PHONY: fmt-gha-shell
-fmt-gha-shell:
-	$(MAKE) fmt/shell SHELL_FILES="$(GHA_SHELL_FILES)"
+# Targets: Docker Action
+# Docker Action はルートと別の Go モジュールのため、go -C でそのディレクトリを基準に実行する
+ACTION_DIR := .github/actions/issue-token
+ACTION_GO := go -C $(ACTION_DIR)
+ACTION_MODULE := $(shell $(ACTION_GO) list -m)
 
-.PHONY: test-action
-test-action: ## test the composite action scripts by bats in an isolated container
-	BATS_TARGET=$(CURDIR)/.github/actions/issue-token/scripts docker compose -f scripts/bats/compose.yaml run --build --rm -T --interactive=false bats tests
+.PHONY: action-all
+action-all: action-fmt action-goimports action-tidy action-vet action-test action-cover ## format, tidy, vet, test and cover the docker action
+	@echo "NEXT STEP: Run 'make action-vuln' to check known vulnerabilities."
+	@echo "NEXT STEP: Run 'make action-lint' to run golangci-lint in a container."
+
+.PHONY: action-fmt
+action-fmt: ## format the docker action code
+	$(ACTION_GO) fmt ./...
+
+.PHONY: action-goimports
+action-goimports: ## update import lines of the docker action code
+	$(ACTION_GO) tool goimports -w -local $(ACTION_MODULE) .
+
+.PHONY: action-tidy
+action-tidy: ## manage modules of the docker action
+	$(ACTION_GO) mod tidy
+	$(ACTION_GO) mod verify
+
+.PHONY: action-vet
+action-vet: ## static analysis of the docker action by vet
+	$(ACTION_GO) vet ./...
+
+# リポジトリのルートをマウントし、隠すパスを lint と同じにしたまま、作業ディレクトリだけを Docker Action のモジュールに移す。
+# Docker Action のディレクトリをマウントすると、隠すパスのマウントポイントをそのディレクトリにも作る必要があるため
+.PHONY: action-lint
+action-lint: container-mountpoints tf-misplaced-values ## static analysis of the docker action by golangci-lint in an isolated container
+	LINT_MODULE=$(CURDIR) LINT_GOMODCACHE="$$(go env GOMODCACHE)" \
+		docker compose -f scripts/golangci-lint/compose.yaml run --rm -T --interactive=false --workdir /src/$(ACTION_DIR) lint
+
+.PHONY: action-vuln
+action-vuln: ## check known vulnerabilities of the docker action by govulncheck
+	$(ACTION_GO) tool govulncheck ./...
+
+.PHONY: action-test
+action-test: ## run test of the docker action
+	$(ACTION_GO) test -count=1 ./...
+
+.PHONY: action-cover
+action-cover: ## measure test coverage of the docker action excluding main.go and require 100% under internal/
+	mkdir -p $(DIST_DIR)
+	$(ACTION_GO) test -count=1 -coverprofile=$(CURDIR)/$(DIST_DIR)/action-coverage.out ./...
+	grep -Ev '$(COVER_EXCLUDE)' $(DIST_DIR)/action-coverage.out > $(DIST_DIR)/action-coverage.filtered.out
+	$(ACTION_GO) tool cover -func=$(CURDIR)/$(DIST_DIR)/action-coverage.filtered.out
+	@# 判定はルートの cover と同じく、internal/ 配下のブロックの実行回数で行う
+	@! grep '/internal/' $(DIST_DIR)/action-coverage.filtered.out | grep -E ' [1-9][0-9]* 0$$' \
+		|| (echo "coverage under internal/ must be 100%: the blocks above are not executed" && exit 1)
