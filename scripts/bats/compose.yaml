@@ -1,0 +1,39 @@
+# bats-core を隔離して実行するサービス定義
+#
+# 環境変数は Makefile が設定する。
+#   BATS_TARGET  Composite Action のスクリプトのディレクトリの絶対パス。試験もその中に置く。リポジトリのルートではなく、そのディレクトリに絞る
+#
+# 試験の一時ファイルは bats が /tmp の tmpfs に作る。
+# 試験が実行するスクリプトとスタブは /src に置き、/tmp からは実行しない
+
+name: bats
+
+services:
+  bats:
+    # localhost/ を付け、Docker Hub の同名のイメージを取ってこないようにする
+    build: .
+    image: localhost/gates/bats:latest
+    pull_policy: never
+    user: "65534:65534"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    network_mode: none
+    ipc: none
+    mem_limit: 512m
+    memswap_limit: 512m
+    pids_limit: 128
+    cpus: 2
+    ulimits:
+      core: 0
+    init: true
+    working_dir: /src
+    environment:
+      HOME: /tmp
+    volumes:
+      - type: bind
+        source: ${BATS_TARGET:?BATS_TARGET is required}
+        target: /src
+        read_only: true

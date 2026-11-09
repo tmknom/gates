@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# 試験用の curl。受け取った引数を 1 行ずつ記録し、ヘッダーを標準入力から読む指定があれば標準入力も記録する。
+# 用意した本文を --output のファイルに書き、--write-out の位置にステータスを出す
+#
+# 環境変数
+#   STUB_LOG_DIR      記録を置くディレクトリ
+#   CURL_STUB_BODY    応答の本文
+#   CURL_STUB_STATUS  HTTP ステータス。既定は 200
+#   CURL_STUB_EXIT    終了コード。0 以外なら本文を書かず、通信に失敗した curl のように終える
+set -euo pipefail
+
+printf '%s\n' "$@" >>"${STUB_LOG_DIR}/curl.args"
+
+output=""
+reads_stdin=false
+previous=""
+for argument in "$@"; do
+  case "${previous}" in
+    --output | -o) output="${argument}" ;;
+    --header | -H) [[ "${argument}" != "@-" ]] || reads_stdin=true ;;
+  esac
+  previous="${argument}"
+done
+
+if [[ "${reads_stdin}" == true ]]; then
+  cat >>"${STUB_LOG_DIR}/curl.stdin"
+fi
+
+exit_code="${CURL_STUB_EXIT:-0}"
+if [[ "${exit_code}" -ne 0 ]]; then
+  printf '000'
+  echo "curl: (${exit_code}) Failed to connect to token.actions.example port 443" >&2
+  exit "${exit_code}"
+fi
+
+if [[ -n "${output}" ]]; then
+  printf '%s' "${CURL_STUB_BODY:-}" >"${output}"
+fi
+printf '%s' "${CURL_STUB_STATUS:-200}"
