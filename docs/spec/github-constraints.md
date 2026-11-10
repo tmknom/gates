@@ -299,6 +299,10 @@ Docker Action は既定の Docker ユーザー（root）で動かす必要があ
 root では、メインで `add-mask` した値が `GITHUB_OUTPUT` を経て呼び出し元の後続ステップに欠けずに届いてマスクされ、`GITHUB_STATE` を経て post-entrypoint に `STATE_` の環境変数として届いてマスクされました。
 メインが終了コード 1 で終えたステップ（`continue-on-error: true`）でも、post-entrypoint は動きました（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md)）。
 
+**実測値（失敗とキャンセル）**：`continue-on-error` を付けないメインの失敗でジョブが失敗した場合、後続のステップの失敗でジョブが失敗した場合、後続のステップの実行中にワークフロー実行をキャンセルした場合のどれでも、post-entrypoint は動きました。
+ワークフロー実行のキャンセルの API を呼んでから Runner がステップを終えるまでに、12〜13 秒かかりました。
+`docker run` のプロセスに送った SIGINT は、コンテナの中のプロセスに届きました（[GitHub Docker Action Failure and Cancellation](../research/github/docker-action-cancellation.md)）。
+
 **推論（Docker Action の実行ユーザー）**：公式資料が `USER` を禁じる理由に挙げるのは `GITHUB_WORKSPACE` だけですが、観測ではファイルコマンドにも書き込めませんでした。ファイルコマンドの所有者は Runner を動かすユーザーで、その uid は Runner の環境ごとに決まるため、Action のイメージが固定の uid で書き込める保証はありません。Output と `STATE_` を使う Docker Action は、root で動かす前提になります。
 
 **公式仕様（Dependabot の `docker`）**：`package-ecosystem: docker` は `Dockerfile` のイメージのタグを更新します（[Dependabot options reference](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference)、[Dependabot supported ecosystems and repositories](https://docs.github.com/en/code-security/reference/supply-chain-security/supported-ecosystems-and-repositories)）。

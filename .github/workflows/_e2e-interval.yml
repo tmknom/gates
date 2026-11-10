@@ -1,0 +1,128 @@
+name: E2E Interval
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+# 同じ Lambda を呼ぶ E2E テストを重ねず、Invoke の間隔を乱さない
+concurrency:
+  group: gates-e2e
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+# 温まった Lambda の実行環境に、直前の Invoke から 1 分前後空けて Invoke を続ける。
+# 待ちの秒数は、Action のステップの所要時間を足して Invoke の間隔が 55、60、65、75 秒前後になる値にしている。
+# 間隔の実測は Lambda の REPORT 行の時刻で確かめる。
+jobs:
+  issue:
+    name: Issue at intervals
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      # 各呼び出しは失敗しても後続の呼び出しを続け、最後のステップでまとめて判定する。
+      # トークンは使わず、各呼び出しの post-entrypoint がジョブの終了時に失効させる
+      - name: Issue token 1
+        id: issue-1
+        continue-on-error: true
+        uses: tmknom/gates/.github/actions/issue-token@4673f914d13515b8e1c307e32313f16d6d36ce11
+        with:
+          repositories: ${{ vars.GATES_TARGET_PRIMARY }}
+          permissions: contents:read
+          role-arn: arn:aws:iam::${{ secrets.GATES_AWS_ACCOUNT_ID }}:role/${{ vars.GATES_ROLE_NAME }}
+          function-name: ${{ vars.GATES_FUNCTION_NAME }}
+          aws-region: ${{ vars.GATES_AWS_REGION }}
+          audience: ${{ vars.GATES_AUDIENCE }}
+
+      - name: Wait before token 2
+        run: sleep 50
+
+      - name: Issue token 2
+        id: issue-2
+        continue-on-error: true
+        uses: tmknom/gates/.github/actions/issue-token@4673f914d13515b8e1c307e32313f16d6d36ce11
+        with:
+          repositories: ${{ vars.GATES_TARGET_PRIMARY }}
+          permissions: contents:read
+          role-arn: arn:aws:iam::${{ secrets.GATES_AWS_ACCOUNT_ID }}:role/${{ vars.GATES_ROLE_NAME }}
+          function-name: ${{ vars.GATES_FUNCTION_NAME }}
+          aws-region: ${{ vars.GATES_AWS_REGION }}
+          audience: ${{ vars.GATES_AUDIENCE }}
+
+      - name: Wait before token 3
+        run: sleep 55
+
+      - name: Issue token 3
+        id: issue-3
+        continue-on-error: true
+        uses: tmknom/gates/.github/actions/issue-token@4673f914d13515b8e1c307e32313f16d6d36ce11
+        with:
+          repositories: ${{ vars.GATES_TARGET_PRIMARY }}
+          permissions: contents:read
+          role-arn: arn:aws:iam::${{ secrets.GATES_AWS_ACCOUNT_ID }}:role/${{ vars.GATES_ROLE_NAME }}
+          function-name: ${{ vars.GATES_FUNCTION_NAME }}
+          aws-region: ${{ vars.GATES_AWS_REGION }}
+          audience: ${{ vars.GATES_AUDIENCE }}
+
+      - name: Wait before token 4
+        run: sleep 60
+
+      - name: Issue token 4
+        id: issue-4
+        continue-on-error: true
+        uses: tmknom/gates/.github/actions/issue-token@4673f914d13515b8e1c307e32313f16d6d36ce11
+        with:
+          repositories: ${{ vars.GATES_TARGET_PRIMARY }}
+          permissions: contents:read
+          role-arn: arn:aws:iam::${{ secrets.GATES_AWS_ACCOUNT_ID }}:role/${{ vars.GATES_ROLE_NAME }}
+          function-name: ${{ vars.GATES_FUNCTION_NAME }}
+          aws-region: ${{ vars.GATES_AWS_REGION }}
+          audience: ${{ vars.GATES_AUDIENCE }}
+
+      - name: Wait before token 5
+        run: sleep 70
+
+      - name: Issue token 5
+        id: issue-5
+        continue-on-error: true
+        uses: tmknom/gates/.github/actions/issue-token@4673f914d13515b8e1c307e32313f16d6d36ce11
+        with:
+          repositories: ${{ vars.GATES_TARGET_PRIMARY }}
+          permissions: contents:read
+          role-arn: arn:aws:iam::${{ secrets.GATES_AWS_ACCOUNT_ID }}:role/${{ vars.GATES_ROLE_NAME }}
+          function-name: ${{ vars.GATES_FUNCTION_NAME }}
+          aws-region: ${{ vars.GATES_AWS_REGION }}
+          audience: ${{ vars.GATES_AUDIENCE }}
+
+      - name: Check outcomes
+        env:
+          OUTCOME_1: ${{ steps.issue-1.outcome }}
+          OUTCOME_2: ${{ steps.issue-2.outcome }}
+          OUTCOME_3: ${{ steps.issue-3.outcome }}
+          OUTCOME_4: ${{ steps.issue-4.outcome }}
+          OUTCOME_5: ${{ steps.issue-5.outcome }}
+        run: |
+          set -euo pipefail
+          failed=0
+          for i in 1 2 3 4 5; do
+            name="OUTCOME_${i}"
+            echo "issue-${i}: ${!name}"
+            [[ "${!name}" == "success" ]] || failed=1
+          done
+          if [[ "${failed}" != 0 ]]; then
+            echo "::error::at least one issuance failed"
+            exit 1
+          fi
+
+  credential-leak:
+    name: Credential leak
+    needs: issue
+    if: ${{ always() }}
+    permissions:
+      actions: read
+    uses: ./.github/workflows/_e2e-reusable-credential-leak.yml

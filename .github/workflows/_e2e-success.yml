@@ -1,0 +1,144 @@
+name: E2E Success
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+# 同じ Lambda を呼ぶ E2E テストを重ねず、間隔の試験の Invoke の間隔を乱さない
+concurrency:
+  group: gates-e2e
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  issue:
+    name: Issue (${{ matrix.case }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          # repositories は Action に渡す対象、unrequested はトークンで読めないことを確かめるリポジトリ
+          - case: single
+            repositories: ${{ vars.GATES_TARGET_PRIMARY }}
+            unrequested: ${{ vars.GATES_TARGET_SECONDARY }},${{ github.repository }}
+          - case: multiple
+            repositories: ${{ vars.GATES_TARGET_PRIMARY }},${{ vars.GATES_TARGET_SECONDARY }}
+            unrequested: ${{ github.repository }}
+    steps:
+      - name: Issue token
+        id: gates
+        uses: tmknom/gates/.github/actions/issue-token@4673f914d13515b8e1c307e32313f16d6d36ce11
+        with:
+          repositories: ${{ matrix.repositories }}
+          permissions: contents:read
+          role-arn: arn:aws:iam::${{ secrets.GATES_AWS_ACCOUNT_ID }}:role/${{ vars.GATES_ROLE_NAME }}
+          function-name: ${{ vars.GATES_FUNCTION_NAME }}
+          aws-region: ${{ vars.GATES_AWS_REGION }}
+          audience: ${{ vars.GATES_AUDIENCE }}
+
+      # Output を env の GH_TOKEN で受け取り gh api で読む
+      - name: Check token scope
+        env:
+          GH_TOKEN: ${{ steps.gates.outputs.token }}
+          REQUESTED: ${{ matrix.repositories }}
+          UNREQUESTED: ${{ matrix.unrequested }}
+        run: |
+          set -euo pipefail
+          read_readme() {
+            # 応答の本文は出さず、ステータス行だけを読む
+            gh api --include "repos/$1/contents/README.md" 2> /dev/null | head -n 1 | awk '{print $2}' || true
+          }
+          failed=0
+          IFS=',' read -ra requested <<< "${REQUESTED}"
+          for repo in "${requested[@]}"; do
+            status="$(read_readme "${repo}")"
+            echo "requested ${repo}: ${status}"
+            [[ "${status}" == "200" ]] || failed=1
+          done
+          IFS=',' read -ra unrequested <<< "${UNREQUESTED}"
+          for repo in "${unrequested[@]}"; do
+            status="$(read_readme "${repo}")"
+            echo "unrequested ${repo}: ${status}"
+            [[ "${status}" == "404" ]] || failed=1
+          done
+          if [[ "${failed}" != 0 ]]; then
+            echo "::error::token scope is not as expected"
+            exit 1
+          fi
+
+      - name: Check outputs
+        env:
+          INPUT_REPOSITORIES: ${{ matrix.repositories }}
+          EXPIRES_AT: ${{ steps.gates.outputs.expires-at }}
+          OUTPUT_REPOSITORIES: ${{ steps.gates.outputs.repositories }}
+          OUTPUT_PERMISSIONS: ${{ steps.gates.outputs.permissions }}
+          TOKEN: ${{ steps.gates.outputs.token }}
+        run: |
+          set -euo pipefail
+          echo "expires-at: ${EXPIRES_AT}"
+          echo "repositories: ${OUTPUT_REPOSITORIES}"
+          echo "permissions: ${OUTPUT_PERMISSIONS}"
+          echo "token length: ${#TOKEN}"
+          failed=0
+
+          rfc3339='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$'
+          if [[ ! "${EXPIRES_AT}" =~ ${rfc3339} ]]; then
+            echo "::error::expires-at is not RFC 3339"
+            failed=1
+          else
+            now="$(date -u +%s)"
+            expires="$(date -u -d "${EXPIRES_AT}" +%s)"
+            remaining=$((expires - now))
+            echo "seconds until expires-at: ${remaining}"
+            if ((remaining <= 0 || remaining > 3600)); then
+              echo "::error::expires-at is not within one hour"
+              failed=1
+            fi
+          fi
+
+          normalize() {
+            tr ',' '\n' <<< "$1" | tr '[:upper:]' '[:lower:]' | sort | paste -sd ','
+          }
+          if [[ "$(normalize "${OUTPUT_REPOSITORIES}")" != "$(normalize "${INPUT_REPOSITORIES}")" ]]; then
+            echo "::error::repositories do not match the input"
+            failed=1
+          fi
+
+          if [[ "${OUTPUT_PERMISSIONS}" != "contents:read,metadata:read" ]]; then
+            echo "::error::permissions are not contents:read,metadata:read"
+            failed=1
+          fi
+
+          if [[ -z "${TOKEN}" ]]; then
+            echo "::error::token is empty"
+            failed=1
+          fi
+          exit "${failed}"
+
+      # Action が AWS 一時認証情報を後続ステップの環境に残していないことを確かめる。値は出さず名前だけを出す
+      - name: Check no AWS credentials
+        run: |
+          set -euo pipefail
+          names="$(env | cut -d= -f1 | grep -E '^AWS_' || true)"
+          echo "AWS_ variables: ${names:-none}"
+          if [[ -n "${names}" ]]; then
+            echo "::error::AWS variables are present in the environment"
+            exit 1
+          fi
+
+  credential-leak:
+    name: Credential leak
+    needs: issue
+    if: ${{ always() }}
+    permissions:
+      actions: read
+    uses: ./.github/workflows/_e2e-reusable-credential-leak.yml

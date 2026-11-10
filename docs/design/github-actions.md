@@ -532,11 +532,11 @@ GitHub と AWS の挙動に依存する事項は、許可オーナーのワー�
 - ワークフローのログで、GATES 用 OIDC JWT、AWS 用 OIDC JWT、AWS 一時認証情報、トークンがマスクされているか現れないこと
 - 呼び出し元の後続ステップの環境変数に、AWS 一時認証情報が現れないこと
 - AWS STS での引き受けの失敗と、Lambda が返す失敗で、Docker Action がエラー終了すること
-- メインと post-entrypoint のそれぞれで、`main.go` が起動したパス（`os.Args[0]`）から正しい入口関数を選ぶこと。Docker が `--entrypoint` のパスを、シンボリックリンクのパスのまま `argv[0]` にして実行ファイルを起動することと、親が子を起動できることは、ローカルの Docker では `make action-image` で確かめているが、Runner の上ではまだ確かめていない
+- メインと post-entrypoint のそれぞれで、`main.go` が起動したパス（`os.Args[0]`）から正しい入口関数を選ぶこと
 - ジョブの終了時に post-entrypoint がトークンの失効を試み、HTTP ステータスをログに出し、失効したトークンが使えないこと
-- 後続ステップが失敗したジョブと、後続ステップの実行中にキャンセルしたジョブでも、post-entrypoint がトークンの失効を試みること。どちらの場合に post-entrypoint が動くかは、まだ確かめていない（[GitHub Constraints](../spec/github-constraints.md#9-outstanding-verification)）
-- メインがトークンを取り出す前に失敗したジョブで、post-entrypoint が何もせずに終わること
-- メインの処理の最中にキャンセルしたジョブで、親がシグナルを受けて子へ送り、子が [§3.6](#36-cancellation) のとおりに終えること。`docker run` がシグナルをコンテナへ中継することと、`docker run` のプロセスを強制終了した後もコンテナが動き続けることは、実環境でまだ確かめていない
+- 後続ステップが失敗したジョブと、後続ステップの実行中にキャンセルしたジョブでも、post-entrypoint がトークンの失効を試みること
+- メインがトークンを取り出す前に失敗したジョブで、`continue-on-error` の有無によらず、post-entrypoint が何もせずに終わること
+- メインの処理の最中に SIGINT を受けたジョブで、`docker run` がシグナルをコンテナへ中継し、親が子へ送り、子が [§3.6](#36-cancellation) のとおりに終えること。Invoke の前と Invoke の開始の後の両方で確かめる。`docker run` のプロセスを強制終了した後もコンテナが動き続けることは、実環境で確かめていない
 - 別のリポジトリから commit SHA で参照したとき、Runner が `Dockerfile` からイメージをビルドして動かせること
 
 失効したトークンが使えないことは、post-entrypoint より後に動くステップから確かめます。
