@@ -12,3 +12,8 @@ updates:
     directory: /
     schedule:
       interval: daily
+
+  - package-ecosystem: docker
+    directory: /.github/actions/issue-token
+    schedule:
+      interval: daily

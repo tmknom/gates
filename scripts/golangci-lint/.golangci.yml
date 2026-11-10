@@ -112,6 +112,11 @@ linters:
         linters:
           - forbidigo
         text: "only internal/oidc may create an OIDC JWT"
+      # supervise の試験は、試験の実行ファイル自身を子として起動し、子の振る舞いに os.Args、os.Exit、os.Getenv、panic を使う（GitHub Actions Design の Local Tests）
+      - path: ^internal/supervise/.*_test\.go$
+        linters:
+          - forbidigo
+        text: "use of `(os\\.(Args|Exit|Getenv)|panic)`"
   settings:
     depguard:
       # 規則はルートのモジュールと Docker Action のモジュール（.github/actions/issue-token）で分ける。
@@ -206,23 +211,24 @@ linters:
               desc: internal/github must not depend on internal/signer
             - pkg: github.com/tmknom/gates/internal/tokenissuer
               desc: internal/github must not depend on internal/tokenissuer
-        # Docker Action：入力の検証、応答の判定、ワークフローコマンド、資格情報の package は通信と外部ライブラリを持たない。入力の検証、Payload、応答の判定の試験を通信なしで書けるようにするため
+        # Docker Action：入力の検証、応答の判定、ワークフローコマンド、資格情報、親の package は通信と外部ライブラリを持たない。入力の検証、Payload、応答の判定の試験を通信なしで書けるようにし、資格情報を読まない親に通信を持ち込まないため
         action-no-communication:
           list-mode: lax
           files:
             - "**/.github/actions/issue-token/internal/credential/**"
             - "**/.github/actions/issue-token/internal/request/**"
             - "**/.github/actions/issue-token/internal/response/**"
+            - "**/.github/actions/issue-token/internal/supervise/**"
             - "**/.github/actions/issue-token/internal/workflow/**"
           allow:
             - github.com/tmknom/gates/.github/actions/issue-token/internal
           deny:
             - pkg: net
-              desc: the docker action's input, response, workflow command, and credential packages must not communicate
+              desc: the docker action's input, response, workflow command, credential, and parent packages must not communicate
             - pkg: crypto/tls
-              desc: the docker action's input, response, workflow command, and credential packages must not communicate
+              desc: the docker action's input, response, workflow command, credential, and parent packages must not communicate
             - pkg: github.com/
-              desc: the docker action's input, response, workflow command, and credential packages must not depend on external libraries
+              desc: the docker action's input, response, workflow command, credential, and parent packages must not depend on external libraries
         # Docker Action：AWS SDK は internal/awsapi だけが使う。ほかの package とそのテストが AWS SDK に依存しないようにするため
         action-aws-sdk:
           list-mode: lax

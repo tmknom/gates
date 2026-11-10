@@ -54,8 +54,8 @@ services:
         target: /config/trivy.yaml
         read_only: true
       - type: bind
-        source: ./.trivyignore
-        target: /config/.trivyignore
+        source: ./.trivyignore.yaml
+        target: /config/.trivyignore.yaml
         read_only: true
     command:
       - fs

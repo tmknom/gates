@@ -1,0 +1,38 @@
+name: GATES Issue Token
+description: Issue a short-lived GitHub App installation access token for the given repositories and permissions through GATES, and revoke it at the end of the job
+
+inputs:
+  repositories:
+    description: Comma-separated owner/repo list of the repositories the token can access
+    required: true
+  permissions:
+    description: Comma-separated permission:level list of the permissions the token grants, such as contents:read
+    required: true
+  role-arn:
+    description: ARN of the IAM role to assume with GitHub OIDC
+    required: true
+  function-name:
+    description: Name of the GATES Lambda function to invoke
+    required: true
+  aws-region:
+    description: AWS region of the GATES Lambda function, also used for AWS STS
+    required: true
+  audience:
+    description: Audience of the OIDC token sent to GATES
+    required: true
+
+outputs:
+  token:
+    description: Installation access token, masked in the logs
+  expires-at:
+    description: Expiration time of the token set by GitHub, in RFC 3339
+  repositories:
+    description: Comma-separated owner/repo list of the repositories the token can access, as returned by GATES
+  permissions:
+    description: Comma-separated permission:level list of the permissions the token grants, as returned by GATES
+
+runs:
+  using: docker
+  image: Dockerfile
+  entrypoint: /issue-token
+  post-entrypoint: /revoke-token

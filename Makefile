@@ -260,3 +260,19 @@ action-cover: ## measure test coverage of the docker action excluding main.go an
 	@# 判定はルートの cover と同じく、internal/ 配下のブロックの実行回数で行う
 	@! grep '/internal/' $(DIST_DIR)/action-coverage.filtered.out | grep -E ' [1-9][0-9]* 0$$' \
 		|| (echo "coverage under internal/ must be 100%: the blocks above are not executed" && exit 1)
+
+# Runner がジョブのたびに行うビルドを手元で再現し、通信のないコンテナで起動を確かめる。
+# メインは子の前提の確認が環境変数の欠落で失敗し、post-entrypoint は子が STATE_token がないため何もせずに終える。
+# どちらも子を起動できなければ注釈が変わるため、親から子を起動できることも確かめられる。
+# 2 つを起動するのは、シンボリックリンクのパスで起動した実行ファイルが役割を選べることも確かめるため
+ACTION_IMAGE := localhost/gates/issue-token:local
+
+.PHONY: action-image
+action-image: ## build the docker action image and check that it starts without network
+	docker build -t $(ACTION_IMAGE) $(ACTION_DIR)
+	@out="$$(docker run --rm --network none $(ACTION_IMAGE))"; code=$$?; echo "$$out"; \
+		[ $$code -eq 1 ] || (echo "issue-token must exit 1 without environment, got $$code" && exit 1); \
+		echo "$$out" | grep -q '^::error::ACTIONS_ID_TOKEN_REQUEST_TOKEN is not set' || (echo "issue-token must fail the prerequisite check in the child" && exit 1)
+	@out="$$(docker run --rm --network none --entrypoint /revoke-token $(ACTION_IMAGE))"; code=$$?; echo "$$out"; \
+		[ $$code -eq 0 ] || (echo "revoke-token must exit 0 without STATE_token, got $$code" && exit 1); \
+		[ -z "$$out" ] || (echo "revoke-token must write nothing without STATE_token" && exit 1)

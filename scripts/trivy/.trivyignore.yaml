@@ -1,0 +1,8 @@
+# 無視する検出と理由。paths を書いた検出は、そのファイルでだけ無視する
+misconfigurations:
+  - id: DS-0026
+    statement: HEALTHCHECK は常駐するサービスの監視に使うもので、1 回で終わる CLI のイメージには意味がない
+  - id: DS-0002
+    paths:
+      - .github/actions/issue-token/Dockerfile
+    statement: Docker Action は USER を置かず root で動かす（GitHub Actions Design の Image）
