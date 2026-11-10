@@ -1,0 +1,288 @@
+name: E2E Cancel
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+# 同じ Lambda を呼ぶ E2E テストを重ねない
+concurrency:
+  group: gates-e2e
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+# 後続ステップが失敗したジョブと、後続ステップの実行中にキャンセルしたジョブで、post-entrypoint がトークンを失効させることと、
+# メインの処理の最中に SIGINT を受けた Action が、受けた時点に応じて終えること（GitHub Actions Design の Cancellation）を確かめる。
+#
+# GitHub は 1 つのジョブだけをキャンセルする手段を持たないため、後続ステップの実行中のキャンセルは、ワークフロー実行のキャンセルで起こす。
+# if: always() のジョブはキャンセルされずに動くため（Workflow cancellation reference）、ログの確認と資格情報の検索はキャンセルの後に動く。
+# ワークフロー実行の結果は cancelled になり、試験の合否は Check job logs と Credential leak のジョブの結果で読む。
+#
+# キャンセルの API を呼んでから Runner がステップにシグナルを送るまでには 10 秒以上かかることがあり、1〜2 秒で終わるメインの処理に届けられない。
+# そのため、メインの処理の最中の受け方は、Runner がキャンセルで送るのと同じ SIGINT を、同じ docker run のプロセスへ同じ Runner の上から送って確かめる。
+jobs:
+  later-step-fails:
+    name: Later step fails
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # このジョブの失敗でワークフロー実行を失敗にしない
+    continue-on-error: true
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Issue token
+        uses: tmknom/gates/.github/actions/issue-token@4673f914d13515b8e1c307e32313f16d6d36ce11
+        with:
+          repositories: ${{ vars.GATES_TARGET_PRIMARY }}
+          permissions: contents:read
+          role-arn: arn:aws:iam::${{ secrets.GATES_AWS_ACCOUNT_ID }}:role/${{ vars.GATES_ROLE_NAME }}
+          function-name: ${{ vars.GATES_FUNCTION_NAME }}
+          aws-region: ${{ vars.GATES_AWS_REGION }}
+          audience: ${{ vars.GATES_AUDIENCE }}
+
+      - name: Fail
+        run: exit 1
+
+  signal-main:
+    name: Signal during issuance (${{ matrix.delay-ms }} ms)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      fail-fast: false
+      # 受ける時点を Invoke の前と Invoke の最中に散らすため、docker run のプロセスが現れてから SIGINT を送るまでの時間を変える
+      matrix:
+        delay-ms: [0, 500, 1000, 1500, 2000, 2500]
+    steps:
+      # Action のステップの docker run のプロセスが現れるのを待ち、指定の時間の後に SIGINT を送るプロセスを、
+      # このステップの終了を待たせないよう、出力を閉じて切り離して起動する。送った時刻は RUNNER_TEMP のファイルに残す
+      - name: Schedule SIGINT
+        env:
+          DELAY_MS: ${{ matrix.delay-ms }}
+        run: |
+          set -euo pipefail
+          # 変数は切り離したプロセスの bash が展開する
+          # shellcheck disable=SC2016
+          setsid nohup bash -c '
+            for _ in $(seq 1 6000); do
+              pid="$(pgrep -f -n "^/usr/bin/docker run .*--entrypoint /issue-token " || true)"
+              [[ -n "${pid}" ]] && break
+              sleep 0.05
+            done
+            [[ -n "${pid}" ]] || exit 1
+            echo "docker run appeared at $(date -u +%H:%M:%S.%3N)" >> "${RUNNER_TEMP}/signal.log"
+            sleep "$(awk -v ms="${DELAY_MS}" "BEGIN { print ms / 1000 }")"
+            if kill -INT "${pid}"; then
+              echo "SIGINT sent at $(date -u +%H:%M:%S.%3N)" >> "${RUNNER_TEMP}/signal.log"
+            else
+              echo "docker run exited before SIGINT at $(date -u +%H:%M:%S.%3N)" >> "${RUNNER_TEMP}/signal.log"
+            fi
+          ' > /dev/null 2>&1 < /dev/null &
+
+      - name: Issue token
+        id: gates
+        continue-on-error: true
+        uses: tmknom/gates/.github/actions/issue-token@4673f914d13515b8e1c307e32313f16d6d36ce11
+        with:
+          repositories: ${{ vars.GATES_TARGET_PRIMARY }}
+          permissions: contents:read
+          role-arn: arn:aws:iam::${{ secrets.GATES_AWS_ACCOUNT_ID }}:role/${{ vars.GATES_ROLE_NAME }}
+          function-name: ${{ vars.GATES_FUNCTION_NAME }}
+          aws-region: ${{ vars.GATES_AWS_REGION }}
+          audience: ${{ vars.GATES_AUDIENCE }}
+
+      - name: Show signal timing
+        env:
+          OUTCOME: ${{ steps.gates.outcome }}
+          TOKEN: ${{ steps.gates.outputs.token }}
+        run: |
+          set -euo pipefail
+          cat "${RUNNER_TEMP}/signal.log" || echo "no SIGINT was sent"
+          echo "outcome: ${OUTCOME}"
+          echo "token length: ${#TOKEN}"
+          # キャンセルされた Action は Output を書かない
+          if [[ "${OUTCOME}" == "failure" && -n "${TOKEN}" ]]; then
+            echo "::error::the canceled Action wrote the token output"
+            exit 1
+          fi
+
+  cancel-later:
+    name: Cancel during later step
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Issue token
+        uses: tmknom/gates/.github/actions/issue-token@4673f914d13515b8e1c307e32313f16d6d36ce11
+        with:
+          repositories: ${{ vars.GATES_TARGET_PRIMARY }}
+          permissions: contents:read
+          role-arn: arn:aws:iam::${{ secrets.GATES_AWS_ACCOUNT_ID }}:role/${{ vars.GATES_ROLE_NAME }}
+          function-name: ${{ vars.GATES_FUNCTION_NAME }}
+          aws-region: ${{ vars.GATES_AWS_REGION }}
+          audience: ${{ vars.GATES_AUDIENCE }}
+
+      # cancel-run がワークフロー実行をキャンセルするまで待つ
+      - name: Wait for cancellation
+        run: sleep 600
+
+  # ほかの試験のジョブが終わり、cancel-later が後続ステップで待つ時点で、ワークフロー実行をキャンセルする
+  cancel-run:
+    name: Cancel the run
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: write
+    steps:
+      - name: Cancel when cancel-later waits
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 60); do
+            states="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}/jobs" --jq '
+              [.jobs[] | select(.name == "Later step fails" or (.name | startswith("Signal during issuance"))) | .status]
+              + [.jobs[] | select(.name == "Cancel during later step") | .steps[] | select(.name == "Wait for cancellation") | .status]
+              | join(" ")')"
+            echo "states: ${states}"
+            # later-step-fails と signal-main の 6 つが completed で、cancel-later の待ちが in_progress
+            if [[ "${states}" == "completed completed completed completed completed completed completed in_progress" ]]; then
+              gh api -X POST "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/cancel" > /dev/null
+              echo "cancel requested at $(date -u +%H:%M:%S.%3N)"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::the other jobs did not reach the expected steps"
+          exit 1
+
+  # 一致した行は出さず、件数と段階の判定だけを出す
+  logs:
+    name: Check job logs
+    needs: [later-step-fails, signal-main, cancel-later, cancel-run]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    steps:
+      - name: Check revocation and cancellation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          jobs_json="$(gh api --paginate "repos/${REPOSITORY}/actions/runs/${RUN_ID}/attempts/${RUN_ATTEMPT}/jobs" --jq '.jobs[]')"
+
+          # ログは色付けのエスケープシーケンスを含み、gh api はその出力を拒否するため curl で取得する。
+          # ジョブの完了の直後はログを取得できないことがあるため、空でないログを得るまで待つ
+          fetch_log() {
+            local log
+            for _ in 1 2 3 4 5 6; do
+              if log="$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+                "${GITHUB_API_URL}/repos/${REPOSITORY}/actions/jobs/$1/logs")" && [[ -n "${log}" ]]; then
+                printf '%s' "${log}"
+                return 0
+              fi
+              sleep 10
+            done
+            return 1
+          }
+          count() {
+            grep -c -E -e "$1" <<< "$2" || true
+          }
+
+          failed=0
+          report() {
+            echo "::error::$1"
+            failed=1
+          }
+          # 指定した名前のジョブの、結果と各ステップの結果を 1 行にし、ログを取得する
+          load() {
+            local job
+            job="$(jq -c --arg name "$1" 'select(.name == $name)' <<< "${jobs_json}")"
+            if [[ -z "${job}" ]]; then
+              report "$1: no job"
+              return 1
+            fi
+            steps="$(jq -r '[.conclusion] + [.steps[] | "\(.name)=\(.conclusion)"] | join(" ")' <<< "${job}")"
+            echo "$1: ${steps}"
+            if ! log="$(fetch_log "$(jq -r '.id' <<< "${job}")")"; then
+              report "$1: cannot fetch the log"
+              return 1
+            fi
+            invoking="$(count 'Invoking the Lambda function at ' "${log}")"
+            canceled="$(count '##\[error\]the job was canceled' "${log}")"
+            revoked="$(count 'revocation succeeded: HTTP status 204' "${log}")"
+            echo "$1: invoking ${invoking}, canceled ${canceled}, revocation 204 ${revoked}," \
+              "revocation failure $(count 'revocation failed' "${log}"), warning $(count '##\[warning\]' "${log}")"
+            [[ "$(count 'revocation failed' "${log}")" == 0 ]] || report "$1: a revocation failed"
+            [[ "$(count '##\[warning\]' "${log}")" == 0 ]] || report "$1: a warning was written"
+          }
+
+          # 後続ステップの失敗：post-entrypoint がジョブの終了時の失効を 204 で終える
+          name="Later step fails"
+          if load "${name}"; then
+            [[ "${steps}" == *" Issue token=success"* ]] || report "${name}: the Action step did not succeed"
+            [[ "${steps}" == *" Fail=failure"* ]] || report "${name}: the later step did not fail"
+            [[ "${steps}" == *" Post Issue token=success"* ]] || report "${name}: the post-entrypoint did not succeed"
+            [[ "${revoked}" == 1 ]] || report "${name}: the token was not revoked once with 204"
+          fi
+
+          # 後続ステップの実行中のキャンセル：post-entrypoint がキャンセルの後に動き、失効を 204 で終える
+          name="Cancel during later step"
+          if load "${name}"; then
+            [[ "${steps}" == cancelled\ * ]] || report "${name}: the job was not canceled"
+            [[ "${steps}" == *" Issue token=success"* ]] || report "${name}: the Action step did not succeed"
+            [[ "${steps}" == *" Wait for cancellation=cancelled"* ]] || report "${name}: the later step was not canceled"
+            [[ "${steps}" == *" Post Issue token=success"* ]] || report "${name}: the post-entrypoint did not succeed"
+            [[ "${revoked}" == 1 ]] || report "${name}: the token was not revoked once with 204"
+          fi
+
+          # メインの処理の最中の SIGINT：子が受けた時点に応じて終える
+          before=0
+          during=0
+          for delay in 0 500 1000 1500 2000 2500; do
+            name="Signal during issuance (${delay} ms)"
+            load "${name}" || continue
+            if [[ "${canceled}" != 1 ]]; then
+              # 判定の後に受けたか、終えた後に届いた：成功として終え、トークンはジョブの終了時に失効する
+              echo "${name}: not canceled"
+              [[ "${revoked}" == 1 ]] || report "${name}: the token was not revoked once with 204"
+            elif [[ "${invoking}" == 0 ]]; then
+              # Invoke の前に受けた：Lambda を呼ばず、トークンはない
+              echo "${name}: canceled before the Invoke"
+              before=$((before + 1))
+              [[ "${revoked}" == 0 ]] || report "${name}: a revocation was attempted without a token"
+            else
+              # Invoke の最中に受けた：Invoke の結果を待ち、取り出したトークンを Output に書かずに失効させる
+              echo "${name}: canceled after the Invoke started"
+              during=$((during + 1))
+              [[ "${revoked}" == 1 ]] || report "${name}: the token was not revoked once with 204"
+            fi
+          done
+          echo "canceled before the Invoke: ${before}, after the Invoke started: ${during}"
+          [[ "${before}" -ge 1 ]] || report "no job was canceled before the Invoke; adjust the delays"
+          [[ "${during}" -ge 1 ]] || report "no job was canceled after the Invoke started; adjust the delays"
+
+          if [[ "${failed}" != 0 ]]; then
+            echo "::error::post-entrypoint or cancellation is not as expected"
+            exit 1
+          fi
+
+  credential-leak:
+    name: Credential leak
+    needs: [later-step-fails, signal-main, cancel-later, cancel-run]
+    if: ${{ always() }}
+    permissions:
+      actions: read
+    uses: ./.github/workflows/_e2e-reusable-credential-leak.yml

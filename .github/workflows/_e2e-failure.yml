@@ -1,0 +1,296 @@
+name: E2E Failure
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+# 同じ Lambda を呼ぶ E2E テストを重ねない
+concurrency:
+  group: gates-e2e
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+# 成功する設定から 1 つの条件だけを変え、Action が段階ごとに定めた形で失敗し、Output を書かず、
+# post-entrypoint が失効を試みずに終わることを確かめる。どの事例もトークンを発行しない
+jobs:
+  fail:
+    name: Fail (${{ matrix.case }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        case:
+          - empty-input
+          - empty-element
+          - duplicate
+          - syntax
+          - assume-role
+          - audience
+          - function
+          - authorization
+          - installation
+    steps:
+      # 事例ごとに、成功する入力から 1 つだけを変える。大文字への変換が要るため、式ではなくシェルで組み立てる
+      - name: Prepare inputs
+        id: inputs
+        env:
+          CASE: ${{ matrix.case }}
+          PRIMARY: ${{ vars.GATES_TARGET_PRIMARY }}
+          SECONDARY: ${{ vars.GATES_TARGET_SECONDARY }}
+          ROLE_NAME: ${{ vars.GATES_ROLE_NAME }}
+          FUNCTION_NAME: ${{ vars.GATES_FUNCTION_NAME }}
+          AUDIENCE: ${{ vars.GATES_AUDIENCE }}
+        run: |
+          set -euo pipefail
+          repositories="${PRIMARY}"
+          permissions="contents:read"
+          role_name="${ROLE_NAME}"
+          function_name="${FUNCTION_NAME}"
+          audience="${AUDIENCE}"
+          case "${CASE}" in
+            empty-input) audience="" ;;
+            empty-element) repositories="${PRIMARY},,${SECONDARY}" ;;
+            duplicate) repositories="${PRIMARY},${PRIMARY^^}" ;;
+            syntax) permissions="contents" ;;
+            assume-role) role_name="gates-e2e-nonexistent-role" ;;
+            # GitHub は、呼び出し元のオーナーとリポジトリ以外を指す github.com の URL を Audience にした要求を 400 で拒否する
+            audience) audience="https://github.com/${GITHUB_REPOSITORY_OWNER}/gates-e2e-nonexistent-repository" ;;
+            function) function_name="gates-e2e-nonexistent-function" ;;
+            authorization) permissions="contents:write" ;;
+            # 試験用のリポジトリ自身は GitHub App のインストール先に含めない
+            installation) repositories="${PRIMARY},${GITHUB_REPOSITORY}" ;;
+            *) echo "::error::unknown case ${CASE}"; exit 1 ;;
+          esac
+          {
+            echo "repositories=${repositories}"
+            echo "permissions=${permissions}"
+            echo "role-name=${role_name}"
+            echo "function-name=${function_name}"
+            echo "audience=${audience}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Issue token
+        id: gates
+        continue-on-error: true
+        uses: tmknom/gates/.github/actions/issue-token@4673f914d13515b8e1c307e32313f16d6d36ce11
+        with:
+          repositories: ${{ steps.inputs.outputs.repositories }}
+          permissions: ${{ steps.inputs.outputs.permissions }}
+          role-arn: arn:aws:iam::${{ secrets.GATES_AWS_ACCOUNT_ID }}:role/${{ steps.inputs.outputs.role-name }}
+          function-name: ${{ steps.inputs.outputs.function-name }}
+          aws-region: ${{ vars.GATES_AWS_REGION }}
+          audience: ${{ steps.inputs.outputs.audience }}
+
+      # Output が空であることは、Action が失敗の判定の前に GITHUB_OUTPUT へ書かないことの確認を兼ねる。値は出さず長さだけを出す
+      - name: Check failure
+        env:
+          OUTCOME: ${{ steps.gates.outcome }}
+          TOKEN: ${{ steps.gates.outputs.token }}
+          EXPIRES_AT: ${{ steps.gates.outputs.expires-at }}
+          REPOSITORIES: ${{ steps.gates.outputs.repositories }}
+          PERMISSIONS: ${{ steps.gates.outputs.permissions }}
+        run: |
+          set -euo pipefail
+          echo "outcome: ${OUTCOME}"
+          failed=0
+          [[ "${OUTCOME}" == "failure" ]] || failed=1
+          for name in TOKEN EXPIRES_AT REPOSITORIES PERMISSIONS; do
+            value="${!name}"
+            echo "${name} length: ${#value}"
+            [[ -z "${value}" ]] || failed=1
+          done
+          if [[ "${failed}" != 0 ]]; then
+            echo "::error::the Action did not fail without outputs"
+            exit 1
+          fi
+
+  # id-token: write の有無はジョブの permissions でしか変えられないため、matrix と別のジョブにする
+  fail-without-id-token:
+    name: Fail (no-id-token)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Issue token
+        id: gates
+        continue-on-error: true
+        uses: tmknom/gates/.github/actions/issue-token@4673f914d13515b8e1c307e32313f16d6d36ce11
+        with:
+          repositories: ${{ vars.GATES_TARGET_PRIMARY }}
+          permissions: contents:read
+          role-arn: arn:aws:iam::${{ secrets.GATES_AWS_ACCOUNT_ID }}:role/${{ vars.GATES_ROLE_NAME }}
+          function-name: ${{ vars.GATES_FUNCTION_NAME }}
+          aws-region: ${{ vars.GATES_AWS_REGION }}
+          audience: ${{ vars.GATES_AUDIENCE }}
+
+      - name: Check failure
+        env:
+          OUTCOME: ${{ steps.gates.outcome }}
+          TOKEN: ${{ steps.gates.outputs.token }}
+          EXPIRES_AT: ${{ steps.gates.outputs.expires-at }}
+          REPOSITORIES: ${{ steps.gates.outputs.repositories }}
+          PERMISSIONS: ${{ steps.gates.outputs.permissions }}
+        run: |
+          set -euo pipefail
+          echo "outcome: ${OUTCOME}"
+          failed=0
+          [[ "${OUTCOME}" == "failure" ]] || failed=1
+          for name in TOKEN EXPIRES_AT REPOSITORIES PERMISSIONS; do
+            value="${!name}"
+            echo "${name} length: ${#value}"
+            [[ -z "${value}" ]] || failed=1
+          done
+          if [[ "${failed}" != 0 ]]; then
+            echo "::error::the Action did not fail without outputs"
+            exit 1
+          fi
+
+  # continue-on-error を付けないステップの失敗でジョブを失敗させ、それでも post-entrypoint が動くことを確かめる。
+  # ジョブの continue-on-error は、このジョブの失敗でワークフロー実行を失敗にしないためだけに付ける
+  fail-without-continue-on-error:
+    name: Fail (no-continue-on-error)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Issue token
+        uses: tmknom/gates/.github/actions/issue-token@4673f914d13515b8e1c307e32313f16d6d36ce11
+        with:
+          repositories: ${{ vars.GATES_TARGET_PRIMARY }}
+          permissions: contents:read,contents:write
+          role-arn: arn:aws:iam::${{ secrets.GATES_AWS_ACCOUNT_ID }}:role/${{ vars.GATES_ROLE_NAME }}
+          function-name: ${{ vars.GATES_FUNCTION_NAME }}
+          aws-region: ${{ vars.GATES_AWS_REGION }}
+          audience: ${{ vars.GATES_AUDIENCE }}
+
+      # Action が失敗すれば走らない。走ればジョブの結果の確認で失敗にする
+      - name: Never runs
+        run: echo "this step must be skipped"
+
+  # 各事例のジョブのログに、段階を示す注釈があり、post-entrypoint が失効を試みずに終えたことを確かめる。
+  # 一致した行は出さず、件数と GATES の request_id だけを出す
+  logs:
+    name: Check job logs
+    needs: [fail, fail-without-id-token, fail-without-continue-on-error]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    steps:
+      - name: Check annotations and post-entrypoint
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          # 事例ごとの、失敗した段階を示す注釈の行（grep -E）
+          declare -A expected=(
+            [no-id-token]='##\[error\]ACTIONS_ID_TOKEN_REQUEST_TOKEN is not set; declare permissions: id-token: write'
+            [empty-input]='##\[error\]input audience is empty'
+            [empty-element]='repositories: element 2 is empty'
+            [duplicate]='repositories: "[^"]+", "[^"]+" are duplicates \(compared case-insensitively\)'
+            [syntax]='permissions: "contents" is not in the form name:level'
+            [assume-role]='##\[error\]AssumeRoleWithWebIdentity failed: AWS error code "AccessDenied", HTTP status 403'
+            [audience]='##\[error\]could not get the OIDC JWT for GATES: HTTP status 400: '
+            [function]='##\[error\]the Lambda Invoke failed: AWS error code "AccessDeniedException", HTTP status 403'
+            [authorization]='##\[error\]GATES returned a failure response: error code "authorization_denied", message "The requested token is not permitted\.", request id "[^"]+"'
+            [installation]='##\[error\]GATES returned a failure response: error code "github_issuance_rejected", message "GitHub rejected the token issuance\.", request id "[^"]+"'
+            [no-continue-on-error]='permissions: "contents:read", "contents:write" have the same permission name'
+          )
+          # Invoke まで進む事例。ほかの事例は Invoke の前に終える
+          declare -A invokes=([function]=1 [authorization]=1 [installation]=1)
+
+          jobs_json="$(gh api --paginate "repos/${REPOSITORY}/actions/runs/${RUN_ID}/attempts/${RUN_ATTEMPT}/jobs" --jq '.jobs[]')"
+
+          # ログは色付けのエスケープシーケンスを含み、gh api はその出力を拒否するため curl で取得する。
+          # ジョブの完了の直後はログを取得できないことがあるため、空でないログを得るまで待つ
+          fetch_log() {
+            local log
+            for _ in 1 2 3 4 5 6; do
+              if log="$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+                "${GITHUB_API_URL}/repos/${REPOSITORY}/actions/jobs/$1/logs")" && [[ -n "${log}" ]]; then
+                printf '%s' "${log}"
+                return 0
+              fi
+              sleep 10
+            done
+            return 1
+          }
+          count() {
+            grep -c -E -e "$1" <<< "$2" || true
+          }
+
+          failed=0
+          report() {
+            echo "::error::$1"
+            failed=1
+          }
+          for case in "${!expected[@]}"; do
+            name="Fail (${case})"
+            job="$(jq -c --arg name "${name}" 'select(.name == $name)' <<< "${jobs_json}")"
+            if [[ -z "${job}" ]]; then
+              report "${name}: no job"
+              continue
+            fi
+            id="$(jq -r '.id' <<< "${job}")"
+            if ! log="$(fetch_log "${id}")"; then
+              report "${name}: cannot fetch the log"
+              continue
+            fi
+
+            annotation="$(count "${expected[${case}]}" "${log}")"
+            invoking="$(count 'Invoking the Lambda function at ' "${log}")"
+            post="$(count '--entrypoint "/revoke-token"' "${log}")"
+            revocation="$(count 'revocation (succeeded|failed)' "${log}")"
+            warning="$(count '##\[warning\]' "${log}")"
+            echo "${name}: annotation ${annotation}, invoking ${invoking}, post-entrypoint ${post}, revocation ${revocation}, warning ${warning}"
+            [[ "${annotation}" -ge 1 ]] || report "${name}: the expected annotation is missing"
+            if [[ -n "${invokes[${case}]:-}" ]]; then
+              [[ "${invoking}" == 1 ]] || report "${name}: the Lambda function was not invoked once"
+            else
+              [[ "${invoking}" == 0 ]] || report "${name}: the Lambda function was invoked"
+            fi
+            [[ "${post}" == 1 ]] || report "${name}: the post-entrypoint did not run"
+            [[ "${revocation}" == 0 ]] || report "${name}: a revocation was attempted"
+            [[ "${warning}" == 0 ]] || report "${name}: a warning was written"
+
+            # GATES の失敗応答の request_id は資格情報ではなく、監査記録を引くために出す
+            request_id="$(grep -o -E 'request id "[^"]+"' <<< "${log}" | head -n 1 || true)"
+            [[ -z "${request_id}" ]] || echo "${name}: ${request_id}"
+
+            # continue-on-error のない事例は、Action のステップの失敗でジョブが失敗し、後続のステップが走らず、post-entrypoint が動く
+            if [[ "${case}" == "no-continue-on-error" ]]; then
+              steps="$(jq -r '[.conclusion] + [.steps[] | "\(.name)=\(.conclusion)"] | join(" ")' <<< "${job}")"
+              echo "${name}: ${steps}"
+              [[ "${steps}" == failure\ * ]] || report "${name}: the job did not fail"
+              [[ "${steps}" == *" Issue token=failure"* ]] || report "${name}: the Action step did not fail"
+              [[ "${steps}" == *" Never runs=skipped"* ]] || report "${name}: the next step was not skipped"
+              [[ "${steps}" == *" Post Issue token=success"* ]] || report "${name}: the post-entrypoint did not succeed"
+            fi
+          done
+          if [[ "${failed}" != 0 ]]; then
+            echo "::error::at least one failure case is not as expected"
+            exit 1
+          fi
+
+  credential-leak:
+    name: Credential leak
+    needs: [fail, fail-without-id-token, fail-without-continue-on-error]
+    if: ${{ always() }}
+    permissions:
+      actions: read
+    uses: ./.github/workflows/_e2e-reusable-credential-leak.yml
