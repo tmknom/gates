@@ -1,6 +1,7 @@
 package tokenissuer
 
 import (
+	"crypto/x509"
 	"encoding/json/v2"
 	"errors"
 	"io"
@@ -88,7 +89,9 @@ func issue(t *testing.T, body string) github.IssuanceResult {
 	if err != nil {
 		t.Fatalf("Parse returned error: %v", err)
 	}
-	client := github.NewClient(github.WithAPIHost(apiHost), github.WithTransport(server.Client().Transport))
+	rootCAs := x509.NewCertPool()
+	rootCAs.AddCert(server.Certificate())
+	client := github.NewClient(github.WithAPIHost(apiHost), github.WithRootCAs(rootCAs))
 	result, err := client.Issue(t.Context(), github.NewAppJWT("app-jwt"), tokenGrant(t))
 	if err != nil {
 		t.Fatalf("Issue returned error: %v", err)

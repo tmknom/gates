@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"maps"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -44,6 +45,7 @@ type issuerStub struct {
 	server            *httptest.Server
 	discoveryRequests atomic.Int32
 	jwksRequests      atomic.Int32
+	newConnections    atomic.Int32
 	discovery         atomic.Pointer[http.HandlerFunc]
 	jwks              atomic.Pointer[http.HandlerFunc]
 	// logs は verifier が作る Verifier のログの出力先である。slog の Handler が書き込みを直列にする
@@ -63,6 +65,11 @@ func newIssuerStub(t *testing.T, key *rsa.PrivateKey, keyID string) *issuerStub 
 		(*stub.jwks.Load())(w, r)
 	})
 	stub.server = httptest.NewUnstartedServer(mux)
+	stub.server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			stub.newConnections.Add(1)
+		}
+	}
 	// 証明書を信頼しないクライアントのテストで、サーバーのログがテストの出力に混ざらないようにする
 	stub.server.Config.ErrorLog = log.New(io.Discard, "", 0)
 	stub.server.StartTLS()
@@ -90,7 +97,9 @@ func (s *issuerStub) verifier(t *testing.T) *Verifier {
 
 func (s *issuerStub) verifierWithClock(t *testing.T, now func() time.Time) *Verifier {
 	t.Helper()
-	verifier, err := NewVerifier(s.issuer(), testAudience, now, slog.New(slog.NewJSONHandler(&s.logs, nil)), WithTransport(s.server.Client().Transport))
+	rootCAs := x509.NewCertPool()
+	rootCAs.AddCert(s.server.Certificate())
+	verifier, err := NewVerifier(s.issuer(), testAudience, now, slog.New(slog.NewJSONHandler(&s.logs, nil)), WithRootCAs(rootCAs))
 	if err != nil {
 		t.Fatalf("NewVerifier returned error: %v", err)
 	}
@@ -197,6 +206,16 @@ func TestAuthenticate_RetrievesKeysFromIssuer(t *testing.T) {
 	stub := newIssuerStub(t, testKey(t), testKeyID)
 
 	assertAuthenticated(t, stub.verifier(t), stub.token(t, testKey(t), testKeyID))
+}
+
+func TestAuthenticate_OpensConnectionForEachRetrieval(t *testing.T) {
+	stub := newIssuerStub(t, testKey(t), testKeyID)
+
+	assertAuthenticated(t, stub.verifier(t), stub.token(t, testKey(t), testKeyID))
+
+	if got := stub.newConnections.Load(); got != 2 {
+		t.Errorf("new connections = %d, want 2", got)
+	}
 }
 
 func TestAuthenticate_RetrievalFailure(t *testing.T) {

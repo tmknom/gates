@@ -2,10 +2,12 @@ package github_test
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json/v2"
 	"errors"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -89,7 +91,8 @@ func respondStatus(status int, header map[string]string) http.HandlerFunc {
 type apiStub struct {
 	server *httptest.Server
 	// サーバーの goroutine が書き、テストが読む
-	request atomic.Pointer[http.Request]
+	request        atomic.Pointer[http.Request]
+	newConnections atomic.Int32
 }
 
 func newAPIStub(t *testing.T, handler http.HandlerFunc) *apiStub {
@@ -99,6 +102,11 @@ func newAPIStub(t *testing.T, handler http.HandlerFunc) *apiStub {
 		stub.request.Store(r)
 		handler(w, r)
 	}))
+	stub.server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			stub.newConnections.Add(1)
+		}
+	}
 	// 切断を試すハンドラで、サーバーのログがテストの出力に混ざらないようにする
 	stub.server.Config.ErrorLog = log.New(io.Discard, "", 0)
 	stub.server.StartTLS()
@@ -112,7 +120,9 @@ func (s *apiStub) client(t *testing.T) *github.Client {
 	if err != nil {
 		t.Fatalf("Parse returned error: %v", err)
 	}
-	return github.NewClient(github.WithAPIHost(apiHost), github.WithTransport(s.server.Client().Transport))
+	rootCAs := x509.NewCertPool()
+	rootCAs.AddCert(s.server.Certificate())
+	return github.NewClient(github.WithAPIHost(apiHost), github.WithRootCAs(rootCAs))
 }
 
 func allowedOwner(t *testing.T, ownerType authz.OwnerType) authz.AllowedOwner {

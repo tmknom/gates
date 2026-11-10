@@ -7,9 +7,11 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/kms/types"
 
@@ -97,6 +99,19 @@ func (s *Signer) sign(ctx context.Context) (string, error) {
 // クライアントを作る側の設定に頼らず呼び出しごとに止めるのは、1 回の署名を待つ上限を KMS Signer だけで守るためである。
 func withoutRetry(o *kms.Options) {
 	o.Retryer = aws.NopRetryer{}
+}
+
+// NewKMSClient は、KMS Signer に渡す KMS のクライアントを、要求ごとに接続を張るように作る。理由は Lambda Design の Call Time Budget にある。
+// 接続を使い回すかは HTTP クライアントの Transport が決めるため、withoutRetry と違い、署名のたびではなくクライアントを作るときに設定する。
+// cfg の HTTPClient は、未設定か BuildableClient であることを前提にする。LoadDefaultConfig が読み込んだ設定はこれを満たす。
+// kms.NewFromConfig は、optFns を適用する前に、未設定の HTTPClient を BuildableClient にし、defaults mode とサービスに応じたタイムアウトを重ねる。
+// その設定を捨てないよう、新しいクライアントに置き換えずに重ねる。
+func NewKMSClient(cfg aws.Config) *kms.Client {
+	return kms.NewFromConfig(cfg, func(o *kms.Options) {
+		o.HTTPClient = o.HTTPClient.(*awshttp.BuildableClient).WithTransportOptions(func(transport *http.Transport) {
+			transport.DisableKeepAlives = true
+		})
+	})
 }
 
 // signingInput は、JOSE Header と Payload を Base64URL にして連結した署名入力を返す。
