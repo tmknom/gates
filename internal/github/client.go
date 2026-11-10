@@ -2,6 +2,8 @@ package github
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"net/http"
 	"net/url"
 )
@@ -27,9 +29,26 @@ func WithAPIHost(apiHost *url.URL) Option {
 	return func(c *Client) { c.apiHost = apiHost }
 }
 
-// WithTransport は要求に使う Transport を差し替える。テストが httptest の TLS サーバーの証明書を信頼するために使う。
+// WithTransport は要求に使う Transport を差し替える。
 func WithTransport(transport http.RoundTripper) Option {
 	return func(c *Client) { c.httpClient.Transport = transport }
+}
+
+// WithRootCAs は、本番と同じ Transport に、TLS サーバーの証明書を rootCAs で検証させる設定だけを重ねる。
+// テストが httptest の TLS サーバーの証明書を信頼するために使う。
+func WithRootCAs(rootCAs *x509.CertPool) Option {
+	return func(c *Client) {
+		transport := c.httpClient.Transport.(*http.Transport).Clone()
+		transport.TLSClientConfig = &tls.Config{RootCAs: rootCAs, MinVersion: tls.VersionTLS12}
+		c.httpClient.Transport = transport
+	}
+}
+
+// newTransport は、要求ごとに接続を張る Transport を作る。理由は Lambda Design の Call Time Budget にある。
+func newTransport() *http.Transport {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DisableKeepAlives = true
+	return transport
 }
 
 // NewClient は GitHub.com の API に要求を送る GitHub Client を作る。
@@ -37,6 +56,7 @@ func NewClient(opts ...Option) *Client {
 	c := &Client{
 		apiHost: &url.URL{Scheme: "https", Host: "api.github.com"},
 		httpClient: &http.Client{
+			Transport: newTransport(),
 			// リダイレクトに従わず成功以外の応答として分類する。理由は Lambda Design の「GitHub Client」に記述する
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},

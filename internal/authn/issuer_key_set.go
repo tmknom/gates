@@ -2,6 +2,8 @@ package authn
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -39,14 +41,32 @@ type issuerKeySet struct {
 // Option は Discovery と JWKS の取得の設定を変える。
 type Option func(*issuerKeySet)
 
-// WithTransport は取得に使う Transport を差し替える。テストが httptest の TLS サーバーの証明書を信頼するために使う。
+// WithTransport は取得に使う Transport を差し替える。
 func WithTransport(transport http.RoundTripper) Option {
 	return func(keySet *issuerKeySet) { keySet.client.Transport = transport }
+}
+
+// WithRootCAs は、本番と同じ Transport に、TLS サーバーの証明書を rootCAs で検証させる設定だけを重ねる。
+// テストが httptest の TLS サーバーの証明書を信頼するために使う。
+func WithRootCAs(rootCAs *x509.CertPool) Option {
+	return func(keySet *issuerKeySet) {
+		transport := keySet.client.Transport.(*http.Transport).Clone()
+		transport.TLSClientConfig = &tls.Config{RootCAs: rootCAs, MinVersion: tls.VersionTLS12}
+		keySet.client.Transport = transport
+	}
+}
+
+// newTransport は、要求ごとに接続を張る Transport を作る。理由は Lambda Design の Call Time Budget にある。
+func newTransport() *http.Transport {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DisableKeepAlives = true
+	return transport
 }
 
 func newIssuerKeySet(issuer *url.URL, now func() time.Time, log *slog.Logger, opts ...Option) *issuerKeySet {
 	keySet := &issuerKeySet{
 		client: &http.Client{
+			Transport: newTransport(),
 			// 固定した Issuer の外から文書を読まないよう、リダイレクトに従わず 200 以外として分類する
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},

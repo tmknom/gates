@@ -117,9 +117,9 @@ func respondSignature() doFunc {
 	return respond(http.StatusOK, http.Header{"X-Amzn-Requestid": {testRequestID}}, `{"KeyId":"`+testKMSKeyARN+`","Signature":"AQID","SigningAlgorithm":"RSASSA_PKCS1_V1_5_SHA_256"}`)
 }
 
-// newKMSClient は、AWS SDK の KMS のクライアントを、認証情報なしで、HTTP の送信先を差し替えて作る。
+// newKMSClientSendingTo は、AWS SDK の KMS のクライアントを、認証情報なしで、HTTP の送信先を差し替えて作る。
 // 再試行の設定は SDK の既定のままにし、KMS Signer が再試行を止めることを確かめられるようにする。
-func newKMSClient(do doFunc) *kms.Client {
+func newKMSClientSendingTo(do doFunc) *kms.Client {
 	return kms.New(kms.Options{Region: "ap-northeast-1", Credentials: aws.AnonymousCredentials{}, HTTPClient: do})
 }
 
@@ -227,17 +227,17 @@ func TestSigner_Sign_ClassifiesKMSFailure(t *testing.T) {
 		// wantInMessage は、調査のためにエラー文言に含める AWS のエラーコード、HTTP ステータス、request ID である
 		wantInMessage []string
 	}{
-		{name: "ThrottlingException returns ErrTransientFailure", client: newKMSClient(respondKMSError(http.StatusBadRequest, "ThrottlingException")), want: ErrTransientFailure, wantInMessage: []string{"ThrottlingException", testRequestID}},
-		{name: "KMSInternalException with 500 returns ErrTransientFailure", client: newKMSClient(respondKMSError(http.StatusInternalServerError, "KMSInternalException")), want: ErrTransientFailure, wantInMessage: []string{"KMSInternalException", testRequestID}},
-		{name: "503 with a non-JSON body returns ErrTransientFailure", client: newKMSClient(respond(http.StatusServiceUnavailable, http.Header{"Content-Type": {"text/html"}}, "<html>"+kmsMessageMarker+"</html>")), want: ErrTransientFailure, wantInMessage: []string{"503"}},
-		{name: "502 with an empty body returns ErrTransientFailure", client: newKMSClient(respond(http.StatusBadGateway, http.Header{}, "")), want: ErrTransientFailure, wantInMessage: []string{"502"}},
-		{name: "connection reset while receiving the body returns ErrTransientFailure", client: newKMSClient(respondCutOff(http.StatusOK, syscall.ECONNRESET)), want: ErrTransientFailure, wantInMessage: []string{"200", testRequestID}},
-		{name: "connection reset while receiving an error body returns ErrTransientFailure", client: newKMSClient(respondCutOff(http.StatusBadRequest, syscall.ECONNRESET)), want: ErrTransientFailure, wantInMessage: []string{"400", testRequestID}},
-		{name: "fully received but malformed error body returns ErrInternalFailure", client: newKMSClient(respond(http.StatusBadRequest, http.Header{"X-Amzn-Requestid": {testRequestID}, "Content-Type": {"application/x-amz-json-1.1"}}, `{"__type":"DisabledException","message":"`+kmsMessageMarker)), want: ErrInternalFailure, wantInMessage: []string{"400", testRequestID}},
-		{name: "connection failure returns ErrTransientFailure", client: newKMSClient(func(*http.Request) (*http.Response, error) {
+		{name: "ThrottlingException returns ErrTransientFailure", client: newKMSClientSendingTo(respondKMSError(http.StatusBadRequest, "ThrottlingException")), want: ErrTransientFailure, wantInMessage: []string{"ThrottlingException", testRequestID}},
+		{name: "KMSInternalException with 500 returns ErrTransientFailure", client: newKMSClientSendingTo(respondKMSError(http.StatusInternalServerError, "KMSInternalException")), want: ErrTransientFailure, wantInMessage: []string{"KMSInternalException", testRequestID}},
+		{name: "503 with a non-JSON body returns ErrTransientFailure", client: newKMSClientSendingTo(respond(http.StatusServiceUnavailable, http.Header{"Content-Type": {"text/html"}}, "<html>"+kmsMessageMarker+"</html>")), want: ErrTransientFailure, wantInMessage: []string{"503"}},
+		{name: "502 with an empty body returns ErrTransientFailure", client: newKMSClientSendingTo(respond(http.StatusBadGateway, http.Header{}, "")), want: ErrTransientFailure, wantInMessage: []string{"502"}},
+		{name: "connection reset while receiving the body returns ErrTransientFailure", client: newKMSClientSendingTo(respondCutOff(http.StatusOK, syscall.ECONNRESET)), want: ErrTransientFailure, wantInMessage: []string{"200", testRequestID}},
+		{name: "connection reset while receiving an error body returns ErrTransientFailure", client: newKMSClientSendingTo(respondCutOff(http.StatusBadRequest, syscall.ECONNRESET)), want: ErrTransientFailure, wantInMessage: []string{"400", testRequestID}},
+		{name: "fully received but malformed error body returns ErrInternalFailure", client: newKMSClientSendingTo(respond(http.StatusBadRequest, http.Header{"X-Amzn-Requestid": {testRequestID}, "Content-Type": {"application/x-amz-json-1.1"}}, `{"__type":"DisabledException","message":"`+kmsMessageMarker)), want: ErrInternalFailure, wantInMessage: []string{"400", testRequestID}},
+		{name: "connection failure returns ErrTransientFailure", client: newKMSClientSendingTo(func(*http.Request) (*http.Response, error) {
 			return nil, errors.New(kmsMessageMarker)
 		}), want: ErrTransientFailure},
-		{name: "deadline exceeded while waiting for KMS returns ErrTransientFailure", client: newKMSClient(func(r *http.Request) (*http.Response, error) {
+		{name: "deadline exceeded while waiting for KMS returns ErrTransientFailure", client: newKMSClientSendingTo(func(r *http.Request) (*http.Response, error) {
 			<-r.Context().Done()
 			return nil, r.Context().Err()
 		}), ctx: func(t *testing.T) context.Context {
@@ -245,17 +245,17 @@ func TestSigner_Sign_ClassifiesKMSFailure(t *testing.T) {
 			t.Cleanup(cancel)
 			return ctx
 		}, want: ErrTransientFailure},
-		{name: "context canceled before the call returns ErrTransientFailure", client: newKMSClient(respondSignature()), ctx: func(t *testing.T) context.Context {
+		{name: "context canceled before the call returns ErrTransientFailure", client: newKMSClientSendingTo(respondSignature()), ctx: func(t *testing.T) context.Context {
 			ctx, cancel := context.WithCancel(t.Context())
 			cancel()
 			return ctx
 		}, want: ErrTransientFailure},
-		{name: "DisabledException returns ErrInternalFailure", client: newKMSClient(respondKMSError(http.StatusBadRequest, "DisabledException")), want: ErrInternalFailure, wantInMessage: []string{"DisabledException", testRequestID}},
-		{name: "KMSInvalidStateException returns ErrInternalFailure", client: newKMSClient(respondKMSError(http.StatusBadRequest, "KMSInvalidStateException")), want: ErrInternalFailure, wantInMessage: []string{"KMSInvalidStateException", testRequestID}},
-		{name: "NotFoundException returns ErrInternalFailure", client: newKMSClient(respondKMSError(http.StatusBadRequest, "NotFoundException")), want: ErrInternalFailure, wantInMessage: []string{"NotFoundException", testRequestID}},
-		{name: "AccessDeniedException with 403 returns ErrInternalFailure", client: newKMSClient(respondKMSError(http.StatusForbidden, "AccessDeniedException")), want: ErrInternalFailure, wantInMessage: []string{"AccessDeniedException", testRequestID}},
-		{name: "200 with a malformed body returns ErrInternalFailure", client: newKMSClient(respond(http.StatusOK, http.Header{"X-Amzn-Requestid": {testRequestID}}, `{"Signature": "`+kmsMessageMarker)), want: ErrInternalFailure, wantInMessage: []string{testRequestID}},
-		{name: "200 without a signature returns ErrInternalFailure", client: newKMSClient(respond(http.StatusOK, http.Header{}, "")), want: ErrInternalFailure},
+		{name: "DisabledException returns ErrInternalFailure", client: newKMSClientSendingTo(respondKMSError(http.StatusBadRequest, "DisabledException")), want: ErrInternalFailure, wantInMessage: []string{"DisabledException", testRequestID}},
+		{name: "KMSInvalidStateException returns ErrInternalFailure", client: newKMSClientSendingTo(respondKMSError(http.StatusBadRequest, "KMSInvalidStateException")), want: ErrInternalFailure, wantInMessage: []string{"KMSInvalidStateException", testRequestID}},
+		{name: "NotFoundException returns ErrInternalFailure", client: newKMSClientSendingTo(respondKMSError(http.StatusBadRequest, "NotFoundException")), want: ErrInternalFailure, wantInMessage: []string{"NotFoundException", testRequestID}},
+		{name: "AccessDeniedException with 403 returns ErrInternalFailure", client: newKMSClientSendingTo(respondKMSError(http.StatusForbidden, "AccessDeniedException")), want: ErrInternalFailure, wantInMessage: []string{"AccessDeniedException", testRequestID}},
+		{name: "200 with a malformed body returns ErrInternalFailure", client: newKMSClientSendingTo(respond(http.StatusOK, http.Header{"X-Amzn-Requestid": {testRequestID}}, `{"Signature": "`+kmsMessageMarker)), want: ErrInternalFailure, wantInMessage: []string{testRequestID}},
+		{name: "200 without a signature returns ErrInternalFailure", client: newKMSClientSendingTo(respond(http.StatusOK, http.Header{}, "")), want: ErrInternalFailure},
 		{name: "failure before sending the request returns ErrInternalFailure", client: kms.New(kms.Options{Credentials: aws.AnonymousCredentials{}, HTTPClient: respondSignature()}), want: ErrInternalFailure},
 	}
 	for _, tt := range tests {
@@ -289,7 +289,7 @@ func TestSigner_Sign_ClassifiesKMSFailure(t *testing.T) {
 
 func TestSigner_Sign_DoesNotRetry(t *testing.T) {
 	attempts := 0
-	client := newKMSClient(func(r *http.Request) (*http.Response, error) {
+	client := newKMSClientSendingTo(func(r *http.Request) (*http.Response, error) {
 		attempts++
 		return respondKMSError(http.StatusInternalServerError, "KMSInternalException")(r)
 	})
@@ -303,7 +303,7 @@ func TestSigner_Sign_DoesNotRetry(t *testing.T) {
 
 func TestSigner_Sign_BoundsKMSCallTo5Seconds(t *testing.T) {
 	var remaining time.Duration
-	client := newKMSClient(func(r *http.Request) (*http.Response, error) {
+	client := newKMSClientSendingTo(func(r *http.Request) (*http.Response, error) {
 		deadline, ok := r.Context().Deadline()
 		if !ok {
 			t.Errorf("request to KMS has no deadline")

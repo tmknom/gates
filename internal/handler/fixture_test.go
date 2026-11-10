@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
@@ -75,7 +76,9 @@ func newTokenIssuer(t *testing.T, issuance map[string]any, revocationStatus int)
 	if err != nil {
 		t.Fatalf("Parse returned error: %v", err)
 	}
-	client := github.NewClient(github.WithAPIHost(apiHost), github.WithTransport(server.Client().Transport))
+	rootCAs := x509.NewCertPool()
+	rootCAs.AddCert(server.Certificate())
+	client := github.NewClient(github.WithAPIHost(apiHost), github.WithRootCAs(rootCAs))
 	return tokenissuer.NewTokenIssuer(signerStub{}, client, allowedOwner(t), func() time.Time { return now })
 }
 

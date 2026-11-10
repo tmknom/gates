@@ -12,7 +12,6 @@ import (
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-lambda-go/lambdacontext"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/kms"
 
 	"github.com/tmknom/gates/internal/authn"
 	"github.com/tmknom/gates/internal/config"
@@ -59,7 +58,7 @@ func newRuntimeEntry(ctx context.Context, log *slog.Logger) (runtimeEntry, error
 	if err != nil {
 		return runtimeEntry{}, err
 	}
-	kmsSigner, err := signer.NewSigner(cfg.ClientID(), cfg.KMSKeyARN(), kms.NewFromConfig(awsCfg), time.Now)
+	kmsSigner, err := signer.NewSigner(cfg.ClientID(), cfg.KMSKeyARN(), signer.NewKMSClient(awsCfg), time.Now)
 	if err != nil {
 		return runtimeEntry{}, err
 	}
