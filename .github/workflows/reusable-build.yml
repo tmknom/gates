@@ -1,0 +1,132 @@
+name: Reusable Build
+on:
+  workflow_call:
+    outputs:
+      artifact-name:
+        description: The name of the artifact that contains the package and SHA256SUMS.
+        value: ${{ jobs.build.outputs.artifact-name }}
+      package-name:
+        description: The file name of the package.
+        value: ${{ jobs.build.outputs.package-name }}
+      package-digest:
+        description: The digest of the package, in the form of sha256:<hex>.
+        value: ${{ jobs.build.outputs.package-digest }}
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+# ビルドと Attestation を同じ Reusable Workflow で行う。
+# 利用者は Attestation の署名者がこの Reusable Workflow であることを確かめ、呼び出し側が渡した任意の digest への署名と区別する
+jobs:
+  build:
+    if: ${{ github.ref == 'refs/heads/main' && github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
+    # zip の実装が変わると zip のバイト列が変わり得るため、OS のバージョンを固定したラベルを使う
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      artifact-name: release-package
+      package-name: ${{ steps.build.outputs.package-name }}
+      package-digest: ${{ steps.build.outputs.package-digest }}
+    steps:
+      - name: Checkout
+        uses: tmknom/secure-checkout-action@62ba66cf8cf2c3f4e78fecc96c5d402445d29dd4 # v1.1.0
+
+      # キャッシュは同じリポジトリのほかのワークフローも書き込めるため使わない
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      # 同じコミットと同じバージョンの Go からは、同じバイト列の zip ができる
+      - name: Build
+        id: build
+        env:
+          PACKAGE: gates-lambda-linux-arm64.zip
+          # ビルドの結果を変える設定を、実行する環境に左右されないよう固定する
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: arm64
+          GOARM64: v8.0
+          GOTOOLCHAIN: local
+          GOFLAGS: -mod=readonly
+          GOEXPERIMENT: ""
+          GOFIPS140: "off"
+          GOPROXY: https://proxy.golang.org
+          GOSUMDB: sum.golang.org
+          GOPRIVATE: ""
+          GONOPROXY: ""
+          GONOSUMDB: ""
+          GOINSECURE: ""
+        run: |
+          set -euo pipefail
+
+          # Go のバージョンが違うとバイト列が変わるため、go.mod の go の行と一致しなければ失敗する
+          want="go$(go list -m -f '{{.GoVersion}}')"
+          got="$(go env GOVERSION)"
+          if [[ "${got}" != "${want}" ]]; then
+            echo "::error::Go ${want#go} is required, but ${got#go} is in use"
+            exit 1
+          fi
+
+          go mod download
+          go mod verify
+
+          out="${RUNNER_TEMP}/release"
+          mkdir "${out}"
+          go build -trimpath -buildvcs=false -ldflags="-s -w" -o "${out}/bootstrap" .
+          chmod 755 "${out}/bootstrap"
+
+          # zip は中のファイルの更新時刻をバイト列に記録するため、コミット日時に固定する。
+          # GNU と BSD の date の違いを避けるため、git が UTC で整形した時刻を touch に渡す
+          timestamp="$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y%m%d%H%M.%S)"
+          TZ=UTC touch -t "${timestamp}" "${out}/bootstrap"
+          if [[ "$(TZ=UTC date -r "${out}/bootstrap" +%Y%m%d%H%M.%S)" != "${timestamp}" ]]; then
+            echo "::error::The modification time of bootstrap is not the commit time ${timestamp}"
+            exit 1
+          fi
+
+          TZ=UTC zip -X -j -q "${out}/${PACKAGE}" "${out}/bootstrap"
+          if [[ "$(unzip -Z -1 "${out}/${PACKAGE}")" != "bootstrap" ]]; then
+            echo "::error::${PACKAGE} must contain only bootstrap"
+            exit 1
+          fi
+
+          cd "${out}"
+          sha256sum "${PACKAGE}" > SHA256SUMS
+          cat SHA256SUMS
+          read -r hex _ < SHA256SUMS
+          echo "package-name=${PACKAGE}" >> "${GITHUB_OUTPUT}"
+          echo "package-digest=sha256:${hex}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-package
+          path: |
+            ${{ runner.temp }}/release/${{ steps.build.outputs.package-name }}
+            ${{ runner.temp }}/release/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 1
+
+  attest:
+    needs: [build]
+    if: ${{ github.ref == 'refs/heads/main' && github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # artifact-metadata: write は、レジストリに push するときの storage record にだけ要るため与えない
+    permissions:
+      id-token: write
+      attestations: write
+    steps:
+      # predicate を渡さないと、SLSA Build Provenance の Attestation を作る
+      - name: Attest build provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ needs.build.outputs.package-name }}
+          subject-digest: ${{ needs.build.outputs.package-digest }}
