@@ -24,8 +24,9 @@ defaults:
   run:
     shell: bash
 
-# 取り消せない処理ほど後に置く。公開より前に失敗したときは、draft のリリースだけが残る。
-# 各ジョブの if は誤った起動を防ぐためのもので、改ざんへの備えは利用者による Attestation の検証にある
+# 取り消せない処理ほど後に置く。
+# test ジョブの if は誤った起動を防ぐためのもので、後続のジョブは needs で test に連なるため一緒に skip される。
+# 改ざんへの備えは利用者による Attestation の検証にある
 jobs:
   test:
     if: ${{ github.ref == 'refs/heads/main' && github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
@@ -35,7 +36,9 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: tmknom/secure-checkout-action@62ba66cf8cf2c3f4e78fecc96c5d402445d29dd4 # v1.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -59,7 +62,7 @@ jobs:
           done
 
   version:
-    if: ${{ github.ref == 'refs/heads/main' && github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
+    needs: [test]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -70,92 +73,24 @@ jobs:
     steps:
       # 前回のタグからマージされた PR を探すため、すべての履歴とタグを取得する
       - name: Checkout
-        uses: tmknom/secure-checkout-action@62ba66cf8cf2c3f4e78fecc96c5d402445d29dd4 # v1.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
 
-      # 後続の Action は、最も新しい semver のタグが前回のタグだという前提で動くため、その前提を確かめる
-      - name: Find latest version
-        id: latest
-        run: |
-          set -euo pipefail
-          tags="$(git tag --list --sort=-v:refname)"
-          latest="${tags%%$'\n'*}"
-          if [[ -z "${latest}" ]]; then
-            echo "No tags found"
-            echo "current=v0.0.0" >> "${GITHUB_OUTPUT}"
-            echo "range=${GITHUB_SHA}" >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-          if [[ ! "${latest}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::The latest tag is not in the form of vX.Y.Z: ${latest}"
-            exit 1
-          fi
-          if ! git merge-base --is-ancestor "${latest}" "${GITHUB_SHA}"; then
-            echo "::error::The latest tag ${latest} is not an ancestor of ${GITHUB_SHA}"
-            exit 1
-          fi
-          echo "Latest version: ${latest}"
-          echo "current=${latest}" >> "${GITHUB_OUTPUT}"
-          echo "range=${latest}..${GITHUB_SHA}" >> "${GITHUB_OUTPUT}"
-
-      # 範囲の終端を GITHUB_SHA にし、ビルドするコミットにない PR のラベルを数えない
-      - name: Determine version level
+      - name: Determine Version Level
         id: determine
         if: ${{ inputs.bump-level == 'auto' }}
         uses: tmknom/determine-version-level-action@83449961162020e90bb0cd55acb99cc695526221 # v0.2.1
-        with:
-          revision-range: ${{ steps.latest.outputs.range }}
 
-      - name: Select bump level
-        id: level
-        env:
-          INPUT_LEVEL: ${{ inputs.bump-level }}
-          AUTO_LEVEL: ${{ steps.determine.outputs.bump-level }}
-        run: |
-          set -euo pipefail
-          level="${INPUT_LEVEL}"
-          if [[ "${level}" == "auto" ]]; then
-            level="${AUTO_LEVEL}"
-          fi
-          case "${level}" in
-            patch | minor | major) ;;
-            *)
-              echo "::error::No version level to bump: ${level}. No labeled pull requests have been merged since the latest tag"
-              exit 1
-              ;;
-          esac
-          echo "Bump level: ${level}"
-          echo "level=${level}" >> "${GITHUB_OUTPUT}"
-
-      - name: Bump version
+      - name: Bump Version
         id: bump
         uses: tmknom/bump-version-action@87bed7f224292cab5b46a4cae9897bbf64153f00 # v0.2.1
         with:
-          bump-level: ${{ steps.level.outputs.level }}
-          current-version: ${{ steps.latest.outputs.current }}
-
-      # 既存のタグで draft を公開すると、--target は無視され、既存のタグにリリースが付く
-      - name: Check version
-        env:
-          VERSION: ${{ steps.bump.outputs.version }}
-        run: |
-          set -euo pipefail
-          if [[ ! "${VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::The version is not in the form of vX.Y.Z: ${VERSION}"
-            exit 1
-          fi
-          status=0
-          git ls-remote --exit-code --tags origin "refs/tags/${VERSION}" || status=$?
-          if [[ "${status}" -ne 2 ]]; then
-            echo "::error::The tag ${VERSION} already exists, or the remote tags could not be read"
-            exit 1
-          fi
-          echo "Next version: ${VERSION}"
+          bump-level: ${{ steps.determine.outputs.bump-level || inputs.bump-level }}
 
   build:
-    needs: [test, version]
-    if: ${{ github.ref == 'refs/heads/main' && github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
+    needs: [version]
     uses: ./.github/workflows/reusable-build.yml
     permissions:
       contents: read
@@ -165,10 +100,9 @@ jobs:
   # 各ステップの env には、そのステップが使う値だけを置き、GH_TOKEN は gh を呼ぶステップにだけ渡す
   release:
     needs: [version, build]
-    if: ${{ github.ref == 'refs/heads/main' && github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    # attestations: read は、draft の検証で gh attestation verify が Attestation を取得するのに要る
+    # attestations: read は、公開の前後の検証で gh attestation verify が Attestation を取得するのに要る
     permissions:
       contents: write
       attestations: read
@@ -184,55 +118,13 @@ jobs:
         env:
           PACKAGE_NAME: ${{ needs.build.outputs.package-name }}
           PACKAGE_DIGEST: ${{ needs.build.outputs.package-digest }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           sha256sum -c SHA256SUMS
           read -r hex _ < <(sha256sum "${PACKAGE_NAME}")
           if [[ "sha256:${hex}" != "${PACKAGE_DIGEST}" ]]; then
             echo "::error::The digest of ${PACKAGE_NAME} does not match the build output"
-            exit 1
-          fi
-
-      # 同じタグ名の draft が残っていると、タグ名で指定する gh release の操作がどの draft を指すか定まらない
-      - name: Check no release for version
-        env:
-          VERSION: ${{ needs.version.outputs.version }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          ids="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" --jq '.[] | select(.tag_name == env.VERSION) | .id')"
-          if [[ -n "${ids}" ]]; then
-            echo "::error::A release for ${VERSION} already exists. Delete it if it is a draft left by a failed run"
-            exit 1
-          fi
-
-      # draft の時点ではタグは作られない
-      - name: Create draft release
-        working-directory: ${{ runner.temp }}/artifact
-        env:
-          VERSION: ${{ needs.version.outputs.version }}
-          PACKAGE_NAME: ${{ needs.build.outputs.package-name }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh release create "${VERSION}" --repo "${GITHUB_REPOSITORY}" --draft --target "${GITHUB_SHA}" \
-            --title "${VERSION}" --generate-notes "${PACKAGE_NAME}" SHA256SUMS
-
-      - name: Verify draft release
-        env:
-          VERSION: ${{ needs.version.outputs.version }}
-          PACKAGE_NAME: ${{ needs.build.outputs.package-name }}
-          PACKAGE_DIGEST: ${{ needs.build.outputs.package-digest }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          dir="${RUNNER_TEMP}/draft"
-          gh release download "${VERSION}" --repo "${GITHUB_REPOSITORY}" --dir "${dir}"
-          cd "${dir}"
-          sha256sum -c SHA256SUMS
-          read -r hex _ < <(sha256sum "${PACKAGE_NAME}")
-          if [[ "sha256:${hex}" != "${PACKAGE_DIGEST}" ]]; then
-            echo "::error::The digest of ${PACKAGE_NAME} in the draft release does not match the build output"
             exit 1
           fi
           gh attestation verify "${PACKAGE_NAME}" \
@@ -243,30 +135,38 @@ jobs:
             --source-digest "${GITHUB_SHA}" \
             --deny-self-hosted-runners
 
-      # 公開の直前にもタグがないことを確かめ、公開のときにタグを GITHUB_SHA に作らせる
       - name: Publish release
+        working-directory: ${{ runner.temp }}/artifact
         env:
           VERSION: ${{ needs.version.outputs.version }}
+          PACKAGE_NAME: ${{ needs.build.outputs.package-name }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          status=0
-          git ls-remote --exit-code --tags "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" "refs/tags/${VERSION}" || status=$?
-          if [[ "${status}" -ne 2 ]]; then
-            echo "::error::The tag ${VERSION} already exists, or the remote tags could not be read"
-            exit 1
-          fi
-          gh release edit "${VERSION}" --repo "${GITHUB_REPOSITORY}" --draft=false
+          gh release create "${VERSION}" --repo "${GITHUB_REPOSITORY}" --target "${GITHUB_SHA}" \
+            --title "${VERSION}" --draft=false --generate-notes "${PACKAGE_NAME}" SHA256SUMS
 
-      - name: Check tag
+      - name: Verify release
         env:
           VERSION: ${{ needs.version.outputs.version }}
+          PACKAGE_NAME: ${{ needs.build.outputs.package-name }}
+          PACKAGE_DIGEST: ${{ needs.build.outputs.package-digest }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          ref="$(git ls-remote --tags "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" "refs/tags/${VERSION}")"
-          sha="${ref%%[[:space:]]*}"
-          if [[ "${sha}" != "${GITHUB_SHA}" ]]; then
-            echo "::error::The tag ${VERSION} points to ${sha:-nothing}, not ${GITHUB_SHA}"
+          dir="${RUNNER_TEMP}/release"
+          gh release download "${VERSION}" --repo "${GITHUB_REPOSITORY}" --dir "${dir}"
+          cd "${dir}"
+          sha256sum -c SHA256SUMS
+          read -r hex _ < <(sha256sum "${PACKAGE_NAME}")
+          if [[ "sha256:${hex}" != "${PACKAGE_DIGEST}" ]]; then
+            echo "::error::The digest of ${PACKAGE_NAME} in the release does not match the build output"
             exit 1
           fi
-          echo "Released ${VERSION} at ${GITHUB_SHA}"
+          gh attestation verify "${PACKAGE_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/reusable-build.yml" \
+            --signer-digest "${GITHUB_SHA}" \
+            --source-ref refs/heads/main \
+            --source-digest "${GITHUB_SHA}" \
+            --deny-self-hosted-runners

@@ -22,7 +22,6 @@ defaults:
 # 利用者は Attestation の署名者がこの Reusable Workflow であることを確かめ、呼び出し側が渡した任意の digest への署名と区別する
 jobs:
   build:
-    if: ${{ github.ref == 'refs/heads/main' && github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
     # zip の実装が変わると zip のバイト列が変わり得るため、OS のバージョンを固定したラベルを使う
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -34,7 +33,9 @@ jobs:
       package-digest: ${{ steps.build.outputs.package-digest }}
     steps:
       - name: Checkout
-        uses: tmknom/secure-checkout-action@62ba66cf8cf2c3f4e78fecc96c5d402445d29dd4 # v1.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # キャッシュは同じリポジトリのほかのワークフローも書き込めるため使わない
       - name: Set up Go
@@ -116,7 +117,6 @@ jobs:
 
   attest:
     needs: [build]
-    if: ${{ github.ref == 'refs/heads/main' && github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     # artifact-metadata: write は、レジストリに push するときの storage record にだけ要るため与えない
