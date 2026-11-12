@@ -1,0 +1,389 @@
+name: E2E Payload Rejection
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+# 同じ Lambda を呼ぶ E2E テストを重ねない
+concurrency:
+  group: gates-e2e
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+# Action を経由せず、Runner の AWS CLI で Lambda を直接 Invoke する。Action の入力の検証が止める Payload を GATES に届け、
+# 成功する Payload から 1 つの条件だけを変えた各事例を、GATES が定めたエラーコードで拒否することを確かめる。
+# どの事例もトークンを発行しない。資格情報は作業ディレクトリのファイルだけに置き、ステップをまたぐ環境変数と Output に置かない
+jobs:
+  reject:
+    name: Reject
+    runs-on: ubuntu-latest
+    # 期限切れの事例で GATES 用 OIDC JWT の exp まで 5 分ほど待つ
+    timeout-minutes: 15
+    permissions:
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.GATES_AWS_REGION }}
+      # AWS CLI が再試行して、1 つの事例を 2 回 Invoke しないようにする
+      AWS_MAX_ATTEMPTS: "1"
+      FUNCTION_NAME: ${{ vars.GATES_FUNCTION_NAME }}
+      PRIMARY: ${{ vars.GATES_TARGET_PRIMARY }}
+      # 許可オーナー以外のオーナーの公開リポジトリ。GATES はオーナー名の照合で拒否し、GitHub API に渡さない
+      OTHER_OWNER_REPOSITORY: octocat/Hello-World
+      GITHUB_API_VERSION: "2026-03-10"
+    steps:
+      # 開始と終了の時刻は、試験の時間帯の CloudWatch Logs と CloudTrail を引くために出す
+      - name: Create work directory
+        id: workdir
+        run: |
+          set -euo pipefail
+          umask 077
+          dir="$(mktemp -d "${RUNNER_TEMP}/gates.XXXXXX")"
+          echo "path=${dir}" >> "${GITHUB_OUTPUT}"
+          echo "Started at $(date -u +%Y-%m-%dT%H:%M:%SZ) ($(date +%s)000 ms)"
+
+      # 各ステップが source する関数。Payload と応答は作業ディレクトリのファイルだけに置き、
+      # ログには事例ごとの判定と request_id だけを出す
+      - name: Write helper
+        env:
+          WORK_DIR: ${{ steps.workdir.outputs.path }}
+        run: |
+          set -euo pipefail
+          umask 077
+          cat > "${WORK_DIR}/helper.sh" <<'EOF'
+          # エラーコードごとの固定の文言。拒否の理由が応答に出ていないことを、完全一致で確かめる
+          declare -A messages=(
+            [invalid_request]='The request payload is invalid.'
+            [invalid_id_token]='The ID token is not accepted.'
+            [authorization_denied]='The requested token is not permitted.'
+            [github_issuance_rejected]='GitHub rejected the token issuance.'
+          )
+
+          # request_id_token <audience> <out>
+          # actions/toolkit の core.getIDToken と同じく、Audience を URI エンコードした GET に Accept: application/json を付ける
+          request_id_token() {
+            local audience status
+            audience="$(jq -rn --arg v "$1" '$v | @uri')"
+            status="$(curl --silent --show-error --output "${WORK_DIR}/id_token_response.json" --write-out '%{http_code}' \
+              -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+              -H "Accept: application/json" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${audience}")"
+            if [[ "${status}" != "200" ]]; then
+              # 失敗の応答は JWT を含まないため、原因の切り分けに本文を出す
+              echo "::error::ID token request returned ${status}"
+              cat "${WORK_DIR}/id_token_response.json"
+              exit 1
+            fi
+            jq -j '.value' "${WORK_DIR}/id_token_response.json" > "$2"
+            rm "${WORK_DIR}/id_token_response.json"
+            echo "::add-mask::$(< "$2")"
+          }
+
+          # record <case> <expected> <actual> <request_id>
+          record() {
+            local result=FAIL
+            if [[ "$2" == "$3" ]]; then
+              result=PASS
+            fi
+            printf '%s %s expected=%s actual=%s request_id=%s\n' "${result}" "$1" "$2" "$3" "$4" | tee -a "${WORK_DIR}/results.txt"
+          }
+
+          # 想定外に発行されたトークンを、ログに出さずに失効させる
+          revoke_token() {
+            local authorization="${WORK_DIR}/authorization" status
+            printf 'Authorization: Bearer %s\n' "$1" > "${authorization}"
+            status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+              -X DELETE \
+              -H @"${authorization}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" \
+              https://api.github.com/installation/token || true)"
+            rm -f "${authorization}"
+            echo "revoke: ${status}"
+          }
+
+          # invoke_case <case> <expected> [aws lambda invoke の追加の引数...]
+          # 作業ディレクトリの payload.json を Invoke し、FunctionError がなく、応答が ok: false、期待した error.code、
+          # その固定の文言、request_id だけを持つことを判定する。token などほかのキーがあれば期待どおりとしない。
+          # 関数に届く前に拒否される事例は、expected に invoke_failed: と AWS のエラーコードを書く
+          invoke_case() {
+            local name="$1" expected="$2"
+            shift 2
+            local payload="${WORK_DIR}/payload.json" response="${WORK_DIR}/response.json"
+            local metadata="${WORK_DIR}/metadata.json" stderr="${WORK_DIR}/stderr.txt"
+            local actual token request_id=""
+            if ! AWS_SHARED_CREDENTIALS_FILE="${WORK_DIR}/aws_credentials" aws lambda invoke \
+              --function-name "${FUNCTION_NAME}" \
+              --invocation-type RequestResponse \
+              --payload "fileb://${payload}" \
+              "$@" \
+              "${response}" > "${metadata}" 2> "${stderr}"; then
+              # AWS CLI の文言は Payload の断片を含み得るため、例外の名前だけを出す
+              actual="invoke_failed:$(sed -n -E 's/.*An error occurred \(([A-Za-z]+)\).*/\1/p' "${stderr}" | head -n 1)"
+            elif jq -e 'has("FunctionError")' "${metadata}" > /dev/null; then
+              actual="function_error"
+            else
+              token="$(jq -j '.token? | strings' "${response}" 2> /dev/null || true)"
+              request_id="$(jq -r '.request_id? | strings | select(test("^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$"))' "${response}" 2> /dev/null || true)"
+              if [[ -n "${token}" ]]; then
+                echo "::add-mask::${token}"
+                revoke_token "${token}"
+                actual="token_issued"
+              else
+                actual="$(jq -r '.error?.code? | strings' "${response}" 2> /dev/null || true)"
+                # 応答の値をそのままログに出さない。エラーコードの形の値だけを出す
+                [[ "${actual}" =~ ^[a-z_]+$ ]] || actual="unexpected_response"
+                if [[ "${actual}" == "${expected}" ]] && ! jq -e --arg code "${expected}" --arg message "${messages[${expected}]}" \
+                  '(.request_id | type == "string") and . == {ok: false, error: {code: $code, message: $message}, request_id}' \
+                  "${response}" > /dev/null 2>&1; then
+                  actual="${actual}:unexpected_shape"
+                fi
+              fi
+              unset token
+            fi
+            rm -f "${payload}" "${response}" "${metadata}" "${stderr}"
+            record "${name}" "${expected}" "${actual}" "${request_id:--}"
+          }
+
+          # raw_case <case> <expected> <Payload の文字列> [aws lambda invoke の追加の引数...]
+          # 関数に届く前に拒否される事例に使う。万一関数に届いても資格情報を送らないよう、Payload に id_token を含めない
+          raw_case() {
+            local name="$1" expected="$2"
+            printf '%s' "$3" > "${WORK_DIR}/payload.json"
+            shift 3
+            invoke_case "${name}" "${expected}" "$@"
+          }
+
+          # 成功する Payload。各事例は、ここから 1 つの条件だけを変える
+          base_payload() {
+            jq -n --rawfile id_token "${WORK_DIR}/id_token" --arg primary "${PRIMARY}" \
+              '{version: 1, id_token: $id_token, repositories: [$primary], permissions: {contents: "read"}}'
+          }
+
+          # json_case <case> <expected> <jq のフィルター>
+          # 成功する Payload にフィルターを適用した JSON を Invoke する。フィルターは値を env から読む
+          json_case() {
+            base_payload | jq -c "$3" > "${WORK_DIR}/payload.json"
+            invoke_case "$1" "$2"
+          }
+
+          # id_token_case <case> <expected> <JWT のファイル>
+          # 成功する Payload の id_token だけを、ファイルの JWT に差し替えて Invoke する
+          id_token_case() {
+            base_payload | jq -c --rawfile id_token "$3" '.id_token = $id_token' > "${WORK_DIR}/payload.json"
+            invoke_case "$1" "$2"
+          }
+
+          # text_case <case> <expected> <jq のフィルター>
+          # JSON の値としては表せない Payload（重複したキー、後続のデータ）を、フィルターが返す文字列のまま Invoke する
+          text_case() {
+            base_payload | jq -j "$3" > "${WORK_DIR}/payload.json"
+            invoke_case "$1" "$2"
+          }
+          EOF
+
+      # sts.amazonaws.com を Audience とする OIDC JWT で、GitHub Actions 用 IAM Role を引き受ける。
+      # 一時認証情報は AWS CLI の認証情報ファイルに書き、Invoke のときだけそのファイルを指す
+      - name: Assume role
+        env:
+          ROLE_ARN: arn:aws:iam::${{ secrets.GATES_AWS_ACCOUNT_ID }}:role/${{ vars.GATES_ROLE_NAME }}
+          WORK_DIR: ${{ steps.workdir.outputs.path }}
+        run: |
+          set -euo pipefail
+          umask 077
+          # shellcheck source=/dev/null
+          source "${WORK_DIR}/helper.sh"
+          echo "::add-mask::${ACTIONS_ID_TOKEN_REQUEST_TOKEN}"
+          request_id_token sts.amazonaws.com "${WORK_DIR}/id_token_sts"
+          aws sts assume-role-with-web-identity \
+            --role-arn "${ROLE_ARN}" \
+            --role-session-name gates-e2e-payload-rejection \
+            --web-identity-token "file://${WORK_DIR}/id_token_sts" \
+            --duration-seconds 900 \
+            --query Credentials --output json > "${WORK_DIR}/sts.json"
+          for key in AccessKeyId SecretAccessKey SessionToken; do
+            echo "::add-mask::$(jq -r --arg key "${key}" '.[$key]' "${WORK_DIR}/sts.json")"
+          done
+          jq -r '"[default]\naws_access_key_id = \(.AccessKeyId)\naws_secret_access_key = \(.SecretAccessKey)\naws_session_token = \(.SessionToken)"' \
+            "${WORK_DIR}/sts.json" > "${WORK_DIR}/aws_credentials"
+          rm "${WORK_DIR}/sts.json"
+
+      - name: Request ID token for GATES
+        env:
+          AUDIENCE: ${{ vars.GATES_AUDIENCE }}
+          WORK_DIR: ${{ steps.workdir.outputs.path }}
+        run: |
+          set -euo pipefail
+          umask 077
+          # shellcheck source=/dev/null
+          source "${WORK_DIR}/helper.sh"
+          echo "::add-mask::${ACTIONS_ID_TOKEN_REQUEST_TOKEN}"
+          request_id_token "${AUDIENCE}" "${WORK_DIR}/id_token"
+
+          # Payload の jti の 1 文字だけを変え、Header と署名は元のまま残す
+          python3 -I - "${WORK_DIR}/id_token" "${WORK_DIR}/id_token_tampered" <<'EOF'
+          import base64
+          import re
+          import sys
+
+          header, payload, signature = open(sys.argv[1]).read().strip().split(".")
+          raw = base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))
+          match = re.search(rb'"jti"\s*:\s*"', raw)
+          i = match.end()
+          raw = raw[:i] + (b"0" if raw[i:i + 1] != b"0" else b"1") + raw[i + 1:]
+          tampered = base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+          with open(sys.argv[2], "w") as f:
+              f.write(".".join([header, tampered, signature]))
+          EOF
+          echo "::add-mask::$(< "${WORK_DIR}/id_token_tampered")"
+
+          # 期限切れの事例で待つ時刻だけを残す。JWT の値は出さない
+          jq -R '
+            def decode: gsub("-"; "+") | gsub("_"; "/") | . + ("=" * ((4 - length % 4) % 4)) | @base64d | fromjson;
+            split(".")[1] | decode | .exp
+          ' < "${WORK_DIR}/id_token" > "${WORK_DIR}/exp"
+          echo "exp: $(date -u -d "@$(< "${WORK_DIR}/exp")" +%Y-%m-%dT%H:%M:%SZ)"
+
+      # 関数に届く前に、IAM が修飾付き ARN の Invoke を、Lambda の Invoke API が JSON として不正な Payload を拒否する。
+      # どちらも GATES の応答と監査記録を残さない
+      - name: Reject invocations before GATES
+        env:
+          WORK_DIR: ${{ steps.workdir.outputs.path }}
+        run: |
+          set -euo pipefail
+          umask 077
+          # shellcheck source=/dev/null
+          source "${WORK_DIR}/helper.sh"
+
+          raw_case qualified-arn invoke_failed:AccessDeniedException '{"version":1}' --qualifier 1
+          raw_case invalid-json invoke_failed:InvalidRequestContentException '{"version":1,'
+
+      # 利用者が Payload で指定できてはならない項目は、どれも未知のフィールドとして拒否される。
+      # フィールドの名前は GATES が解釈しないことを示す例で、値は許可オーナー自身のものか実在しないものにする
+      - name: Reject unknown fields and malformed payloads
+        env:
+          WORK_DIR: ${{ steps.workdir.outputs.path }}
+        run: |
+          set -euo pipefail
+          umask 077
+          # shellcheck source=/dev/null
+          source "${WORK_DIR}/helper.sh"
+
+          json_case field-installation-id invalid_request '. + {installation_id: 1}'
+          json_case field-caller invalid_request '. + {repository_owner_id: env.GITHUB_REPOSITORY_OWNER_ID, caller: {owner_id: (env.GITHUB_REPOSITORY_OWNER_ID | tonumber)}}'
+          json_case field-owner invalid_request '. + {owner: env.GITHUB_REPOSITORY_OWNER, owner_id: (env.GITHUB_REPOSITORY_OWNER_ID | tonumber)}'
+          json_case field-github-app invalid_request '. + {client_id: "Iv1.0000000000000000", app_id: 1}'
+          json_case field-kms-key invalid_request '. + {kms_key_arn: "arn:aws:kms:us-east-1:000000000000:key/00000000-0000-0000-0000-000000000000"}'
+          json_case field-api-host invalid_request '. + {api_host: "github.example.com"}'
+          json_case unknown-field invalid_request '. + {unknown: true}'
+          json_case repository-selection invalid_request '. + {repository_selection: "all"}'
+          # 後の値を採る JSON の実装なら contents:read として読める Payload
+          text_case duplicate-key invalid_request '"{\"permissions\":{\"contents\":\"write\"}," + (tojson | ltrimstr("{"))'
+          text_case trailing-data invalid_request 'tojson + "{}"'
+          json_case missing-id-token invalid_request 'del(.id_token)'
+
+      # 欠落、空、未知値を、広い既定値に読み替えない
+      - name: Reject missing, empty, and unknown values
+        env:
+          WORK_DIR: ${{ steps.workdir.outputs.path }}
+        run: |
+          set -euo pipefail
+          umask 077
+          # shellcheck source=/dev/null
+          source "${WORK_DIR}/helper.sh"
+
+          json_case repositories-missing invalid_request 'del(.repositories)'
+          json_case repositories-empty invalid_request '.repositories = []'
+          json_case repositories-null invalid_request '.repositories = null'
+          json_case permissions-missing invalid_request 'del(.permissions)'
+          json_case permissions-empty invalid_request '.permissions = {}'
+          json_case permission-unknown-name authorization_denied '.permissions = {issues: "read"}'
+          json_case permission-unknown-level authorization_denied '.permissions = {contents: "admin"}'
+          json_case permission-invalid-charset invalid_request '.permissions = {Contents: "read"}'
+          json_case version-unknown invalid_request '.version = 2'
+
+      # authorization_denied と github_issuance_rejected の事例は、成功する Payload が形式検証と認証を通ることの確認を兼ねる
+      - name: Reject disallowed targets and permissions
+        env:
+          WORK_DIR: ${{ steps.workdir.outputs.path }}
+        run: |
+          set -euo pipefail
+          umask 077
+          # shellcheck source=/dev/null
+          source "${WORK_DIR}/helper.sh"
+
+          json_case permission-added authorization_denied '.permissions += {metadata: "read"}'
+          json_case permission-write authorization_denied '.permissions = {contents: "write"}'
+          json_case other-owner authorization_denied '.repositories = [env.OTHER_OWNER_REPOSITORY]'
+          json_case partially-other-owner authorization_denied '.repositories += [env.OTHER_OWNER_REPOSITORY]'
+          # Payload の 16 KiB の上限より先に件数の上限に達するよう、短い名前を並べる
+          json_case too-many-repositories invalid_request '.repositories = [range(1; 502) | "\(env.GITHUB_REPOSITORY_OWNER)/r\(.)"]'
+          json_case nested-name invalid_request '.repositories = ["\(env.GITHUB_REPOSITORY_OWNER)/a/b"]'
+          # 試験用のリポジトリ自身は GitHub App のインストール先に含めない
+          json_case not-installed github_issuance_rejected '.repositories = [env.GITHUB_REPOSITORY]'
+          json_case partially-not-installed github_issuance_rejected '.repositories += [env.GITHUB_REPOSITORY]'
+
+      - name: Reject ID tokens
+        env:
+          WORK_DIR: ${{ steps.workdir.outputs.path }}
+        run: |
+          set -euo pipefail
+          umask 077
+          # shellcheck source=/dev/null
+          source "${WORK_DIR}/helper.sh"
+
+          id_token_case audience-mismatch invalid_id_token "${WORK_DIR}/id_token_sts"
+          id_token_case tampered invalid_id_token "${WORK_DIR}/id_token_tampered"
+
+      - name: Reject expired ID token
+        env:
+          WORK_DIR: ${{ steps.workdir.outputs.path }}
+        run: |
+          set -euo pipefail
+          umask 077
+          # shellcheck source=/dev/null
+          source "${WORK_DIR}/helper.sh"
+          # Runner と Lambda の時計の差を見込み、exp から 15 秒過ぎるまで待つ
+          wait_seconds="$(( $(< "${WORK_DIR}/exp") + 15 - $(date +%s) ))"
+          if (( wait_seconds > 0 )); then
+            echo "Waiting ${wait_seconds} seconds"
+            sleep "${wait_seconds}"
+          fi
+          json_case expired invalid_id_token '.'
+
+      - name: Check results
+        if: ${{ always() }}
+        env:
+          WORK_DIR: ${{ steps.workdir.outputs.path }}
+        run: |
+          set -euo pipefail
+          echo "Finished at $(date -u +%Y-%m-%dT%H:%M:%SZ) ($(date +%s)000 ms)"
+          if [[ -z "${WORK_DIR}" || ! -f "${WORK_DIR}/results.txt" ]]; then
+            echo "::error::no results"
+            exit 1
+          fi
+          echo "$(grep -c '^PASS' "${WORK_DIR}/results.txt" || true) of $(wc -l < "${WORK_DIR}/results.txt") cases passed"
+          if grep '^FAIL' "${WORK_DIR}/results.txt"; then
+            echo "::error::some cases were not rejected as expected"
+            exit 1
+          fi
+
+      - name: Remove work directory
+        if: ${{ always() }}
+        env:
+          WORK_DIR: ${{ steps.workdir.outputs.path }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${WORK_DIR}" ]]; then
+            rm -rf "${WORK_DIR}"
+          fi
+
+  credential-leak:
+    name: Credential leak
+    needs: [reject]
+    if: ${{ always() }}
+    permissions:
+      actions: read
+    uses: ./.github/workflows/_e2e-reusable-credential-leak.yml

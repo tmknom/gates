@@ -19,7 +19,7 @@ Go のコードを静的解析する golangci-lint を、隔離したコンテ�
 リポジトリのルートで、`compose.yaml` が隠すパスのマウントポイントを用意してから実行します。
 
 ```sh
-mkdir -p .claude .makefiles dist terraform/local tmp
+mkdir -p .claude dist terraform/local tmp
 [ -e .envrc ] || touch .envrc
 LINT_MODULE="$PWD" LINT_GOMODCACHE="$(go env GOMODCACHE)" \
   docker compose -f scripts/golangci-lint/compose.yaml run --rm -T --interactive=false lint

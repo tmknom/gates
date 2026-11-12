@@ -9,6 +9,7 @@
 
 | コンテナ | 内容 |
 |---|---|
+| [actionlint](actionlint/README.md) | GitHub Actions のワークフローを静的解析する |
 | [Alloy](alloy/README.md) | 形式モデルを検証する |
 | [golangci-lint](golangci-lint/README.md) | Go のコードを静的解析する |
 | [Terraform](terraform/README.md) | AWS のインフラを管理する |
@@ -25,6 +26,7 @@
 
 | コマンド | コンテナ | 処理 | Docker のほかに必要なもの |
 |---|---|---|---|
+| `make lint-gha` | actionlint | `.github/workflows/` のワークフローを lint する | |
 | `make alloy` | Alloy | `formal/alloy/` の `authorization.als` と `issuance-temporal.als` にある `run` と `check` をすべて実行する | |
 | `make lint` | golangci-lint | リポジトリのルートのモジュールを lint する | Go と、取得済みの依存モジュール |
 | `make action-lint` | golangci-lint | `.github/actions/issue-token/` の Docker Action のモジュールを lint する | Go と、取得済みの依存モジュール |

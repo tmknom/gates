@@ -15,7 +15,7 @@
 `trivy.yaml` の `exit-code: 1` により、検出があれば失敗します。
 
 ```sh
-mkdir -p .claude .makefiles dist terraform/local tmp
+mkdir -p .claude dist terraform/local tmp
 [ -e .envrc ] || touch .envrc
 TRIVY_TARGET="$PWD" docker compose -f scripts/trivy/compose.yaml run --rm -T --interactive=false scan
 ```

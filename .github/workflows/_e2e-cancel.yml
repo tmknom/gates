@@ -34,7 +34,7 @@ jobs:
       contents: read
     steps:
       - name: Issue token
-        uses: tmknom/gates/.github/actions/issue-token@4673f914d13515b8e1c307e32313f16d6d36ce11
+        uses: tmknom/gates/.github/actions/issue-token@22eb9301dc4113ea70c3e3a7cded65b010621a58
         with:
           repositories: ${{ vars.GATES_TARGET_PRIMARY }}
           permissions: contents:read
@@ -87,7 +87,7 @@ jobs:
       - name: Issue token
         id: gates
         continue-on-error: true
-        uses: tmknom/gates/.github/actions/issue-token@4673f914d13515b8e1c307e32313f16d6d36ce11
+        uses: tmknom/gates/.github/actions/issue-token@22eb9301dc4113ea70c3e3a7cded65b010621a58
         with:
           repositories: ${{ vars.GATES_TARGET_PRIMARY }}
           permissions: contents:read
@@ -120,7 +120,7 @@ jobs:
       contents: read
     steps:
       - name: Issue token
-        uses: tmknom/gates/.github/actions/issue-token@4673f914d13515b8e1c307e32313f16d6d36ce11
+        uses: tmknom/gates/.github/actions/issue-token@22eb9301dc4113ea70c3e3a7cded65b010621a58
         with:
           repositories: ${{ vars.GATES_TARGET_PRIMARY }}
           permissions: contents:read
