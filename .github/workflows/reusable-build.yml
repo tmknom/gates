@@ -67,9 +67,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Go のバージョンが違うとバイト列が変わるため、go.mod の go の行と一致しなければ失敗する
-          want="go$(go list -m -f '{{.GoVersion}}')"
+          # Go のバージョンが違うとバイト列が変わるため、go.mod の toolchain の行と一致しなければ失敗する。
+          # go の行は言語の下限で、ビルドに使う Go は toolchain の行で決める
+          want="$(go mod edit -json | jq -r '.Toolchain // ""')"
           got="$(go env GOVERSION)"
+          if [[ -z "${want}" ]]; then
+            echo "::error::go.mod must have a toolchain line"
+            exit 1
+          fi
           if [[ "${got}" != "${want}" ]]; then
             echo "::error::Go ${want#go} is required, but ${got#go} is in use"
             exit 1

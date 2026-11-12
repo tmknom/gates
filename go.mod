@@ -1,6 +1,10 @@
 module github.com/tmknom/gates
 
+// go の行は言語の下限で、golangci-lint のイメージのように Go を同梱するツールもこれを満たす必要がある
 go 1.27.0
+
+// リリースビルドに使う Go は、setup-go がこの行から決める。一致しなければ reusable-build.yml のビルドが失敗する
+toolchain go1.27.4
 
 require (
 	github.com/aws/aws-lambda-go v1.55.1

@@ -1,5 +1,8 @@
 module github.com/tmknom/gates/.github/actions/issue-token
 
+// go の行は言語の下限で、ビルドに使う Go は選ばない。
+// この Docker Action は Dockerfile のビルド用イメージの Go と GOTOOLCHAIN=local でビルドするため、
+// toolchain の行は書いても使われない。ビルドに使う Go を上げるときは Dockerfile のイメージを上げる
 go 1.27.0
 
 tool (
