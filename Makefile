@@ -1,8 +1,3 @@
-# Include: go
--include .makefiles/go/Makefile
-.makefiles/go/Makefile:
-	@git clone https://github.com/tmknom/makefiles.git .makefiles >/dev/null 2>&1
-
 # Variables: Go
 MODULE := $(shell go list -m)
 DIST_DIR := dist
@@ -198,15 +193,15 @@ z3: ## verify formal specifications by Z3 in an isolated container
 # 読み取り専用の /src にはマウントポイントを作れないため、compose.yaml が隠すパスをホスト側で用意する。既存の .envrc は変更しない
 .PHONY: container-mountpoints
 container-mountpoints:
-	@mkdir -p .claude .makefiles $(DIST_DIR) terraform/$(TF_LOCAL_NAME) tmp
+	@mkdir -p .claude $(DIST_DIR) terraform/$(TF_LOCAL_NAME) tmp
 	@[ -e .envrc ] || touch .envrc
 
 # Targets: GitHub Actions
+# actionlint は .git からプロジェクトを探すが、コンテナには .github だけを渡すため、検査するファイルを引数で渡す
 .PHONY: lint-gha
-lint-gha: lint/workflow lint/yaml ## Lint workflow files and YAML files
-
-.PHONY: fmt-gha
-fmt-gha: fmt/yaml ## Format YAML files
+lint-gha: ## lint workflow files by actionlint in an isolated container
+	ACTIONLINT_TARGET=$(CURDIR)/.github docker compose -f scripts/actionlint/compose.yaml run --rm -T --interactive=false actionlint \
+		$(sort $(wildcard .github/workflows/*.yml .github/workflows/*.yaml))
 
 # Targets: Docker Action
 # Docker Action はルートと別の Go モジュールのため、go -C でそのディレクトリを基準に実行する

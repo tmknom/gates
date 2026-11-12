@@ -36,7 +36,7 @@ jobs:
     steps:
       - name: Issue token
         id: gates
-        uses: tmknom/gates/.github/actions/issue-token@4673f914d13515b8e1c307e32313f16d6d36ce11
+        uses: tmknom/gates/.github/actions/issue-token@22eb9301dc4113ea70c3e3a7cded65b010621a58
         with:
           repositories: ${{ matrix.repositories }}
           permissions: contents:read

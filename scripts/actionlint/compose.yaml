@@ -1,0 +1,37 @@
+# actionlint を隔離して実行するサービス定義
+#
+# 環境変数は Makefile が設定する。
+#   ACTIONLINT_TARGET  リポジトリの .github ディレクトリの絶対パス。リポジトリのルートではなく、検査する .github に絞る
+#
+# actionlint は作業ディレクトリから .github/workflows を探すため、/src/.github にマウントして /src で実行する。
+# run の中のスクリプトは、イメージに入っている shellcheck で検査する
+
+name: actionlint
+
+services:
+  actionlint:
+    image: docker.io/rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+    pull_policy: missing
+    user: "65534:65534"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    network_mode: none
+    ipc: none
+    mem_limit: 512m
+    memswap_limit: 512m
+    pids_limit: 64
+    cpus: 1
+    ulimits:
+      core: 0
+    init: true
+    working_dir: /src
+    environment:
+      HOME: /tmp
+    volumes:
+      - type: bind
+        source: ${ACTIONLINT_TARGET:?ACTIONLINT_TARGET is required}
+        target: /src/.github
+        read_only: true

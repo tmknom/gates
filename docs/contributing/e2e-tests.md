@@ -1,6 +1,7 @@
 # E2E Tests
 
 デプロイした GATES を Docker Action から呼び、発行、後続ステップでの利用、失効、失敗時の挙動、資格情報の非出力を確かめる E2E テストです。
+Action の入力の検証が止める Payload を GATES がどう拒否するかは、Lambda を直接 Invoke する E2E テストで確かめます。
 GitHub と AWS の挙動に依存する事項は、許可オーナーのリポジトリのワークフローでしか確かめられません（[GitHub Actions Design](../design/github-actions.md#62-tests-on-github-actions)）。
 E2E テストのワークフローは本リポジトリの `.github/workflows/` に置き、試験用のリポジトリに写して実行します。
 本リポジトリには接続情報を登録しないため、ワークフローは `workflow_dispatch` だけで起動するようにしています。
@@ -12,13 +13,14 @@ E2E テストのワークフローは本リポジトリの `.github/workflows/` 
 | [_e2e-success.yml](../../.github/workflows/_e2e-success.yml) | 対象 1 件と 2 件の発行、トークンの範囲、Output の形、後続ステップの環境に AWS 一時認証情報がないこと |
 | [_e2e-interval.yml](../../.github/workflows/_e2e-interval.yml) | 温まった Lambda の実行環境に、直前の Invoke から 1 分前後空けた Invoke を 5 回続け、すべて成功すること |
 | [_e2e-failure.yml](../../.github/workflows/_e2e-failure.yml) | 成功する設定から 1 つの条件だけを変えた各事例で、Action が段階を示す注釈を書いて失敗し、Output を書かず、post-entrypoint が失効を試みずに終わること |
+| [_e2e-payload-rejection.yml](../../.github/workflows/_e2e-payload-rejection.yml) | Action を使わずに Lambda を直接 Invoke し、成功する Payload から 1 つの条件だけを変えた各事例を、GATES が定めたエラーコードと固定の文言で拒否し、トークンを返さないこと |
 | [_e2e-cancel.yml](../../.github/workflows/_e2e-cancel.yml) | 後続ステップが失敗したジョブと、後続ステップの実行中にキャンセルしたジョブで、post-entrypoint がトークンを失効させること。メインの処理の最中に SIGINT を受けた Action が、受けた時点に応じて終えること |
 | [_e2e-reusable-credential-leak.yml](../../.github/workflows/_e2e-reusable-credential-leak.yml) | ほかのワークフローから呼ばれ、同じワークフロー実行の完了したジョブのログ全体に、資格情報の文字列がないこと |
 
 ログの検索は、資格情報が漏れていないことを保証しません。
 資格情報を出さない仕組みの本体は Action のマスクと出力の設計で、検索はそれが崩れたときに気づくための確認です。
 
-どのワークフローも、Action を commit SHA で参照します。
+Action を使うワークフローは、Action を commit SHA で参照します。
 Action を変えたときは、各ファイルの `uses:` の SHA を、試す commit に変えます。
 
 Lambda を呼ぶ E2E のワークフローは、どれも同じ `concurrency` のグループに入り、同時に動きません。
@@ -45,6 +47,62 @@ Lambda を呼ぶ E2E のワークフローは、どれも同じ `concurrency` �
 ほかに、`continue-on-error` を付けない Action のステップを入力の検証で失敗させるジョブ（`no-continue-on-error`）を置き、ジョブが失敗しても post-entrypoint が動くことを確かめます。
 
 `FunctionError`、一時的な障害、照合失敗は、実環境で意図して起こす手段がないため、Action のローカルの試験だけで確かめます。
+
+### Payload Rejection Cases
+
+`_e2e-payload-rejection.yml` は Action を使わず、Runner の AWS CLI、`curl`、`jq` で進めます。
+`sts.amazonaws.com` を Audience とする OIDC JWT で GitHub Actions 用 IAM Role を引き受け、GATES 用 Audience の OIDC JWT を取得してから、事例ごとに Payload を組み立てて `aws lambda invoke` します。
+JWT、AWS 一時認証情報、Payload、応答は、`umask 077` で `RUNNER_TEMP` の下に作った作業ディレクトリのファイルだけに置き、`if: always()` のステップで削除します。
+ログに出すのは、事例ごとの判定と `request_id` だけです。
+
+各事例は、`FunctionError` がなく、応答が `ok`（`false`）、`error.code`、`error.message`、`request_id` だけを持ち、`error.code` が期待と一致し、`error.message` がそのコードの固定の文言（[Lambda Design](../design/lambda.md#32-failure)）であるときに期待どおりとします。
+応答に `token` があれば、ワークフローがその場で失効させ、期待どおりとしません。
+AWS CLI の再試行は止め、1 つの事例で 1 回だけ Invoke します。
+
+| 事例 | 成功する Payload から変える条件 | 期待するエラーコード |
+| --- | --- | --- |
+| `qualified-arn` | `--qualifier 1` を付けて Invoke する | IAM の `AccessDeniedException` |
+| `invalid-json` | JSON として不正な Payload にする | Invoke API の `InvalidRequestContentException` |
+| `field-installation-id` | `installation_id` を加える | `invalid_request` |
+| `field-caller` | `repository_owner_id` と `caller` を加える | `invalid_request` |
+| `field-owner` | `owner` と `owner_id` を加える | `invalid_request` |
+| `field-github-app` | `client_id` と `app_id` を加える | `invalid_request` |
+| `field-kms-key` | `kms_key_arn` を加える | `invalid_request` |
+| `field-api-host` | `api_host` を加える | `invalid_request` |
+| `unknown-field` | `unknown` を加える | `invalid_request` |
+| `repository-selection` | `repository_selection` を加える | `invalid_request` |
+| `duplicate-key` | 先頭に `permissions` の `{"contents":"write"}` を重ねる | `invalid_request` |
+| `trailing-data` | オブジェクトの後に `{}` を続ける | `invalid_request` |
+| `missing-id-token` | `id_token` を除く | `invalid_request` |
+| `repositories-missing` | `repositories` を除く | `invalid_request` |
+| `repositories-empty` | `repositories` を `[]` にする | `invalid_request` |
+| `repositories-null` | `repositories` を `null` にする | `invalid_request` |
+| `permissions-missing` | `permissions` を除く | `invalid_request` |
+| `permissions-empty` | `permissions` を `{}` にする | `invalid_request` |
+| `permission-unknown-name` | `permissions` を `{"issues":"read"}` にする | `authorization_denied` |
+| `permission-unknown-level` | `permissions` を `{"contents":"admin"}` にする | `authorization_denied` |
+| `permission-invalid-charset` | `permissions` を `{"Contents":"read"}` にする | `invalid_request` |
+| `version-unknown` | `version` を `2` にする | `invalid_request` |
+| `permission-added` | `permissions` に `metadata:read` を加える | `authorization_denied` |
+| `permission-write` | `permissions` を `{"contents":"write"}` にする | `authorization_denied` |
+| `other-owner` | `repositories` を許可オーナー以外のオーナーの公開リポジトリにする | `authorization_denied` |
+| `partially-other-owner` | `repositories` に許可オーナー以外のオーナーの公開リポジトリを加える | `authorization_denied` |
+| `too-many-repositories` | `repositories` を異なる名前の 501 件にする | `invalid_request` |
+| `nested-name` | `repositories` を `<owner>/a/b` にする | `invalid_request` |
+| `not-installed` | `repositories` を試験用のリポジトリ自身にする | `github_issuance_rejected` |
+| `partially-not-installed` | `repositories` に試験用のリポジトリ自身を加える | `github_issuance_rejected` |
+| `audience-mismatch` | `id_token` を `sts.amazonaws.com` の OIDC JWT にする | `invalid_id_token` |
+| `tampered` | `id_token` の Payload の `jti` を 1 文字変え、署名を元のままにする | `invalid_id_token` |
+| `expired` | `id_token` の `exp` から 15 秒過ぎるまで待つ | `invalid_id_token` |
+
+`field-` で始まる事例のフィールドの名前は、Caller、許可オーナー、Installation ID、GitHub App、KMS Key、API Host を利用者が指定しようとする例です。
+GATES はどの名前も未知のフィールドとして同じ経路で拒否するため、項目の種類ごとに 1 件ずつとしています。
+許可オーナー以外のオーナーのリポジトリは、GATES がオーナー名の照合で GitHub API を呼ぶ前に拒否するため、公開か非公開か、実在するかで結果は変わりません。
+期限切れの事例は `exp` まで 5 分ほど待つため、最後に置きます。
+
+`qualified-arn` と `invalid-json` は関数に届く前に拒否され、GATES の応答も監査記録も残りません（[AWS Lambda Invoke Rejection](../research/aws/lambda-invoke-rejection.md)）。
+この 2 つの事例は、エラーコードの代わりに AWS CLI が示す AWS のエラーコードで判定し、万一関数に届いても資格情報を送らないよう、Payload に `id_token` を含めません。
+別の関数の Invoke は `_e2e-failure.yml` の `function` で確かめます。
 
 ### Cancellation
 
@@ -90,6 +148,7 @@ on:
 | E2E Success | `e2e/success` |
 | E2E Interval | `e2e/interval` |
 | E2E Failure | `e2e/failure` |
+| E2E Payload Rejection | `e2e/payload-rejection` |
 | E2E Cancel | `e2e/cancel` |
 
 試験用のリポジトリに、次の Secrets と Variables を登録します。
@@ -134,10 +193,13 @@ git push origin HEAD:e2e/failure
 | トークンの不発行 | CloudWatch Logs | 失敗のワークフローの時間帯に、`result` が `success` の監査記録がない |
 | 引き受けと Invoke の数 | CloudTrail と CloudWatch Logs | 失敗のワークフローで、成功した `AssumeRoleWithWebIdentity` の記録は `audience`、`function`、`authorization`、`installation` の 4 つの事例の数だけ増え、Lambda の `START` の行は `authorization` と `installation` の 2 つの事例の数だけ増える。`function` の Invoke は IAM が拒否するため、関数に届かない |
 | Invoke の間隔と実行時間 | CloudWatch Logs の `REPORT` 行 | 間隔の試験で、2 回目以降の Invoke に `Init Duration` がなく、直前の Invoke からの間隔が 1 分前後である |
+| Payload の拒否の監査記録 | CloudWatch Logs | Payload の拒否のワークフローの `request_id` ごとに `audit record` の行がちょうど 1 行あり、`result` が期待したエラーコードと一致する。`invalid_request` は `caller`、`request`、`installation` がなく、`reason` に未知のフィールドの名前や Payload の断片がない。`invalid_id_token` は `caller` と `installation` がない。`authorization_denied` は `caller` と `request` があり `installation` がない。`github_issuance_rejected` だけに `installation` がある |
+| KMS の署名の数 | CloudTrail と CloudWatch Logs | Payload の拒否のワークフローの時間帯の KMS の `Sign` の記録が、`github_issuance_rejected` の事例の数（2）と一致する。ほかの事例は KMS と GitHub API に進まない |
 | 資格情報の非記録 | CloudWatch Logs | 同じ時間帯のロググループに `ghs_`、`eyJ`、`ASIA`、`FwoG`、`IQoJ` の文字列がない |
 
 監査記録は、関数のロググループを `request_id` で検索して引きます。
 失敗のワークフローの `request_id` は、`Check job logs` のジョブのログに出ます。
+Payload の拒否のワークフローの `request_id` と、試験の時間帯（開始と終了の時刻）は、`Reject` のジョブのログに出ます。
 
 ```bash
 aws logs filter-log-events --log-group-name /aws/lambda/<GATES_FUNCTION_NAME> \
@@ -159,6 +221,26 @@ aws cloudtrail lookup-events --region <GATES_AWS_REGION> \
   --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity \
   --start-time <開始> --end-time <終了> \
   --query 'Events[].[EventTime,Username]' --output text
+```
+
+KMS の `Sign` は管理イベントのため、同じ Event history から引けます。
+時刻を Payload の拒否のワークフローの事例の時刻と並べると、どの事例が KMS に進んだかが分かります。
+
+```bash
+aws cloudtrail lookup-events --region <GATES_AWS_REGION> \
+  --lookup-attributes AttributeKey=EventName,AttributeValue=Sign \
+  --start-time <開始> --end-time <終了> \
+  --query 'Events[].EventTime' --output text
+```
+
+Payload の拒否のワークフローの監査記録は、試験の時間帯の監査記録をまとめて引き、`Reject` のジョブのログの `request_id` と突き合わせます。
+次のコマンドは、監査記録ごとに `request_id`、`result`、記録にある項目、`reason` を 1 行で出します。
+
+```bash
+aws logs filter-log-events --log-group-name /aws/lambda/<GATES_FUNCTION_NAME> \
+  --start-time <開始> --end-time <終了> --filter-pattern '"audit record"' \
+  --query 'events[].message' --output json \
+  | jq -r '.[] | fromjson | [.request_id, .result, ([("caller", "request", "installation", "revocation") as $k | select(has($k)) | $k] | join(",")), .reason] | @tsv'
 ```
 
 ## Troubleshooting

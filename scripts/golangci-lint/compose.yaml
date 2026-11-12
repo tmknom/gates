@@ -21,7 +21,6 @@ services:
       # 追加するときは Makefile の container-mountpoints と scripts/trivy/compose.yaml も更新する
       - /src/.claude:ro,noexec,nosuid,nodev,size=1m
       - /src/.git:ro,noexec,nosuid,nodev,size=1m
-      - /src/.makefiles:ro,noexec,nosuid,nodev,size=1m
       - /src/dist:ro,noexec,nosuid,nodev,size=1m
       - /src/terraform/local:ro,noexec,nosuid,nodev,size=1m
       - /src/tmp:ro,noexec,nosuid,nodev,size=1m
