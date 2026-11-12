@@ -67,7 +67,7 @@ JWT の Header やリクエストが任意の鍵取得 URL を指定すること
 
 ## GOJ-JWKS JWK Set の拒否とエラー分類
 
-**秘密情報を含む集合**：JWKS 内のいずれかの JWK が `kty=oct`、または `kty` を問わず秘密鍵・対称鍵の値のメンバー（対称鍵の `k`、秘密鍵の `d`、`p`、`q`、`dp`、`dq`、`qi`、`oth`）を含む場合は、名前の重複などでその JWK を JWK として読めなくても、またほかに正常な鍵があっても、JWKS 全体を拒否し、内部障害とします。該当する値はログ・エラー応答に出しません。未知の公開情報メンバーは、存在するだけでは拒否しません。
+**秘密情報を含む集合**：JWKS 内のいずれかの JWK が `kty=oct`、または `kty` を問わず秘密鍵・対称鍵の値のメンバー（対称鍵の `k`、秘密鍵の `d`、`p`、`q`、`dp`、`dq`、`qi`、`oth`、AKP 鍵の秘密鍵の `priv`（[RFC 9964 §3](https://www.rfc-editor.org/rfc/rfc9964.html#section-3)））を含む場合は、名前の重複などでその JWK を JWK として読めなくても、またほかに正常な鍵があっても、JWKS 全体を拒否し、内部障害とします。該当する値はログ・エラー応答に出しません。未知の公開情報メンバーは、存在するだけでは拒否しません。
 
 **集合・鍵・JWT の失敗分類**：取得・キャッシュ・再取得の手順はコンポーネント設計が担当します。最終的に検証対象となる JWKS の分類は次のとおりです。
 
@@ -120,5 +120,6 @@ ID の `JV-S-` は、本書の未確認事項を表します。
 - [RFC 7519 — JSON Web Token](https://www.rfc-editor.org/rfc/rfc7519.html)
 - [RFC 7797 — JWS Unencoded Payload Option](https://www.rfc-editor.org/rfc/rfc7797.html)
 - [RFC 8725 — JSON Web Token Best Current Practices](https://www.rfc-editor.org/rfc/rfc8725.html)
+- [RFC 9964 — ML-DSA for JSON Object Signing and Encryption (JOSE) and CBOR Object Signing and Encryption (COSE)](https://www.rfc-editor.org/rfc/rfc9964.html)
 - [OpenID Connect Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html)
 - [OpenID Connect Discovery 1.0](https://openid.net/specs/openid-connect-discovery-1_0.html)

@@ -22,7 +22,7 @@ const (
 )
 
 // secretMembers は、GATES OIDC JWT Signature の GOJ-JWKS が集合全体を拒否する理由に挙げる、秘密鍵と対称鍵の値のメンバーである。
-var secretMembers = []string{"k", "d", "p", "q", "dp", "dq", "qi", "oth"}
+var secretMembers = []string{"k", "d", "p", "q", "dp", "dq", "qi", "oth", "priv"}
 
 // hasSecretKeyMaterial は、JWK の値に kty=oct か秘密鍵・対称鍵の値のメンバーがあるかを判定する。
 // メンバーを重複を許して一つずつ読むのは、名前が重複して JWK として読めない値でも、重複したどのメンバーが該当しても、除外ではなく集合全体を拒否するため。
