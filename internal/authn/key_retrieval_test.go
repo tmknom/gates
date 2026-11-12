@@ -338,6 +338,8 @@ func TestAuthenticate_JWKSWithSecretKeyMaterial(t *testing.T) {
 		{"symmetric key", `{"kty":"oct","kid":"secret","k":"` + responseMarker + `"}`},
 		{"EC private key", `{"kty":"EC","kid":"secret","crv":"P-256","d":"` + responseMarker + `"}`},
 		{"RSA key with a symmetric key value", jwkWith(t, generateKey(t), "secret", map[string]any{"k": responseMarker})},
+		{"AKP private key", `{"kty":"AKP","kid":"secret","alg":"ML-DSA-44","pub":"AQ","priv":"` + responseMarker + `"}`},
+		{"RSA key with an AKP private key value", jwkWith(t, generateKey(t), "secret", map[string]any{"priv": responseMarker})},
 		// 名前の重複で JWK として読めなくても、秘密鍵の値があれば除外ではなく集合全体を拒否する
 		{"private key with a duplicate member name", `{"kid":"secret",` + jwkWith(t, generateKey(t), "secret", map[string]any{"d": responseMarker})[1:]},
 		// 重複した kty のどれかが oct なら、並び順によらず集合全体を拒否する
