@@ -10,7 +10,7 @@ E2E テストのワークフローは本リポジトリの `.github/workflows/` 
 
 | ファイル | 確かめること |
 | --- | --- |
-| [_e2e-success.yml](../../.github/workflows/_e2e-success.yml) | 対象 1 件と 2 件の発行、トークンの範囲、Output の形、後続ステップの環境に AWS 一時認証情報がないこと |
+| [_e2e-success.yml](../../.github/workflows/_e2e-success.yml) | 対象の件数、並び、表記、区切りの空白を変えた発行、トークンから見える対象と拒否される操作、Output の形、後続ステップの環境に AWS 一時認証情報がないこと |
 | [_e2e-interval.yml](../../.github/workflows/_e2e-interval.yml) | 温まった Lambda の実行環境に、直前の Invoke から 1 分前後空けた Invoke を 5 回続け、すべて成功すること |
 | [_e2e-failure.yml](../../.github/workflows/_e2e-failure.yml) | 成功する設定から 1 つの条件だけを変えた各事例で、Action が段階を示す注釈を書いて失敗し、Output を書かず、post-entrypoint が失効を試みずに終わること |
 | [_e2e-payload-rejection.yml](../../.github/workflows/_e2e-payload-rejection.yml) | Action を使わずに Lambda を直接 Invoke し、成功する Payload から 1 つの条件だけを変えた各事例を、GATES が定めたエラーコードと固定の文言で拒否し、トークンを返さないこと |
@@ -25,6 +25,40 @@ Action を変えたときは、各ファイルの `uses:` の SHA を、試す c
 
 Lambda を呼ぶ E2E のワークフローは、どれも同じ `concurrency` のグループに入り、同時に動きません。
 間隔の試験は、ほかの Invoke が同じ実行環境に割り込むと間隔が崩れるためです。
+
+### Success Cases
+
+`_e2e-success.yml` の各事例は、`repositories` の入力だけを変えます。
+
+| 事例 | `repositories` の入力 |
+| --- | --- |
+| `single` | 1 つ目の対象 |
+| `multiple` | 1 つ目と 2 つ目の対象 |
+| `reversed` | 2 つ目と 1 つ目の対象 |
+| `letter-case` | 1 つ目の対象のオーナー名とリポジトリ名を大文字にしたもの |
+| `whitespace` | 1 つ目と 2 つ目の対象。要素の前後に改行、スペース、タブを置く |
+
+大文字にした要求が通るのは、GATES が名前を ASCII の範囲で大文字小文字を区別せずに比べ（[Lambda Design](../design/lambda.md#名前の文字種と比較規則)）、GitHub の発行 API も大文字小文字の違う名前を受け付けるためです（[GitHub Installation Access Token](../research/github/installation-access-token.md#名前の大文字小文字を変えた発行)）。
+区切りは `,` だけで、改行は区切りになりません。
+前後の空白は Action が除きます（[GitHub Actions Design](../design/github-actions.md#22-list-syntax)）。
+
+どの事例でも、発行したトークンで次を確かめます。
+書き込みの試験のパスと ref の名前は実行ごとに一意にし、想定に反して作られた場合はジョブを失敗させて、パスか ref を注釈に示します。
+作られたものは運用者が消します。
+
+| 確認 | 方法 | 期待する結果 |
+| --- | --- | --- |
+| トークンから見える対象 | `GET /installation/repositories` | `total_count` が要求した件数で、`full_name` の集合が GitHub 上の表記の要求した対象と一致する |
+| 内容の読み取り | 要求した各対象の `README.md` の取得 | `200` |
+| 内容の書き込み | 要求した各対象への `PUT /repos/{owner}/{repo}/contents/{path}` | `403` |
+| ref の作成 | 要求した各対象への `POST /repos/{owner}/{repo}/git/refs` | `403` |
+| 別の権限の読み取り | 要求した各対象の `GET /repos/{owner}/{repo}/pulls` | `403`。対象が非公開であることを前提とする |
+| 要求していない対象 | 対象 1 件の事例では Installation のもう 1 つの対象、どの事例でも試験用のリポジトリ自身の `README.md` の取得 | `404` |
+| Installation の対象外の公開リポジトリ | `GATES_PUBLIC_UNINSTALLED` の `README.md` の取得 | `200`。トークンの対象ではないが、公開の内容として読める |
+| Output | `repositories` と `permissions` | `repositories` の集合が GitHub 上の表記の要求した対象と一致し、`permissions` が `contents:read,metadata:read` |
+
+`403` の応答の `X-Accepted-GitHub-Permissions` のヘッダーも、ログに出します。
+Output の `repositories` は GitHub の応答の並びのため、並びは判定せずに出すだけにしています。
 
 ### Failure Cases
 
@@ -163,9 +197,12 @@ on:
 | `GATES_AUDIENCE` | Variables | `terraform.tfvars` の `gates_audience` |
 | `GATES_TARGET_PRIMARY` | Variables | GitHub App のインストール先の 1 つ目のリポジトリの完全名 |
 | `GATES_TARGET_SECONDARY` | Variables | GitHub App のインストール先の 2 つ目のリポジトリの完全名 |
+| `GATES_PUBLIC_UNINSTALLED` | Variables | 許可オーナーの公開リポジトリのうち、GitHub App のインストール先に含めないものの完全名 |
 
-対象のリポジトリには、それぞれ `README.md` を置きます。
+対象のリポジトリと `GATES_PUBLIC_UNINSTALLED` のリポジトリには、それぞれ `README.md` を置きます。
 トークンで読めるかを、`README.md` の取得のステータスで確かめるためです。
+対象のリポジトリは非公開にします。
+公開のリポジトリでは、権限のないトークンでも読める API があり、別の権限の読み取りの確認が意味を持たないためです。
 
 試験の前に、IAM OIDC Provider がアカウントにあることを確かめます。
 ない間は、Action が IAM Role を引き受けられません。
@@ -189,7 +226,7 @@ git push origin HEAD:e2e/failure
 | 確認 | 方法 | 期待する結果 |
 | --- | --- | --- |
 | 失効 | 発行のワークフローの各 `Post Issue token` のステップと、キャンセルのワークフローの `Check job logs` | 発行したトークンの数だけ `revocation succeeded: HTTP status 204` がある |
-| 監査記録 | CloudWatch Logs | Action が出した `request_id` ごとに `audit record` の行がちょうど 1 行あり、`caller.run_id` がワークフロー実行の ID と一致する。発行のワークフローでは `result` が `success`。失敗のワークフローの `authorization` と `installation` では、`result` がエラーコードと一致し、`installation` は `installation` の事例にだけある |
+| 監査記録 | CloudWatch Logs | Action が出した `request_id` ごとに `audit record` の行がちょうど 1 行あり、`caller.run_id` がワークフロー実行の ID と一致する。発行のワークフローでは `result` が `success` で、`request.repositories` が空白を除いた入力の表記と並びのまま。失敗のワークフローの `authorization` と `installation` では、`result` がエラーコードと一致し、`installation` は `installation` の事例にだけある |
 | トークンの不発行 | CloudWatch Logs | 失敗のワークフローの時間帯に、`result` が `success` の監査記録がない |
 | 引き受けと Invoke の数 | CloudTrail と CloudWatch Logs | 失敗のワークフローで、成功した `AssumeRoleWithWebIdentity` の記録は `audience`、`function`、`authorization`、`installation` の 4 つの事例の数だけ増え、Lambda の `START` の行は `authorization` と `installation` の 2 つの事例の数だけ増える。`function` の Invoke は IAM が拒否するため、関数に届かない |
 | Invoke の間隔と実行時間 | CloudWatch Logs の `REPORT` 行 | 間隔の試験で、2 回目以降の Invoke に `Init Duration` がなく、直前の Invoke からの間隔が 1 分前後である |
