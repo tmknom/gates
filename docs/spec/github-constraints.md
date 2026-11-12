@@ -171,9 +171,9 @@ Organization オーナーがリポジトリ管理者によるインストール�
 
 **推論**：**App が公開リポジトリを読み取れることと、特定の Installation Access Token の対象に指定できることは別です。**
 
-**未確認**：選択対象外の公開リポジトリに対するトークンの振る舞いは、これらの記述だけでは確定できません。
-
 **実測値（選択対象外の公開リポジトリ）**：インストール先のアカウントが所有し、Installation で選択していない公開リポジトリを含む発行の要求は、`422` で拒否されました（[GitHub Installation Access Token](../research/github/installation-access-token.md#発行が拒否された要求)）。
+一方、対象を選択リポジトリに限って発行したトークンでは、その公開リポジトリの内容を読めました。
+同じトークンで、要求していない選択リポジトリと選択対象外の private リポジトリの内容は `404` でした（[GitHub Installation Access Token](../research/github/installation-access-token.md#発行したトークンで呼んだ-api)）。
 
 **公式仕様**：GitHub App JWT で認証すると、次の API から Installation 情報を取得できます（[REST API — GitHub Apps](https://docs.github.com/en/rest/apps/apps?apiVersion=2026-03-10)）。資料に示された応答コードは、Organization と User の API が `200` だけ、Repository の API が `200`、`301`、`404` です。
 
@@ -348,6 +348,6 @@ Client ID または App ID を `iss` にすることは、`iss` を文字列と�
 | OIDC | カスタマイズ後の `sub` の形式（`repo` を含めないテンプレートを不変形式のリポジトリに適用した場合を含む）、`sub` が OpenID Connect Core の上限255 ASCII 文字に常に収まるか、Claim の JSON の型、Claim が欠落する条件、`nbf`、`iat`、`exp` の時刻の差、JOSE Header に `crit`、`jku`、`jwk` などが現れるか、`User` 所有のリポジトリでの `repository_owner_id`、`run_attempt` の初回の値、Organization が所有するリポジトリで発行された JWT の実測値、指定した Audience の発行を拒否する規則（実測した値の外での振る舞い） |
 | GitHub App の鍵 | 新規生成される RSA 鍵のビット長 |
 | Installation の取得 API | Organization と User の API の `200` 以外の応答（インストールされていない場合を含む）、Organization の API の応答の形、GitHub App とオーナーの組での一意性 |
-| トークン発行 API | 範囲外リポジトリへの要求、選択対象外の公開リポジトリに対するトークンの振る舞い、500件超の要求、停止中の Installation への要求、`422` の原因、`metadata:read` の付与条件、応答フィールドの有無、`repositories` の並び |
+| トークン発行 API | 範囲外リポジトリへの要求、500件超の要求、停止中の Installation への要求、`422` の原因、`metadata:read` の付与条件、応答フィールドの有無、`repositories` の並び |
 | トークン失効 API | 新形式のトークンでの失効の動作 |
 | Docker Action | ジョブが失敗した状態とキャンセルした状態での post-entrypoint の実行、複数の Action の post が動く順序、別のリポジトリを `uses:` で参照したときのビルドの時間と post-entrypoint でのビルドのし直し、Dependabot の `docker` が `FROM` のタグと並べた digest を更新するか |

@@ -25,51 +25,156 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
-        include:
-          # repositories は Action に渡す対象、unrequested はトークンで読めないことを確かめるリポジトリ
-          - case: single
-            repositories: ${{ vars.GATES_TARGET_PRIMARY }}
-            unrequested: ${{ vars.GATES_TARGET_SECONDARY }},${{ github.repository }}
-          - case: multiple
-            repositories: ${{ vars.GATES_TARGET_PRIMARY }},${{ vars.GATES_TARGET_SECONDARY }}
-            unrequested: ${{ github.repository }}
+        # 事例ごとの Action の入力は、Prepare repositories のステップが組み立てる
+        case: [single, multiple, reversed, letter-case, whitespace]
     steps:
+      # repositories は Action に渡す入力、expected は GitHub 上の表記の要求した対象、
+      # unrequested はトークンで読めないことを確かめるリポジトリ
+      - name: Prepare repositories
+        id: input
+        env:
+          CASE: ${{ matrix.case }}
+          PRIMARY: ${{ vars.GATES_TARGET_PRIMARY }}
+          SECONDARY: ${{ vars.GATES_TARGET_SECONDARY }}
+          CALLER: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          case "${CASE}" in
+            single)
+              repositories="${PRIMARY}"
+              expected="${PRIMARY}"
+              unrequested="${SECONDARY},${CALLER}"
+              ;;
+            multiple)
+              repositories="${PRIMARY},${SECONDARY}"
+              expected="${PRIMARY},${SECONDARY}"
+              unrequested="${CALLER}"
+              ;;
+            reversed)
+              repositories="${SECONDARY},${PRIMARY}"
+              expected="${SECONDARY},${PRIMARY}"
+              unrequested="${CALLER}"
+              ;;
+            letter-case)
+              # オーナー名とリポジトリ名の両方を大文字にする
+              repositories="$(tr '[:lower:]' '[:upper:]' <<< "${PRIMARY}")"
+              expected="${PRIMARY}"
+              unrequested="${SECONDARY},${CALLER}"
+              ;;
+            whitespace)
+              # 区切りは , だけで、要素の前後の空白（スペース、タブ、CR、LF）を Action が除く
+              repositories=$'\n  '"${PRIMARY}"$' \t,\n\t '"${SECONDARY}"$'  \n'
+              expected="${PRIMARY},${SECONDARY}"
+              unrequested="${CALLER}"
+              ;;
+            *)
+              echo "::error::unknown case: ${CASE}"
+              exit 1
+              ;;
+          esac
+          {
+            echo "repositories<<EOF_REPOSITORIES"
+            printf '%s\n' "${repositories}"
+            echo "EOF_REPOSITORIES"
+            echo "expected=${expected}"
+            echo "unrequested=${unrequested}"
+          } >> "${GITHUB_OUTPUT}"
+
       - name: Issue token
         id: gates
         uses: tmknom/gates/.github/actions/issue-token@22eb9301dc4113ea70c3e3a7cded65b010621a58
         with:
-          repositories: ${{ matrix.repositories }}
+          repositories: ${{ steps.input.outputs.repositories }}
           permissions: contents:read
           role-arn: arn:aws:iam::${{ secrets.GATES_AWS_ACCOUNT_ID }}:role/${{ vars.GATES_ROLE_NAME }}
           function-name: ${{ vars.GATES_FUNCTION_NAME }}
           aws-region: ${{ vars.GATES_AWS_REGION }}
           audience: ${{ vars.GATES_AUDIENCE }}
 
-      # Output を env の GH_TOKEN で受け取り gh api で読む
+      # Output を env の GH_TOKEN で受け取り gh api で呼ぶ。応答の本文は出さず、ステータスと必要な項目だけを出す
       - name: Check token scope
         env:
           GH_TOKEN: ${{ steps.gates.outputs.token }}
-          REQUESTED: ${{ matrix.repositories }}
-          UNREQUESTED: ${{ matrix.unrequested }}
+          CASE: ${{ matrix.case }}
+          EXPECTED: ${{ steps.input.outputs.expected }}
+          UNREQUESTED: ${{ steps.input.outputs.unrequested }}
+          PUBLIC_UNINSTALLED: ${{ vars.GATES_PUBLIC_UNINSTALLED }}
         run: |
           set -euo pipefail
-          read_readme() {
-            # 応答の本文は出さず、ステータス行だけを読む
-            gh api --include "repos/$1/contents/README.md" 2> /dev/null | head -n 1 | awk '{print $2}' || true
-          }
           failed=0
-          IFS=',' read -ra requested <<< "${REQUESTED}"
+          fail() {
+            echo "::error::$1"
+            failed=1
+          }
+          # status に HTTP ステータスを、accepted に X-Accepted-GitHub-Permissions を入れる
+          call() {
+            local response
+            response="$(gh api --include "$@" 2> /dev/null || true)"
+            status="$(head -n 1 <<< "${response}" | awk '{print $2}')"
+            accepted="$(grep -i '^x-accepted-github-permissions:' <<< "${response}" | cut -d: -f2- | tr -d ' \r' || true)"
+          }
+          IFS=',' read -ra requested <<< "${EXPECTED}"
+
+          # トークンから見える対象が、要求した対象とちょうど一致すること
+          if listing="$(gh api 'installation/repositories?per_page=100' 2> /dev/null)"; then
+            total="$(jq -r '.total_count' <<< "${listing}")"
+            visible="$(jq -r '.repositories[].full_name' <<< "${listing}" | sort | paste -sd ',')"
+            want="$(tr ',' '\n' <<< "${EXPECTED}" | sort | paste -sd ',')"
+            echo "visible repositories: total_count=${total} full_name=${visible}"
+            if [[ "${total}" != "${#requested[@]}" || "${visible}" != "${want}" ]]; then
+              fail "visible repositories do not match the request"
+            fi
+          else
+            fail "GET /installation/repositories failed"
+          fi
+
+          # 書き込みが想定に反して成功しても既存の内容を壊さないよう、パスと ref の名前を実行ごとに一意にする
+          suffix="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${CASE}"
           for repo in "${requested[@]}"; do
-            status="$(read_readme "${repo}")"
-            echo "requested ${repo}: ${status}"
-            [[ "${status}" == "200" ]] || failed=1
+            call "repos/${repo}/contents/README.md"
+            echo "requested ${repo} read README.md: ${status}"
+            [[ "${status}" == "200" ]] || fail "README.md of ${repo} is not readable"
+
+            path="e2e-token-scope/${suffix}.txt"
+            call --method PUT "repos/${repo}/contents/${path}" -f message="e2e: token scope check" -f content=ZTJlCg==
+            echo "requested ${repo} write contents: ${status} accepted=${accepted}"
+            if [[ "${status}" == 2* ]]; then
+              fail "file ${path} was created in ${repo}; the operator must delete it"
+            elif [[ "${status}" != "403" ]]; then
+              fail "write contents to ${repo} was not denied with 403"
+            fi
+
+            ref="refs/heads/e2e-token-scope/${suffix}"
+            if sha="$(gh api "repos/${repo}/commits/HEAD" --jq '.sha' 2> /dev/null)"; then
+              call --method POST "repos/${repo}/git/refs" -f ref="${ref}" -f sha="${sha}"
+              echo "requested ${repo} create ref: ${status} accepted=${accepted}"
+              if [[ "${status}" == 2* ]]; then
+                fail "ref ${ref} was created in ${repo}; the operator must delete it"
+              elif [[ "${status}" != "403" ]]; then
+                fail "create ref in ${repo} was not denied with 403"
+              fi
+            else
+              fail "HEAD commit of ${repo} is not readable"
+            fi
+
+            # 対象は非公開のため、Pull requests の権限がなければ一覧を読めない
+            call "repos/${repo}/pulls"
+            echo "requested ${repo} list pulls: ${status} accepted=${accepted}"
+            [[ "${status}" == "403" ]] || fail "list pulls of ${repo} was not denied with 403"
           done
+
           IFS=',' read -ra unrequested <<< "${UNREQUESTED}"
           for repo in "${unrequested[@]}"; do
-            status="$(read_readme "${repo}")"
-            echo "unrequested ${repo}: ${status}"
-            [[ "${status}" == "404" ]] || failed=1
+            call "repos/${repo}/contents/README.md"
+            echo "unrequested ${repo} read README.md: ${status}"
+            [[ "${status}" == "404" ]] || fail "README.md of unrequested ${repo} is not 404"
           done
+
+          # Installation の対象外の公開リポジトリは、トークンの対象ではないが公開の内容として読める
+          call "repos/${PUBLIC_UNINSTALLED}/contents/README.md"
+          echo "public uninstalled ${PUBLIC_UNINSTALLED} read README.md: ${status}"
+          [[ "${status}" == "200" ]] || fail "README.md of public ${PUBLIC_UNINSTALLED} is not 200"
+
           if [[ "${failed}" != 0 ]]; then
             echo "::error::token scope is not as expected"
             exit 1
@@ -77,7 +182,7 @@ jobs:
 
       - name: Check outputs
         env:
-          INPUT_REPOSITORIES: ${{ matrix.repositories }}
+          EXPECTED: ${{ steps.input.outputs.expected }}
           EXPIRES_AT: ${{ steps.gates.outputs.expires-at }}
           OUTPUT_REPOSITORIES: ${{ steps.gates.outputs.repositories }}
           OUTPUT_PERMISSIONS: ${{ steps.gates.outputs.permissions }}
@@ -105,11 +210,12 @@ jobs:
             fi
           fi
 
+          # Output は GitHub の応答の full_name を応答の並びで示すため、GitHub 上の表記の集合として比べ、並びは出すだけにする
           normalize() {
-            tr ',' '\n' <<< "$1" | tr '[:upper:]' '[:lower:]' | sort | paste -sd ','
+            tr ',' '\n' <<< "$1" | sort | paste -sd ','
           }
-          if [[ "$(normalize "${OUTPUT_REPOSITORIES}")" != "$(normalize "${INPUT_REPOSITORIES}")" ]]; then
-            echo "::error::repositories do not match the input"
+          if [[ "$(normalize "${OUTPUT_REPOSITORIES}")" != "$(normalize "${EXPECTED}")" ]]; then
+            echo "::error::repositories do not match the requested repositories in GitHub's spelling"
             failed=1
           fi
 

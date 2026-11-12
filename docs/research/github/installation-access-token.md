@@ -1,6 +1,6 @@
 # GitHub Installation Access Token
 
-本ドキュメントでは、対象リポジトリと権限を明示して Installation Access Token を発行した応答と、そのトークンを失効させた応答を記述します。
+本ドキュメントでは、対象リポジトリと権限を明示して Installation Access Token を発行した応答と、発行したトークンで呼んだ API の応答と、そのトークンを失効させた応答を記述します。
 
 - 調査日: **2026/11/03**
 - 要求: `POST https://api.github.com/app/installations/{installation_id}/access_tokens`（GitHub App JWT で認証）、`DELETE https://api.github.com/installation/token`（発行したトークンで認証）
@@ -226,6 +226,26 @@ Installation で選択していない同じアカウントの公開リポジト�
 2026/11/08 に、デプロイした GATES を通して、Installation で選択していない同じアカウントの private リポジトリ（`private-repo`）を要求しました。
 `["private-repo"]` と `["example-repo", "private-repo"]` は、どちらも `422` でした。
 GATES が応答本文を記録しないため、本文が上と同じかは確かめていません。
+
+## 発行したトークンで呼んだ API
+
+2026/11/12 に、GitHub Actions のワークフローでデプロイした GATES を Docker Action から呼び、`contents:read` で発行したトークンで、失効の前に次の API を呼びました。
+Installation の対象は private リポジトリ 2 件（`example-repo`、`example-repo-2`）で、対象 1 件と 2 件の要求、並びを入れ替えた要求、オーナー名とリポジトリ名を大文字にした要求、要素の前後に空白を置いた要求の 5 回の発行で、結果は同じでした。
+
+| 要求 | 対象 | 応答 | `X-Accepted-GitHub-Permissions` |
+|---|---|---|---|
+| `GET /installation/repositories` | なし | `200`。`total_count` は要求した件数で、`repositories[].full_name` は要求した対象だけを GitHub 上の表記で示した | |
+| `GET /repos/{owner}/{repo}/contents/README.md` | 要求した対象 | `200` | |
+| `PUT /repos/{owner}/{repo}/contents/{path}` | 要求した対象 | `403` | `contents=write` と `contents=write,workflows=write` を `;` で並べた値 |
+| `POST /repos/{owner}/{repo}/git/refs` | 要求した対象 | `403` | `contents=write` と `contents=write,workflows=write` を `;` で並べた値 |
+| `GET /repos/{owner}/{repo}/pulls` | 要求した対象 | `403` | `pull_requests=read` |
+| `GET /repos/{owner}/{repo}/contents/README.md` | Installation の対象で、要求していない private リポジトリ | `404` | |
+| `GET /repos/{owner}/{repo}/contents/README.md` | Installation の対象外の、同じアカウントの private リポジトリ | `404` | |
+| `GET /repos/{owner}/{repo}/contents/README.md` | Installation の対象外の、同じアカウントの公開リポジトリ | `200` | |
+
+`X-Accepted-GitHub-Permissions` の値は、ワークフローが空白を除いて出したものです。
+`403` の後に、対象のリポジトリにファイルも ref も作られていないことを確かめました。
+Installation の対象外の公開リポジトリは、発行の要求に含めると `422` で拒否される一方（[発行が拒否された要求](#発行が拒否された要求)）、発行したトークンでは内容を読めました。
 
 ## 失効の前後のトークン
 
