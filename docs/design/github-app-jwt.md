@@ -49,7 +49,7 @@ JOSE Header は `alg` と `typ` の2つだけとし、`alg` は `RS256`、`typ` 
 
 | GATES の生成条件 | 要求上の根拠 |
 |---|---|
-| GitHub App JWT の生成、秘密鍵の非抽出、KMS 署名 | [Requirements FR-013](../spec/requirements.md#53-token-issuance) |
+| GitHub App JWT の生成、秘密鍵の非抽出、KMS 署名 | [Requirements](../spec/requirements.md) の FR-013 |
 
 ## Verification Cases
 

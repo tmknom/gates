@@ -186,7 +186,7 @@ JWT の `iss` の値は照合だけに使い、Discovery / JWKS の取得先に�
 
 **GitHub 公式仕様**：ワークフロー実行元のリポジトリの ID です。公式の JWT の例と実測6件では、JSON 数値でなく数字の文字列です。GitHub はすべての条件での型を明示していません（[GitHub Constraints §3.1](../spec/github-constraints.md#31-issueraudienceclaim)）。
 
-**GATES の受理条件**：必須。[GOJ-ID-FORMAT](#goj-id-format-id-の表記) の形式を満たす正の整数の **JSON 文字列**。`sub` 内の Repository ID と一致すること。Caller の識別・監査に用いますが、現在のオーナー単位の発行認可には使いません（[Requirements FR-002](../spec/requirements.md#51-authentication)）。
+**GATES の受理条件**：必須。[GOJ-ID-FORMAT](#goj-id-format-id-の表記) の形式を満たす正の整数の **JSON 文字列**。`sub` 内の Repository ID と一致すること。Caller の識別・監査に用いますが、現在のオーナー単位の発行認可には使いません（[Requirements](../spec/requirements.md) の FR-002）。
 
 ### GOJ-REPOSITORY-OWNER `repository_owner`
 
@@ -198,7 +198,7 @@ JWT の `iss` の値は照合だけに使い、Discovery / JWKS の取得先に�
 
 **GitHub 公式仕様**：公式の Claim 表では Organization ID と説明されています。User が所有するリポジトリでも実測6件でこの Claim が存在し、所有者の ID と一致しました。ただし、User 所有の場合の一般保証は公式資料から確定していません（[GitHub Constraints §3.1](../spec/github-constraints.md#31-issueraudienceclaim)）。
 
-**GATES の受理条件**：必須。[GOJ-ID-FORMAT](#goj-id-format-id-の表記) の正の整数を示す JSON 文字列。`sub` 内の Owner ID と一致すること。Caller の Owner ID として認証し、固定した許可オーナーの Owner ID との照合に使用します（認可の条件は [Requirements FR-006](../spec/requirements.md#52-authorization)）。User 所有で取得できない場合は自動的に名前へフォールバックせず拒否します。
+**GATES の受理条件**：必須。[GOJ-ID-FORMAT](#goj-id-format-id-の表記) の正の整数を示す JSON 文字列。`sub` 内の Owner ID と一致すること。Caller の Owner ID として認証し、固定した許可オーナーの Owner ID との照合に使用します（認可の条件は [Requirements](../spec/requirements.md) の FR-006）。User 所有で取得できない場合は自動的に名前へフォールバックせず拒否します。
 
 ### GOJ-ENTERPRISE `enterprise`
 
@@ -394,10 +394,10 @@ Caller の確定後、固定した Allowed Owner ID との一致は認可で確�
 
 | GATES の受理条件 | 要求・設計上の根拠 |
 |---|---|
-| 必須 Claim、Issuer、Audience、時間、ID の整合 | [Requirements FR-002、FR-003](../spec/requirements.md#51-authentication)、[Domain Model §5.3](domain.md#53-invariants) |
-| 不変形式 `sub` | [Requirements FR-005、FR-025](../spec/requirements.md#51-authentication) |
-| Caller の Owner ID による認可と Repository ID の監査利用 | [Requirements FR-002](../spec/requirements.md#51-authentication)、[FR-006](../spec/requirements.md#52-authorization) |
-| 起動属性のベストエフォート監査 | [Requirements FR-021](../spec/requirements.md#54-usability-and-operations) |
+| 必須 Claim、Issuer、Audience、時間、ID の整合 | [Requirements](../spec/requirements.md) の FR-002、FR-003、[Domain Model §5.3](domain.md#53-invariants) |
+| 不変形式 `sub` | [Requirements](../spec/requirements.md) の FR-005、FR-025 |
+| Caller の Owner ID による認可と Repository ID の監査利用 | [Requirements](../spec/requirements.md) の FR-002、FR-006 |
+| 起動属性のベストエフォート監査 | [Requirements](../spec/requirements.md) の FR-021 |
 
 ## Verification Cases
 
