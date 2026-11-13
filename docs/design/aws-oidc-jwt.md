@@ -10,20 +10,43 @@ GATES は IAM Role の Trust Policy と許可する操作を設計します。
 
 各条件には、AWS 用 OIDC JWT を表す `AOJ-` で始まる ID を付けます。
 
-## Claim Conditions
+## AOJ-ISS `iss`
 
-| ID | Claim | 外部仕様 | GATES の設計 | 保証しないこと |
-|---|---|---|---|---|
-| AOJ-ISS | `iss` | GitHub Actions OIDC の固定 Issuer | IAM OIDC Provider の信頼先を `https://token.actions.githubusercontent.com` に固定 | Lambda 内で AWS 用 JWT を検査すること |
-| AOJ-AUD | `aud` | GitHub で要求時に指定可能 | IAM で `sts.amazonaws.com` と一致させる | GATES 用 JWT の Audience まで保証すること |
-| AOJ-SUB | `sub` | GitHub の旧形式と不変形式が混在 | 許可オーナー名と不変 Owner ID を含む接頭部分を固定し、旧形式を拒否 | Repository ID とコンテキストの完全な構文検証 |
-| AOJ-OTHER-CLAIMS | その他 | GitHub が追加 Claim を提供し得る | 現在の Trust Policy の認可条件には使わない | その他の Claim が不正・欠落なら Lambda で検証されること |
+**外部仕様**：GitHub Actions OIDC の固定 Issuer
+
+**GATES の設計**：IAM OIDC Provider の信頼先を `https://token.actions.githubusercontent.com` に固定
+
+**保証しないこと**：Lambda 内で AWS 用 JWT を検査すること
+
+## AOJ-AUD `aud`
+
+**外部仕様**：GitHub で要求時に指定可能
+
+**GATES の設計**：IAM で `sts.amazonaws.com` と一致させる
+
+**保証しないこと**：GATES 用 JWT の Audience まで保証すること
+
+## AOJ-SUB `sub`
+
+**外部仕様**：GitHub の旧形式と不変形式が混在
+
+**GATES の設計**：許可オーナー名と不変 Owner ID を含む接頭部分を固定し、旧形式を拒否
+
+**保証しないこと**：Repository ID とコンテキストの完全な構文検証
+
+## AOJ-OTHER-CLAIMS その他の Claim
+
+**外部仕様**：GitHub が追加 Claim を提供し得る
+
+**GATES の設計**：現在の Trust Policy の認可条件には使わない
+
+**保証しないこと**：その他の Claim が不正・欠落なら Lambda で検証されること
 
 ## Traceability
 
 | GATES の条件 | 要求上の根拠 |
 |---|---|
-| AWS STS の入口制御 | [Requirements FR-005、FR-025](../spec/requirements.md#51-authentication) |
+| AWS STS の入口制御 | [Requirements](../spec/requirements.md) の FR-005、FR-025 |
 
 ## Verification Cases
 

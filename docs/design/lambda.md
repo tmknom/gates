@@ -404,7 +404,7 @@ OIDC Verifier は、GATES 用 OIDC JWT を [GATES OIDC JWT Claims](gates-oidc-jw
 
 - **取得先**：Issuer は `https://token.actions.githubusercontent.com` に固定する。リダイレクトに従わず、JWT の Header や利用者入力から取得先を変更しない。
 - **取得の時点と保持**：Discovery / JWKS は Lambda の初期化ではなく最初の認証で取得する。初期化時に取得すると、取得の失敗を Handler が相関 ID 付きのエラーとして返せないためである。取得に成功した Discovery は実行環境内で保持して再取得せず、取得に失敗した内容は保持しない。JWKS は使用可能な鍵だけを、有効期限を設けずに保持する。有効期限を設けないことで受容するリスクは [Security Design](security.md#5-failure-audit-and-security-risks) に定める。
-- **取得前の拒否**：[GOJ-SERIALIZATION](gates-oidc-jwt-signature.md#goj-serialization-jws-と-json-の基本条件) の直列化・JSON の条件、[GOJ-HEADER](gates-oidc-jwt-signature.md#goj-header-jose-header) の JOSE Header の条件（`kid` の存在を含む）、[GOJ-CLAIM-NAME](gates-oidc-jwt-claims.md#goj-claim-name-json-と-claim-名の一貫した解釈) の Claim 名の条件、[GOJ-EXP](gates-oidc-jwt-claims.md#goj-exp-exp) の NumericDate の型と範囲は、Issuer の鍵情報に依存しない。これらを満たさない JWT は、Discovery / JWKS を取得せずに `invalid_id_token` で拒否する。不正な JWT が再取得の上限を消費せず、Issuer の障害時にもエラーの種別が変わらないためである。
+- **取得前の拒否**：[GATES OIDC JWT Signature](gates-oidc-jwt-signature.md) の GOJ-SERIALIZATION の直列化・JSON の条件と GOJ-HEADER の JOSE Header の条件（`kid` の存在を含む）、[GATES OIDC JWT Claims](gates-oidc-jwt-claims.md) の GOJ-CLAIM-NAME の Claim 名の条件と GOJ-EXP の NumericDate の型と範囲は、Issuer の鍵情報に依存しない。これらを満たさない JWT は、Discovery / JWKS を取得せずに `invalid_id_token` で拒否する。不正な JWT が再取得の上限を消費せず、Issuer の障害時にもエラーの種別が変わらないためである。
 - **JWKS の再取得の上限**：保持した鍵集合に、JWT の `kid` で一意に選べて署名が一致する使用可能な鍵がなければ、JWKS の再取得を試みる。取得の試行は、成否にかかわらず、同じ実行環境内で前回の試行の開始から 1 分に 1 回までとし、並行した試行は一つにまとめる。上限の間は取得せず、前回の試行が取得失敗なら同じ種別を返す。JWKS の構造の異常、秘密情報の混入、使用可能な鍵が 1 つもない場合も取得失敗とし、直前に取得に成功した鍵集合を置き換えない。1 分は取得頻度の抑制とローテーションへの追従を両立させるために置いた初期値で、実環境のローテーションでは検証していない。
 - **除外した JWK の記録**：JWK の受理条件を満たさず除外した JWK は、`keys` 内の位置、`kid`、除外の理由を、運用者向けのログに WARN で記録する。鍵の値、応答本文、ライブラリのエラー文言は記録しない。運用者は位置と `kid` から Issuer の JWKS を直接確かめられるためである。
 - **取得の制限**：Discovery と JWKS の各取得の応答サイズは各 64 KiB とする。調査時の応答（[Discovery](../research/github/oidc-discovery.md) が約 1.2 KB、[JWKS](../research/github/oidc-jwks.md) が 4 鍵で約 5.5 KB）に対して JWKS が約 10 倍に増えても収まり、想定外に大きい応答を読み込み続けない大きさである。各取得のタイムアウトは [Call Time Budget](#64-call-time-budget) に置く。
@@ -488,7 +488,7 @@ Lambda の関数のタイムアウトは、合計より、外部の呼び出し�
 関数がタイムアウトすると Handler は応答を書けず、トークン文字列を取得した後なら失効も試みられません（[Domain Model](domain.md#43-lifecycle-of-an-issuance) の中断）。
 
 GitHub App JWT を作ってから発行の応答を受け取るまでは、署名、Installation の取得、発行のタイムアウトの合計で最大 20 秒です。
-この時間は GitHub App JWT の `exp`（[GAJ-EXP](github-app-jwt.md#gaj-exp-exp) の 5 分）より短いため、同じ GitHub App JWT を手順 4 と手順 6 に使えます（[6.2 GitHub App JWT](#62-github-app-jwt)）。
+この時間は GitHub App JWT の `exp`（[GitHub App JWT](github-app-jwt.md) の GAJ-EXP の 5 分）より短いため、同じ GitHub App JWT を手順 4 と手順 6 に使えます（[6.2 GitHub App JWT](#62-github-app-jwt)）。
 
 失効は、要求の ctx の中断と期限を引き継がない ctx で行い、発行の呼び出しの ctx からも作りません。
 要求が中断された後も、発行がタイムアウトの直前に応答を返した後も、照合に失敗したトークンの失効を試みるためです。

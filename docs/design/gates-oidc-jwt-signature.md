@@ -35,7 +35,7 @@ GitHub の Discovery 公開値は `issuer`、`jwks_uri`、`subject_types_support
 
 **標準仕様との境界**：OpenID Connect Discovery §3 は `authorization_endpoint` を REQUIRED とし、`token_endpoint` は Implicit Flow だけを使用する場合を除いて REQUIRED とします。この GitHub 公開値は完全な OpenID Provider Metadata の要求を満たしません。ただし、Metadata の不足だけで個々の JWT の署名・Claim が不正だと断定することはできません（[OpenID Connect Discovery §3](https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata)、[JWT Constraints §5](../spec/jwt-constraints.md#5-openid-connect-and-discovery)）。
 
-**GATES の設計**：署名検証鍵は、[GOJ-ISS](gates-oidc-jwt-claims.md#goj-iss-iss) の固定 Issuer の検証済み Discovery / JWKS だけから得ます。
+**GATES の設計**：署名検証鍵は、[GATES OIDC JWT Claims](gates-oidc-jwt-claims.md) の GOJ-ISS の固定 Issuer の検証済み Discovery / JWKS だけから得ます。
 固定 Issuer の Discovery を HTTPS で取得し、**一致を確認した `issuer` と JWKS の取得先 `jwks_uri`** だけを使用します。
 Discovery に異なる `issuer` があればその Metadata を利用しません。
 認証 Endpoint、`client_id`、`nonce` を前提にした通常の OpenID Connect 認証フローは実行しません。
@@ -90,8 +90,8 @@ JWT の Header やリクエストが任意の鍵取得 URL を指定すること
 
 | GATES の受理条件 | 要求・設計上の根拠 |
 |---|---|
-| 署名と検証鍵 | [Requirements FR-002、FR-003](../spec/requirements.md#51-authentication) |
-| 署名鍵の固定 Issuer からの取得 | [JWT Constraints §6](../spec/jwt-constraints.md#6-jwt-security-considerations)、[Requirements FR-002](../spec/requirements.md#51-authentication) |
+| 署名と検証鍵 | [Requirements](../spec/requirements.md) の FR-002、FR-003 |
+| 署名鍵の固定 Issuer からの取得 | [JWT Constraints §6](../spec/jwt-constraints.md#6-jwt-security-considerations)、[Requirements](../spec/requirements.md) の FR-002 |
 
 ## Verification Cases
 
