@@ -108,7 +108,7 @@ S3 バックエンドの設定はコメントアウトした状態で置いて�
 
 KMS Key は鍵素材を持たない `EXTERNAL` origin の非対称署名鍵として作成します。鍵素材の初回インポート前は `PendingImport` であり、そのままでは署名できません。
 
-Terraform では、`hashicorp/aws` Provider の `aws_kms_external_key` で KMS Key を作成します。KMS Key Policy と鍵の状態変化を含むリソース設定を管理し、鍵素材のインポートは Terraform で実行しません。
+Terraform では、`hashicorp/aws` Provider の `aws_kms_external_key` で KMS Key を作成します。KMS Key Policy を含むリソース設定を管理し、鍵の有効と無効の状態と鍵素材のインポートは Terraform で扱いません。
 
 `aws_kms_external_key` が非対称鍵の `key_spec` を受け付けるのは Provider v6.11.0 以降のため、Provider のバージョンはそれ以上に固定します。
 IAM と Lambda の管理に同じ Provider を使うので、KMS Key のためだけに Cloud Control（`awscc`）Provider を加えることはしません。

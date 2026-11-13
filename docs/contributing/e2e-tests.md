@@ -80,7 +80,21 @@ Output の `repositories` は GitHub の応答の並びのため、並びは判�
 
 ほかに、`continue-on-error` を付けない Action のステップを入力の検証で失敗させるジョブ（`no-continue-on-error`）を置き、ジョブが失敗しても post-entrypoint が動くことを確かめます。
 
-`FunctionError`、一時的な障害、照合失敗は、実環境で意図して起こす手段がないため、Action のローカルの試験だけで確かめます。
+KMS Key の無効化による `internal_error`、関数の初期化の失敗とタイムアウトによる `FunctionError`、同時実行数 0 による Invoke API の拒否は、検証環境の設定を手で変えて戻す操作を要するため、繰り返し実行する E2E テストに含めません。
+検証環境で一度ずつ起こした結果は、[AWS Fault Injection](../research/aws/fault-injection.md) に記録しています。
+次の障害は、検証環境でも起こさず、Lambda のローカルの試験だけで確かめます。
+どれも本番のコードに試験のための分岐や設定を加えれば起こせますが、その経路は本番で発行結果の照合や失敗の扱いを迂回する経路になり得るため、加えません。
+表の受け入れ基準は [Requirements](../spec/requirements.md) の AC で、ローカルの試験はそれを `trace:checks` で宣言しています（[Documentation Policy](docs-policy.md)）。
+
+| 障害 | 検証環境で起こさない理由 | 受け入れ基準 |
+| --- | --- | --- |
+| 発行結果の照合失敗と、その後の失効 | GitHub に、要求と異なる発行結果を返させる手段がない | AC-12 |
+| 発行の要求の後の応答の喪失 | Lambda と GitHub の間の通信だけを切る手段がない | AC-30 |
+| OIDC 公開鍵の取得の障害 | Lambda の外向きの通信を、宛先を選んで止める構成がない | AC-13、AC-28 |
+| KMS の一時的な障害（スロットリング、`5xx`） | AWS 側で起きる事象で、意図して起こせない | AC-13 |
+| GitHub API の一時的な障害とレート制限 | 通信障害は起こす手段がない。レート制限は超えると、同じ GitHub App を使うほかの試験がしばらく止まる | AC-13、AC-17 |
+
+照合失敗と応答の喪失の後に、トークンを返さず、取得していないトークンを失効させないことは、[Alloy Models](../../formal/alloy/README.md) の発行の時間モデルでも確かめています。
 
 ### Payload Rejection Cases
 
