@@ -60,7 +60,7 @@ Identify and read task-related sections below when the "Use when" trigger matche
 
 ## Documentation Rules
 
-- [Documentation Policy](docs/contributing/docs-policy.md): Responsibility of each document, allowed dependencies between documents including the Docker Action README, how concept names apply, and the source of truth per kind of content - Use when creating, editing, or moving a document under `docs/` or a Docker Action README and you must decide which document owns a statement and whether a reference is allowed, or when two documents disagree and you must decide which one to fix
+- [Documentation Policy](docs/contributing/docs-policy.md): Responsibility of each document, allowed dependencies between documents including the Docker Action README, how concept names apply, the source of truth per kind of content, and the rules for IDs such as FR-, AC-, and GOJ-, covering which definitions get one, how to assign, change, and renumber them, writing each definition as a heading that starts with its ID, and referring to definitions by ID - Use when creating, editing, or moving a document under `docs/` or a Docker Action README and you must decide which document owns a statement and whether a reference is allowed, when two documents disagree and you must decide which one to fix, or when adding, splitting, merging, deleting, or renumbering a definition with an ID or a reference to one
 
 ## Infrastructure
 

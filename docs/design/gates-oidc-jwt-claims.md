@@ -13,12 +13,12 @@ Caller とその不変条件の概念的な定義は [Domain Model](domain.md) �
 
 ## Rule ID
 
-各規則には `GOJ-` で始まる ID を付け、他のドキュメント、コード、`formal/` からはこの ID で参照します。
+各規則には `GOJ-` で始まる ID を付けます。
 `GOJ` は GATES 用 OIDC JWT を表します。
 Claim ごとの規則の ID は、Claim 名を大文字にして `_` を `-` に置き換えたものです（`repository_owner_id` なら `GOJ-REPOSITORY-OWNER-ID`）。
 Claim ごとでない規則の ID は、規則の内容を表す名前です（`GOJ-TIME`、`GOJ-ID-MATCH` など）。
-新しい Claim の ID が既存の ID と重なるときは、既存の ID を変えず、Claim の ID の末尾に `-CLAIM` を付けます。
-既存の ID を参照するコードや `formal/` の意味が変わらないようにするためです。
+新しい Claim の ID が既存の ID と重なるときは、既存の ID を変えず、Claim 名から作った ID の末尾に `-CLAIM` を付けます。
+既存の ID の参照元が、別の規則を指すようにならないためです。
 
 ## Sources and Acceptance Categories
 
