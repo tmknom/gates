@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// checkJOSEHeader は、GATES OIDC JWT Signature の GOJ-HEADER の受理条件を確かめる。
+// checkJOSEHeader は、GOJ-HEADER の受理条件を確かめる。
 // go-jose は b64 を対応済みの crit として受理し、空の crit を通し、cty を拒否しないため、判定を任せず、解析済みの jwt の Protected Header を読み直す。
 // jwt は直列化の条件を満たしており復号は失敗しない。失敗しても decoded が空のまま json.Unmarshal が拒否する。
 func checkJOSEHeader(jwt string) error {

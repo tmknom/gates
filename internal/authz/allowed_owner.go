@@ -24,7 +24,7 @@ type AllowedOwner struct {
 	ownerType OwnerType
 }
 
-// NewAllowedOwner は、Domain Model の「Invariants」が定める許可オーナーの条件を検証する。
+// NewAllowedOwner は、INV-004 が定める許可オーナーの条件を検証する。
 // オーナー名を文字列で受け取るのは、repository.OwnerName のゼロ値が検証を通らずに入らないようにするため。
 func NewAllowedOwner(id int64, name string, ownerType OwnerType) (AllowedOwner, error) {
 	ownerID, err := githubid.NewOwnerID(id)

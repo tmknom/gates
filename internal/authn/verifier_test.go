@@ -415,7 +415,7 @@ func TestVerifierAuthenticate_NonAliasClaimName(t *testing.T) {
 	}
 }
 
-// claimAliasLetters は、GATES OIDC JWT Claims の GOJ-CLAIM-NAME が別名の範囲として定める、別名を持つ 5 つの Claim 名の各文字と同じ文字に畳み込まれる文字の組である。
+// claimAliasLetters は、GOJ-CLAIM-NAME が別名の範囲として定める、別名を持つ 5 つの Claim 名の各文字と同じ文字に畳み込まれる文字の組である。
 var claimAliasLetters = map[rune][]rune{
 	'a': []rune("aA"), 'b': []rune("bB"), 'd': []rune("dD"), 'e': []rune("eE"),
 	'f': []rune("fF"), 'i': []rune("iI"), 'n': []rune("nN"), 'p': []rune("pP"),
@@ -492,7 +492,7 @@ func decodedClaimName(t *testing.T, name string) string {
 	return ""
 }
 
-// GATES OIDC JWT Claims の GOJ-CLAIM-NAME が定める別名が、go-oidc のデコーダが 5 つの Claim 名として読む名前とも、isClaimAlias が拒否する名前とも一致することを確かめる。
+// GOJ-CLAIM-NAME が定める別名が、go-oidc のデコーダが 5 つの Claim 名として読む名前とも、isClaimAlias が拒否する名前とも一致することを確かめる。
 // デコーダの照合は Go の Unicode の版で広がり得るため、単純な Case Folding で畳み込まれる文字はすべて候補に入れる。
 func TestClaimAliases_MatchDecoderAndRejection(t *testing.T) {
 	aliases := claimAliases(func(r rune) []rune { return claimAliasLetters[r] })

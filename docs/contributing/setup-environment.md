@@ -54,7 +54,7 @@ Plan の前に次を満たしておきます。
 
 `terraform.tfvars` の値のうち、次の 3 つは適用の前に確かめて決めます。
 
-- **`gates_audience`**：GATES 専用の、URL でない文字列にする（例：`<owner>-gates`）。`sts.amazonaws.com`、`https://github.com`、`https://github.com/` で始まる値は、変数の検証で拒否される（[Domain Model](../design/domain.md#53-invariants)）
+- **`gates_audience`**：GATES 専用の、URL でない文字列にする（例：`<owner>-gates`）。`sts.amazonaws.com`、`https://github.com`、`https://github.com/` で始まる値は、変数の検証で拒否される（[Domain Model](../design/domain.md) の INV-005）
 - **`kms_key_spec`**：インポートする GitHub App Private Key の鍵長に合わせる。秘密鍵は適用の後に生成するため、検証用 App で生成した鍵の鍵長（2048 bit）から `RSA_2048` とする
 - **`lambda_reserved_concurrency`**：`aws lambda get-account-settings` の `UnreservedConcurrentExecutions` から予約する数を引いても、Lambda が求める未予約の下限（100）を下回らない値にする
 

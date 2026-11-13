@@ -31,7 +31,7 @@ func checkClaimSet(rawClaims []byte) error {
 	return nil
 }
 
-// isClaimAlias は、GATES OIDC JWT Claims の GOJ-CLAIM-NAME が拒否する別名かを判定する。
+// isClaimAlias は、GOJ-CLAIM-NAME が拒否する別名かを判定する。
 // go-oidc の encoding/json (v1) は別名も正しい名前の Claim として読み、後に現れた値で上書きする。
 // strings.EqualFold を使うのは、v1 の名前の照合と同じく Unicode の単純な Case Folding で比べ、U+017F のような ASCII 以外の文字にも一致するため。
 func isClaimAlias(name string) bool {

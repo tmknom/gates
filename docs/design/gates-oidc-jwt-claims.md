@@ -340,7 +340,7 @@ JWT の `iss` の値は照合だけに使い、Discovery / JWKS の取得先に�
 
 ## Cross-Claim Invariants
 
-各 Claim の値を独立に受理しただけでは Caller を確定しません。次の条件が同時に成立したときに限り、[Domain Model](domain.md#53-invariants) が定める Caller を生成できます。
+各 Claim の値を独立に受理しただけでは Caller を確定しません。次の条件が同時に成立したときに限り、[Domain Model](domain.md) の INV-009 が定める Caller を生成できます。
 
 ### GOJ-ID-FORMAT ID の表記
 
@@ -394,7 +394,7 @@ Caller の確定後、固定した Allowed Owner ID との一致は認可で確�
 
 | GATES の受理条件 | 要求・設計上の根拠 |
 |---|---|
-| 必須 Claim、Issuer、Audience、時間、ID の整合 | [Requirements](../spec/requirements.md) の FR-002、FR-003、[Domain Model §5.3](domain.md#53-invariants) |
+| 必須 Claim、Issuer、Audience、時間、ID の整合 | [Requirements](../spec/requirements.md) の FR-002、FR-003、[Domain Model](domain.md) の INV-009 |
 | Claim 名の別名の拒否と、時刻の値の表記 | [Requirements](../spec/requirements.md) の FR-027 |
 | 不変形式 `sub` | [Requirements](../spec/requirements.md) の FR-005、FR-025 |
 | Caller の Owner ID による認可と Repository ID の監査利用 | [Requirements](../spec/requirements.md) の FR-002、FR-006 |
