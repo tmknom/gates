@@ -19,6 +19,7 @@ func verifiedToken(t *testing.T) InstallationToken {
 	return got
 }
 
+//trace:checks AC-19
 func TestInstallationToken_OutputDoesNotContainToken(t *testing.T) {
 	token := verifiedToken(t)
 	tests := []struct {

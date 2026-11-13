@@ -77,6 +77,7 @@ run "trust_policy_allows_only_web_identity_from_provider" {
   }
 }
 
+# trace:checks AC-26
 run "trust_policy_conditions_are_only_aud_and_sub" {
   assert {
     condition = jsondecode(aws_iam_role.github_actions.assume_role_policy).Statement[0].Condition == {

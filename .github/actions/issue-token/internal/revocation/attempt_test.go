@@ -26,6 +26,7 @@ type failingWriter struct{}
 
 func (failingWriter) Write([]byte) (int, error) { return 0, errWrite }
 
+//trace:checks AC-31 AC-32
 func TestAttempt(t *testing.T) {
 	tests := []struct {
 		name   string

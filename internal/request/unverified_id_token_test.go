@@ -16,6 +16,8 @@ const secretIDToken = "secret.jwt.value"
 
 // TestUnverifiedIDToken_IsRedactedInOutput は、credential.Redacted のメソッドが UnverifiedIDToken に昇格していることを確かめる。
 // 書式指定や出力先ごとの網羅は credential package のテストが確かめる。
+//
+//trace:checks AC-19
 func TestUnverifiedIDToken_IsRedactedInOutput(t *testing.T) {
 	token := validateIDToken(t, secretIDToken)
 	holder := struct{ Token request.UnverifiedIDToken }{Token: token}

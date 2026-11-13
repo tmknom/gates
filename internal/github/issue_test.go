@@ -133,6 +133,7 @@ func assertReadFields(t *testing.T, result github.IssuanceResult, unreadable ...
 
 var allFields = []string{"token", "expires_at", "permissions", "repository_selection", "repositories"}
 
+//trace:checks AC-09 AC-11
 func TestIssue_SendsExplicitRepositoriesAndPermissions(t *testing.T) {
 	var body atomic.Pointer[string]
 	stub := newAPIStub(t, func(w http.ResponseWriter, r *http.Request) {
@@ -357,6 +358,7 @@ func assertIssueFailed(t *testing.T, got github.IssuanceResult, err, want error)
 	}
 }
 
+//trace:checks AC-06 AC-10 AC-17 AC-29
 func TestIssue_StatusFailure(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -397,6 +399,7 @@ func TestIssue_StatusFailure(t *testing.T) {
 	}
 }
 
+//trace:checks AC-13 AC-30
 func TestIssue_CommunicationFailureReturnsErrTransientFailure(t *testing.T) {
 	closeConnection := func(w http.ResponseWriter, _ *http.Request) {
 		conn, _, err := w.(http.Hijacker).Hijack()

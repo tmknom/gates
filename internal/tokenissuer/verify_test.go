@@ -213,6 +213,7 @@ func TestVerify_Accepts(t *testing.T) {
 	}
 }
 
+//trace:checks AC-06 AC-11 AC-12
 func TestVerify_Rejects(t *testing.T) {
 	tests := []struct {
 		name string

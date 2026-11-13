@@ -218,6 +218,7 @@ func TestSigner_Sign_SendsDigestOfSigningInputToKMS(t *testing.T) {
 	}
 }
 
+//trace:checks AC-13
 func TestSigner_Sign_ClassifiesKMSFailure(t *testing.T) {
 	tests := []struct {
 		name   string

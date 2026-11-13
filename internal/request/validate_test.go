@@ -130,6 +130,7 @@ func TestValidate_AcceptsBoundaries(t *testing.T) {
 	}
 }
 
+//trace:checks AC-03 AC-05 AC-07 AC-08 AC-24
 func TestValidate_Invalid(t *testing.T) {
 	tests := []struct {
 		name    string

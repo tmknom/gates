@@ -218,6 +218,7 @@ func TestAuthenticate_OpensConnectionForEachRetrieval(t *testing.T) {
 	}
 }
 
+//trace:checks AC-13 AC-28
 func TestAuthenticate_RetrievalFailure(t *testing.T) {
 	closeConnection := func(w http.ResponseWriter, _ *http.Request) {
 		conn, _, err := w.(http.Hijacker).Hijack()
@@ -302,6 +303,8 @@ func TestAuthenticate_UnacceptableDiscovery(t *testing.T) {
 }
 
 // 集合として解釈できない JWKS は使用可能な鍵が含まれていても、使用可能な鍵のない JWKS も、集合全体を拒否する。
+//
+//trace:checks AC-28
 func TestAuthenticate_UnacceptableJWKS(t *testing.T) {
 	usable := jwkWith(t, testKey(t), testKeyID, nil)
 	tests := []struct {
@@ -442,6 +445,8 @@ func x5cOf(certs ...*x509.Certificate) []string {
 }
 
 // 除外される JWK のうち鍵の値を使うものは、2047 bit の法を除き key の公開鍵から作り、keyID は除外の記録に残る kid である。
+//
+//trace:checks AC-28
 func TestAuthenticate_ExcludedJWK(t *testing.T) {
 	const keyID = "excluded"
 	key := generateKey(t)
@@ -619,6 +624,7 @@ func (s *issuerStub) tokenWithHeader(t *testing.T, key *rsa.PrivateKey, header s
 	return signWithHeader(t, key, header, marshalClaims(t, claimsWith(map[string]any{"iss": s.issuer()})))
 }
 
+//trace:checks AC-28
 func TestAuthenticate_UnacceptableHeaderIsRejectedWithoutRetrieval(t *testing.T) {
 	const base = `"alg":"RS256","kid":"` + testKeyID + `"`
 	tests := []struct {
@@ -727,6 +733,7 @@ func TestAuthenticate_ResponseSizeLimit(t *testing.T) {
 	}
 }
 
+//trace:checks AC-13
 func TestAuthenticate_DeadlineExceededReturnsErrTransientFailure(t *testing.T) {
 	waitForDisconnect := func(_ http.ResponseWriter, r *http.Request) { <-r.Context().Done() }
 	authenticateWithDeadline := func(t *testing.T, verifier *Verifier, token string) {
@@ -1181,6 +1188,8 @@ func TestAuthenticate_ConcurrentRetrievalFailureDoesNotReachCallsRejectedWithout
 }
 
 // 名前の判定と NumericDate の判定は、鍵情報に依存しないため取得の前に行う。
+//
+//trace:checks AC-27
 func TestAuthenticate_UnacceptableClaimSetIsRejectedWithoutRetrieval(t *testing.T) {
 	tests := []struct {
 		name    string

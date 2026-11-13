@@ -137,6 +137,7 @@ func TestRecord_Write_TopLevelKeys(t *testing.T) {
 	}
 }
 
+//trace:checks AC-18
 func TestRecord_Write_Caller(t *testing.T) {
 	all := caller.WorkflowTriggerAttributes{
 		Actor:          "octocat",
@@ -244,6 +245,7 @@ func TestRecord_Write_UntrustedTriggerAttribute(t *testing.T) {
 	}
 }
 
+//trace:checks AC-19
 func TestRecord_Write_ExcludesIDToken(t *testing.T) {
 	r := audit.NewRecord(requestID)
 	r.SetTokenRequest(tokenRequest(t))

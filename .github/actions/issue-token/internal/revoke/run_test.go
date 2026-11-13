@@ -70,6 +70,7 @@ func TestRun_WithoutTokenDoesNothing(t *testing.T) {
 	}
 }
 
+//trace:checks AC-31
 func TestRun_MasksTheTokenBeforeRevokingWithIt(t *testing.T) {
 	t.Parallel()
 

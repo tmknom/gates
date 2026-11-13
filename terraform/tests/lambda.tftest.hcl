@@ -47,6 +47,7 @@ variables {
   lambda_package_path  = "tests/testdata/package.txt"
 }
 
+# trace:checks AC-22
 run "function_configuration" {
   assert {
     condition     = aws_lambda_function.gates.function_name == "gates"
@@ -103,6 +104,7 @@ run "log_group_configuration" {
   }
 }
 
+# trace:checks AC-20
 run "execution_role_policy_allows_only_writing_logs" {
   assert {
     condition     = length(jsondecode(aws_iam_policy.lambda_logs.policy).Statement) == 1

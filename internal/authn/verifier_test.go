@@ -213,6 +213,7 @@ func TestVerifierAuthenticate(t *testing.T) {
 	}
 }
 
+//trace:checks AC-03 AC-27
 func TestVerifierAuthenticate_InvalidToken(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -305,6 +306,8 @@ func TestVerifierAuthenticate_InvalidToken(t *testing.T) {
 
 // 文字列、小数、指数表記の値は、go-oidc が読むと 3 つの Claim のどれでも時間条件を通る時刻にし、型の判定だけが拒否できるようにする。
 // 範囲の外の値は、Claim によっては go-oidc や iat の判定でも拒否される。
+//
+//trace:checks AC-27
 func TestVerifierAuthenticate_InvalidNumericDate(t *testing.T) {
 	literals := []struct {
 		name    string
@@ -494,6 +497,8 @@ func decodedClaimName(t *testing.T, name string) string {
 
 // GOJ-CLAIM-NAME が定める別名が、go-oidc のデコーダが 5 つの Claim 名として読む名前とも、isClaimAlias が拒否する名前とも一致することを確かめる。
 // デコーダの照合は Go の Unicode の版で広がり得るため、単純な Case Folding で畳み込まれる文字はすべて候補に入れる。
+//
+//trace:checks AC-27
 func TestClaimAliases_MatchDecoderAndRejection(t *testing.T) {
 	aliases := claimAliases(func(r rune) []rune { return claimAliasLetters[r] })
 	for _, name := range claimNameCandidates() {
@@ -510,6 +515,7 @@ func TestClaimAliases_MatchDecoderAndRejection(t *testing.T) {
 	}
 }
 
+//trace:checks AC-27
 func TestVerifierAuthenticate_ClaimAlias(t *testing.T) {
 	for alias, name := range claimAliases(func(r rune) []rune { return claimAliasLetters[r] }) {
 		t.Run(alias+" with "+name+" returns ErrAuthenticationFailure", func(t *testing.T) {
