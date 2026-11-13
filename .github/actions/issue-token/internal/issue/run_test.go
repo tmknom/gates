@@ -38,6 +38,7 @@ func maskLines(s string) []string {
 	return masks
 }
 
+//trace:checks AC-19
 func TestRun_SuccessWritesStateOutputsAndLogsAfterMasking(t *testing.T) {
 	t.Parallel()
 
@@ -143,6 +144,7 @@ func TestRun_PassesValuesBetweenStages(t *testing.T) {
 	}
 }
 
+//trace:checks AC-16 AC-19
 func TestRun_DoesNotOutputCredentials(t *testing.T) {
 	t.Parallel()
 
@@ -309,6 +311,7 @@ func TestRun_StageFailureBeforeInvokeStopsTheLaterStages(t *testing.T) {
 	}
 }
 
+//trace:checks AC-16
 func TestRun_InvokeFailureWritesNothingAndDoesNotRevoke(t *testing.T) {
 	t.Parallel()
 
@@ -333,6 +336,7 @@ func TestRun_InvokeFailureWritesNothingAndDoesNotRevoke(t *testing.T) {
 	}
 }
 
+//trace:checks AC-32
 func TestRun_FailureAfterExtractingTokenRevokesIt(t *testing.T) {
 	t.Parallel()
 
@@ -398,6 +402,7 @@ func cancelOn(line string, cancel context.CancelFunc) func(string) error {
 	}
 }
 
+//trace:checks AC-33
 func TestRun_CancellationRequest(t *testing.T) {
 	t.Parallel()
 
@@ -628,6 +633,7 @@ func panicOn(prefix string) func(string) error {
 
 var errPanic = errors.New("panic in a stage")
 
+//trace:checks AC-32
 func TestRun_PanicAfterExtractingTokenRevokesItAndPassesThePanicOn(t *testing.T) {
 	t.Parallel()
 

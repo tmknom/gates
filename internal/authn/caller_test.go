@@ -88,6 +88,7 @@ func subjectOfLength(length int) string {
 	return prefix + strings.Repeat("a", length-len(prefix))
 }
 
+//trace:checks AC-04
 func TestCallerFromClaims(t *testing.T) {
 	defaultCaller := newCaller(t, 11, 22, 33, 2, validAttributes())
 	withAttributes := func(change func(*caller.WorkflowTriggerAttributes)) caller.Caller {
@@ -182,6 +183,7 @@ func TestCallerFromClaims(t *testing.T) {
 	}
 }
 
+//trace:checks AC-03
 func TestCallerFromClaims_InvalidClaims(t *testing.T) {
 	tests := []struct {
 		name   string

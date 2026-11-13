@@ -70,6 +70,7 @@ run "key_configuration" {
   }
 }
 
+# trace:checks AC-20
 run "key_policy_allows_execution_role_only_to_sign" {
   assert {
     condition     = length(jsondecode(aws_kms_external_key.signing.policy).Statement) == 2
@@ -151,6 +152,7 @@ run "key_policy_allows_root_only_to_manage" {
   }
 }
 
+# trace:checks AC-20
 run "execution_role_policy_allows_only_signing_with_the_key" {
   assert {
     condition     = length(jsondecode(aws_iam_policy.lambda_sign.policy).Statement) == 1
