@@ -80,6 +80,7 @@ Installation の GitHub 側の仕様は [GitHub Constraints](../spec/github-cons
 許可オーナーの有効なワークフローは、呼び出し元リポジトリ／チーム別の認可を経ず、GATES が許可する権限の範囲で GitHub App の Installation 対象リポジトリに横断的なトークン発行を要求できます。この権限は GitHub App / Installation 自体の権限上限にも拘束されます。GATES が許可するのは `contents:read` のみです。
 
 GitHub App のインストール対象が読み取り可能範囲の上限となります。`Only select repositories` により対象を限定できます。`All repositories` を使用すると、そのオーナーにインストールされた App の対象リポジトリ全体が読み取り可能範囲に含まれます。インストール対象の変更は認可境界の変更として扱います。
+GATES はインストール対象を保持せず、発行のたびに GitHub が判定するため、変更は GATES の設定を変えずに以後の発行要求へ反映されます。対象から外したリポジトリを含む要求は GitHub が拒否し、GATES はどの対象にもトークンを返しません。
 
 許可オーナーが Organization の場合、この変更は Organization オーナーだけの操作ではありません。
 既定では、リポジトリ管理者が自身の管理するリポジトリをインストール済みの App の対象に追加でき、`installation_repositories:write` を持つ呼び出し元も、そのリポジトリを Installation に追加または削除できます。
