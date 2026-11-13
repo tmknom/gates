@@ -80,6 +80,17 @@ GATES 用 Audience の GitHub OIDC JWT の署名・Issuer・Audience・時間条
 
 GATES の呼び出しに使う IAM Role の引き受けでは、呼び出し元を不変 Owner ID で特定できる GitHub OIDC JWT だけを受け付け、名前だけで特定する JWT を拒否する。
 
+#### FR-027 検証に使う Claim の一意な解釈
+
+GitHub OIDC JWT の検証に使う Claim は、GATES の検証で Claim を読み取るどの処理でも、名前と値を同じ一つの解釈でしか読み取れない場合に限り受理する。次の JWT は、ほかの条件を満たしていても拒否する。
+
+- 標準仕様では別の Claim だが、GATES の検証で Claim を読み取る処理によっては、検証に使う Claim と同じ名前に読める Claim を含む JWT
+- 時刻の Claim の値を、GATES の検証で Claim を読み取る処理によって異なる値に読める JWT
+
+#### FR-028 署名の検証での JOSE Header の拡張と検証鍵の扱い
+
+GitHub OIDC JWT の署名の検証では、GATES が対応しない JOSE Header の拡張を含む JWT は、その拡張を無視せずに拒否する。検証鍵には、署名の検証の用途と署名方式に合い、署名方式が求める強度を満たす鍵だけを使う。
+
 ### 5.2 Authorization
 
 #### FR-006 許可オーナーの Owner ID による認可
@@ -148,7 +159,7 @@ Docker Action が AWS の認証情報の取得、認証、トークン取得の�
 
 #### FR-020 失敗の種別を区別したエラー
 
-入力不正、認証失敗、GATES による認可拒否、Installation 利用不可（発行に使える Installation を得られない）、原因が未確定の GitHub 発行拒否、発行結果の照合失敗、外部 API・KMS の一時的な障害を区別したエラーを返す。
+入力不正、認証失敗、GATES による認可拒否、Installation 利用不可（発行に使える Installation を得られない）、原因が未確定の GitHub 発行拒否、発行結果の照合失敗、外部 API・KMS の一時的な障害を区別したエラーを返す。Issuer が公開する検証鍵の集合を取得できない障害と、その集合に使用できる鍵が一つもない障害は、JWT の不正による認証失敗と区別する。
 
 #### FR-021 資格情報を含まない監査記録
 
@@ -491,27 +502,30 @@ JWT 検証、Installation の解決、認可、署名、発行結果の照合が
 |---|---|---|
 | `alignment` | `FR-005` | Functional Requirement |
 
-### AC-27 Case Folding で一致する別名の Claim と不適格な時刻の値を持つ JWT の拒否
+### AC-27 検証に使う Claim を一つの解釈で読み取れない JWT の拒否
 
-**条件**：適切に署名された JWT で NumericDate に数字文字列を使う、`iss`、`aud`、`exp`、`iat`、`nbf` と Unicode の単純な Case Folding で一致する別の名前（`ISS`、`iſſ` など）の Claim を含める、`now == exp` にする、あるいは時刻に範囲の外の値か、小数部または指数部を持つ値を使う
+**条件**：適切に署名された JWT に、GATES の検証で Claim を読み取る処理によっては、検証に使う Claim と同じ名前に読める別の名前の Claim を含める、または時刻の Claim の値を、GATES の検証で Claim を読み取る処理によって異なる値に読める表記で書く
 
-**期待する結果**：認証失敗として拒否し、Caller を確定しない
-
-| Relationship | Target | Target Type |
-|---|---|---|
-| `alignment` | `FR-002` | Functional Requirement |
-| `alignment` | `FR-003` | Functional Requirement |
-
-### AC-28 未対応の JOSE Header の拡張と不適格な検証鍵を用いた JWT の拒否
-
-**条件**：JOSE Header の未対応 `crit`、JWT の `b64:false`、2048 bit 未満の RSA 公開鍵、用途やアルゴリズムが不整合な JWK を用いた署名済み JWT
-
-**期待する結果**：検証鍵として採用せず認証失敗として拒否する。JWKS の取得自体の障害と、使用可能な鍵が 1 つもない JWKS は、認証失敗とは別のエラーとする
+**期待する結果**：ほかの条件を満たしていても、認証失敗として拒否し、Caller を確定しない
 
 | Relationship | Target | Target Type |
 |---|---|---|
 | `alignment` | `FR-002` | Functional Requirement |
 | `alignment` | `FR-003` | Functional Requirement |
+| `alignment` | `FR-027` | Functional Requirement |
+
+### AC-28 未対応の JOSE Header の拡張か検証に適さない鍵を用いた JWT の拒否と、検証鍵を得られない障害の区別
+
+**条件**：GATES が対応しない JOSE Header の拡張を使う JWT を送る。Issuer が公開する検証鍵の集合に、使用できる鍵とともに、署名の検証の用途か署名方式に合わない鍵か、署名方式が求める強度を満たさない鍵を置き、その鍵に対応する秘密鍵で署名した JWT を送る。また、検証鍵の集合を取得できない障害と、その集合に使用できる鍵が一つもない障害を起こす
+
+**期待する結果**：GATES が対応しない JOSE Header の拡張か、検証に適さない鍵を用いた JWT は、認証失敗として拒否し、検証に適さない鍵は検証鍵として採用しない。検証鍵の集合を取得できない障害と、使用できる鍵が一つもない障害は、認証失敗とは別のエラーとする
+
+| Relationship | Target | Target Type |
+|---|---|---|
+| `alignment` | `FR-002` | Functional Requirement |
+| `alignment` | `FR-003` | Functional Requirement |
+| `alignment` | `FR-020` | Functional Requirement |
+| `alignment` | `FR-028` | Functional Requirement |
 
 ### AC-29 発行 API の `422` の GitHub 発行拒否としての扱い
 
