@@ -10,7 +10,7 @@ GitHub の公式資料そのものではなく、GitHub の仕様が変更され
 - **REST API の確認対象版**：`2026-03-10`。以下の REST API 資料と OpenAPI 定義（REST API Description）はこの版を参照する。
 - **バージョン指定の仕様**：REST API は `X-GitHub-Api-Version` で版を指定する。ヘッダーを省略すると `2022-11-28` が使われる。各版は新しい版の公開から24か月サポートされ、`2022-11-28` のサポートは2028年3月10日に終わる。サポート終了後、その版を指定した要求は `410 Gone` になり、ヘッダーを省略した要求の既定の版は変わる。版に依存する記述は、別の版では照合が必要である（[API Versions](https://docs.github.com/en/rest/about-the-rest-api/api-versions)）。
 - **`User-Agent` の仕様**：REST API のすべての要求は、有効な `User-Agent` ヘッダーを含む必要がある。ヘッダーのない要求は拒否され、無効な値には `403 Forbidden` が返る。値には、GitHub のユーザー名かアプリケーションの名前が推奨される（[Getting started with the REST API](https://docs.github.com/en/rest/using-the-rest-api/getting-started-with-the-rest-api)）。
-- **取得した値の調査記録**：[GitHub OIDC Discovery](../research/github/oidc-discovery.md)、[GitHub OIDC JWKS](../research/github/oidc-jwks.md)、[GitHub OIDC JWT](../research/github/oidc-jwt.md)、[GitHub App Installation](../research/github/app-installation.md)、[GitHub Installation Access Token](../research/github/installation-access-token.md)、[GitHub Composite Action Outputs](../research/github/composite-action-outputs.md)。取得日、取得方法、応答の全体はこれらの記録にある。
+- **取得した値の調査記録**：[GitHub OIDC Discovery](../research/github/oidc-discovery.md)、[GitHub OIDC JWKS](../research/github/oidc-jwks.md)、[GitHub OIDC JWT](../research/github/oidc-jwt.md)、[GitHub App Installation](../research/github/app-installation.md)、[GitHub Installation Access Token](../research/github/installation-access-token.md)、[GitHub App Installation Changes](../research/github/installation-changes.md)、[GitHub Composite Action Outputs](../research/github/composite-action-outputs.md)。取得日、取得方法、記録した応答はこれらの記録にある。
 
 根拠の種類は次のように区別します。
 
@@ -188,6 +188,14 @@ Organization オーナーがリポジトリ管理者によるインストール�
 **実測値（Installation の取得）**：User の API の記録では、`id` と `account.id` は JSON の数値で、停止していない Installation の `suspended_at` は欠落せず `null` で現れました。
 署名の不正な App JWT には `401` が返りました（[GitHub App Installation](../research/github/app-installation.md)）。
 
+**実測値（Installation の変更）**：個人アカウントの Installation を画面で変えた記録では、次のとおりでした（[GitHub App Installation Changes](../research/github/installation-changes.md)）。
+
+- **停止**：停止中の Installation の User の API は `200` で、`suspended_at` は時刻だった。値そのものは記録していない
+- **アンインストール**：アンインストールした後の User の API は `404` だった
+- **再インストール**：同じ App を再インストールすると Installation ID が変わり、`account.id` は変わらなかった。User の API は新しい Installation を返した
+- **対象の追加と削除**：保存から約 1 分後の発行の要求に反映されていた。外したリポジトリを含む要求は `422` で拒否され、対象を縮小した応答はなかった
+- **App の権限の追加**：Installation の側で承認するまで、Installation の権限は変わらなかった。承認の後も、`{"contents":"read"}` を指定した発行応答の `permissions` は `contents:read` と `metadata:read` だけだった
+
 **推論**：オーナーを指定して単一の Installation を返す API があることから、GitHub App とオーナーの組で Installation は単一に決まると読めます。ただし、この一意性を明記した公式の記述はありません。
 
 ## 6. Installation Access Token
@@ -236,11 +244,11 @@ GitHub は、トークンを、中身を解釈しない文字列として扱う�
 - **`permissions`**：要求していない `metadata:read` が加わった
 - **`repositories`**：要求した件数のリポジトリが返った。対象 2 件の要求では、要求の並びを入れ替えても応答の並びは同じだった。`full_name` は要求の表記ではなく GitHub 上の表記だった
 - **本文の大きさ**：対象1件ごとにリポジトリの完全な表現が入り、1件あたり数 KB だった
-- **拒否**：Installation で選択していない同じアカウントの公開リポジトリ、存在しない名前、`.`、`..` のどれかを含む要求は、同じ本文の `422` で、どのリポジトリが原因かを示さなかった。対象を縮小した応答はなかった
+- **拒否**：Installation で選択していない同じアカウントの公開リポジトリ、存在しない名前、`.`、`..` のどれかを含む要求は、同じ本文の `422` で、どのリポジトリが原因かを示さなかった。Installation で選択していない同じアカウントの private リポジトリを含む要求も `422` だった（本文は記録していない）。対象を縮小した応答はなかった
 
 **未確認**：次の振る舞いは、参照した公式資料に記述がありません。
 
-- Installation 範囲外のリポジトリを要求したとき、発行を拒否するか、対象を縮小した応答を返すか。実測したのは Installation で選択していない同じアカウントの公開リポジトリだけで、private のもの、別のアカウントのもの、archived のものは試していない
+- Installation 範囲外のリポジトリを要求したとき、発行を拒否するか、対象を縮小した応答を返すか。実測したのは Installation で選択していない同じアカウントの公開リポジトリと private リポジトリだけで、別のアカウントのもの、archived のものは試していない
 - 500件を超えて指定したときの応答
 - 停止中の Installation に対する発行 API の応答。App 停止の API の説明は、停止するとそのアカウントに対する App の API アクセスが遮断されるとするが、発行 API の応答コードは示していない（[REST API — GitHub Apps](https://docs.github.com/en/rest/apps/apps?apiVersion=2026-03-10)）
 - 発行応答の各フィールドの存在条件。OpenAPI 定義で必須なのは `token` と `expires_at` だけで、`permissions`、`repositories`、`repository_selection` は必須ではない（[REST API Description](https://github.com/github/rest-api-description)）
@@ -347,7 +355,7 @@ Client ID または App ID を `iss` にすることは、`iss` を文字列と�
 | リポジトリ名 | `.` と `..` の扱い、既存リポジトリへの例外的な命名規則 |
 | OIDC | カスタマイズ後の `sub` の形式（`repo` を含めないテンプレートを不変形式のリポジトリに適用した場合を含む）、`sub` が OpenID Connect Core の上限255 ASCII 文字に常に収まるか、Claim の JSON の型、Claim が欠落する条件、`nbf`、`iat`、`exp` の時刻の差、JOSE Header に `crit`、`jku`、`jwk` などが現れるか、`User` 所有のリポジトリでの `repository_owner_id`、`run_attempt` の初回の値、Organization が所有するリポジトリで発行された JWT の実測値、指定した Audience の発行を拒否する規則（実測した値の外での振る舞い） |
 | GitHub App の鍵 | 新規生成される RSA 鍵のビット長 |
-| Installation の取得 API | Organization と User の API の `200` 以外の応答（インストールされていない場合を含む）、Organization の API の応答の形、GitHub App とオーナーの組での一意性 |
+| Installation の取得 API | Organization の API の `200` 以外の応答（インストールされていない場合を含む）、User の API のアンインストール以外の `200` 以外の応答、Organization の API の応答の形、停止中の Installation の `suspended_at` の値の形、GitHub App とオーナーの組での一意性 |
 | トークン発行 API | 範囲外リポジトリへの要求、500件超の要求、停止中の Installation への要求、`422` の原因、`metadata:read` の付与条件、応答フィールドの有無、`repositories` の並び |
 | トークン失効 API | 新形式のトークンでの失効の動作 |
 | Docker Action | ジョブが失敗した状態とキャンセルした状態での post-entrypoint の実行、複数の Action の post が動く順序、別のリポジトリを `uses:` で参照したときのビルドの時間と post-entrypoint でのビルドのし直し、Dependabot の `docker` が `FROM` のタグと並べた digest を更新するか |
