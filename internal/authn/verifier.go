@@ -20,10 +20,10 @@ import (
 // clockSkew は iat の判定に使う許容時計差である。go-oidc の nbf の猶予は固定値で、テストがこの値との一致を確かめる。
 const clockSkew = 5 * time.Minute
 
-// awsAudience は AWS 用 OIDC JWT の Audience で、Domain Model の認証の固定設定が GATES 用 Audience に禁じる値である。
+// awsAudience は AWS 用 OIDC JWT の Audience で、認証の固定設定（INV-005）が GATES 用 Audience に禁じる値である。
 const awsAudience = "sts.amazonaws.com"
 
-// githubURL と、githubURL に "/" を続けた値で始まる値が、Domain Model の認証の固定設定が GATES 用 Audience に禁じる github.com の URL である。
+// githubURL と、githubURL に "/" を続けた値で始まる値が、認証の固定設定（INV-005）が GATES 用 Audience に禁じる github.com の URL である。
 const githubURL = "https://github.com"
 
 // Verifier は、固定設定と公開鍵の集合に照らして GATES 用 OIDC JWT を認証する。
@@ -58,7 +58,7 @@ func isGitHubURL(audience string) bool {
 		len(audience) >= len(prefix) && repository.EqualFoldASCII(audience[:len(prefix)], prefix)
 }
 
-// parseIssuer は Domain Model の認証の固定設定の条件を Issuer について確かめる。
+// parseIssuer は認証の固定設定（INV-005）の条件を Issuer について確かめる。
 // go-oidc は JWT の iss を設定の文字列と比べ、Discovery の照合は解析後の値と比べる。
 // 解析で変わる値を通すと、Discovery の照合を通ったまま、設定の誤りがすべての JWT の不正に見える。
 // Host から組み立て直して比べるのは、ほかの要素を列挙すると、列挙から漏れた表現 (空の Query など) を通すため。

@@ -8,7 +8,7 @@ import (
 	"github.com/tmknom/gates/internal/request"
 )
 
-// Grant は、認可条件と Installation の有効性を満たすときだけ TokenGrant を確定する。
+// Grant は、認可条件と Installation の有効性（RULE-010、RULE-011）を満たすときだけ TokenGrant を確定する。
 // Authorize を通した要求にも認可条件を判定し直す理由と、両方を満たさないときに認可拒否を返す理由は、Lambda Design の「Processing Flow」に記述する。
 func Grant(c caller.Caller, req request.TokenRequest, owner AllowedOwner, inst Installation) (TokenGrant, error) {
 	if err := Authorize(c, req, owner); err != nil {

@@ -35,7 +35,7 @@ type Caller struct {
 	triggerAttributes WorkflowTriggerAttributes
 }
 
-// NewCaller は、Domain Model の「Invariants」が定める Caller の条件のうち、値だけで判定できるものを検証する。
+// NewCaller は、INV-009 が定める Caller の条件のうち、値だけで判定できるものを検証する。
 // 欠落した Claim を 0 として受け取っても Caller にしないため。ワークフロー起動属性はベストエフォートのため検証しない。
 func NewCaller(ownerID, repositoryID, runID, runAttempt int64, triggerAttributes WorkflowTriggerAttributes) (Caller, error) {
 	validOwnerID, err := githubid.NewOwnerID(ownerID)

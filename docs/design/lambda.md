@@ -93,7 +93,7 @@ GitHub の Permissions の表現は [GitHub Constraints](../spec/github-constrai
 この文字種は、その表現に合わせて GATES が決めた形式の制限です。
 GitHub が公式に定めた規則ではありません。
 この文字種に合わない文字列は、GitHub の権限名や水準として読み取れないため、入力不正にします。
-[Security Design](security.md#31-authorization-rule) と [Domain Model](domain.md#52-rules) が入力不正にする「値を読み取れない形」に、この文字列も含まれます。
+[Security Design](security.md#31-authorization-rule) と [Domain Model](domain.md) の RULE-013 が入力不正にする「値を読み取れない形」に、この文字列も含まれます。
 
 この規則により、監査記録に入る要求の権限は、改行や制御文字を含まない 64 文字以下の語に限られます。
 ログのエンコーダが値をどうエスケープするかによらず、記録の 1 行を偽装する値や長大な値が入りません。
@@ -164,7 +164,7 @@ CloudWatch Logs に自動で記録されるため、独自に採番しなくて�
 成功時にも返すのは、呼び出し元がワークフローのログに残し、監査記録と突き合わせられるようにするためです（[Requirements](../spec/requirements.md) FR-021）。
 
 Lambda は、GitHub API の発行応答を発行許可と照合し、照合を通ったときだけトークンを返します。
-照合の条件は [Security Design](security.md#34-issuance-result-verification) に、照合を通った発行結果が満たす不変条件は [Domain Model](domain.md#53-invariants) に定めます。
+照合の条件は [Security Design](security.md#34-issuance-result-verification) に、照合を通った発行結果が満たす不変条件は [Domain Model](domain.md) の INV-012 に定めます。
 照合の条件に適合しない応答は `issuance_verification_failed` として拒否します。
 
 発行応答から空でない `token` を取得できたうえで照合に失敗した場合、Lambda はそのトークンで `DELETE /installation/token` を呼んで失効を試みます。
@@ -358,8 +358,8 @@ Lambda Handler は Lambda Runtime のライブラリに依存せず、応答を�
 Lambda Runtime のライブラリを Runtime Entry だけに閉じるのは、Lambda Handler のテストで Lambda の ctx を組み立てずに済ませるためです。
 
 固定設定のうち Issuer と API Host は本ドキュメントが固定し（[§6.1](#61-oidc-validation)、[§6.3](#63-github-client)）、残りの値（許可オーナー、Client ID、GATES 用 Audience、KMS Key ARN）は Runtime Entry が起動時に環境変数から読みます。
-読んだ値を [Domain Model](domain.md#53-invariants) の許可オーナーの不変条件で検証するのは固定設定の読み込みであり、Runtime Entry はその結果を受け取るだけで、値の検証の判断を持ちません。
-環境変数の欠落か不正な値、[Domain Model](domain.md#53-invariants) の許可オーナー、認証の固定設定、署名の固定設定の不変条件の違反、AWS SDK の設定の読み込みの失敗は、どれも初期化の失敗です。
+読んだ値を [Domain Model](domain.md) の許可オーナーの不変条件（INV-004）で検証するのは固定設定の読み込みであり、Runtime Entry はその結果を受け取るだけで、値の検証の判断を持ちません。
+環境変数の欠落か不正な値、[Domain Model](domain.md) の許可オーナー、認証の固定設定、署名の固定設定の不変条件（INV-004、INV-005、INV-006）の違反、AWS SDK の設定の読み込みの失敗は、どれも初期化の失敗です。
 初期化に失敗した Runtime Entry は、ログに記録して異常終了し、Lambda Handler を Lambda Runtime に渡しません。
 Lambda はこの Invoke を `Runtime.ExitError` の `FunctionError` にします。
 
@@ -390,7 +390,7 @@ Discovery / JWKS は初期化で取得しません（[§6.1](#61-oidc-validation
 Owner ID、権限、オーナー名の照合（手順 3）を Installation の取得（手順 4）より先に置くのは、KMS と GitHub API の呼び出しを認可の見込みがある要求だけに限るためです。
 
 手順 5 の Grant は、手順 3 を通った要求にも認可条件を判定し直し、満たさなければ認可拒否を返します。
-[Domain Model](domain.md#53-invariants) の発行許可の不変条件を、Grant だけで守れるようにするためです。
+[Domain Model](domain.md) の発行許可の不変条件（INV-011）を、Grant だけで守れるようにするためです。
 認可条件と Installation の有効性の両方を満たさない要求は、手順 3 が手順 4 より先にある順序に合わせて、認可拒否として返します。
 
 ## 6. External Integrations
@@ -498,7 +498,7 @@ GitHub App JWT を作ってから発行の応答を受け取るまでは、署�
 そのため Lambda Handler は、要求の ctx を別の期限で包まずに Token Issuer へ渡します。
 関数の残り時間を超えて待つと、失効を待つ間に関数がタイムアウトし、照合失敗の応答を書けなくなるためです。
 残り時間が 1 秒以下でも失効は試み、すぐにタイムアウトした失効は失敗として監査記録に残します。
-試みなかったことにすると、照合に失敗してトークン文字列を取得できたのに失効を試みない経路が、中断のほかにできるためです（[Domain Model](domain.md#53-invariants) の発行処理の不変条件）。
+試みなかったことにすると、照合に失敗してトークン文字列を取得できたのに失効を試みない経路が、中断のほかにできるためです（[Domain Model](domain.md) の INV-014 の発行処理の不変条件）。
 
 ## 7. Audit Record
 

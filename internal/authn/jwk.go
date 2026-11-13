@@ -21,7 +21,7 @@ const (
 	maximumExponent    = math.MaxInt32
 )
 
-// secretMembers は、GATES OIDC JWT Signature の GOJ-JWKS が集合全体を拒否する理由に挙げる、秘密鍵と対称鍵の値のメンバーである。
+// secretMembers は、GOJ-JWKS が集合全体を拒否する理由に挙げる、秘密鍵と対称鍵の値のメンバーである。
 var secretMembers = []string{"k", "d", "p", "q", "dp", "dq", "qi", "oth", "priv"}
 
 // hasSecretKeyMaterial は、JWK の値に kty=oct か秘密鍵・対称鍵の値のメンバーがあるかを判定する。
@@ -46,7 +46,7 @@ func hasSecretKeyMaterial(raw jsontext.Value) bool {
 	return false
 }
 
-// acceptJWK は、秘密鍵の値を持たない JWKS の要素が GATES OIDC JWT Signature の GOJ-JWK を満たすかを判定し、満たせば使用可能な鍵を返す。
+// acceptJWK は、秘密鍵の値を持たない JWKS の要素が GOJ-JWK を満たすかを判定し、満たせば使用可能な鍵を返す。
 // 満たさないときの error は除外の理由で、記録に使うため GATES が決めた固定の文言だけを持ち、go-jose の文言を含めない。
 func acceptJWK(raw jsontext.Value) (jose.JSONWebKey, error) {
 	var members map[string]jsontext.Value
@@ -138,7 +138,7 @@ func hasDuplicate(values []string) bool {
 	return len(slices.Compact(slices.Sorted(slices.Values(values)))) != len(values)
 }
 
-// checkCertificateChain は、GATES OIDC JWT Signature の GOJ-X5C のうち go-jose が確かめない条件を判定する。
+// checkCertificateChain は、GOJ-X5C のうち go-jose が確かめない条件を判定する。
 // 発行者の関係を CheckSignatureFrom で確かめないのは、設計が求める署名の関係に加えて、発行者に CA の Basic Constraints と keyCertSign を要求するため。
 // 証明書を信頼の起点にはしないため、有効期間と認証パスの信頼性は確かめない。
 func checkCertificateChain(certificates []*x509.Certificate) error {

@@ -208,7 +208,7 @@ func TestValidate_Invalid(t *testing.T) {
 	}
 }
 
-// TestValidate_ErrorDoesNotContainPayload は、資格情報の非記録のため、Payload の断片がエラー文言に出ないことを確かめる。
+// TestValidate_ErrorDoesNotContainPayload は、資格情報の非記録（QR-004）のため、Payload の断片がエラー文言に出ないことを確かめる。
 func TestValidate_ErrorDoesNotContainPayload(t *testing.T) {
 	tests := []struct {
 		name    string

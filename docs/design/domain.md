@@ -137,7 +137,7 @@ Caller の Owner ID は認可に使い、Repository ID、ワークフロー実�
 値が空文字列の属性は、欠落と同じに扱います（推論：空の値は調査の手がかりにならず、区別する要求がないため）。
 値が文字列でない属性も、欠落と同じに扱います（推論：拒否すると、認可に使わない属性の形が変わっただけで発行が止まるため。代わりに、GitHub が属性の型を変えると監査記録から値が消え、変更に気付きにくくなることを受け入れる）。
 
-発行許可は、Caller、発行要求、許可オーナー、取得した Installation の 4 つがそろい、[5.2 Rules](#52-rules) の認可条件と Installation の有効性をすべて満たしたときにだけ作られます。
+発行許可は、Caller、発行要求、許可オーナー、取得した Installation の 4 つがそろい、[RULE-010 認可条件](#rule-010-認可条件)と [RULE-011 Installation の有効性](#rule-011-installation-の有効性)をすべて満たしたときにだけ作られます。
 発行許可があって初めて GitHub API へ発行を要求できる、という順序がこの概念の役割です。
 
 ### 3.4 Issuance Result
@@ -153,7 +153,7 @@ Caller の Owner ID は認可に使い、Repository ID、ワークフロー実�
 
 Installation Access Token はトークン文字列そのもので、GitHub の名前です。
 本ドキュメントは Installation Token の名前を照合を通った発行結果にだけ使い、照合前の応答は発行結果と呼びます。
-照合の条件は [5.3 Invariants](#53-invariants) に置きます。
+照合の条件は [INV-012 返却可能な発行結果](#inv-012-返却可能な発行結果)に置きます。
 
 発行結果は照合の前の値であり、不変条件を持ちません。
 各項目は発行応答から独立に読み取り、読み取れなかった項目は、読み取れなかったことが分かる形で発行結果に残します（事実：Lambda Design §2.2、§6.3）。
@@ -206,7 +206,7 @@ Runner がジョブに渡す、GitHub OIDC Provider に OIDC JWT を要求する
 
 照合に失敗した発行処理では、失効を試みたかどうかと、試みた場合の成否を残します。
 この値を **失効の結果**（Revocation Outcome）と呼び、試みなかった、試みて成功した、試みて失敗した、の 3 つのどれかをとります（語は候補）。
-試みなかった場合を成否の一方に含めないのは、トークン文字列を取得できずに失効を試みなかった処理を、監査記録で失効を試みた処理と見分けるためです（推論：[5.3 Invariants](#53-invariants) の発行処理の不変条件は、トークン文字列を取得できた場合にだけ失効の試行を求めるため）。
+試みなかった場合を成否の一方に含めないのは、トークン文字列を取得できずに失効を試みなかった処理を、監査記録で失効を試みた処理と見分けるためです（推論：[INV-014 発行処理](#inv-014-発行処理)の不変条件は、トークン文字列を取得できた場合にだけ失効の試行を求めるため）。
 
 常に記録する項目を除き、表の記録する条件は次の二つのどちらかです。
 その値を確定する段階を発行処理が通ったか（ワークフロー起動属性は、そのうち含まれていた属性だけ）、その値を伴う結果で終わったか（拒否の理由は失敗、失効の結果は照合失敗）です。
@@ -398,7 +398,7 @@ stateDiagram-v2
 発行処理は、失敗の種別で終わらずに打ち切られることもあります。
 タイムアウト、メモリ不足、初期化の失敗のように Handler が応答を書けない場合で、これを **中断**（Interruption）と呼びます（事実：Lambda Design §3.2。語は候補）。
 中断を失敗の種別に含めないのは、種別は発行処理が判定して応答で表すものであり、中断ではどちらもできないためです（推論）。
-初期化の失敗は、固定設定が [5.3 Invariants](#53-invariants) の不変条件を満たさないか、実行環境から AWS SDK の設定を読めず、部品を作れない場合です。
+初期化の失敗は、固定設定が不変条件（[INV-004 許可オーナー](#inv-004-許可オーナー)、[INV-005 認証の固定設定](#inv-005-認証の固定設定)、[INV-006 署名の固定設定](#inv-006-署名の固定設定)）を満たさないか、実行環境から AWS SDK の設定を読めず、部品を作れない場合です。
 その実行環境では発行処理を始められず、受理した要求は中断で終わります（事実：Lambda Design §4.1。推論：不変条件を満たさない値を作らない方針から）。
 どの段階でも起き得るため、状態図には描きません。
 中断した発行処理は利用者にトークンを返しませんが、監査記録が残らない場合があります。
@@ -428,33 +428,100 @@ stateDiagram-v2
 
 ### 5.1 Identity Rules
 
-| ルール | 内容 | 根拠 |
-|---|---|---|
-| ID による同定 | オーナーの同一性は不変 Owner ID で判断し、名前の一致では代用しない | 事実：Requirements FR-006 |
-| ID の形式 | Owner ID、Repository ID、Installation ID、ワークフロー実行 ID、試行番号は、int64 に収まる正の整数である。Owner ID、Repository ID、Installation ID は互いに別の概念で、比べるのは同じ概念の ID どうしに限る | 推論：GitHub の ID は 1 から始まる。試行番号が初回に `1` になることは未確認で、`0` を拒否するのは GATES の判断 |
-| 名前の照合は補助 | 完全名のオーナー部分と許可オーナー名の照合は、要求の整合性の確認であり、認可の根拠ではない。認可の根拠は Caller の Owner ID にあり、発行に使う Installation はインストール先 Owner ID で確かめる | 推論：Security Design §3.1 の条件 1 と Installation の確認が ID、条件 2 だけが名前であることから |
-| ID の整合 | Caller の Owner ID と Repository ID は、GATES 用 OIDC JWT の中で主体を表す属性と個別の属性の両方に現れる。両方がそろい、互いに一致するときに限り Caller を確定する | 事実：GitHub Constraints §3.2、GATES OIDC JWT Claims の Cross-Claim Invariants |
-| 名前の比較規則 | 完全名の比較と重複判定は、ASCII の範囲で大文字小文字を区別しない。要求の重複判定、オーナー名の照合、実効対象の完全名の照合で共通 | 事実：Lambda Design §2.2 |
+#### RULE-001 ID による同定
+
+**内容**：オーナーの同一性は不変 Owner ID で判断し、名前の一致では代用しない
+
+**根拠**：事実：Requirements FR-006
+
+#### RULE-002 ID の形式
+
+**内容**：Owner ID、Repository ID、Installation ID、ワークフロー実行 ID、試行番号は、int64 に収まる正の整数である。Owner ID、Repository ID、Installation ID は互いに別の概念で、比べるのは同じ概念の ID どうしに限る
+
+**根拠**：推論：GitHub の ID は 1 から始まる。試行番号が初回に `1` になることは未確認で、`0` を拒否するのは GATES の判断
+
+#### RULE-003 名前の照合は補助
+
+**内容**：完全名のオーナー部分と許可オーナー名の照合は、要求の整合性の確認であり、認可の根拠ではない。認可の根拠は Caller の Owner ID にあり、発行に使う Installation はインストール先 Owner ID で確かめる
+
+**根拠**：推論：Security Design §3.1 の条件 1 と Installation の確認が ID、条件 2 だけが名前であることから
+
+#### RULE-004 ID の整合
+
+**内容**：Caller の Owner ID と Repository ID は、GATES 用 OIDC JWT の中で主体を表す属性と個別の属性の両方に現れる。両方がそろい、互いに一致するときに限り Caller を確定する
+
+**根拠**：事実：GitHub Constraints §3.2、GATES OIDC JWT Claims の Cross-Claim Invariants
+
+#### RULE-005 名前の比較規則
+
+**内容**：完全名の比較と重複判定は、ASCII の範囲で大文字小文字を区別しない。要求の重複判定、オーナー名の照合、実効対象の完全名の照合で共通
+
+**根拠**：事実：Lambda Design §2.2
 
 ### 5.2 Rules
 
-| ルール | 適用対象 | 成立条件 | 例外 | 根拠 |
-|---|---|---|---|---|
-| 認証条件 | 認証 | GATES 用 OIDC JWT が、JWS Compact Serialization で表され、JOSE Header が未対応の拡張や Nested JWT を示さず、`kid` で一意に選べる Issuer の使用可能な鍵で GATES が許可した署名方式により署名され、Issuer が固定設定の Issuer と一致し、Audience が GATES 用 Audience の一つだけであり、現在時刻が失効時刻より前であり、有効期間の開始と発行時刻が現在時刻に許容時計差を足した時刻より後でなく、属性を一意に読み取れ、発行時刻、失効時刻、Caller の確定に要る属性がそろい、[5.1 Identity Rules](#51-identity-rules) の ID の整合を満たす。一つでも満たさなければ認証失敗 | 有効期間の開始は欠落を許す | 事実：Requirements FR-002、FR-003、GATES OIDC JWT Claims、GATES OIDC JWT Signature、Security Design §2.2 |
-| 取得前の拒否 | 認証 | 直列化、JSON と Claim 名、NumericDate の型と範囲、JOSE Header の条件（`kid` の存在を含む）は Issuer の公開鍵に依存しないため、公開鍵集合を取得する前に判定する。満たさなければ取得せずに認証失敗とし、再取得の上限を消費しない | なし | 事実：Lambda Design §6.1 |
-| 鍵の選択と再取得 | 認証 | 保持した集合から `kid` で一意に選べる使用可能な鍵で署名を検証する。選べない（未知の `kid`、除外した JWK だけに一致、使用可能な鍵の複数一致）か署名が一致しなければ、再取得の上限の範囲で集合を取り直して判定し直し、それでも満たさなければ認証失敗。複数の鍵を総当たりで試さない | 上限の間は取り直さず、前回の取得が失敗していれば前回の失敗の種別を返す | 事実：Lambda Design §6.1、GATES OIDC JWT Signature の GOJ-JWKS |
-| JWK の除外 | 公開鍵集合の取得 | 受理条件を満たさない JWK は、その JWK だけを除外して記録し、残りの使用可能な鍵で集合を作る。秘密鍵か対称鍵の値を含む JWK が一つでもあれば、`kty` や JWK として読めるかを問わず、集合全体を受け入れず内部障害 | なし | 事実：GATES OIDC JWT Signature の GOJ-JWKS |
-| 認可条件 | 事前認可、発行許可の確定 | Caller の Owner ID が許可オーナーの Owner ID と一致し、要求の各完全名のオーナー名が許可オーナー名と一致し、Permissions が許可権限と等しい。満たさなければ認可拒否 | なし | 事実：Security Design §3.1 |
-| Installation の有効性 | 発行許可の確定 | 取得した Installation のインストール先 Owner ID が許可オーナーの Owner ID と一致し、停止していない。満たさなければ Installation 利用不可 | なし | 事実：Security Design §3.1 |
-| 全件成立 | 複数対象の発行要求 | すべての対象が条件を満たすときだけ発行する。一部だけの発行や対象の縮小をしない | なし | 事実：Requirements FR-011 |
-| 明示の要求 | 発行 API の呼び出し | 対象と権限を必ず明示し、省略による全対象・全権限の継承を起こさない | なし | 事実：Requirements FR-015、GitHub Constraints §6.1 の省略時の継承 |
-| 付随権限の許容 | 発行結果の照合 | 実効権限は許可権限に等しいこと | 付随権限 `metadata:read` が含まれる場合だけ許容する | 事実：Requirements FR-018、Security Design §3.4 |
-| 有効期限 | 発行結果 | GitHub が定めた有効期限をそのまま返し、延長しない | なし | 事実：Requirements FR-014 |
-| 対象の上限 | 発行要求 | 対象は 500 件以下 | なし | 事実：Lambda Design §2.1、GitHub Constraints §6.1 |
-| 入力不正と認可拒否の区別 | 形式検証と認可 | 値を読み取れない形は入力不正、読み取れて許可条件に合わない値は認可拒否 | なし | 事実：Lambda Design §2.2 |
-| 設定の固定 | 固定設定 | 実行時の入力から許可オーナー、GitHub App、Installation、KMS Key、Issuer、JWKS、Audience、API Host を指定できない | なし | 事実：Requirements FR-009、FR-024 |
-| Fail Closed | 発行処理 | いずれかの段階が成立しなければトークンを返さない | なし | 事実：Requirements QR-003 |
-| 資格情報の非記録 | 監査記録、エラー本文 | 5 種類の資格情報と Private Key を含めない | なし | 事実：Requirements QR-004 |
+全件成立（Requirements FR-011）、有効期限を延長しないこと（FR-014）、発行 API の呼び出しでの対象と権限の明示（FR-015）、付随権限 `metadata:read` の許容（FR-018）、Fail Closed（QR-003）、資格情報の非記録（QR-004）は、要求をそのまま発行処理の規則とします。
+本節では定義し直さず、要求の ID で参照します。
+
+#### RULE-006 認証条件
+
+**適用対象**：認証
+
+**成立条件**：GATES 用 OIDC JWT が、JWS Compact Serialization で表され、JOSE Header が未対応の拡張や Nested JWT を示さず、`kid` で一意に選べる Issuer の使用可能な鍵で GATES が許可した署名方式により署名され、Issuer が固定設定の Issuer と一致し、Audience が GATES 用 Audience の一つだけであり、現在時刻が失効時刻より前であり、有効期間の開始と発行時刻が現在時刻に許容時計差を足した時刻より後でなく、属性を一意に読み取れ、発行時刻、失効時刻、Caller の確定に要る属性がそろい、[RULE-004 ID の整合](#rule-004-id-の整合)を満たす。一つでも満たさなければ認証失敗
+
+**例外**：有効期間の開始は欠落を許す
+
+**根拠**：事実：Requirements FR-002、FR-003、GATES OIDC JWT Claims、GATES OIDC JWT Signature、Security Design §2.2
+
+#### RULE-007 取得前の拒否
+
+**適用対象**：認証
+
+**成立条件**：直列化、JSON と Claim 名、NumericDate の型と範囲、JOSE Header の条件（`kid` の存在を含む）は Issuer の公開鍵に依存しないため、公開鍵集合を取得する前に判定する。満たさなければ取得せずに認証失敗とし、再取得の上限を消費しない
+
+**例外**：なし
+
+**根拠**：事実：Lambda Design §6.1
+
+#### RULE-008 鍵の選択と再取得
+
+**適用対象**：認証
+
+**成立条件**：保持した集合から `kid` で一意に選べる使用可能な鍵で署名を検証する。選べない（未知の `kid`、除外した JWK だけに一致、使用可能な鍵の複数一致）か署名が一致しなければ、再取得の上限の範囲で集合を取り直して判定し直し、それでも満たさなければ認証失敗。複数の鍵を総当たりで試さない
+
+**例外**：上限の間は取り直さず、前回の取得が失敗していれば前回の失敗の種別を返す
+
+**根拠**：事実：Lambda Design §6.1、GATES OIDC JWT Signature の GOJ-JWKS
+
+#### RULE-009 JWK の除外
+
+**適用対象**：公開鍵集合の取得
+
+**成立条件**：受理条件を満たさない JWK は、その JWK だけを除外して記録し、残りの使用可能な鍵で集合を作る。秘密鍵か対称鍵の値を含む JWK が一つでもあれば、`kty` や JWK として読めるかを問わず、集合全体を受け入れず内部障害
+
+**例外**：なし
+
+**根拠**：事実：GATES OIDC JWT Signature の GOJ-JWKS
+
+#### RULE-010 認可条件
+
+**適用対象**：事前認可、発行許可の確定
+
+**成立条件**：Caller の Owner ID が許可オーナーの Owner ID と一致し、要求の各完全名のオーナー名が許可オーナー名と一致し、Permissions が許可権限と等しい。満たさなければ認可拒否
+
+**例外**：なし
+
+**根拠**：事実：Security Design §3.1
+
+#### RULE-011 Installation の有効性
+
+**適用対象**：発行許可の確定
+
+**成立条件**：取得した Installation のインストール先 Owner ID が許可オーナーの Owner ID と一致し、停止していない。満たさなければ Installation 利用不可
+
+**例外**：なし
+
+**根拠**：事実：Security Design §3.1
 
 Installation に対象リポジトリが含まれることを、GATES は発行前に確認しません（事実：Security Design §2 の Authorization の行）。
 含まれない対象は、発行 API が呼び出しを受け付けないか、発行結果の対象一覧が要求と一致しないかのどちらかで検出します（推論）。
@@ -462,30 +529,155 @@ Installation に対象リポジトリが含まれることを、GATES は発行�
 種別からは、対象が Installation に含まれなかったことを断定できません。
 どの場合も利用者にトークンを返しません。
 
+#### RULE-012 対象の上限
+
+**適用対象**：発行要求
+
+**成立条件**：対象は 500 件以下
+
+**例外**：なし
+
+**根拠**：事実：Lambda Design §2.1、GitHub Constraints §6.1
+
+#### RULE-013 入力不正と認可拒否の区別
+
+**適用対象**：形式検証と認可
+
+**成立条件**：値を読み取れない形は入力不正、読み取れて許可条件に合わない値は認可拒否
+
+**例外**：なし
+
+**根拠**：事実：Lambda Design §2.2
+
+#### RULE-014 設定の固定
+
+**適用対象**：固定設定
+
+**成立条件**：実行時の入力から許可オーナー、GitHub App、Installation、KMS Key、Issuer、JWKS、Audience、API Host を指定できない
+
+**例外**：なし
+
+**根拠**：事実：Requirements FR-009、FR-024
+
 ### 5.3 Invariants
 
 不変条件は、その値を作る時点で条件を検査し、条件を満たさない値を作らないことで守ります。
 
-| 単位 | 時点 | 常に成り立つこと | 根拠 |
-|---|---|---|---|
-| 発行要求 | 形式検証を通った時点 | 対象が 1 件以上 500 件以下で、各要素が完全名の形式を満たし、大文字小文字を区別しない重複がない。Permissions が下の行の条件を満たす | 事実：Lambda Design §2.2 |
-| Permissions | 作られた時点 | Permission Entry を 1 つ以上持ち、権限名と水準がどれも権限名と水準の文字種を満たす。許可権限と等しいかは含まず、事前認可が判定する | 事実：Lambda Design §2.2、Security Design §3.1 |
-| 相関 ID | Lambda Handler に渡す値を作った時点 | UTF-8 として正しい文字列である | 事実：Lambda Design §3.2 |
-| 許可オーナー | 固定設定を読んだ時点 | Owner ID が [5.1](#51-identity-rules) の ID の形式を満たし、オーナー名がオーナー名の文字種を満たし、種別が二つの値のどちらかである | 事実：Requirements FR-024、Lambda Design §2.2 の名前の文字種。推論：条件を満たさない値を作らない方針（本節冒頭） |
-| 認証の固定設定 | 検証器を作った時点 | Issuer が `https` のホストと、あれば空でないポートだけからなり、解析しても文字列が変わらない URL で、Audience が空でなく、AWS 用 OIDC JWT の Audience `sts.amazonaws.com` と異なり、ASCII の範囲で大文字小文字を区別せずに比べて、`https://github.com` と異なり、`https://github.com/` で始まらない | 推論：空の Audience はすべての JWT を拒否し、空の Issuer は Issuer の値のない署名済み JWT を通す。`sts.amazonaws.com` を拒否するのは、同じジョブで取得する AWS 用 OIDC JWT で認証を通せるようにしないため。github.com の URL を拒否するのは、GitHub が GitHub 全体を指す `https://github.com` と、呼び出し元のオーナーとリポジトリの URL でも発行し（事実：GitHub Constraints §3.1）、オーナーの URL は Audience を指定しない OIDC JWT にも入るため（事実：GATES OIDC JWT Claims の GOJ-AUD）、同じ値を Audience に使うほかのサービス向けの OIDC JWT や、Audience を指定せずに取得した OIDC JWT で認証を通せるようにしないため。前方一致で拒否するのは、発行される URL が呼び出し元ごとに異なり、値を列挙できないため。大文字小文字を区別しないのは、ホスト名、オーナー名、リポジトリ名が大文字小文字を区別しないため。RFC 3986 §6.2.3 が同じ URL とする、空のポートや既定のポートを付けた形は、Audience に選ばれる表記と考えにくいため扱わない。`https` に限るのは、平文の通信を設定から有効にできる形にしないため。ポートを許すのは、`httptest` の Issuer で取得と失敗の分類を確かめるため |
-| 署名の固定設定 | KMS Signer を作った時点 | Client ID が空でなく、UTF-8 として正しい。KMS Key ARN が空でない | 推論：UTF-8 として正しくない Client ID は GitHub App JWT の JSON にできず、空の Client ID の GitHub App JWT は GitHub に拒否され、空の KMS Key ARN では KMS が署名しない。どれも発行のたびに失敗する設定であり、作る時点で止める |
-| 保持した Discovery | 保持した時点 | Issuer が固定設定の Issuer と一致し、公開鍵の取得先が Issuer と同じ `https` のホストとポートを指す | 事実：OpenID Connect Discovery、GATES OIDC JWT Signature の GOJ-DISCOVERY。ホストとポートの限定は推論：固定した Issuer の外から鍵を読まないため |
-| 保持した公開鍵 | 保持した時点 | 完全に受信して解釈でき、秘密鍵か対称鍵の値を含まない固定 Issuer の応答の、使用可能な鍵だけからなり、1 つ以上ある。除外した JWK は `kid` を含めて保持しない。同じ `kid` の使用可能な鍵が複数あっても保持し、一意に選べるかは JWT ごとに判定する。取得に失敗しても前回の鍵が残り、未知の鍵で検証に成功したとは扱わない | 事実：GATES OIDC JWT Signature の GOJ-JWK の鍵受理条件。保持・更新の方式は Lambda Design §6.1 |
-| Caller | 認証を通った時点 | [5.2 Rules](#52-rules) の認証条件を満たした GATES 用 OIDC JWT だけから作られ、Owner ID と Repository ID が [5.1 Identity Rules](#51-identity-rules) の ID の整合を満たす。Owner ID、Repository ID、ワークフロー実行 ID、試行番号はどれも [5.1](#51-identity-rules) の ID の形式を満たす。いずれかが欠落していれば Caller は確定しない。ワークフロー実行 ID と試行番号は監査用の属性であり、認可には使用しない | 事実：Requirements FR-002、FR-004、GATES OIDC JWT Claims |
-| Installation | 取得した応答から作った時点 | Installation ID とインストール先 Owner ID が [5.1](#51-identity-rules) の ID の形式を満たす。停止状態が、停止しているか停止していないかのどちらかに確定しており、停止状態を読み取れない応答からは作らない。インストール先 Owner ID が許可オーナーの Owner ID と一致することと停止していないことは含まず、発行許可の確定が [5.2 Rules](#52-rules) の Installation の有効性として判定する | 推論：読み取れない停止状態を停止していないと読むと、停止中の Installation で発行し得る（Fail Closed）。一致しない、または停止している Installation も GitHub 上に実在する値であり、作れない値ではなく発行に使えない値であるため |
-| 発行許可 | 確定した時点 | [5.2 Rules](#52-rules) の認可条件をすべて満たす。対象は発行要求の対象と同じ列で、各完全名の表記と並びも発行要求のままである（GitHub API に渡すリポジトリ名と監査記録の要求対象を、利用者の要求と一致させるため）。Permissions は許可権限に等しい。Installation ID は、インストール先 Owner ID が許可オーナーの Owner ID と一致し、停止していない Installation のものである | 事実：Security Design §3.1 |
-| 返却可能な発行結果 | 照合を通った時点 | トークンが空でなく、有効期限が将来である。実効対象の完全名の集合が発行許可の対象と一致し、件数が同じで、余分・欠落・重複がない。各実効対象の Repository ID が [5.1](#51-identity-rules) の ID の形式を満たして互いに異なり、所有オーナーの Owner ID が許可オーナーの Owner ID と一致する。実効権限が許可権限に付随権限を加えた範囲内で、許可権限をすべて含む。対象の選び方が、選択したリポジトリに限られている | 事実：Security Design §3.4、Requirements FR-018 |
-| Output | 利用者接点が成功応答から作った時点 | `token` が空でなく ASCII の制御文字を含まない。`expires-at` が空でなく改行を含まない。`repositories` と `permissions` が 1 件以上で、各要素が空でなく改行と `,` を含まず、権限名と水準は `:` も含まない。成功応答の `request_id` も空でなく改行を含まない。`token` 以外の値と `request_id` は、旧形式のワークフローコマンドの接頭辞 `##[` を含まない | 事実：GitHub Actions Design §2.1、§3。要素の文字の条件は推論：カンマ区切りの Output を読む後続ステップが、`,` や `:` を含む要素を別の要素として読むため |
-| 発行処理 | 全体 | 返却可能な発行結果がなければトークンを返さない。照合を通らず、空でないトークン文字列を取得できた場合は、実行可能な範囲で失効 API の呼び出しを試みる。失効成功、応答を取得できなかったトークンの不存在、中断した場合の失効の試行は保証しない。固定設定は処理中に変わらない。資格情報をログとエラー本文に出さない | 事実：Requirements QR-003、FR-007、FR-018、FR-024、QR-004 |
+#### INV-001 発行要求
 
-「返却可能な発行結果」の条件のうち対象の全件一致は、GitHub が要求外の対象を黙って除いた場合も、余分な対象を加えた場合も検出します。
+**時点**：形式検証を通った時点
+
+**常に成り立つこと**：対象が 1 件以上 500 件以下で、各要素が完全名の形式を満たし、大文字小文字を区別しない重複がない。Permissions が [INV-002 Permissions](#inv-002-permissions) の条件を満たす
+
+**根拠**：事実：Lambda Design §2.2
+
+#### INV-002 Permissions
+
+**時点**：作られた時点
+
+**常に成り立つこと**：Permission Entry を 1 つ以上持ち、権限名と水準がどれも権限名と水準の文字種を満たす。許可権限と等しいかは含まず、事前認可が判定する
+
+**根拠**：事実：Lambda Design §2.2、Security Design §3.1
+
+#### INV-003 相関 ID
+
+**時点**：Lambda Handler に渡す値を作った時点
+
+**常に成り立つこと**：UTF-8 として正しい文字列である
+
+**根拠**：事実：Lambda Design §3.2
+
+#### INV-004 許可オーナー
+
+**時点**：固定設定を読んだ時点
+
+**常に成り立つこと**：Owner ID が [RULE-002 ID の形式](#rule-002-id-の形式)を満たし、オーナー名がオーナー名の文字種を満たし、種別が二つの値のどちらかである
+
+**根拠**：事実：Requirements FR-024、Lambda Design §2.2 の名前の文字種。推論：条件を満たさない値を作らない方針（[5.3 Invariants](#53-invariants) の冒頭）
+
+#### INV-005 認証の固定設定
+
+**時点**：検証器を作った時点
+
+**常に成り立つこと**：Issuer が `https` のホストと、あれば空でないポートだけからなり、解析しても文字列が変わらない URL で、Audience が空でなく、AWS 用 OIDC JWT の Audience `sts.amazonaws.com` と異なり、ASCII の範囲で大文字小文字を区別せずに比べて、`https://github.com` と異なり、`https://github.com/` で始まらない
+
+**根拠**：推論：空の Audience はすべての JWT を拒否し、空の Issuer は Issuer の値のない署名済み JWT を通す。`sts.amazonaws.com` を拒否するのは、同じジョブで取得する AWS 用 OIDC JWT で認証を通せるようにしないため。github.com の URL を拒否するのは、GitHub が GitHub 全体を指す `https://github.com` と、呼び出し元のオーナーとリポジトリの URL でも発行し（事実：GitHub Constraints §3.1）、オーナーの URL は Audience を指定しない OIDC JWT にも入るため（事実：GATES OIDC JWT Claims の GOJ-AUD）、同じ値を Audience に使うほかのサービス向けの OIDC JWT や、Audience を指定せずに取得した OIDC JWT で認証を通せるようにしないため。前方一致で拒否するのは、発行される URL が呼び出し元ごとに異なり、値を列挙できないため。大文字小文字を区別しないのは、ホスト名、オーナー名、リポジトリ名が大文字小文字を区別しないため。RFC 3986 §6.2.3 が同じ URL とする、空のポートや既定のポートを付けた形は、Audience に選ばれる表記と考えにくいため扱わない。`https` に限るのは、平文の通信を設定から有効にできる形にしないため。ポートを許すのは、`httptest` の Issuer で取得と失敗の分類を確かめるため
+
+#### INV-006 署名の固定設定
+
+**時点**：KMS Signer を作った時点
+
+**常に成り立つこと**：Client ID が空でなく、UTF-8 として正しい。KMS Key ARN が空でない
+
+**根拠**：推論：UTF-8 として正しくない Client ID は GitHub App JWT の JSON にできず、空の Client ID の GitHub App JWT は GitHub に拒否され、空の KMS Key ARN では KMS が署名しない。どれも発行のたびに失敗する設定であり、作る時点で止める
+
+#### INV-007 保持した Discovery
+
+**時点**：保持した時点
+
+**常に成り立つこと**：Issuer が固定設定の Issuer と一致し、公開鍵の取得先が Issuer と同じ `https` のホストとポートを指す
+
+**根拠**：事実：OpenID Connect Discovery、GATES OIDC JWT Signature の GOJ-DISCOVERY。ホストとポートの限定は推論：固定した Issuer の外から鍵を読まないため
+
+#### INV-008 保持した公開鍵
+
+**時点**：保持した時点
+
+**常に成り立つこと**：完全に受信して解釈でき、秘密鍵か対称鍵の値を含まない固定 Issuer の応答の、使用可能な鍵だけからなり、1 つ以上ある。除外した JWK は `kid` を含めて保持しない。同じ `kid` の使用可能な鍵が複数あっても保持し、一意に選べるかは JWT ごとに判定する。取得に失敗しても前回の鍵が残り、未知の鍵で検証に成功したとは扱わない
+
+**根拠**：事実：GATES OIDC JWT Signature の GOJ-JWK の鍵受理条件。保持・更新の方式は Lambda Design §6.1
+
+#### INV-009 Caller
+
+**時点**：認証を通った時点
+
+**常に成り立つこと**：[RULE-006 認証条件](#rule-006-認証条件)を満たした GATES 用 OIDC JWT だけから作られ、Owner ID と Repository ID が [RULE-004 ID の整合](#rule-004-id-の整合)を満たす。Owner ID、Repository ID、ワークフロー実行 ID、試行番号はどれも [RULE-002 ID の形式](#rule-002-id-の形式)を満たす。いずれかが欠落していれば Caller は確定しない。ワークフロー実行 ID と試行番号は監査用の属性であり、認可には使用しない
+
+**根拠**：事実：Requirements FR-002、FR-004、GATES OIDC JWT Claims
+
+#### INV-010 Installation
+
+**時点**：取得した応答から作った時点
+
+**常に成り立つこと**：Installation ID とインストール先 Owner ID が [RULE-002 ID の形式](#rule-002-id-の形式)を満たす。停止状態が、停止しているか停止していないかのどちらかに確定しており、停止状態を読み取れない応答からは作らない。インストール先 Owner ID が許可オーナーの Owner ID と一致することと停止していないことは含まず、発行許可の確定が [RULE-011 Installation の有効性](#rule-011-installation-の有効性)として判定する
+
+**根拠**：推論：読み取れない停止状態を停止していないと読むと、停止中の Installation で発行し得る（Fail Closed）。一致しない、または停止している Installation も GitHub 上に実在する値であり、作れない値ではなく発行に使えない値であるため
+
+#### INV-011 発行許可
+
+**時点**：確定した時点
+
+**常に成り立つこと**：[RULE-010 認可条件](#rule-010-認可条件)をすべて満たす。対象は発行要求の対象と同じ列で、各完全名の表記と並びも発行要求のままである（GitHub API に渡すリポジトリ名と監査記録の要求対象を、利用者の要求と一致させるため）。Permissions は許可権限に等しい。Installation ID は、インストール先 Owner ID が許可オーナーの Owner ID と一致し、停止していない Installation のものである
+
+**根拠**：事実：Security Design §3.1
+
+#### INV-012 返却可能な発行結果
+
+**時点**：照合を通った時点
+
+**常に成り立つこと**：トークンが空でなく、有効期限が将来である。実効対象の完全名の集合が発行許可の対象と一致し、件数が同じで、余分・欠落・重複がない。各実効対象の Repository ID が [RULE-002 ID の形式](#rule-002-id-の形式)を満たして互いに異なり、所有オーナーの Owner ID が許可オーナーの Owner ID と一致する。実効権限が許可権限に付随権限を加えた範囲内で、許可権限をすべて含む。対象の選び方が、選択したリポジトリに限られている
+
+**根拠**：事実：Security Design §3.4、Requirements FR-018
+
+対象の全件一致は、GitHub が要求外の対象を黙って除いた場合も、余分な対象を加えた場合も検出します。
 この条件があるため、FR-007 と FR-010 のうち「トークンを返さない」ことは GitHub の拒否の振る舞いに依存しません（推論）。
 GitHub が発行した後に不整合を検出して失効に失敗した場合、GitHub 側でトークンが有効なまま残り得ます。
+
+#### INV-013 Output
+
+**時点**：利用者接点が成功応答から作った時点
+
+**常に成り立つこと**：`token` が空でなく ASCII の制御文字を含まない。`expires-at` が空でなく改行を含まない。`repositories` と `permissions` が 1 件以上で、各要素が空でなく改行と `,` を含まず、権限名と水準は `:` も含まない。成功応答の `request_id` も空でなく改行を含まない。`token` 以外の値と `request_id` は、旧形式のワークフローコマンドの接頭辞 `##[` を含まない
+
+**根拠**：事実：GitHub Actions Design §2.1、§3。要素の文字の条件は推論：カンマ区切りの Output を読む後続ステップが、`,` や `:` を含む要素を別の要素として読むため
+
+#### INV-014 発行処理
+
+**時点**：全体
+
+**常に成り立つこと**：返却可能な発行結果がなければトークンを返さない。照合を通らず、空でないトークン文字列を取得できた場合は、実行可能な範囲で失効 API の呼び出しを試みる。失効成功、応答を取得できなかったトークンの不存在、中断した場合の失効の試行は保証しない。固定設定は処理中に変わらない。資格情報をログとエラー本文に出さない
+
+**根拠**：事実：Requirements QR-003、FR-007、FR-018、FR-024、QR-004
 
 ## 6. Bounded Contexts and Ubiquitous Language
 
@@ -510,7 +702,7 @@ GitHub は、オーナー、リポジトリ、GitHub App、Installation を所�
 失敗の種別は両 Context で共通です。
 
 利用者接点は、利用者の入力を Invoke Payload に変換するために、リストの構造（空の要素、区切りの数、重複）と、要素が UTF-8 として正しいことだけを確かめます（事実：GitHub Actions Design §2.2）。
-対象の重複は [5.1](#51-identity-rules) の名前の比較規則で、権限名の重複は文字列の完全一致で判定します。
+対象の重複は [RULE-005 名前の比較規則](#rule-005-名前の比較規則)で、権限名の重複は文字列の完全一致で判定します。
 変換では要素の前後の空白を除くだけで、大文字小文字をそろえず、入力の順のまま Invoke Payload に入れます（事実：GitHub Actions Design §2.2）。
 値を書き換えないのは、利用者が書いた要求と監査記録に残る要求を一致させるためです（推論）。
 完全名と権限の文字種、対象の上限、認可条件は発行 Context の規則であり、利用者接点は持ちません。
@@ -593,7 +785,7 @@ Lambda の Invoke API が JSON として読めずに拒否した Payload も、�
 どちらもトークンを返すかどうかは変えないため、裏取りを前提にしません。
 確定できていない事項の一覧は [GitHub Constraints](../spec/github-constraints.md#9-outstanding-verification) にあります。
 
-- 範囲外の対象を含む発行 API の呼び出しへの応答。失敗の種別の分類だけが変わる（[5.2 Rules](#52-rules)）
+- 範囲外の対象を含む発行 API の呼び出しへの応答。失敗の種別の分類だけが変わる（[RULE-011 Installation の有効性](#rule-011-installation-の有効性)）
 - 要求にかかわらず `metadata:read` が付与されるかどうか。付与されなくても照合は通る（[3.3 Request and Decision](#33-request-and-decision)）
 
 ## 8. Sources
@@ -617,5 +809,5 @@ Lambda の Invoke API が JSON として読めずに拒否した Payload も、�
 
 [Future Scope](../spec/future-scope.md) が想定する機能を取り込む場合、本ドキュメントには次の影響が及びます。
 
-- **細粒度の認可**：認可条件（§5.2）と発行許可の不変条件（§5.3）が変わる。Caller の Repository ID を認可に使うなら、監査のためだけに添えるという Caller の定義（§3.3）も変わる
-- **発行可能な権限の拡大**：許可権限と付随権限（§3.3）、付随権限の許容（§5.2）、返却可能な発行結果（§5.3）が変わる。Account / Organization に関係する権限を扱うなら、リポジトリを対象とする発行要求の概念も見直す
+- **細粒度の認可**：認可条件（RULE-010）と発行許可の不変条件（INV-011）が変わる。Caller の Repository ID を認可に使うなら、監査のためだけに添えるという Caller の定義（§3.3）も変わる
+- **発行可能な権限の拡大**：許可権限と付随権限（§3.3）、返却可能な発行結果（INV-012）が変わる。Account / Organization に関係する権限を扱うなら、リポジトリを対象とする発行要求の概念も見直す

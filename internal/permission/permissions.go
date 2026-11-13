@@ -54,7 +54,7 @@ func ImpliedPermissions() Permissions {
 	return Permissions{levels: map[string]string{"metadata": "read"}}
 }
 
-// EqualsAllowedExceptImplied は、Domain Model の「付随権限の許容」に従い、付随権限の Permission Entry を除けば許可権限に等しいかを返す。
+// EqualsAllowedExceptImplied は、INV-012 の実効権限の条件に従い、付随権限の Permission Entry を除けば許可権限に等しいかを返す。
 // 付随権限は GitHub が発行結果に加えるものであり、要求の認可には使わない。
 func (p Permissions) EqualsAllowedExceptImplied() bool {
 	allowed := AllowedPermissions().levels

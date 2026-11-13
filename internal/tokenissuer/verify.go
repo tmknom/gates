@@ -11,7 +11,7 @@ import (
 	"github.com/tmknom/gates/internal/repository"
 )
 
-// verify は、発行結果を発行許可と許可オーナーで照合し、Domain Model の「Invariants」が定める返却可能な発行結果の条件をすべて満たすときだけ InstallationToken を返す。
+// verify は、発行結果を発行許可と許可オーナーで照合し、INV-012 が定める返却可能な発行結果の条件をすべて満たすときだけ InstallationToken を返す。
 // トークンの長さと形式は、GitHub が定めておらず変わり得るため確かめない。
 // 発行許可と許可オーナーのゼロ値は、対象のない発行結果や Owner ID 0 の実効対象と一致し得るが、
 // それぞれ照合より先に GitHub Client の Issue と NewTokenIssuer が panic で止めるため、ここでは確かめない。

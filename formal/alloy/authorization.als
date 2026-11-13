@@ -1,9 +1,9 @@
 module gates/authorization
 
 // GATES authorization model, Current Scope.
-// Source of truth: docs/spec/requirements.md FR-006..008, FR-010..012, FR-015,
-// FR-016, FR-018, FR-024;
-// docs/design/security.md 3.1..3.4; docs/design/domain.md 3.3, 5.2..5.3.
+// Source of truth: FR-006..008, FR-010..012, FR-015, FR-016, FR-018, FR-024,
+// RULE-010, RULE-011, INV-011, INV-012;
+// docs/design/security.md 3.1..3.4; docs/design/domain.md 3.3.
 // This is a finite structural abstraction, NOT the complete GATES implementation.
 // Cryptographic verification, HTTP outcomes, time, revocation, retry and
 // configuration changes are outside this model.

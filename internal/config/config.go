@@ -29,7 +29,7 @@ type Config struct {
 	kmsKeyARN    string
 }
 
-// Load は、環境変数から固定設定を読み、Domain Model の「Invariants」が定める許可オーナーの条件を検証する。
+// Load は、環境変数から固定設定を読み、INV-004 が定める許可オーナーの条件を検証する。
 // 欠落と不正な値をすべて集めて返す理由は Lambda Design の「Runtime Entry」に記述する。
 func Load(lookupEnv func(key string) (string, bool)) (Config, error) {
 	l := loader{lookupEnv: lookupEnv}

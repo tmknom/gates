@@ -15,7 +15,7 @@ type Installation struct {
 	suspendedAt         time.Time
 }
 
-// NewInstallation は、Domain Model の「Invariants」が定める Installation の条件を検証する。
+// NewInstallation は、INV-010 が定める Installation の条件を検証する。
 // 応答から欠落した ID を 0 として受け取っても Installation にしないため。
 // suspendedAt はゼロ値で停止していないことを表す。GitHub の停止時刻がゼロ値の時刻になることはないため。
 func NewInstallation(id, installationOwnerID int64, suspendedAt time.Time) (Installation, error) {

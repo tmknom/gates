@@ -21,7 +21,7 @@ import (
 // signTimeout は、KMS の署名 1 回を待つ上限である。値の理由は Lambda Design の Call Time Budget にある。
 const signTimeout = 5 * time.Second
 
-// iat と exp の生成条件は GitHub App JWT の GAJ-IAT と GAJ-EXP にある。
+// iat と exp の生成条件は GAJ-IAT と GAJ-EXP にある。
 const (
 	issuedAtSkew = 60 * time.Second
 	lifetime     = 5 * time.Minute
@@ -44,7 +44,7 @@ type Signer struct {
 	now             func() time.Time
 }
 
-// NewSigner は、署名の固定設定の不変条件（Domain Model）を満たさなければ作らない。
+// NewSigner は、署名の固定設定の不変条件（INV-006）を満たさなければ作らない。
 // Client ID を作る時点で JSON の文字列にしておき、署名のたびに JSON にできない Client ID で失敗する分岐をなくす。
 func NewSigner(clientID, kmsKeyARN string, client kmsClient, now func() time.Time) (*Signer, error) {
 	if clientID == "" {

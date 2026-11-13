@@ -1,5 +1,5 @@
 // Package githubid は、GATES が GitHub の実体を同定する不変 ID と、ワークフロー実行の試行番号である。
-// どれも Domain Model の「Identity Rules」の ID の形式に従う。
+// どれも RULE-002 の ID の形式に従う。
 // 概念ごとに型を分け、Owner ID と Installation ID のように別の概念の ID を取り違えて比べるとコンパイルできないようにする。
 package githubid
 
