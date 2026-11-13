@@ -378,7 +378,7 @@ Caller の確定後、固定した Allowed Owner ID との一致は認可で確�
 
 - Claims Set は UTF-8 の JSON オブジェクトとし、不正な UTF-8 と、エスケープ解除後に同一となる Claim 名の重複を拒否する。未使用 Claim の重複も拒否する（RFC 7519 §4 が許容する処理）。
 - Claim 名はエスケープ解除後の **厳密一致** で識別する。識別では、大文字小文字の同一視、Unicode 正規化、Unicode の Case Folding は行わない（[RFC 7519 §7.3](https://www.rfc-editor.org/rfc/rfc7519.html#section-7.3)、[OIDC Core §14](https://openid.net/specs/openid-connect-core-1_0.html#StringOps)）。`iss`、`ISS`、`iſſ` はそれぞれ別の名前として扱う。
-- `iss`、`aud`、`exp`、`iat`、`nbf` の **別名** の Claim があれば、正しい `iss` などが同時にあっても拒否する。Requirements AC-27 に従う GATES の追加制約であり、JSON デコーダーが別名を同じ Claim として読む危険も防ぐ。`iss` と `\u0069ss` の同時存在は名前の重複として拒否する。
+- `iss`、`aud`、`exp`、`iat`、`nbf` の **別名** の Claim があれば、正しい `iss` などが同時にあっても拒否する。JSON デコーダーが別名を同じ Claim として読む危険を防ぐための、[Requirements](../spec/requirements.md) の FR-027 に従う GATES の追加制約である。`iss` と `\u0069ss` の同時存在は名前の重複として拒否する。
 - 別名は、5 つの名前のどれかと Unicode の単純な Case Folding（[CaseFolding.txt](https://www.unicode.org/Public/UCD/latest/ucd/CaseFolding.txt) の状態 C と S）で同じ文字列に畳み込まれ、その名前自体とは異なる名前とする。5 つの名前の文字では、各 ASCII 英字の大文字と小文字、および `s`、`S`、`ſ`（U+017F）がそれぞれ同じ文字に畳み込まれる。別名は `iss` の 17 個（`ISS`、`iſſ`、`iſs` など）と、ほかの 4 つの名前の各 7 個（`AUD`、`eXp` など）の計 45 個である。
 - 完全な Case Folding（状態 F）とトルコ語用の対応（状態 T）は使わない。そのため、`iß` と `İss` は別名ではなく、未知の Claim として扱う。`ıss` も、`ı`（U+0131）がどの Case Folding でも `i` に畳み込まれないため、未知の Claim として扱う。範囲を単純な Case Folding に揃えるのは、検証ライブラリの JSON デコーダーが Claim 名を同一視する範囲がこれと一致し、`iß` のような名前は `iss` として読まれないためである。
 - 検証ライブラリと Claim 抽出処理で、同じ署名済み Claims Set の **同名・同値** を使用する。
@@ -395,6 +395,7 @@ Caller の確定後、固定した Allowed Owner ID との一致は認可で確�
 | GATES の受理条件 | 要求・設計上の根拠 |
 |---|---|
 | 必須 Claim、Issuer、Audience、時間、ID の整合 | [Requirements](../spec/requirements.md) の FR-002、FR-003、[Domain Model §5.3](domain.md#53-invariants) |
+| Claim 名の別名の拒否と、時刻の値の表記 | [Requirements](../spec/requirements.md) の FR-027 |
 | 不変形式 `sub` | [Requirements](../spec/requirements.md) の FR-005、FR-025 |
 | Caller の Owner ID による認可と Repository ID の監査利用 | [Requirements](../spec/requirements.md) の FR-002、FR-006 |
 | 起動属性のベストエフォート監査 | [Requirements](../spec/requirements.md) の FR-021 |

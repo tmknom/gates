@@ -92,6 +92,8 @@ JWT の Header やリクエストが任意の鍵取得 URL を指定すること
 |---|---|
 | 署名と検証鍵 | [Requirements](../spec/requirements.md) の FR-002、FR-003 |
 | 署名鍵の固定 Issuer からの取得 | [JWT Constraints §6](../spec/jwt-constraints.md#6-jwt-security-considerations)、[Requirements](../spec/requirements.md) の FR-002 |
+| `crit`、`b64` の拒否と、JWK の用途、署名方式、強度の条件 | [Requirements](../spec/requirements.md) の FR-028 |
+| JWKS の取得の障害と使用可能な鍵がない JWKS を、認証失敗と区別すること | [Requirements](../spec/requirements.md) の FR-020 |
 
 ## Verification Cases
 
@@ -99,7 +101,7 @@ JWT の Header やリクエストが任意の鍵取得 URL を指定すること
 |---|---|---|
 | JSON の曖昧さ | Header の重複名、Unicode エスケープによる重複、不正 UTF-8 | 署名が正しくても拒否 |
 | JOSE Header | 未知 Header、`crit`、`b64`、`cty=JWT` / `cty=jwt` / その他の `cty`、`alg=none`、`kid` 欠落、改行入り JWT | 未知 Header は無視し、`cty` を含む未対応の形式・拡張を拒否 |
-| JWKS | `kid` 不在、除外した JWK だけが一致、複数一致、公開指数の境界、`x5c`・Key Usage の不整合、鍵ゼロ、秘密情報混入、取得障害 | GOJ-JWKS のエラー分類に一致し、すべて Fail Closed |
+| JWKS | `kid` 不在、除外した JWK だけが一致、複数一致、2048 bit 未満の法、`use`・`key_ops`・`alg` の不整合、公開指数の境界、`x5c`・Key Usage の不整合、鍵ゼロ、秘密情報混入、取得障害 | GOJ-JWKS のエラー分類に一致し、すべて Fail Closed |
 
 ## Outstanding Verification
 
