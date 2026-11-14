@@ -127,6 +127,8 @@ Action がトークンを受け取った後、後続ステップに渡す前に�
 ## 注意
 
 - Output は、同じジョブの後続ステップでだけ使える。ジョブの `outputs` に置くと、GitHub はマスクした値を含むとして設定しない
-- トークンを受け取るジョブで、信頼できないコード（`pull_request_target` で取得した Pull Request のコードなど）を実行しない。そのジョブは `id-token: write` を持つため、信頼できないコードが GATES からトークンを受け取れ、同じジョブのほかのステップに渡したトークンも読める（[Security Design](../../../docs/design/security.md#5-failure-audit-and-security-risks)）
+- トークンを受け取るジョブで、信頼できないコード（Pull Request のコード、ほかのワークフローの成果物など）を実行しない。そのジョブは `id-token: write` を持つため、信頼できないコードが GATES からトークンを受け取れ、同じジョブのほかのステップに渡したトークンも読める。GATES は起動イベントの種別で要求を拒否しない（[Security Design](../../../docs/design/security.md#5-failure-audit-and-security-risks)）
+- `pull_request_target` と `workflow_run` で起動するジョブは、base のリポジトリの既定のブランチのワークフローで動き、Secrets を参照でき、宣言した `id-token: write` を持つ。GitHub の公式資料によれば、fork からの Pull Request が起点でも同じである（fork からの起動は GATES の検証環境では確かめていない）。Pull Request のコードをビルドやテストするジョブは `pull_request` で起動し、トークンを受け取るジョブとは分ける。ジョブを分けても、トークンを受け取るジョブが前のジョブの成果物を実行すれば同じことになる
+- GitHub の公式資料によれば、プライベートリポジトリで「Send write tokens to workflows from pull requests」を有効にすると、fork からの Pull Request の `pull_request` のジョブも write の権限を持つ。このため `id-token: write` も持ち、OIDC JWT を要求できる見込みである。「Send secrets to workflows from pull requests」も有効にするか、`role-arn` を Secret なしで組み立てていれば、トークンも受け取れる見込みである（どちらも GATES の検証環境では確かめていない）
 - Dependabot が起動したワークフローは、GitHub Actions の Secrets を参照できない。`GATES_AWS_ACCOUNT_ID` が空になって `role-arn` が組み立てられないため、トークンの取得は失敗する。同じ名前で Dependabot の Secrets に登録すると、取得できる（[GitHub Constraints](../../../docs/spec/github-constraints.md#7-github-actions-integration)）
 - Action がトークンをマスクするため、呼び出し元がもう一度マスクする必要はない。ただし、トークンの一部を切り出してログに出すと、その部分はマスクされない
