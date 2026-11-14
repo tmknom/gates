@@ -313,6 +313,17 @@ root では、メインで `add-mask` した値が `GITHUB_OUTPUT` を経て呼�
 
 **推論（Docker Action の実行ユーザー）**：公式資料が `USER` を禁じる理由に挙げるのは `GITHUB_WORKSPACE` だけですが、観測ではファイルコマンドにも書き込めませんでした。ファイルコマンドの所有者は Runner を動かすユーザーで、その uid は Runner の環境ごとに決まるため、Action のイメージが固定の uid で書き込める保証はありません。Output と `STATE_` を使う Docker Action は、root で動かす前提になります。
 
+**公式仕様（Runner の上のジョブ）**：GitHub がホストする Runner は、使い捨ての隔離された仮想マシンでコードを実行します。
+ワークフローの中のジョブは、後のジョブが使う環境変数を読む、後のジョブが処理する共有のディレクトリに書く、Docker ソケットを通じてほかのコンテナを検査してその中でコマンドを実行する、といった形で互いに影響し得ます（[Secure use reference](https://docs.github.com/en/actions/reference/security/secure-use)）。
+Linux と macOS の仮想マシンは、パスワードなしの `sudo` で動きます（[GitHub-hosted runners reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)）。
+
+**実測値（Runner の上の境界）**：`ubuntu-latest`（Ubuntu 26.04）と Runner 2.338.2 の記録では、root で動く Docker Action のコンテナは、マウントされた Docker ソケットを通じてホストの `/` をマウントしたコンテナを起動し、ホストのファイルを読めました。
+ソケットの所有グループは `docker` で、そのグループに属さない uid 65534 のユーザーは接続できず、Runner のユーザーはそのグループに属していました。
+Runner はステップごとのファイルコマンドのファイルをステップの後も消さず、後続のステップは前のステップの Output と `GITHUB_STATE` の値を読めました。
+前のステップが起動したバックグラウンドのプロセスは、ジョブの終わりまで動き続けました。
+`id-token: write` のジョブでは、`run` のステップに `ACTIONS_ID_TOKEN_REQUEST_URL` と `ACTIONS_ID_TOKEN_REQUEST_TOKEN` が渡り、`ACTIONS_RUNTIME_TOKEN` は渡りませんでした。
+コンテナの中の `ACTIONS_RUNTIME_TOKEN` と `ACTIONS_ID_TOKEN_REQUEST_TOKEN` は同じ値で、`run` のステップの要求用トークンも同じ値でした（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#runner-boundary)）。
+
 **公式仕様（Dependabot の `docker`）**：`package-ecosystem: docker` は `Dockerfile` のイメージのタグを更新します（[Dependabot options reference](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference)、[Dependabot supported ecosystems and repositories](https://docs.github.com/en/code-security/reference/supply-chain-security/supported-ecosystems-and-repositories)）。
 docs.github.com の資料は、`FROM` の digest を更新するとは明記していません。
 
@@ -358,4 +369,4 @@ Client ID または App ID を `iss` にすることは、`iss` を文字列と�
 | Installation の取得 API | Organization の API の `200` 以外の応答（インストールされていない場合を含む）、User の API のアンインストール以外の `200` 以外の応答、Organization の API の応答の形、停止中の Installation の `suspended_at` の値の形、GitHub App とオーナーの組での一意性 |
 | トークン発行 API | 範囲外リポジトリへの要求、500件超の要求、停止中の Installation への要求、`422` の原因、`metadata:read` の付与条件、応答フィールドの有無、`repositories` の並び |
 | トークン失効 API | 新形式のトークンでの失効の動作 |
-| Docker Action | ジョブが失敗した状態とキャンセルした状態での post-entrypoint の実行、複数の Action の post が動く順序、別のリポジトリを `uses:` で参照したときのビルドの時間と post-entrypoint でのビルドのし直し、Dependabot の `docker` が `FROM` のタグと並べた digest を更新するか |
+| Docker Action | ジョブが失敗した状態とキャンセルした状態での post-entrypoint の実行、複数の Action の post が動く順序、別のリポジトリを `uses:` で参照したときのビルドの時間と post-entrypoint でのビルドのし直し、Dependabot の `docker` が `FROM` のタグと並べた digest を更新するか、Runner のバージョンやイメージが変わったときのソケットの所有グループ、ファイルコマンドのファイルをステップの後に残すこと、`ACTIONS_RUNTIME_TOKEN` と要求用トークンが同じ値であること |

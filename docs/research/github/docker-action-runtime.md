@@ -2,15 +2,16 @@
 
 本ドキュメントでは、リポジトリ内の Docker Action（`runs.using: docker`、`image: Dockerfile`）を GitHub Actions の実環境で動かしたときの挙動を記述します。
 調べたのは、入力の受け取り方、OIDC JWT の取得、コンテナのマウント、実行ユーザー、Output とマスク、post-entrypoint への状態の受け渡し、イメージのビルドの時間です。
+あわせて、コンテナからマウントされた Docker ソケットで何ができるか、同じジョブのほかのステップから何が見えるか、GATES の Docker Action が Runner に何を残すかを調べました（[Runner Boundary](#runner-boundary)）。
 観測と合わせて、actions/runner v2.338.2 のソースから読み取れる実装も記録します。
 
-- 調査日：**2026/11/09**
+- 調査日：**2026/11/09**（Runner Boundary は **2026/11/14**）
 - 検証環境：個人アカウントのプライベートリポジトリ。`runs-on: ubuntu-latest`
 - 起動：作業ブランチへの push
 
 オーナー名は `octocat`、リポジトリ名は `example-repo`、ブランチ名は `example-branch` に置き換えています。
 Output、`GITHUB_STATE`、`GITHUB_ENV` に書いた値は、コンテナの中で `/dev/urandom` から作った乱数の文字列と、その SHA-256 のハッシュ値だけです。
-OIDC JWT と、その要求に使うトークン（`ACTIONS_ID_TOKEN_REQUEST_TOKEN`）の値は、ログにも本ドキュメントにも出していません。
+OIDC JWT、その要求に使うトークン（`ACTIONS_ID_TOKEN_REQUEST_TOKEN`）、`ACTIONS_RUNTIME_TOKEN`、GATES が発行したトークンの値は、ログにも本ドキュメントにも出していません。
 ログに `eyJ` で始まる文字列、`ghs_`、`Bearer` の後に続く値がないことを、実行後に確かめました。
 
 runner-images の README の表からリンクされたイメージごとのソフトウェア一覧では、Ubuntu 24.04 と 26.04 のどちらのイメージにも Docker の Server と Client があります。
@@ -96,7 +97,7 @@ uid 65534 で動かした `nonroot` のコンテナでも、同じ要求が `200
 
 コンテナには、上の `docker run` の `-v` のとおりにマウントされました。
 
-- **Docker ソケット**：`/var/run/docker.sock` はソケットとして存在し、所有者は uid 0、グループは gid 113、権限は `srw-rw----` だった。権限から見て、root で動くコンテナはこのソケットに書き込める。ソケット経由で Docker を操作することは試していない
+- **Docker ソケット**：`/var/run/docker.sock` はソケットとして存在し、所有者は uid 0、グループは gid 113、権限は `srw-rw----` だった。権限から見て、root で動くコンテナはこのソケットに書き込める。ソケットを通じた操作は [Runner Boundary](#docker-socket) に記録した
 - **`RUNNER_TEMP` と `HOME`**：コンテナの中ではそれぞれ `/github/runner_temp` と `/github/home` を指す。どちらもホストの `/home/runner/work/_temp` とその下のディレクトリをそのままマウントしたもので、ほかのステップと共有される。メインが `HOME` に置いたファイルは、post-entrypoint のコンテナからも見えた
 - **ファイルコマンド**：`GITHUB_OUTPUT`、`GITHUB_STATE`、`GITHUB_ENV` は `/github/file_commands/` の下のファイルを指す。ファイルの所有者は uid 1001、gid 1001 で権限は `-rw-r--r--`、ディレクトリは `drwxr-xr-x` だった。ワークスペースと `RUNNER_TEMP` も同じ uid 1001 が所有する
 
@@ -202,6 +203,130 @@ Alpine にシェルスクリプトを置くだけの `probe-docker` では、ス
 
 ビルド中の Docker Hub からのイメージの取得と `go mod download` は、どちらも成功しました。
 別のリポジトリを `uses:` で参照したときのビルドの時間は計測していません。
+
+## Runner Boundary
+
+Docker Action のコンテナと、同じジョブのほかのステップのあいだに何があるかを調べました。
+調査用の Docker Action（`probe-runner-boundary`）を、ワークフロー `Runner Boundary` の 1 つのジョブ（`id-token: write`）から呼びました。
+このワークフローを 2 回動かし、2 回目は要求用トークンの比較を加えました。
+GATES の Docker Action が Runner に残すものは、別のワークフロー `Runner Boundary GATES` で調べました（[Files Left by the GATES Action](#files-left-by-the-gates-action)）。
+
+Runner は 2.338.2 で、`ubuntu-latest` は Ubuntu 26.04（イメージのバージョン 20261111.196.1）、Docker は 29.4.2（Engine API 1.54）でした。
+GitHub の Secure use reference は、GitHub がホストする Runner は使い捨ての隔離された仮想マシンでコードを実行すると説明しています。
+下のソケットの操作は、その仮想マシンの中にとどまります。
+
+### Docker Socket
+
+ソケットの所有者は uid 0、グループは gid 113、権限は `660` でした。
+gid 113 はホストの `docker` グループで、Runner のユーザー `runner`（uid 1001）はその一員でした。
+`run` のステップでは、パスワードなしの `sudo` も通りました。
+
+```text
+runner user: uid=1001(runner) gid=1001(runner) groups=1001(runner),4(adm),100(users),113(docker),999(systemd-journal)
+srw-rw---- 1 0 113 0 Nov 14 07:55 /var/run/docker.sock
+docker:x:113:runner
+sudo -n: allowed
+```
+
+GitHub の GitHub-hosted runners reference は、Linux の仮想マシンがパスワードなしの `sudo` で動くと説明しています。
+同じジョブの `run` のステップは、Docker Action を経由しなくても、ソケットとホストの root の権限を持ちます。
+
+root で動く調査用のコンテナ（uid 0。補助グループに 113 はない）から、ソケットに Docker Engine API の要求を送りました。
+コンテナの検査（`GET /containers/{id}/json`）は、コンテナの環境変数にランタイムのトークンが入るため送っていません。
+
+| 要求 | 結果 |
+|---|---|
+| `GET /version` | `200`。Engine 29.4.2、API 1.54 |
+| `GET /containers/json` | `200`。動いているコンテナは 1 つで、調査用の Action 自身のコンテナだった |
+| `POST /containers/create`、`start`、`wait`、`logs` | 作成は `201`、起動は `204`。ホストの `/` を読み取り専用で `/host` にマウントし、ネットワークを外したコンテナを、調査用の Action 自身のイメージで起動した。終了コードは 0 |
+| `DELETE /containers/{id}` | `204`。起動したコンテナを削除した |
+
+起動したコンテナは root で動き、ホストの `/etc/os-release` と Runner の作業ディレクトリを読めました。
+調査用の Action のイメージは Alpine のため、Ubuntu の値はホストのファイルのものです。
+
+```text
+PRETTY_NAME="Ubuntu 26.04.1 LTS"
+VERSION_ID="26.04"
+ID=ubuntu
+host /home/runner/work: present
+uid in the new container: 0
+```
+
+同じコンテナの中から、`su-exec` で root 以外のユーザーに切り替えて `GET /version` を送りました。
+接続できるかは、ソケットの所有グループ（113）に属するかで分かれました。
+
+| ユーザー | 結果 |
+|---|---|
+| uid 65534、gid 65534、補助グループは 65534 だけ | 接続できない（`curl: (7) Failed to connect to localhost:80 over unix:///var/run/docker.sock after 0 ms: Could not connect to server`） |
+| uid 65534、gid 113、補助グループは 113 だけ | `200` |
+
+### File Commands Across Steps
+
+調査用の Action は、`::add-mask::` した 64 文字の乱数の値を `GITHUB_OUTPUT` に `probe_value=<値>` で、別の値を `GITHUB_STATE` に `probe_state=<値>` で書きました。
+後続の `run` のステップは、`RUNNER_TEMP` の下のファイルコマンドのディレクトリから、Action のステップのファイルを名前で探して読み、値の SHA-256 を照合しました。
+その前のステップでは、ファイルコマンドのディレクトリのファイルを 0.1 秒ごとに写すプロセスを `nohup` でバックグラウンドに起動しておきました。
+
+```text
+GITHUB_OUTPUT set_output_<UUID>: readable, match (length 64)
+GITHUB_STATE save_state_<UUID>: readable, match (length 64)
+watcher copy of GITHUB_OUTPUT: readable, match (length 64)
+watcher copy of GITHUB_STATE: readable, match (length 64)
+watcher: still running
+```
+
+- **ステップの後**：Runner はステップごとに `set_output_<UUID>`、`save_state_<UUID>`、`set_env_<UUID>`、`add_path_<UUID>`、`step_summary_<UUID>`、`artifacts_<UUID>`、`artifacts_list_<UUID>` を作り、ステップが終わっても消さなかった。後続のステップの時点で、それまでのすべてのステップのファイルが残っていた。どのファイルも所有者は uid 1001 で、権限は `-rw-r--r--` だった
+- **ステップの最中**：前のステップが起動したバックグラウンドのプロセスは、ステップが終わっても動き続け、Action のステップのあいだにそのファイルを写し取れた。Runner はこのプロセスを、ジョブの最後の `Complete job` で `Terminate orphan process` として終了させた
+
+### Request Token in Run Steps
+
+`id-token: write` のジョブの `run` のステップには、OIDC JWT の要求用の変数が渡り、`ACTIONS_RUNTIME_TOKEN` は渡りませんでした。
+`run` のステップから要求用トークンで OIDC JWT を要求すると `200` が返りました。
+
+```text
+ACTIONS_ID_TOKEN_REQUEST_URL: present
+ACTIONS_ID_TOKEN_REQUEST_TOKEN: present
+ACTIONS_RUNTIME_TOKEN: absent
+ACTIONS_RUNTIME_URL: absent
+ACTIONS_RESULTS_URL: absent
+oidc jwt request from a run step: HTTP status 200
+request token equals the one in the probe container: yes
+```
+
+コンテナの中では、`ACTIONS_RUNTIME_TOKEN` と `ACTIONS_ID_TOKEN_REQUEST_TOKEN` が同じ値でした。
+`run` のステップの要求用トークンも、コンテナの中の要求用トークンと同じ値でした。
+どちらの比較も値を出さずに行いました。
+コンテナの中では文字列を直接比べ、`run` のステップでは、コンテナが `RUNNER_TEMP` に置いた SHA-256 と自分の値の SHA-256 を比べ、一致したかだけを出しました。
+
+```text
+ACTIONS_RUNTIME_TOKEN equals ACTIONS_ID_TOKEN_REQUEST_TOKEN: yes
+```
+
+### Runner Process Environment
+
+`run` のステップから、Runner のプロセス（`Runner.Listener` と `Runner.Worker`）の `/proc/<pid>/environ` を読み、環境変数の名前だけを出しました。
+どちらのプロセスも所有者は `runner` で、`sudo` なしで読めました。
+変数は 61 個と 63 個で、名前に `ACTIONS_ID_TOKEN_REQUEST_URL`、`ACTIONS_ID_TOKEN_REQUEST_TOKEN`、`ACTIONS_RUNTIME_TOKEN`、`GITHUB_TOKEN` はありませんでした。
+`ACTIONS_` で始まる名前は `ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE` と `ACTIONS_RUNNER_RETURN_JOB_RESULT_FOR_HOSTED` だけでした。
+プロセスのメモリは調べていません。
+
+### Files Left by the GATES Action
+
+GATES の Docker Action を受け入れの対象の commit で参照し、対象 1 件の `contents:read` を要求しました。
+Action の前後の `run` のステップで、`RUNNER_TEMP` と、`HOME`（`/home/runner`）のうち作業ディレクトリ（`/home/runner/work`）を除く部分のファイルの一覧を取って比べました。
+Docker Action の `HOME`（`/github/home`）は `RUNNER_TEMP` の下の `_github_home` で、一覧に含まれます。
+続いて、`RUNNER_TEMP` のすべてのファイルと、前の一覧の後に変わった `HOME` のファイルから、発行されたトークンの文字列を含むものを探し、ファイルの名前だけを出しました。
+同じワークフローを 2 回動かし、同じ結果でした。
+
+| 確認 | 結果 |
+|---|---|
+| `RUNNER_TEMP` に増えたファイル | Action のステップと後の一覧のステップのファイルコマンドのファイル、後の一覧のステップのスクリプト、空の `_github_home` のディレクトリ。Action のステップの `set_output_<UUID>` は 524 バイト、`save_state_<UUID>` は 397 バイトで、ほかのファイルコマンドのファイルは 0 バイト（`artifacts_list_<UUID>` は 27 バイト） |
+| `HOME` で増えたか変わったファイル | 後の一覧のステップの `gh` が作った `~/.local/state/gh/device-id` と、Runner の診断ログ（`actions-runner/cached/2.338.2/_diag/` の下） |
+| トークンを含む `RUNNER_TEMP` のファイル | Action のステップの `set_output_<UUID>` と `save_state_<UUID>` だけ |
+| トークンを含む `HOME` のファイル | なし。Runner の診断ログも含まない |
+
+トークンは後続のステップで使え（`README.md` の取得が `200`）、post-entrypoint は `revocation succeeded: HTTP status 204` で失効させました。
+post-entrypoint はジョブの最後に動くため、その後のファイルは調べていません。
+ジョブのログの検索（`ghs_`、`eyJ`、`ASIA`、`FwoG`、`IQoJ`）は 0 件で、同じ時間帯の GATES の関数のロググループにもこれらの文字列はなく、監査記録は 2 件の `success` でした。
 
 ## Runner Source
 
@@ -562,6 +687,168 @@ require (
 
 `go.sum` は `go mod tidy` で作りました。
 
+`.github/actions/probe-runner-boundary/action.yml`
+
+```yaml
+name: Probe Runner Boundary
+description: Probe what a root Docker container action can do through the mounted Docker socket, and leave random values in GITHUB_OUTPUT and GITHUB_STATE for later steps to look for
+outputs:
+  probe-value-sha256:
+    description: SHA-256 of the random value written to GITHUB_OUTPUT as probe_value, not masked
+  probe-state-sha256:
+    description: SHA-256 of the random value written to GITHUB_STATE as probe_state, not masked
+  output-file:
+    description: Base name of the GITHUB_OUTPUT file of this step
+  state-file:
+    description: Base name of the GITHUB_STATE file of this step
+runs:
+  using: docker
+  image: Dockerfile
+  entrypoint: /entrypoint.sh
+```
+
+`.github/actions/probe-runner-boundary/Dockerfile`
+
+```dockerfile
+# syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+
+FROM docker.io/library/alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+
+# curl talks to the Docker Engine API over the unix socket, jq reads its responses,
+# and su-exec runs the same requests as a non-root user.
+RUN apk add --no-cache curl jq su-exec
+COPY entrypoint.sh /
+RUN chmod 0755 /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
+```
+
+ビルドで入ったのは curl 8.23.0、jq 1.8.2 と su-exec です。
+
+`.github/actions/probe-runner-boundary/entrypoint.sh`
+
+```sh
+#!/bin/sh
+# Probe for the boundary between a Docker container action and the Runner.
+# Uses the mounted Docker socket only to read the Engine version, list containers,
+# and start one container that mounts the host root read-only and reads /etc/os-release.
+# Never inspects containers (their environment holds runtime tokens), never writes to the host,
+# and never touches other containers or Runner processes.
+# The values written to outputs and state are random strings only. They are not credentials.
+set -eu
+
+readonly SOCK=/var/run/docker.sock
+BODY="$(mktemp)"
+readonly BODY
+
+sha256() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
+
+# api METHOD PATH [JSON] prints the HTTP status and leaves the response body in BODY.
+api() {
+  if [ $# -eq 3 ]; then
+    curl -sS -o "${BODY}" -w '%{http_code}' --unix-socket "${SOCK}" -X "$1" \
+      -H 'Content-Type: application/json' --data "$3" "http://localhost$2"
+  else
+    curl -sS -o "${BODY}" -w '%{http_code}' --unix-socket "${SOCK}" -X "$1" "http://localhost$2"
+  fi
+}
+
+echo "== tools"
+curl --version | head -n 1
+jq --version
+
+echo "== process"
+echo "uid: $(id -u), gid: $(id -g), groups: $(id -G)"
+
+echo "== socket"
+if [ -S "${SOCK}" ]; then
+  stat -c "${SOCK}: type=%F uid=%u gid=%g mode=%a" "${SOCK}"
+else
+  echo "${SOCK}: absent"
+  exit 1
+fi
+sock_gid="$(stat -c %g "${SOCK}")"
+
+echo "== GET /version"
+status="$(api GET /version)"
+echo "status: ${status}"
+jq -r '"engine: \(.Version), api: \(.ApiVersion), os: \(.Os), kernel: \(.KernelVersion)"' "${BODY}"
+
+echo "== GET /containers/json"
+status="$(api GET /containers/json)"
+echo "status: ${status}"
+echo "running containers: $(jq 'length' "${BODY}")"
+self_image="$(jq -r --arg h "$(hostname)" '.[] | select(.Id | startswith($h)) | .Image' "${BODY}")"
+echo "this container found in the list: $([ -n "${self_image}" ] && echo yes || echo no)"
+echo "images of running containers:"
+jq -r '.[].Image' "${BODY}"
+
+echo "== start a container that mounts the host root read-only"
+# The container uses this action's own image, so nothing is pulled.
+# It reads only /etc/os-release and checks that the Runner work directory exists.
+script="grep -E '^(ID|VERSION_ID|PRETTY_NAME)=' /host/etc/os-release; if [ -d /host/home/runner/work ]; then echo 'host /home/runner/work: present'; else echo 'host /home/runner/work: absent'; fi; echo \"uid in the new container: \$(id -u)\""
+create="$(jq -n --arg image "${self_image}" --arg script "${script}" \
+  '{Image: $image, Entrypoint: ["/bin/sh", "-c"], Cmd: [$script], Tty: true, NetworkDisabled: true,
+    HostConfig: {Binds: ["/:/host:ro"]}}')"
+status="$(api POST /containers/create "${create}")"
+echo "create status: ${status}"
+id="$(jq -r '.Id // empty' "${BODY}")"
+if [ -n "${id}" ]; then
+  echo "start status: $(api POST "/containers/${id}/start")"
+  echo "wait status: $(api POST "/containers/${id}/wait")"
+  echo "exit code of the new container: $(jq -r '.StatusCode' "${BODY}")"
+  echo "logs status: $(api GET "/containers/${id}/logs?stdout=1&stderr=1")"
+  echo "-- output of the new container"
+  tr -d '\r' < "${BODY}"
+  echo "-- end of output"
+  echo "remove status: $(api DELETE "/containers/${id}?force=true")"
+else
+  echo "create response message: $(jq -r '.message // empty' "${BODY}")"
+fi
+
+echo "== the same socket as a non-root user"
+for user in "65534:65534" "65534:${sock_gid}"; do
+  echo "-- su-exec ${user}"
+  set +e
+  result="$(su-exec "${user}" sh -c 'echo "uid: $(id -u), gid: $(id -g), groups: $(id -G)" >&2; curl -sS -o /dev/null -w "%{http_code}" --unix-socket /var/run/docker.sock http://localhost/version' 2>&1)"
+  code=$?
+  set -e
+  echo "${result}"
+  echo "curl exit code: ${code}"
+done
+
+echo "== runtime token and request token (values are never printed)"
+if [ -n "${ACTIONS_RUNTIME_TOKEN:-}" ] && [ "${ACTIONS_RUNTIME_TOKEN}" = "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+  echo "ACTIONS_RUNTIME_TOKEN equals ACTIONS_ID_TOKEN_REQUEST_TOKEN: yes"
+else
+  echo "ACTIONS_RUNTIME_TOKEN equals ACTIONS_ID_TOKEN_REQUEST_TOKEN: no"
+fi
+# A later run step compares its own request token with this hash and prints only the result.
+sha256 "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" >/github/runner_temp/boundary-request-token.sha256
+
+echo "== GITHUB_OUTPUT and GITHUB_STATE"
+# 48 bytes encode to 64 characters.
+value="$(head -c 48 /dev/urandom | base64 | tr -d '\n')"
+state="$(head -c 48 /dev/urandom | base64 | tr -d '\n')"
+echo "::add-mask::${value}"
+echo "::add-mask::${state}"
+value_sha="$(sha256 "${value}")"
+state_sha="$(sha256 "${state}")"
+echo "value length: ${#value}, sha256: ${value_sha}"
+echo "state length: ${#state}, sha256: ${state_sha}"
+{
+  echo "probe_value=${value}"
+  echo "probe-value-sha256=${value_sha}"
+  echo "probe-state-sha256=${state_sha}"
+  echo "output-file=$(basename "${GITHUB_OUTPUT}")"
+  echo "state-file=$(basename "${GITHUB_STATE}")"
+} >>"${GITHUB_OUTPUT}"
+echo "probe_state=${state}" >>"${GITHUB_STATE}"
+echo "GITHUB_OUTPUT: $(basename "${GITHUB_OUTPUT}")"
+echo "GITHUB_STATE: $(basename "${GITHUB_STATE}")"
+echo "main: done"
+```
+
 ## Workflow File
 
 ```yaml
@@ -759,6 +1046,242 @@ jobs:
           docker image ls --format '{{.Repository}}:{{.Tag}} {{.Size}}'
 ```
 
+[Runner Boundary](#runner-boundary) の調査用の Action を呼んだワークフローです。
+
+```yaml
+name: Runner Boundary
+on:
+  push:
+    branches:
+      - example-branch
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  boundary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Runner info
+        run: |
+          echo "image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
+          echo "runner user: $(id)"
+          docker version --format 'docker server {{.Server.Version}}, client {{.Client.Version}}'
+          ls -ln /var/run/docker.sock
+          getent group docker || true
+          if sudo -n true 2> /dev/null; then echo "sudo -n: allowed"; else echo "sudo -n: denied"; fi
+          echo "RUNNER_TEMP: ${RUNNER_TEMP}"
+          echo "HOME: ${HOME}"
+
+      # 前のステップが残したプロセスが、後のステップのファイルコマンドのファイルを読めるかを見る
+      - name: Start a background watcher
+        run: |
+          mkdir -p "${RUNNER_TEMP}/boundary-watch"
+          # shellcheck disable=SC2016
+          nohup bash -c '
+            end=$((SECONDS + 300))
+            while ((SECONDS < end)); do
+              for f in "${RUNNER_TEMP}"/_runner_file_commands/*; do
+                [[ -s "${f}" ]] && cp -f "${f}" "${RUNNER_TEMP}/boundary-watch/" 2> /dev/null
+              done
+              sleep 0.1
+            done
+          ' > /dev/null 2>&1 &
+          echo "watcher pid: $!"
+
+      - name: Probe
+        id: probe
+        uses: ./.github/actions/probe-runner-boundary
+
+      # 値は乱数の文字列で、資格情報ではない。値は出さず、長さと SHA-256 の一致だけを出す
+      - name: Read file commands of the probe step
+        env:
+          VALUE_SHA256: ${{ steps.probe.outputs.probe-value-sha256 }}
+          STATE_SHA256: ${{ steps.probe.outputs.probe-state-sha256 }}
+          OUTPUT_FILE: ${{ steps.probe.outputs.output-file }}
+          STATE_FILE: ${{ steps.probe.outputs.state-file }}
+        run: |
+          set -euo pipefail
+          dir="${RUNNER_TEMP}/_runner_file_commands"
+          echo "== ${dir}"
+          ls -ln "${dir}"
+          echo "this step GITHUB_OUTPUT: $(basename "${GITHUB_OUTPUT}")"
+
+          # check LABEL FILE KEY EXPECTED
+          check() {
+            local label="$1" file="$2" key="$3" expected="$4" value actual
+            if [[ ! -e "${file}" ]]; then
+              echo "${label}: file absent"
+              return
+            fi
+            if [[ ! -r "${file}" ]]; then
+              echo "${label}: file not readable"
+              return
+            fi
+            value="$(sed -n "s/^${key}=//p" "${file}" | head -n 1)"
+            actual="$(printf '%s' "${value}" | sha256sum | cut -d' ' -f1)"
+            if [[ -n "${value}" && "${actual}" == "${expected}" ]]; then
+              echo "${label}: readable, match (length ${#value})"
+            else
+              echo "${label}: readable, MISMATCH or empty (length ${#value})"
+            fi
+          }
+
+          echo "== files of the probe step, read after the step"
+          check "GITHUB_OUTPUT ${OUTPUT_FILE}" "${dir}/${OUTPUT_FILE}" probe_value "${VALUE_SHA256}"
+          check "GITHUB_STATE ${STATE_FILE}" "${dir}/${STATE_FILE}" probe_state "${STATE_SHA256}"
+
+          echo "== copies made by the background watcher during the probe step"
+          ls -ln "${RUNNER_TEMP}/boundary-watch"
+          check "watcher copy of GITHUB_OUTPUT" "${RUNNER_TEMP}/boundary-watch/${OUTPUT_FILE}" probe_value "${VALUE_SHA256}"
+          check "watcher copy of GITHUB_STATE" "${RUNNER_TEMP}/boundary-watch/${STATE_FILE}" probe_state "${STATE_SHA256}"
+          if pgrep -f 'boundary-watch' > /dev/null; then echo "watcher: still running"; else echo "watcher: not running"; fi
+
+      # 値は出さない。有無と、OIDC JWT の要求の HTTP ステータスだけを出す
+      - name: Request variables in a run step
+        run: |
+          set -euo pipefail
+          for name in ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_RUNTIME_URL ACTIONS_RESULTS_URL; do
+            if [[ -n "${!name:-}" ]]; then echo "${name}: present"; else echo "${name}: absent"; fi
+          done
+          if [[ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+            status="$(curl -sS -o /dev/null -w '%{http_code}' \
+              -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")"
+            echo "oidc jwt request from a run step: HTTP status ${status}"
+            actual="$(printf '%s' "${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" | sha256sum | cut -d' ' -f1)"
+            if [[ "${actual}" == "$(cat "${RUNNER_TEMP}/boundary-request-token.sha256")" ]]; then
+              echo "request token equals the one in the probe container: yes"
+            else
+              echo "request token equals the one in the probe container: no"
+            fi
+          fi
+
+      # 名前だけを出し、値は出さない
+      - name: Environment of the Runner processes
+        run: |
+          set -uo pipefail
+          for name in Runner.Listener Runner.Worker; do
+            for pid in $(pgrep -f "bin/${name}"); do
+              echo "== ${name} pid ${pid} (owner $(stat -c %U "/proc/${pid}"))"
+              if names="$(tr '\0' '\n' < "/proc/${pid}/environ" 2> /dev/null | cut -d= -f1 | sort)"; then
+                echo "environ readable without sudo: yes"
+              else
+                echo "environ readable without sudo: no"
+                if names="$(sudo -n cat "/proc/${pid}/environ" 2> /dev/null | tr '\0' '\n' | cut -d= -f1 | sort)"; then
+                  echo "environ readable with sudo -n: yes"
+                else
+                  echo "environ readable with sudo -n: no"
+                  continue
+                fi
+              fi
+              echo "variable count: $(grep -c . <<< "${names}")"
+              echo "names:"
+              echo "${names}"
+            done
+          done
+```
+
+[Files Left by the GATES Action](#files-left-by-the-gates-action) のワークフローです。
+接続情報は E2E テストと同じ Secrets と Variables から渡し、`_e2e-reusable-credential-leak.yml` は GATES のリポジトリの E2E テストの写しです。
+
+```yaml
+name: Runner Boundary GATES
+on:
+  push:
+    branches:
+      - example-branch
+
+permissions: {}
+
+# 同じ Lambda を呼ぶ E2E テストを重ねない
+concurrency:
+  group: gates-e2e
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  issue:
+    name: Issue and list files
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      # RUNNER_TEMP（Action の HOME の _github_home を含む）と、ワークスペースを除く HOME のファイルの一覧を取る。
+      # 種別、大きさ、パスだけを出し、内容は出さない
+      - name: List files before the action
+        run: |
+          set -euo pipefail
+          marker="${RUNNER_TEMP}/../boundary-marker"
+          touch "${marker}"
+          find "${RUNNER_TEMP}" "${HOME}" -path "${HOME}/work" -prune -o -type f -printf '%s %p\n' | sort -k2 > "${RUNNER_TEMP}/../boundary-before.txt"
+          echo "files before: $(wc -l < "${RUNNER_TEMP}/../boundary-before.txt")"
+          echo "== RUNNER_TEMP before"
+          find "${RUNNER_TEMP}" -printf '%y %s %p\n' | sort -k3
+
+      - name: Issue token
+        id: gates
+        uses: tmknom/gates/.github/actions/issue-token@<commit SHA>
+        with:
+          repositories: ${{ vars.GATES_TARGET_PRIMARY }}
+          permissions: contents:read
+          role-arn: arn:aws:iam::${{ secrets.GATES_AWS_ACCOUNT_ID }}:role/${{ vars.GATES_ROLE_NAME }}
+          function-name: ${{ vars.GATES_FUNCTION_NAME }}
+          aws-region: ${{ vars.GATES_AWS_REGION }}
+          audience: ${{ vars.GATES_AUDIENCE }}
+
+      # トークンの値は出さない。トークンを含むファイルの名前と、差分のファイルの名前と大きさだけを出す
+      - name: List files after the action
+        env:
+          TOKEN: ${{ steps.gates.outputs.token }}
+          PRIMARY: ${{ vars.GATES_TARGET_PRIMARY }}
+        run: |
+          set -euo pipefail
+          echo "token length: ${#TOKEN}"
+          status="$(GH_TOKEN="${TOKEN}" gh api --include "repos/${PRIMARY}/contents/README.md" 2> /dev/null | head -n 1 | awk '{print $2}' || true)"
+          echo "token works: README.md ${status:-unknown}"
+
+          find "${RUNNER_TEMP}" "${HOME}" -path "${HOME}/work" -prune -o -type f -printf '%s %p\n' | sort -k2 > "${RUNNER_TEMP}/../boundary-after.txt"
+          echo "files after: $(wc -l < "${RUNNER_TEMP}/../boundary-after.txt")"
+          echo "== added or changed files (size and path)"
+          # diff は差分があると 1 で終わるため、pipefail で失敗扱いにしないよう結果をファイルに置いてから読む
+          diff "${RUNNER_TEMP}/../boundary-before.txt" "${RUNNER_TEMP}/../boundary-after.txt" > "${RUNNER_TEMP}/../boundary-diff.txt" || true
+          grep -E '^[<>]' "${RUNNER_TEMP}/../boundary-diff.txt" || echo "no difference"
+          echo "== RUNNER_TEMP after"
+          find "${RUNNER_TEMP}" -printf '%y %s %p\n' | sort -k3
+
+          echo "== files under RUNNER_TEMP that contain the token"
+          grep -rlsF -e "${TOKEN}" "${RUNNER_TEMP}" || echo "none"
+          echo "== files under HOME (except the work directory) changed during the action that contain the token"
+          find "${HOME}" -path "${HOME}/work" -prune -o -type f -newer "${RUNNER_TEMP}/../boundary-marker" -print0 \
+            | xargs -0 -r grep -lsF -e "${TOKEN}" || echo "none"
+
+  credential-leak:
+    name: Credential leak
+    needs: issue
+    if: ${{ always() }}
+    permissions:
+      actions: read
+    uses: ./.github/workflows/_e2e-reusable-credential-leak.yml
+```
+
 ## References
 
 - [GitHub — Dockerfile support for GitHub Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/dockerfile-support)
@@ -766,6 +1289,8 @@ jobs:
 - [GitHub — About custom actions](https://docs.github.com/en/actions/concepts/workflows-and-actions/custom-actions)
 - [GitHub — Metadata syntax reference](https://docs.github.com/en/actions/reference/workflows-and-actions/metadata-syntax)
 - [GitHub — Workflow commands for GitHub Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-commands)
+- [GitHub — Secure use reference](https://docs.github.com/en/actions/reference/security/secure-use)
+- [GitHub — GitHub-hosted runners reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
 - [actions/runner v2.338.2 — ContainerActionHandler.cs](https://github.com/actions/runner/blob/v2.338.2/src/Runner.Worker/Handlers/ContainerActionHandler.cs)
 - [actions/runner v2.338.2 — DockerCommandManager.cs](https://github.com/actions/runner/blob/v2.338.2/src/Runner.Worker/Container/DockerCommandManager.cs)
 - [actions/runner v2.338.2 — ActionManager.cs](https://github.com/actions/runner/blob/v2.338.2/src/Runner.Worker/ActionManager.cs)
