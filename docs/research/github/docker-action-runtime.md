@@ -333,7 +333,8 @@ post-entrypoint はジョブの最後に動くため、その後のファイル�
 actions/runner v2.338.2 のソースから読み取れる実装です。
 
 - ビルドコンテキスト：`src/Runner.Worker/ActionManager.cs` と `src/Runner.Worker/Handlers/ContainerActionHandler.cs` は、`docker build -t <タグ> -f <Dockerfile> <Dockerfile の親ディレクトリ>` を実行する。ビルドコンテキストは `Dockerfile` のあるディレクトリで、`image: Dockerfile` のときは `action.yml` のディレクトリと同じになる
-- ビルドの時点：`ActionManager.cs` は、`uses:` が別のリポジトリを参照する Docker Action のイメージを、ジョブの準備の段階で `Build <リポジトリ>` という表示名の別のステップとしてビルドする。`uses: ./<パス>` で参照した同じリポジトリの Action は、`ContainerActionHandler.cs` がステップの中でビルドする。本調査で観測したのは後者で、post-entrypoint のステップでもビルドし直された。別のリポジトリを参照した場合の post-entrypoint でビルドし直すかは確かめていない
+- ビルドの時点：`ActionManager.cs` は、`uses:` が別のリポジトリを参照する Docker Action のイメージを、ジョブの準備の段階で `Build <リポジトリ>` という表示名の別のステップとしてビルドする。`uses: ./<パス>` で参照した同じリポジトリの Action は、`ContainerActionHandler.cs` がステップの中でビルドする。本調査で観測したのは後者で、post-entrypoint のステップでもビルドし直された。別のリポジトリを commit SHA で参照した前者では、ジョブのログの `docker build` は `Build <リポジトリ>` のステップの 1 回だけで、post-entrypoint のステップはビルドせずに `docker run` を始めた（2026/11/14 に観測）
+- post の順序：`src/Runner.Worker/ActionRunner.cs` は、post を持つ Action のメインの処理を始めるときに、post のステップをジョブの `PostJobSteps`（スタック）に積む。`src/Runner.Worker/StepsRunner.cs` は、ジョブのステップを終えた後にスタックから取り出して動かす。post はメインの処理と逆の順で動き、メインの処理が動かなかったステップの post は積まれない
 - マウント：`ContainerActionHandler.cs` は `/var/run/docker.sock`、`_temp` を `/github/runner_temp`、`_temp/_github_home` を `/github/home`、`_temp/_github_workflow` を `/github/workflow`、`_temp/_runner_file_commands` を `/github/file_commands`、ワークスペースを `/github/workspace` にマウントし、`HOME` を `/github/home` にする
 - 環境変数：`ContainerActionHandler.cs` は、`ACTIONS_RUNTIME_URL` と `ACTIONS_RUNTIME_TOKEN` を常に、`ACTIONS_ID_TOKEN_REQUEST_URL` と `ACTIONS_ID_TOKEN_REQUEST_TOKEN` をジョブの接続情報に ID トークンの URL があるときだけ設定する。`ACTIONS_ID_TOKEN_REQUEST_TOKEN` の値は `ACTIONS_RUNTIME_TOKEN` と同じ接続情報のアクセストークンである
 - 実行ユーザー：`src/Runner.Worker/Container/DockerCommandManager.cs` の `docker run` の組み立てに `--user` はない。実行ユーザーはイメージの `USER` で決まる

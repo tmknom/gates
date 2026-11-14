@@ -241,9 +241,138 @@ jobs:
             exit 1
           fi
 
+  # post-entrypoint が失効させた後のトークンが使えないことを、post-entrypoint の後に動く試験用の Action の post から確かめる
+  revoked:
+    name: Revoked token
+    # 発行の事例と Invoke を重ねないよう、issue の後に動かす。issue の事例が失敗しても動かす
+    needs: issue
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      # 試験用の Action を相対パスで参照するため、ワークフローのリポジトリを取得する
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # post はメインの処理と逆の順で動くため、Issue token より前に置いたこのステップの post が、post-entrypoint の後に動く
+      - name: Check revoked token
+        id: revoked
+        uses: ./.github/actions/_e2e-revoked-token
+        with:
+          repository: ${{ vars.GATES_TARGET_PRIMARY }}
+
+      - name: Issue token
+        id: gates
+        uses: tmknom/gates/.github/actions/issue-token@22eb9301dc4113ea70c3e3a7cded65b010621a58
+        with:
+          repositories: ${{ vars.GATES_TARGET_PRIMARY }}
+          permissions: contents:read
+          role-arn: arn:aws:iam::${{ secrets.GATES_AWS_ACCOUNT_ID }}:role/${{ vars.GATES_ROLE_NAME }}
+          function-name: ${{ vars.GATES_FUNCTION_NAME }}
+          aws-region: ${{ vars.GATES_AWS_REGION }}
+          audience: ${{ vars.GATES_AUDIENCE }}
+
+      # 失効の前に使えることを確かめてから、post で試すトークンをファイルに書く。ファイルは試験用の Action の post が削除する
+      - name: Save token
+        env:
+          GH_TOKEN: ${{ steps.gates.outputs.token }}
+          TOKEN_FILE: ${{ steps.revoked.outputs.token-file }}
+          PRIMARY: ${{ vars.GATES_TARGET_PRIMARY }}
+        run: |
+          set -euo pipefail
+          status="$(gh api --include "repos/${PRIMARY}/contents/README.md" 2> /dev/null | head -n 1 | awk '{print $2}' || true)"
+          echo "token before revocation read README.md: ${status}"
+          if [[ "${status}" != "200" ]]; then
+            echo "::error::the token is not usable before revocation"
+            exit 1
+          fi
+          umask 077
+          printf '%s' "${GH_TOKEN}" > "${TOKEN_FILE}"
+
+  # Revoked token のジョブで、post-entrypoint の失効が試験用の Action の post より前に動き、post が 401 を得たことを確かめる。
+  # 一致した行は出さず、件数と順序の判定だけを出す
+  revocation-order:
+    name: Check revocation order
+    needs: revoked
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    steps:
+      - name: Check post order
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          job="$(gh api --paginate "repos/${REPOSITORY}/actions/runs/${RUN_ID}/attempts/${RUN_ATTEMPT}/jobs" \
+            --jq '.jobs[] | select(.name == "Revoked token")')"
+          if [[ -z "${job}" ]]; then
+            echo "::error::no Revoked token job"
+            exit 1
+          fi
+          echo "steps: $(jq -r '[.conclusion] + [.steps[] | "\(.number):\(.name)=\(.conclusion)"] | join(" ")' <<< "${job}")"
+
+          failed=0
+          report() {
+            echo "::error::$1"
+            failed=1
+          }
+          # Post のステップの番号は、Runner が動かした順を表す
+          number() {
+            jq -r --arg name "$1" '[.steps[] | select(.name == $name and .conclusion == "success") | .number] | first // empty' <<< "${job}"
+          }
+          revoke="$(number "Post Issue token")"
+          check="$(number "Post Check revoked token")"
+          [[ -n "${revoke}" ]] || report "Post Issue token did not succeed"
+          [[ -n "${check}" ]] || report "Post Check revoked token did not succeed"
+          if [[ -n "${revoke}" && -n "${check}" && "${revoke}" -ge "${check}" ]]; then
+            report "Post Check revoked token ran before Post Issue token"
+          fi
+
+          # ログは色付けのエスケープシーケンスを含み、gh api はその出力を拒否するため curl で取得する。
+          # ジョブの完了の直後はログを取得できないことがあるため、空でないログを得るまで待つ
+          log=""
+          for _ in 1 2 3 4 5 6; do
+            if log="$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+              "${GITHUB_API_URL}/repos/${REPOSITORY}/actions/jobs/$(jq -r '.id' <<< "${job}")/logs")" && [[ -n "${log}" ]]; then
+              break
+            fi
+            sleep 10
+          done
+          if [[ -z "${log}" ]]; then
+            echo "::error::cannot fetch the log of Revoked token"
+            exit 1
+          fi
+          # 失効の行と 401 の行の、ログの中の行番号
+          line() {
+            grep -n -E -e "$1" <<< "${log}" | cut -d: -f1 | paste -sd ',' || true
+          }
+          revoked="$(line 'revocation succeeded: HTTP status 204')"
+          rejected="$(line 'revoked token read README.md: HTTP status 401')"
+          removed="$(line 'token file removed')"
+          echo "log lines: revocation 204 at ${revoked:-none}, 401 at ${rejected:-none}, token file removed at ${removed:-none}"
+          # ジョブのログ全体の docker build を数える。別のリポジトリの Action はジョブの準備で 1 回ビルドされるため、1 より多ければ、いずれかのステップの中でビルドし直している
+          echo "docker build lines: $(grep -c -E -e '/usr/bin/docker build ' <<< "${log}" || true)"
+          [[ "${revoked}" =~ ^[0-9]+$ ]] || report "the token was not revoked once with 204"
+          [[ "${rejected}" =~ ^[0-9]+$ ]] || report "the post did not get 401 once"
+          [[ "${removed}" =~ ^[0-9]+$ ]] || report "the token file was not removed once"
+          if [[ "${revoked}" =~ ^[0-9]+$ && "${rejected}" =~ ^[0-9]+$ && "${revoked}" -ge "${rejected}" ]]; then
+            report "the 401 check is logged before the revocation"
+          fi
+          exit "${failed}"
+
   credential-leak:
     name: Credential leak
-    needs: issue
+    needs: [issue, revoked, revocation-order]
     if: ${{ always() }}
     permissions:
       actions: read
