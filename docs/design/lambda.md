@@ -362,7 +362,7 @@ Lambda Runtime のライブラリを Runtime Entry だけに閉じるのは、La
 読んだ値を [Domain Model](domain.md) の許可オーナーの不変条件（INV-004）で検証するのは固定設定の読み込みであり、Runtime Entry はその結果を受け取るだけで、値の検証の判断を持ちません。
 環境変数の欠落か不正な値、[Domain Model](domain.md) の許可オーナー、認証の固定設定、署名の固定設定の不変条件（INV-004、INV-005、INV-006）の違反、AWS SDK の設定の読み込みの失敗は、どれも初期化の失敗です。
 初期化に失敗した Runtime Entry は、ログに記録して異常終了し、Lambda Handler を Lambda Runtime に渡しません。
-Lambda はこの Invoke を `Runtime.ExitError` の `FunctionError` にします。
+Lambda はこの Invoke を `Runtime.ExitError` の `FunctionError` にします（[AWS Fault Injection](../research/aws/fault-injection.md)）。
 
 要求ごとに `internal_error` を返す形にしないのは、どの失敗も固定設定かデプロイの誤りで再実行では解消せず、要求を受け付けても発行が一度も成立しないためです。
 初期化を失敗させれば、設定の誤りが Invoke の時点で明らかになり、Lambda Handler に未初期化の部品を扱う分岐が要りません。
@@ -487,6 +487,8 @@ Go の HTTP クライアントが、使い回した接続の失敗で HTTP の�
 
 Lambda の関数のタイムアウトは、合計より、外部の呼び出し以外の処理と応答を書く時間の分だけ長くし、Terraform で設定します。
 関数がタイムアウトすると Handler は応答を書けず、トークン文字列を取得した後なら失効も試みられません（[Domain Model](domain.md#43-lifecycle-of-an-issuance) の中断）。
+要求の ctx の期限は関数のタイムアウトと同じため、期限切れを一時的な障害に分類した監査記録を書いた直後に打ち切られることがあります。
+このとき呼び出し元が受け取るのは `Sandbox.Timedout` の `FunctionError` で、監査記録の `result` の失敗の種別は呼び出し元に届いていません（[AWS Fault Injection](../research/aws/fault-injection.md)）。
 
 GitHub App JWT を作ってから発行の応答を受け取るまでは、署名、Installation の取得、発行のタイムアウトの合計で最大 20 秒です。
 この時間は GitHub App JWT の `exp`（[GitHub App JWT](github-app-jwt.md) の GAJ-EXP の 5 分）より短いため、同じ GitHub App JWT を手順 4 と手順 6 に使えます（[6.2 GitHub App JWT](#62-github-app-jwt)）。

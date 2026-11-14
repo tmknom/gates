@@ -531,7 +531,7 @@ GitHub と AWS の挙動に依存する事項は、許可オーナーのワー�
 - 接続情報と対象と権限だけを渡してトークンを受け取り、同一ジョブ内の後続ステップで使えること
 - ワークフローのログで、GATES 用 OIDC JWT、AWS 用 OIDC JWT、AWS 一時認証情報、トークンがマスクされているか現れないこと
 - 呼び出し元の後続ステップの環境変数に、AWS 一時認証情報が現れないこと
-- AWS STS での引き受けの失敗と、Lambda が返す失敗で、Docker Action がエラー終了すること
+- AWS STS での引き受けの失敗、Lambda の Invoke API の拒否、関数の `FunctionError`、Lambda が返す失敗で、Docker Action がエラー終了すること。Invoke API の拒否と `FunctionError` は、検証環境で同時実行数を 0 にした状態、固定設定の環境変数を欠いた状態、関数のタイムアウトを短くした状態で起こし、Docker Action が [§3.2](#32-failure-output) の段階の文言だけを出すことを確かめる（[AWS Fault Injection](../research/aws/fault-injection.md)）
 - メインと post-entrypoint のそれぞれで、`main.go` が起動したパス（`os.Args[0]`）から正しい入口関数を選ぶこと
 - ジョブの終了時に post-entrypoint がトークンの失効を試み、HTTP ステータスをログに出し、失効したトークンが使えないこと
 - 後続ステップが失敗したジョブと、後続ステップの実行中にキャンセルしたジョブでも、post-entrypoint がトークンの失効を試みること

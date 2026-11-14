@@ -176,7 +176,7 @@ KMS Key の署名能力は、GitHub App として認証する手段そのもの�
 - **適用とインポートを同じ主体が担う構成**：Key Policy は鍵素材のインポートを許可する主体を区別しない。鍵素材のインポートの権限を通常の Terraform 適用から分離することは IAM の権限の割り当てに依存し、Key Policy では保証しない
 - **インポート前の秘密鍵のコピー**：運用者の手元のコピーを削除することは手順で定めるだけで、設定では強制できない
 - **Terraform の設定の除去による鍵の削除**：`prevent_destroy` はリソースの設定自体を取り除いた場合の削除を防がない。Plan に現れた鍵の削除を運用者が確認して止める
-- **KMS の API からの鍵の無効化と削除の予約**：`kms:DisableKey` や `kms:ScheduleKeyDeletion` を IAM で許可された主体は、Terraform を経ずに実行できる。`prevent_destroy` は効かず、Lambda は署名できなくなってトークンを発行できない。影響は可用性にとどまる。鍵の悪用が判明したときに一時的に止める手段でもあるため、Key Policy から外さない
+- **KMS の API からの鍵の無効化と削除の予約**：`kms:DisableKey` や `kms:ScheduleKeyDeletion` を IAM で許可された主体は、Terraform を経ずに実行できる。`prevent_destroy` は効かず、Terraform は鍵の有効と無効を設定に書かないため、無効化は Plan にも現れない（[AWS Fault Injection](../research/aws/fault-injection.md)）。Lambda は署名できなくなってトークンを発行できない。影響は可用性にとどまる。鍵の悪用が判明したときに一時的に止める手段でもあるため、Key Policy から外さない
 
 `kms:PutKeyPolicy`、Lambda の更新権限、`iam:UpdateAssumeRolePolicy` によるリスクを受容するのは、これらが Terraform の適用に必要な権限と重なり、Key Policy の記述では取り除けないためです。
 `kms:PutKeyPolicy` を Key Policy から外すと Terraform で Key Policy を更新できなくなり、署名を拒否する `Deny` を加えても同じ権限で消せます。
