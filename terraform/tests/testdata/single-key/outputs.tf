@@ -1,0 +1,1 @@
+# 出力を持たない。tflint の terraform_standard_module_structure がファイルを求めるため置く

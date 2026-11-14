@@ -17,7 +17,7 @@ Terraform の State / Plan、Git、CI の成果物、Lambda の環境変数に G
 | Lambda 実行 IAM Role | Go アプリケーションから必要な AWS API を呼び出す | 対象 KMS Key への `kms:Sign` と必要な CloudWatch Logs 操作のみを基本とする。`kms:ImportKeyMaterial` 等の鍵管理操作は付与しない |
 | Lambda Function | JWT 検証、発行認可、KMS 署名依頼、GitHub API 通信 | Go の `provided.al2023` と ZIP 形式で配布し、IAM 認証付き Lambda Invoke API からだけ呼び出す。Function URL、API Gateway などの別の呼び出し口を設けず、他アカウントや匿名主体を許可するリソースベースポリシーを付与しない。利用者管理 VPC には接続しない |
 | Permissions Boundary | 2 つの IAM Role の権限の上限を示す | GATES の Terraform で管理し、Role の権限に必要な操作だけを許可する。名前は `gates-permissions-boundary` に固定する |
-| KMS Key | GitHub App Private Key（RSA）の鍵素材を外部からインポートするための署名鍵のメタデータを管理 | `origin=EXTERNAL`、`key_usage=SIGN_VERIFY`、実鍵長に一致する `key_spec=RSA_*`。インポート処理は Terraform の対象外 |
+| KMS Key | GitHub App Private Key（RSA）の鍵素材を外部からインポートするための署名鍵のメタデータを管理 | `origin=EXTERNAL`、`key_usage=SIGN_VERIFY`、実鍵長に一致する `key_spec=RSA_*`。インポート処理は Terraform の対象外。鍵の更新の間は新旧 2 つを置き、Lambda はそのうち使用中の鍵だけを参照する（§4.3） |
 | KMS Key Policy | 鍵の管理・利用主体を制限 | 署名権限と鍵管理権限を分離。Lambda 実行 Role に署名権限のみ許可し、鍵の管理権限は運用者の管理主体に残す |
 | CloudWatch Logs | Lambda の実行結果と監査記録を保管 | 保持期間とアクセス制限を設定。JWT、App JWT、Installation Access Token、AWS 一時認証情報は記録しない |
 
@@ -50,7 +50,7 @@ IAM はオーナー単位の入口制御です。Lambda での Caller 識別は�
 
 ### 3.2 Lambda Execution Role
 
-Lambda 実行 Role には、指定 KMS Key ARN に対する `kms:Sign` のみを暗号操作として許可します。ログ記録に必要な CloudWatch Logs 権限は対象 Log Group に限定できる範囲で制約します。
+Lambda 実行 Role には、使用中の鍵（§4.3）の KMS Key ARN に対する `kms:Sign` のみを暗号操作として許可します。ログ記録に必要な CloudWatch Logs 権限は対象 Log Group に限定できる範囲で制約します。
 
 KMS Key Policy の変更権限と、鍵素材のインポート・削除権限は Lambda 実行 Role へ付与しません。鍵管理を担う主体は Lambda と分離します。
 
@@ -129,10 +129,34 @@ KMS Key の `key_spec` は、RSA_2048 / RSA_3072 / RSA_4096 のうち GitHub App
 - 秘密鍵の取得、PKCS#8 への変換、インポート用ラッピング、`ImportKeyMaterial` は独立した手順で行う。インポート後、インポート前の秘密鍵のコピーは運用者の手元から削除する。
 - 秘密鍵の平文、暗号化途中の鍵素材、インポート用トークンは Terraform の State / Plan に渡さない。
 - 鍵素材のインポートで鍵の状態が `PendingImport` から `Enabled` に変わっても、Terraform の変更で鍵を意図せず再作成・無効化しない。
-- 既存の KMS Key の置換・削除を避けるため `prevent_destroy` を設定する。`prevent_destroy` は鍵の削除・置換を含む Plan をエラーで拒否するが、リソースの設定自体を取り除いた場合の削除は防がない。Plan に鍵削除が現れた場合は適用を中止して確認する。
-- インポートした非対称 KMS Key の鍵素材は別の鍵素材に交換できない。更新時は新しい KMS Key を追加し、Lambda が参照する Key ARN を切り替える。
+- 既存の KMS Key の置換・削除を避けるため `prevent_destroy` を設定する。`prevent_destroy` は鍵の削除・置換を含む Plan をエラーで拒否し、鍵の集合（§4.3）から鍵を除いた Plan も拒否するが、リソースの設定自体を取り除いた場合の削除は防がない。Plan に鍵削除が現れた場合は適用を中止して確認する。
+- インポートした非対称 KMS Key の鍵素材は別の鍵素材に交換できない。更新時は新しい KMS Key を追加し、Lambda が参照する Key ARN を切り替える（§4.3）。
 
 Terraform への入力には、Key ID / ARN、GitHub App の Client ID、オーナー名と不変 Owner ID、オーナーの種別（Organization またはユーザーアカウント）、GATES 用 Audience などの非秘密値を使用できます。GitHub App の Private Key は一切渡しません。
+
+### 4.3 Key Set and Rotation
+
+鍵の更新では、新しい KMS Key に鍵素材をインポートしてから Lambda の参照を切り替えるため、新旧 2 つの KMS Key が同時にある期間が生じます。
+Terraform では、KMS Key を名前の付いた集合（**鍵の集合**）として持ち、そのうち 1 つを **使用中の鍵** として指します。
+使用中の鍵は、Lambda が署名に使う KMS Key です。
+KMS の鍵の状態の有効（`Enabled`）と無効とは別の概念で、使用中でない鍵も `Enabled` であり得ます。
+
+- 鍵の集合は、鍵の名前から `key_spec` への Map の入力で表し、`aws_kms_external_key` をその要素ごとに作る。名前は `key-1`、`key-2` のように番号で付ける
+- 鍵の集合に置ける鍵は 1 つか 2 つに限る。どの鍵の Key Policy も実行 Role に `kms:Sign` を許可するため、実行 Role が署名できる鍵を、切り替えの前後の 2 つまでにする
+- 使用中の鍵は、鍵の集合の名前を 1 つ指す入力で選ぶ。鍵の集合にない名前は、変数の検証で Plan の時点で拒否する
+- Lambda の環境変数 `GATES_KMS_KEY_ARN` と、実行 Role の IAM ポリシーは、使用中の鍵だけを参照する。切り替えは、この 2 つの更新になる
+- どの鍵にも同じ Key Policy（§3.2）を付け、使用中かどうかで Key Policy を変えない。変えると、切り替えと切り戻しのたびに 2 つの Key Policy を書き換えることになり、Key Policy を変更する操作（`kms:PutKeyPolicy`）の回数が増えるためである。実行 Role が 2 つの鍵で署名できる期間のリスクは [Security Design](security.md#51-kms-signing-key-risks) に定める
+- 鍵の集合を導入する前に 1 つだけ定義していた鍵は、`moved` ブロックで `key-1` に移す。鍵の属性は変わらず、適用は State の中のアドレスの移動だけになる
+
+鍵の集合から鍵を除くと、Terraform はその鍵を削除しようとし、`prevent_destroy` が Plan を拒否します。
+集合から除く鍵（**退役させる鍵**）は、Map から除くのと同時に、削除せずに State から外して Terraform の管理を終えます。
+State から外す操作には `terraform state rm` を使い、対象を退役させる鍵のアドレスに限った `make` のターゲットから実行します。
+`removed` ブロックは `for_each` で作ったリソースの 1 要素を指せないため使えません。
+Terraform に削除させないのは、`prevent_destroy` を外すと、同じリソースの使用中の鍵も守られなくなるためです。
+
+State から外した鍵の削除の予約（`kms:ScheduleKeyDeletion`）は、運用者が KMS の API で行います。
+予約するのは、GitHub 側で旧鍵を削除して、旧鍵への切り戻しがあり得なくなった後です。
+予約した削除は、予約期間（30 日）のあいだ `kms:CancelKeyDeletion` で取り消せます。
 
 ## 5. Lambda Deployment and Operation
 
@@ -167,7 +191,7 @@ Lambda の設定では次を扱います。
 | `GATES_ALLOWED_OWNER_TYPE` | オーナーの種別（`Organization` または `User`） |
 | `GATES_GITHUB_APP_CLIENT_ID` | GitHub App の Client ID |
 | `GATES_AUDIENCE` | GATES 用 Audience |
-| `GATES_KMS_KEY_ARN` | KMS Key ARN |
+| `GATES_KMS_KEY_ARN` | 使用中の鍵（§4.3）の KMS Key ARN |
 
 Terraform の変数の検証は、環境変数の値のうち Lambda が初期化で拒否する値を Plan の時点で拒否します。
 Terraform の検証は、次の点で Lambda より狭い値だけを通します。
@@ -185,7 +209,7 @@ Issuer と GitHub API Host は環境変数にしません。
 |---|---|
 | FR-001、FR-005、FR-025、AC-25、AC-26 | IAM OIDC Provider、不変 ID 入り `sub` を条件とする IAM Role Trust Policy、対象 Lambda に限定した Invoke 権限、IAM 認証付き Invoke 以外の呼び出し口を設けない Lambda 構成 |
 | FR-013、QR-001、QR-006、AC-20 | `EXTERNAL` origin の非対称署名 KMS Key、Lambda 実行 Role への `kms:Sign` のみの許可、Key Policy による署名権限と管理権限の分離 |
-| FR-017、FR-023、AC-14 | 新 KMS Key の追加による鍵更新、`prevent_destroy` と Plan の確認による置換・削除の防止 |
+| FR-017、FR-023、AC-14 | 鍵の集合への新 KMS Key の追加と使用中の鍵の切り替えによる鍵更新、`prevent_destroy` と Plan の確認による置換・削除の防止、退役させる鍵の State からの除外 |
 | FR-022、QR-006、AC-21 | AWS リソースの Terraform 管理と、鍵素材インポートおよびインポート前コピー削除の分離 |
 | FR-024、AC-24 | 許可オーナー、GitHub App、KMS Key を Terraform 入力と Lambda 環境変数で固定。Installation は固定した GitHub App と不変 Owner ID から一意に導出する（[Security Design](security.md#32-installation-scope-as-authorization-boundary)） |
 | FR-021、QR-004 | CloudWatch Logs の保持期間・アクセス制限と資格情報の非記録 |
@@ -210,3 +234,6 @@ Issuer と GitHub API Host は環境変数にしません。
 - [Terraform AWS Provider — CHANGELOG（v6.11.0）](https://github.com/hashicorp/terraform-provider-aws/blob/main/CHANGELOG.md)
 - [Terraform — Managing sensitive data](https://developer.hashicorp.com/terraform/language/manage-sensitive-data)
 - [Terraform — Lifecycle](https://developer.hashicorp.com/terraform/language/meta-arguments/lifecycle)
+- [Terraform — Refactor modules](https://developer.hashicorp.com/terraform/language/modules/develop/refactoring)
+- [Terraform — Remove a resource from state](https://developer.hashicorp.com/terraform/language/state/remove)
+- [AWS — Deleting AWS KMS keys](https://docs.aws.amazon.com/kms/latest/developerguide/deleting-keys.html)
