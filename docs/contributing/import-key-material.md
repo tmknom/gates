@@ -1,109 +1,86 @@
 # Key Material Import
 
 本ドキュメントでは、GitHub App Private Key を生成して、Terraform が作った KMS Key に鍵素材として取り込むまでの手順を扱います。
+取り込みは `make kms-import-key-material` が行い、運用者が行うのは、GitHub App での秘密鍵の生成と、GitHub の表示との照合です。
 
 ## 1. Order of the Work
 
-作業は次の順に進めます。
+作業は次の順に進みます。
 
 ```mermaid
 flowchart TD
-  A[インポートの準備] --> held
   subgraph held[秘密鍵が手元にある間]
-    B[秘密鍵の生成、インポート、削除]
+    A[秘密鍵の生成] --> B[インポートの準備]
+    B --> C[インポートと削除]
   end
-  held --> C[インポートした鍵の照合]
+  held --> D[インポートした鍵の照合]
 ```
 
-コマンドはリポジトリのルートで、ひとつのシェルから実行します。
+秘密鍵が手元にある時間を短くするため、秘密鍵を生成したら、すぐに `make kms-import-key-material` を実行します。
 
-## 2. Preparing the Import
+## 2. Running the Import
 
-環境変数を設定し、作業ディレクトリを作ります。
-`KMS_KEY_NAME` は、鍵素材をインポートする KMS Key の、`terraform.tfvars` の `kms_keys` での名前です。
-初回のインポートでは `key-1`、鍵の更新（[Key Rotation](rotate-key.md)）では新しく加えた鍵の名前にします。
+始める前に、次を満たしておきます。
+
+- 対象の KMS Key が `terraform/local/terraform.tfvars` の `kms_keys` にあり、`make tf-apply` で作られている（Output の `kms_key_arns` に名前がある）
+- AWS の一時認証情報（`AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY`、`AWS_SESSION_TOKEN`）がシェルにある
+- AWS CLI、`jq`、`xxd`、OpenSSL 3 以降がある。macOS 標準の LibreSSL には、鍵素材のラップに使う `-id-aes256-wrap-pad` がない
+
+GitHub App の設定ページで、`Credentials` → `Key pairs` → `New key` をクリックし、秘密鍵をダウンロードします。
+
+リポジトリのルートで、鍵素材をインポートする KMS Key の `kms_keys` での名前を `KMS_KEY_NAME` に、ダウンロードした秘密鍵のパスを `GITHUB_PRIVATE_KEY_PATH` に指定して実行します。
+`KMS_KEY_NAME` は、初回のインポートでは `key-1`、鍵の更新（[Key Rotation](rotate-key.md)）では新しく加えた鍵の名前にします。
+秘密鍵は指定したファイルだけを扱い、ほかの場所を探しません。
 
 ```bash
-export KMS_KEY_NAME="key-1"
-export KMS_KEY_ARN="$(jq -r --arg name "$KMS_KEY_NAME" '.outputs.kms_key_arns.value[$name]' terraform/local/terraform.tfstate)"
-export AWS_REGION="$(echo "$KMS_KEY_ARN" | cut -d: -f4)"
-export WORK_DIR="$(mktemp -d)"
+make kms-import-key-material KMS_KEY_NAME=key-2 GITHUB_PRIVATE_KEY_PATH=<ダウンロードした秘密鍵のパス>
 ```
 
-KMS から、ラッピング公開鍵と Import Token を取得します。
+最後に、KMS Key の公開鍵のフィンガープリントが出ます。
+
+```text
+KMS key:     key-2 arn:aws:kms:...
+Key state:   Enabled KEY_MATERIAL_DOES_NOT_EXPIRE
+Fingerprint: SHA256:...
+```
+
+`Fingerprint` の値が、GitHub App の `Key pairs` に新しく加わった鍵のフィンガープリントと一致していれば成功しています。
+
+## 3. What the Import Checks and Does
+
+秘密鍵を読む前に、次を確かめ、どれかが違えば何もせずに止まります。
+
+- `KMS_KEY_NAME` が `kms_keys` の名前の形（`key-N`）で、Output の `kms_key_arns` にある
+- `GITHUB_PRIVATE_KEY_PATH` が指定されていて、シンボリックリンクでない。リンクを削除しても、リンク先の秘密鍵は残るため
+- KMS Key が `PendingImport` で、`Origin` が `EXTERNAL`、`KeyUsage` が `SIGN_VERIFY`、`KeySpec` が RSA である。インポートした鍵素材は別の鍵素材に交換できないため、鍵素材のある鍵は対象にしない
+
+インポートの準備では、KMS からラッピング公開鍵と Import Token を取得します。
 RSA の秘密鍵のラップに使えるのは `RSA_AES_KEY_WRAP_SHA_*` だけで、そのうち SHA-256 のものを選び、ラッピング公開鍵は AWS が推奨する最長の `RSA_4096` にします。
-ラッピング公開鍵と Import Token は同じ応答の組でしか使えないため、応答をファイルに保存してから取り出します。
-
-```bash
-aws kms get-parameters-for-import --key-id "$KMS_KEY_ARN" \
-  --wrapping-algorithm RSA_AES_KEY_WRAP_SHA_256 --wrapping-key-spec RSA_4096 \
-  --output json > "$WORK_DIR/import-parameters.json"
-jq -r .PublicKey "$WORK_DIR/import-parameters.json" | openssl base64 -d -A -out "$WORK_DIR/wrapping-public-key.der"
-jq -r .ImportToken "$WORK_DIR/import-parameters.json" | openssl base64 -d -A -out "$WORK_DIR/import-token.bin"
-```
-
-ラッピング公開鍵と Import Token は、取得から 24 時間で使えなくなります。
-秘密鍵のインポートは、それまでに行います。
-
 `RSA_AES_KEY_WRAP_SHA_256` では、使い捨ての AES 鍵で鍵素材を包み（RFC 5649 の鍵ラップ）、その AES 鍵をラッピング公開鍵で暗号化します。
 
-```bash
-openssl rand -out "$WORK_DIR/aes-key.bin" 32
-openssl pkeyutl -encrypt -pubin -keyform DER -inkey "$WORK_DIR/wrapping-public-key.der" \
-  -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 -pkeyopt rsa_mgf1_md:sha256 \
-  -in "$WORK_DIR/aes-key.bin" -out "$WORK_DIR/aes-key-wrapped.bin"
-```
+秘密鍵は、公開鍵の部分だけを読んで RSA の秘密鍵であることと鍵長を確かめ、鍵長が KMS Key の `KeySpec` と違えばインポートせずに止まります。
+GitHub は生成する鍵の鍵長を文書で約束していないためです。
+鍵素材は無期限（`KEY_MATERIAL_DOES_NOT_EXPIRE`）でインポートします。
 
-## 3. Generating, Importing, and Deleting the Private Key
+インポートの後、ダウンロードした秘密鍵と作業ディレクトリを削除します。
+そして、KMS Key が `Enabled` で `KEY_MATERIAL_DOES_NOT_EXPIRE` であることと、KMS Key の公開鍵のフィンガープリントがダウンロードした秘密鍵のものと一致することを確かめます。
 
-GitHub App の設定ページで、`Credentials` → `Key pairs` → `New key` をクリックします。
-ダウンロードされた秘密鍵のファイルパスを、`GITHUB_PRIVATE_KEY_PATH` 環境変数に設定します。
+## 4. When the Import Stops
 
-```bash
-export GITHUB_PRIVATE_KEY_PATH="<ダウンロードした秘密鍵のファイルパス>"
-```
+秘密鍵を読む前の確認（§3）で止まったときは、秘密鍵のファイルは残ります。
+原因を直し、もう一度実行します。
 
-GitHub がダウンロードさせる秘密鍵は PKCS#1 の PEM で、KMS は PKCS#8 の DER を求めます。
-変換した鍵素材を AES 鍵で包み、暗号化した AES 鍵の後ろに連結して、KMS に渡す形にします。
-`-id-aes256-wrap-pad` は標準入力を受け付けないため、変換した鍵素材はいったんファイルに書きます。
+秘密鍵を読んだ後は、秘密鍵として読めたファイルと作業ディレクトリを、途中で止まったときと Ctrl-C で中断したときも削除します。
+秘密鍵として読めないファイルは、パスの打ち間違いで関係のないファイルを消さないよう、削除しません。
+秘密鍵を読んだ後、インポートの前に止まったときは、GitHub App の `Key pairs` から生成した鍵を削除します。
+その鍵の秘密鍵はもう手元になく、使えないためです。
+原因を直してから、新しい鍵を生成して実行し直します。
 
-```bash
-openssl pkcs8 -topk8 -nocrypt -in "$GITHUB_PRIVATE_KEY_PATH" -outform DER -out "$WORK_DIR/private-key.der"
-openssl enc -id-aes256-wrap-pad -K "$(xxd -p -c 32 "$WORK_DIR/aes-key.bin")" -iv A65959A6 -in "$WORK_DIR/private-key.der" \
-  | cat "$WORK_DIR/aes-key-wrapped.bin" - > "$WORK_DIR/encrypted-key-material.bin"
-```
+鍵長が `KeySpec` と違って止まったときは、その KMS Key は使えません。
+鍵の更新の途中なら、[Key Rotation](rotate-key.md) の §4 に従います。
 
-鍵素材を無期限（`KEY_MATERIAL_DOES_NOT_EXPIRE`）でインポートします。
-
-```bash
-aws kms import-key-material --key-id "$KMS_KEY_ARN" \
-  --encrypted-key-material "fileb://$WORK_DIR/encrypted-key-material.bin" \
-  --import-token "fileb://$WORK_DIR/import-token.bin" \
-  --expiration-model KEY_MATERIAL_DOES_NOT_EXPIRE
-```
-
-秘密鍵のコピーと一時ファイルを削除します。
-
-```bash
-rm -r "$WORK_DIR" "$GITHUB_PRIVATE_KEY_PATH"
-```
-
-## 4. Verifying the Imported Key
-
-次のコマンドを実行し、`Enabled` と `KEY_MATERIAL_DOES_NOT_EXPIRE` が並ぶことを確かめます。
-
-```bash
-aws kms describe-key --key-id "$KMS_KEY_ARN" --query 'KeyMetadata.[KeyState,ExpirationModel]' --output text
-```
-
-そして、KMS Key の公開鍵のフィンガープリントを求めます。
-KMS は公開鍵を SubjectPublicKeyInfo の DER で返します。
-
-```bash
-aws kms get-public-key --key-id "$KMS_KEY_ARN" --query PublicKey --output text | openssl base64 -d -A | openssl sha256 -binary | openssl base64
-```
-
-出力が、GitHub App の `Key pairs` に新しく加わった鍵のフィンガープリントと一致していれば成功しています。
+インポートの後に止まったとき（鍵の状態やフィンガープリントが違うとき）は、鍵素材は取り込まれています。
+その KMS Key を使用中の鍵にせず、原因を調べます。
 
 ## 5. Sources
 
