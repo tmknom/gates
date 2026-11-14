@@ -32,7 +32,7 @@ GATES は IAM Role の Trust Policy と許可する操作を設計します。
 
 **GATES の設計**：許可オーナー名と不変 Owner ID を含む接頭部分を固定し、旧形式を拒否
 
-**保証しないこと**：Repository ID とコンテキストの完全な構文検証
+**保証しないこと**：Repository ID とコンテキストの完全な構文検証。起動イベント、ref、Environment による制限。同じリポジトリのブランチからの Pull Request の `pull_request` と `pull_request_target`、Environment を使うジョブ、`workflow_run` のどれも引き受けられ、`pull_request_target` の `sub` は `pull_request` と同じ形のため、2 つを `sub` で区別することもできない（[GitHub Workflow Event Contexts](../research/github/workflow-event-contexts.md)）
 
 ## AOJ-OTHER-CLAIMS その他の Claim
 
@@ -58,4 +58,5 @@ GATES は IAM Role の Trust Policy と許可する操作を設計します。
 
 - [GitHub Constraints](../spec/github-constraints.md) — GitHub 公式資料、旧形式と不変形式の `sub`、相違・未確認事項
 - [AWS STS Legacy Subject](../research/aws/sts-legacy-subject.md) — 旧形式の `sub` で IAM Role の引き受けを試みた結果
+- [GitHub Workflow Event Contexts](../research/github/workflow-event-contexts.md) — 起動イベントと Environment の異なるジョブの引き受けと `sub`
 - [GitHub — OpenID Connect reference](https://docs.github.com/en/actions/reference/security/oidc)
