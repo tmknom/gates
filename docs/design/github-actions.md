@@ -370,7 +370,8 @@ Action はジョブ間のトークン転送を提供せず（[§2.1](#21-inputs-
 ジョブをキャンセルすると、Runner は Docker Action のコンテナを起動した `docker run` のプロセスに SIGINT を送ります。
 7.5 秒で終わらなければ SIGTERM を送り、さらに 2.5 秒で終わらなければ `docker run` のプロセスを強制終了します（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#runner-source)）。
 `docker run` は、受け取ったシグナルをコンテナの最初のプロセスである親へ中継します（`--sig-proxy` の既定値。[Docker Docs — docker container run](https://docs.docker.com/reference/cli/docker/container/run/)）。
-Runner はコンテナに `docker kill` も `docker stop` も送らないため、`docker run` のプロセスを強制終了した後もコンテナは動き続けます（推論：コンテナのプロセスは `docker run` のプロセスの子ではなく、強制終了するプロセスの木に含まれないため）。
+Runner はコンテナに `docker kill` も `docker stop` も送らないため、`docker run` のプロセスを強制終了した後もコンテナは動き続けます（[GitHub Docker Action Failure and Cancellation](../research/github/docker-action-cancellation.md#killing-the-docker-run-process)）。
+コンテナのプロセスは `docker run` のプロセスの子ではなく、強制終了するプロセスの木に含まれないためです（推論）。
 
 シグナルを受けた子をその場で終えると、トークンが残り得ます。
 Lambda がトークンを発行した後、子が `GITHUB_STATE` に書く前に終わると、メインの処理も post-entrypoint もそのトークンを失効できないためです。
@@ -391,7 +392,8 @@ Lambda がトークンを発行した後、子が `GITHUB_STATE` に書く前に
 
 Invoke の結果を待つ間に SIGINT から 10 秒を過ぎると、Runner は `docker run` のプロセスを強制終了します。
 その後もコンテナは動き続けるため、子はトークンを受け取れば失敗時の失効を試みます。
-ただしこの場合、失効の結果はワークフローのログに残りません（推論：Runner はコンテナの出力を `docker run` のプロセスの標準出力から読むため）。
+ただしこの場合、失効の結果はワークフローのログに残りません（[GitHub Docker Action Failure and Cancellation](../research/github/docker-action-cancellation.md#killing-the-docker-run-process)）。
+Runner はコンテナの出力を `docker run` のプロセスの標準出力から読み、そのプロセスがもうないためです（推論）。
 
 キャンセルしても、Runner がコンテナを強制終了した場合や、Runner が停止した場合は、子が失効を試みる前に終わり得ます。
 このリスクは [Security Design](security.md#5-failure-audit-and-security-risks) が受容します。
@@ -536,14 +538,15 @@ GitHub と AWS の挙動に依存する事項は、許可オーナーのワー�
 - ジョブの終了時に post-entrypoint がトークンの失効を試み、HTTP ステータスをログに出し、失効したトークンが使えないこと
 - 後続ステップが失敗したジョブと、後続ステップの実行中にキャンセルしたジョブでも、post-entrypoint がトークンの失効を試みること
 - メインがトークンを取り出す前に失敗したジョブで、`continue-on-error` の有無によらず、post-entrypoint が何もせずに終わること
-- メインの処理の最中に SIGINT を受けたジョブで、`docker run` がシグナルをコンテナへ中継し、親が子へ送り、子が [§3.6](#36-cancellation) のとおりに終えること。Invoke の前と Invoke の開始の後の両方で確かめる。`docker run` のプロセスを強制終了した後もコンテナが動き続けることは、実環境で確かめていない
+- メインの処理の最中に SIGINT を受けたジョブで、`docker run` がシグナルをコンテナへ中継し、親が子へ送り、子が [§3.6](#36-cancellation) のとおりに終えること。Invoke の前と Invoke の開始の後の両方で確かめる。Invoke の最中に `docker run` のプロセスを強制終了した後もコンテナが動き続け、子が失敗時の失効を試みることは、一度の調査で確かめ、繰り返す試験には含めない
 - 別のリポジトリから commit SHA で参照したとき、Runner が `Dockerfile` からイメージをビルドして動かせること
 
 失効したトークンが使えないことは、post-entrypoint より後に動くステップから確かめます。
 post-entrypoint はジョブの最後に動くため、利用者のステップからはトークンを試せないためです。
 試験のワークフローでは、Docker Action のステップより前に、post でファイルからトークンを読んで GitHub API を呼ぶ試験用の Action を置き、Docker Action の後続ステップがトークンを `RUNNER_TEMP` のファイルに書きます。
-この確かめ方は、post がメインの処理と逆の順で動き、試験用の Action の post が Docker Action の post-entrypoint より後に動くことを前提とします（推論：GitHub の資料に明記はない）。
-試験では、2 つの post の順序もログで確かめます。
+この確かめ方は、試験用の Action の post が Docker Action の post-entrypoint より後に動くことを前提とします。
+GitHub の資料に post の順序の明記はありませんが、Runner はメインの処理を始めるときに post をスタックに積み、ジョブの最後に積んだ逆の順で取り出します（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#runner-source)）。
+試験では、2 つの post の順序もステップの番号とログで確かめます。
 
 ## 7. Sources
 

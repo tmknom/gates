@@ -10,7 +10,7 @@ E2E テストのワークフローは本リポジトリの `.github/workflows/` 
 
 | ファイル | 確かめること |
 | --- | --- |
-| [_e2e-success.yml](../../.github/workflows/_e2e-success.yml) | 対象の件数、並び、表記、区切りの空白を変えた発行、トークンから見える対象と拒否される操作、Output の形、後続ステップの環境に AWS 一時認証情報がないこと |
+| [_e2e-success.yml](../../.github/workflows/_e2e-success.yml) | 対象の件数、並び、表記、区切りの空白を変えた発行、トークンから見える対象と拒否される操作、Output の形、後続ステップの環境に AWS 一時認証情報がないこと、post-entrypoint が失効させたトークンが `401` で拒否されること |
 | [_e2e-interval.yml](../../.github/workflows/_e2e-interval.yml) | 温まった Lambda の実行環境に、直前の Invoke から 1 分前後空けた Invoke を 5 回続け、すべて成功すること |
 | [_e2e-failure.yml](../../.github/workflows/_e2e-failure.yml) | 成功する設定から 1 つの条件だけを変えた各事例で、Action が段階を示す注釈を書いて失敗し、Output を書かず、post-entrypoint が失効を試みずに終わること |
 | [_e2e-payload-rejection.yml](../../.github/workflows/_e2e-payload-rejection.yml) | Action を使わずに Lambda を直接 Invoke し、成功する Payload から 1 つの条件だけを変えた各事例を、GATES が定めたエラーコードと固定の文言で拒否し、トークンを返さないこと |
@@ -59,6 +59,31 @@ Lambda を呼ぶ E2E のワークフローは、どれも同じ `concurrency` �
 
 `403` の応答の `X-Accepted-GitHub-Permissions` のヘッダーも、ログに出します。
 Output の `repositories` は GitHub の応答の並びのため、並びは判定せずに出すだけにしています。
+
+### Revoked Token
+
+`_e2e-success.yml` の `Revoked token` のジョブは、post-entrypoint が失効させた後のトークンが使えないことを確かめます。
+post-entrypoint はジョブの最後に動くため、後続ステップからは失効の後のトークンを試せません。
+そこで、Docker Action のステップより前に、post を持つ試験用の JavaScript の Action（[_e2e-revoked-token](../../.github/actions/_e2e-revoked-token/action.yml)）を置きます。
+Runner は post をメインの処理と逆の順で動かすため、この Action の post は Docker Action の post-entrypoint の後に動きます（[GitHub Actions Design](../design/github-actions.md#62-tests-on-github-actions)）。
+
+1. 試験用の Action のメインの処理が、`RUNNER_TEMP` の下に、ほかのユーザーが読めないディレクトリを作る
+2. Docker Action がトークンを発行する
+3. 後続ステップが、トークンで要求した対象の `README.md` を読めること（`200`）を確かめ、`umask 077` でトークンをそのディレクトリのファイルに書く
+4. post-entrypoint がトークンを失効させる
+5. 試験用の Action の post が、ファイルのトークンで同じ `README.md` を読み、ディレクトリを成否によらず削除する
+
+試験用の Action は、依存を持たず、Node.js の標準の `https` だけで GitHub API を呼びます。
+トークンの値はログに出しません。
+
+`Check revocation order` のジョブは、`Revoked token` のジョブのステップとログから次を確かめます。
+
+| 確認 | 期待する結果 |
+| --- | --- |
+| post の順序 | `Post Issue token` のステップの番号が、`Post Check revoked token` より小さく、どちらも `success` |
+| 失効 | `revocation succeeded: HTTP status 204` が 1 行あり、401 の行より前にある |
+| 失効の後の利用 | `revoked token read README.md: HTTP status 401` が 1 行ある。`200` なら試験用の Action の post が失敗する。post の順序が想定と違うか、失効が効いていないかを、post の順序の行と失効の行で切り分ける |
+| ファイルの削除 | `token file removed` が 1 行ある |
 
 ### Failure Cases
 
@@ -173,10 +198,13 @@ GitHub Actions 用 IAM Role の信頼ポリシーは、不変 ID 入りの形式
 ワークフローは試験用のリポジトリ自身を、要求していない対象として読めないことと、Installation の対象外として拒否されることを確かめるため、インストール先に含めると試験が失敗します。
 GitHub App のインストール先は、対象として使う 2 つのリポジトリだけにします。
 
-ワークフローを、試験用のリポジトリの `.github/workflows/` に写します。
+ワークフローを試験用のリポジトリの `.github/workflows/` に、試験用の Action を `.github/actions/` に写します。
+`_e2e-success.yml` は試験用の Action を相対パスで参照するためです。
 
 ```bash
 cp .github/workflows/_e2e-*.yml <試験用のリポジトリ>/.github/workflows/
+mkdir -p <試験用のリポジトリ>/.github/actions
+cp -R .github/actions/_e2e-revoked-token <試験用のリポジトリ>/.github/actions/
 ```
 
 `workflow_dispatch` は、試験用のリポジトリの既定のブランチにあるワークフローにしか使えません。

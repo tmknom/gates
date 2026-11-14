@@ -1,0 +1,16 @@
+name: E2E Revoked Token
+description: >-
+  E2E test only. Prepares a file for a later step to write the issued token to, and in post,
+  after the GATES Docker Action's post-entrypoint revoked the token, checks that the token is rejected with 401.
+  Place this step before the GATES Docker Action step so that its post runs after the post-entrypoint.
+inputs:
+  repository:
+    description: Full name of a repository the token was issued for. The post reads its README.md with the token.
+    required: true
+outputs:
+  token-file:
+    description: Path of the file a later step writes the token to. Only its directory exists until then.
+runs:
+  using: node24
+  main: main.js
+  post: post.js
