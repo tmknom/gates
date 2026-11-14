@@ -55,7 +55,7 @@ Plan の前に次を満たしておきます。
 `terraform.tfvars` の値のうち、次の 3 つは適用の前に確かめて決めます。
 
 - **`gates_audience`**：GATES 専用の、URL でない文字列にする（例：`<owner>-gates`）。`sts.amazonaws.com`、`https://github.com`、`https://github.com/` で始まる値は、変数の検証で拒否される（[Domain Model](../design/domain.md) の INV-005）
-- **`kms_key_spec`**：インポートする GitHub App Private Key の鍵長に合わせる。秘密鍵は適用の後に生成するため、検証用 App で生成した鍵の鍵長（2048 bit）から `RSA_2048` とする
+- **`kms_keys`**：KMS Key の名前から `key_spec` への Map。最初は `key-1` の 1 つだけにし、`active_kms_key` に `key-1` を指定する。`key_spec` は、インポートする GitHub App Private Key の鍵長に合わせる。秘密鍵は適用の後に生成するため、検証用 App で生成した鍵の鍵長（2048 bit）から `RSA_2048` とする。鍵の更新で 2 つ目の鍵を加える手順は [Key Rotation](rotate-key.md) にある
 - **`lambda_reserved_concurrency`**：`aws lambda get-account-settings` の `UnreservedConcurrentExecutions` から予約する数を引いても、Lambda が求める未予約の下限（100）を下回らない値にする
 
 `lambda_package_path` は `terraform.tfvars` に書きません。
@@ -83,7 +83,7 @@ make tf-apply
 適用の後に、もう一度 `make tf-plan` を実行し、`No changes` になることを確かめます。
 
 初めての適用では、KMS Key は鍵素材を持たない `PendingImport` の状態で作られます。
-`make tf-apply` が出力する `kms_key_arn` を指定して次のコマンドを実行し、`Origin` が `EXTERNAL`、`KeyUsage` が `SIGN_VERIFY`、`KeyState` が `PendingImport`、`KeySpec` が `kms_key_spec` の値であることを確かめます。
+`make tf-apply` が出力する `kms_key_arn`（使用中の鍵の ARN）を指定して次のコマンドを実行し、`Origin` が `EXTERNAL`、`KeyUsage` が `SIGN_VERIFY`、`KeyState` が `PendingImport`、`KeySpec` が `kms_keys` の `key-1` の値であることを確かめます。
 
 ```bash
 aws kms describe-key --key-id <kms_key_arn>

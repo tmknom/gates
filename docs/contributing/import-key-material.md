@@ -20,9 +20,12 @@ flowchart TD
 ## 2. Preparing the Import
 
 環境変数を設定し、作業ディレクトリを作ります。
+`KMS_KEY_NAME` は、鍵素材をインポートする KMS Key の、`terraform.tfvars` の `kms_keys` での名前です。
+初回のインポートでは `key-1`、鍵の更新（[Key Rotation](rotate-key.md)）では新しく加えた鍵の名前にします。
 
 ```bash
-export KMS_KEY_ARN="$(jq -r '.outputs.kms_key_arn.value' terraform/local/terraform.tfstate)"
+export KMS_KEY_NAME="key-1"
+export KMS_KEY_ARN="$(jq -r --arg name "$KMS_KEY_NAME" '.outputs.kms_key_arns.value[$name]' terraform/local/terraform.tfstate)"
 export AWS_REGION="$(echo "$KMS_KEY_ARN" | cut -d: -f4)"
 export WORK_DIR="$(mktemp -d)"
 ```

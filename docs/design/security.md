@@ -122,7 +122,7 @@ KMS Key の構成・IAM 権限は Terraform で管理します。GitHub App Priv
 | 資格情報 | 保存・利用の境界 |
 |---|---|
 | GitHub App Private Key | KMS インポート前は運用者が別の運用境界で扱う。Lambda と Runner には渡さない。インポート後、インポート前のコピーは運用者の手元から削除する。KMS にインポートした鍵素材は取り出せないため、KMS Key を失った場合は GitHub 側で新しい秘密鍵を発行して切り替える |
-| AWS KMS Key | インポート済みの非対称署名鍵。Lambda 実行 Role に当該キーの `kms:Sign` のみ許可。鍵更新時は新 KMS Key を用意 |
+| AWS KMS Key | インポート済みの非対称署名鍵。Lambda 実行 Role に当該キーの `kms:Sign` のみ許可。鍵更新時は新 KMS Key を用意し、Lambda が参照する鍵（使用中の鍵）を切り替える。切り替えの確認の後に旧 KMS Key を無効にし、GitHub 側で旧 Private Key を削除した後に、旧 KMS Key を Terraform の管理から外して削除を予約する |
 | GitHub App JWT | KMS 署名で Lambda が短時間生成し、GitHub API 呼び出しにのみ使用。外部返却・ログ出力禁止 |
 | Installation Access Token | 要求・認可された対象と `contents:read`（付随する `metadata:read` を許容）に限定して Runner へ返す。短命でも窃取リスクは残る。照合に失敗したものは返さず、文字列を取得できた場合に失効を試みる。Runner へ返したものは、ジョブの終了時に Docker Action がトークン自身で認証して失効を試みる（ジョブの終了時の失効）。Docker Action がトークンを取り出した後に失敗するかキャンセルされ、後続ステップへ渡せなかったものは、その場で失効を試みる（失敗時の失効）。Runner の上では、Output（`GITHUB_OUTPUT`）と `GITHUB_STATE` の 2 つのファイルにだけ書く。どちらも Runner のファイルコマンドのディレクトリにある |
 | AWS 一時認証情報・AWS 用 OIDC JWT・GATES 用 OIDC JWT | Runner の上で Docker Action の子のプロセスのメモリの中だけで扱い、ファイル、環境変数、Output に書かない。プロセスの終了とともに手放す。ログやデバッグ出力に含めない |
@@ -158,9 +158,9 @@ KMS Key の署名能力は、GitHub App として認証する手段そのもの�
 | 秘密鍵の取り出し | KMS にインポートした鍵素材は取り出せない。Terraform の State / Plan、Git、CI の成果物、Lambda の環境変数に鍵素材を渡さない |
 | 実行 Role による鍵の管理 | 実行 Role に許可する KMS の操作を `kms:Sign` だけにする |
 | 実行 Role による別の方式での署名 | Key Policy で署名アルゴリズムを `RSASSA_PKCS1_V1_5_SHA_256` に限る |
-| 実行 Role による別の鍵での署名 | 実行 Role の IAM ポリシーに他の鍵への許可を含めず、他の鍵の Key Policy に実行 Role を書かない |
+| 実行 Role による別の鍵での署名 | 実行 Role の IAM ポリシーに使用中の鍵のほかの許可を含めず、GATES の鍵の集合（新旧の 2 つまで）のほかの鍵の Key Policy に実行 Role を書かない |
 | IAM の管理権限を持つ主体による直接の署名 | Key Policy で root に許可する操作を列挙し、`kms:Sign`、`kms:*`、`kms:CreateGrant` を含めない |
-| Terraform の操作による鍵の削除と置換 | `prevent_destroy` で該当する Plan を拒否する |
+| Terraform の操作による鍵の削除と置換 | `prevent_destroy` で該当する Plan を拒否する。鍵の集合から鍵を除いた Plan も拒否する |
 | 予約した削除の実行 | 削除の予約期間を 30 日にし、その間は `kms:CancelKeyDeletion` で取り消せるようにする |
 | CI からの権限の変更 | Terraform を運用者の手元から適用し、CI に適用権限を与えない |
 
@@ -176,6 +176,8 @@ KMS Key の署名能力は、GitHub App として認証する手段そのもの�
 - **Permissions Boundary を通る別の鍵での署名**：Boundary は同じアカウントとリージョンの KMS Key のうち、鍵素材をインポートした鍵への `RSASSA_PKCS1_V1_5_SHA_256` の `kms:Sign` を許可する。GitHub Actions が引き受ける IAM Role と Lambda 実行 Role のどちらかが、この条件に合う別の鍵で署名できる経路は 2 つある。Role に `kms:Sign` を許可するポリシーが追加され、その鍵の Key Policy が IAM ポリシーへ委任している経路と、その鍵の Key Policy が Role を Principal として直接許可する経路である。後者は Role 側のポリシーが変わらない。GATES の署名鍵は Key Policy が root に `kms:Sign` を許可しないため、前者の経路では署名できない。Boundary を GATES の署名鍵に絞ると Terraform の依存が循環するため、この範囲を受容する
 - **適用とインポートを同じ主体が担う構成**：Key Policy は鍵素材のインポートを許可する主体を区別しない。鍵素材のインポートの権限を通常の Terraform 適用から分離することは IAM の権限の割り当てに依存し、Key Policy では保証しない
 - **インポート前の秘密鍵のコピー**：運用者の手元のコピーを削除することは手順で定めるだけで、設定では強制できない
+- **鍵の更新の間の、使用中でない鍵での署名**：鍵の更新の間は、新旧どちらの鍵の Key Policy も実行 Role に `kms:Sign` を許可するため、実行 Role は使用中でない鍵でも署名できる。使用中でない鍵の Key Policy から実行 Role を外さないのは、外すと切り替えと切り戻しのたびに 2 つの Key Policy を書き換えることになり、上記の `kms:PutKeyPolicy` のリスクを持つ操作が増えるためである。2 つの鍵はどちらも同じ GitHub App の Private Key であり、実行 Role が侵害されたときに得られる能力（GitHub App としての認証）は 1 つの鍵のときと変わらない。新しい鍵は鍵素材のインポートまで署名できない。旧鍵は、切り替えの後の発行を確かめてから運用者が無効にし、この期間を短くする。GitHub 側で旧 Private Key を削除した後は、旧鍵での署名は GitHub に受理されない見込みである（削除した鍵の JWT を GitHub が拒否することは、公式資料からの推論で、GATES を通しては確かめられない）
+- **Terraform の管理から外した旧鍵**：退役させる鍵を State から外すと、その鍵の Key Policy と状態は Terraform の Plan に現れなくなる。外す前に鍵を無効にし、外した後は削除を予約する手順で、残る期間を予約期間（30 日）に限る。予約期間のあいだは `kms:EnableKey` と `kms:CancelKeyDeletion` を持つ主体が鍵を戻せるが、GitHub 側で Private Key を削除した後のため、戻した鍵で署名しても GitHub App として認証できない見込みである
 - **Terraform の設定の除去による鍵の削除**：`prevent_destroy` はリソースの設定自体を取り除いた場合の削除を防がない。Plan に現れた鍵の削除を運用者が確認して止める
 - **KMS の API からの鍵の無効化と削除の予約**：`kms:DisableKey` や `kms:ScheduleKeyDeletion` を IAM で許可された主体は、Terraform を経ずに実行できる。`prevent_destroy` は効かず、Terraform は鍵の有効と無効を設定に書かないため、無効化は Plan にも現れない（[AWS Fault Injection](../research/aws/fault-injection.md)）。Lambda は署名できなくなってトークンを発行できない。影響は可用性にとどまる。鍵の悪用が判明したときに一時的に止める手段でもあるため、Key Policy から外さない
 

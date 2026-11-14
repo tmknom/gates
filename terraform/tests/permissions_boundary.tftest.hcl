@@ -55,7 +55,8 @@ variables {
   allowed_owner_type   = "Organization"
   github_app_client_id = "Iv23example"
   gates_audience       = "gates-test"
-  kms_key_spec         = "RSA_2048"
+  kms_keys             = { key-1 = "RSA_2048" }
+  active_kms_key       = "key-1"
   lambda_package_path  = "tests/testdata/package.txt"
 }
 
@@ -123,6 +124,27 @@ run "boundary_covers_the_log_policy_of_the_execution_role" {
   assert {
     condition     = jsondecode(aws_iam_policy.lambda_logs.policy).Statement[0].Resource == jsondecode(aws_iam_policy.permissions_boundary.policy).Statement[1].Resource
     error_message = "the boundary must allow the same log resource as the policy of the execution role"
+  }
+}
+
+# Boundary は鍵を ARN で絞らないため、有効な鍵を切り替えても変わらず、切り替えた先の鍵への署名を覆う
+# 鍵を加えた State を後の run に残すと、鍵を除く Plan になって prevent_destroy に止められるため、State を分ける
+run "boundary_covers_the_signing_policy_after_switching_keys" {
+  state_key = "two_keys"
+
+  variables {
+    kms_keys       = { key-1 = "RSA_2048", key-2 = "RSA_2048" }
+    active_kms_key = "key-2"
+  }
+
+  assert {
+    condition     = jsondecode(aws_iam_policy.permissions_boundary.policy).Statement[2].Resource == "arn:aws:kms:ap-northeast-1:123456789012:key/*"
+    error_message = "the boundary must not depend on which key is active"
+  }
+
+  assert {
+    condition     = startswith(jsondecode(aws_iam_policy.lambda_sign.policy).Statement[0].Resource, trimsuffix(jsondecode(aws_iam_policy.permissions_boundary.policy).Statement[2].Resource, "*"))
+    error_message = "the boundary must cover the active key"
   }
 }
 

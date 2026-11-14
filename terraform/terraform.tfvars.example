@@ -8,8 +8,12 @@ allowed_owner_type   = "Organization"
 github_app_client_id = "Iv23example"
 gates_audience       = "example-owner-gates"
 
-# 値の決め方は docs/contributing/setup-environment.md の kms_key_spec を参照する。RSA_2048、RSA_3072、RSA_4096 のいずれか
-# kms_key_spec = ""
+# 値の決め方は docs/contributing/setup-environment.md の kms_keys を参照する。key_spec は RSA_2048、RSA_3072、RSA_4096 のいずれか
+# 鍵の名前は key-1、key-2 のように付け、最初の鍵は key-1 にする。鍵の更新の手順は docs/contributing/rotate-key.md にある
+# kms_keys = {
+#   key-1 = ""
+# }
+# active_kms_key = "key-1"
 
 # log_retention_in_days       = 7
 # lambda_reserved_concurrency = -1

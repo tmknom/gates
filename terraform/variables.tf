@@ -75,13 +75,35 @@ variable "gates_audience" {
 }
 
 # 既定値を持たせないのは、GitHub が Private Key の鍵長を文書で約束しておらず、見込みの鍵長を運用者に選ばせるため
-variable "kms_key_spec" {
-  description = "KMS Key の key_spec。鍵は適用の後に生成するため、インポートする鍵の見込みの鍵長に合わせる"
+variable "kms_keys" {
+  description = "KMS Key の名前から key_spec への Map。key_spec は、鍵を適用の後に生成するため、インポートする鍵の見込みの鍵長に合わせる"
+  type        = map(string)
+
+  validation {
+    condition     = alltrue([for key_spec in values(var.kms_keys) : contains(["RSA_2048", "RSA_3072", "RSA_4096"], key_spec)])
+    error_message = "every key_spec in kms_keys must be RSA_2048, RSA_3072 or RSA_4096."
+  }
+
+  # 実行 Role が署名できる鍵を、切り替えの前後の 2 つまでに限る
+  validation {
+    condition     = length(var.kms_keys) >= 1 && length(var.kms_keys) <= 2
+    error_message = "kms_keys must have one or two keys."
+  }
+
+  # 名前は State のアドレスに入り、make tf-state-rm-kms-key の引数にもなるため、形を固定する
+  validation {
+    condition     = alltrue([for name in keys(var.kms_keys) : can(regex("^key-[1-9][0-9]{0,8}$", name))])
+    error_message = "every name in kms_keys must be key-N, where N is a positive integer without leading zeros."
+  }
+}
+
+variable "active_kms_key" {
+  description = "Lambda が署名に使う KMS Key の、kms_keys での名前"
   type        = string
 
   validation {
-    condition     = contains(["RSA_2048", "RSA_3072", "RSA_4096"], var.kms_key_spec)
-    error_message = "kms_key_spec must be RSA_2048, RSA_3072 or RSA_4096."
+    condition     = contains(keys(var.kms_keys), var.active_kms_key)
+    error_message = "active_kms_key must be a name in kms_keys."
   }
 }
 

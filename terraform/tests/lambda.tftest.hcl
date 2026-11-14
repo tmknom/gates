@@ -43,7 +43,8 @@ variables {
   allowed_owner_type   = "Organization"
   github_app_client_id = "Iv23example"
   gates_audience       = "gates-test"
-  kms_key_spec         = "RSA_2048"
+  kms_keys             = { key-1 = "RSA_2048" }
+  active_kms_key       = "key-1"
   lambda_package_path  = "tests/testdata/package.txt"
 }
 

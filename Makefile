@@ -123,6 +123,17 @@ tf-show: tf-mountpoints ## show the saved terraform plan
 tf-output: tf-mountpoints ## show the terraform outputs recorded in the state
 	$(TF_RUN) offline output
 
+# 退役させる KMS Key を、削除せずに State から外す。removed ブロックは for_each の 1 要素を指せないため、state rm を使う
+# 名前は環境変数として読み、variables.tf の kms_keys の名前の形を満たすまでコマンドに展開しない
+# 外す前の State は、鍵の名前を付けたバックアップに残す。既定の置き場所は読み取り専用の terraform/ のため、local/ を指定する
+.PHONY: tf-state-rm-kms-key
+tf-state-rm-kms-key: tf-mountpoints ## remove the retired KMS key KMS_KEY_NAME from the terraform state without deleting the key
+	@# grep は行ごとに判定するため、改行などの許さない文字を先に case で拒否する
+	@case "$${KMS_KEY_NAME:-}" in "" | *[!a-z0-9-]*) false ;; esac \
+		&& printf '%s\n' "$$KMS_KEY_NAME" | grep -Eqx 'key-[1-9][0-9]{0,8}' \
+		|| (echo "KMS_KEY_NAME must be the name of the retired key in kms_keys, such as key-1" && exit 1)
+	$(TF_RUN) offline state rm -backup=$(TF_LOCAL_NAME)/terraform.tfstate.$(KMS_KEY_NAME).backup 'aws_kms_external_key.signing["$(KMS_KEY_NAME)"]'
+
 # 古いコードを配布しないよう、Plan のたびにデプロイパッケージを作り直す
 # Terraform はエラーで止まった Plan も保存するため、失敗したら捨てる。prevent_destroy で止めた鍵の置換を含む Plan が残るのを防ぐ
 .PHONY: tf-plan
