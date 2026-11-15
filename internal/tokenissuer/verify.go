@@ -11,45 +11,45 @@ import (
 	"github.com/tmknom/gates/internal/repository"
 )
 
-// verify は、発行結果を発行許可と許可オーナーで照合し、INV-012 が定める返却可能な発行結果の条件をすべて満たすときだけ InstallationToken を返す。
+// verify は、発行結果を発行許可と許可オーナーで照合し、INV-012 の条件をすべて満たすときだけ返却可能な発行結果を返す。
 // トークンの長さと形式は、GitHub が定めておらず変わり得るため確かめない。
 // 発行許可と許可オーナーのゼロ値は、対象のない発行結果や Owner ID 0 の実効対象と一致し得るが、
 // それぞれ照合より先に GitHub Client の Issue と NewTokenIssuer が panic で止めるため、ここでは確かめない。
-func verify(result github.IssuanceResult, grant authz.TokenGrant, owner authz.AllowedOwner, now time.Time) (InstallationToken, error) {
+func verify(result github.IssuanceResult, grant authz.TokenGrant, allowedOwner authz.AllowedOwner, now time.Time) (ReturnableIssuanceResult, error) {
 	// 空のトークンは GitHub Client が読み取らないため、トークンが空でないことはこの判定に含まれる
 	token, ok := result.Token()
 	if !ok {
-		return InstallationToken{}, verificationFailure(result, errors.New("token is unreadable"))
+		return ReturnableIssuanceResult{}, verificationFailure(result, errors.New("token is unreadable"))
 	}
 	expiresAt, ok := result.ExpiresAt()
 	if !ok {
-		return InstallationToken{}, verificationFailure(result, errors.New("expires_at is unreadable"))
+		return ReturnableIssuanceResult{}, verificationFailure(result, errors.New("expires_at is unreadable"))
 	}
 	if !expiresAt.After(now) {
-		return InstallationToken{}, verificationFailure(result, errors.New("expires_at is not after now"))
+		return ReturnableIssuanceResult{}, verificationFailure(result, errors.New("expires_at is not after now"))
 	}
 	repositories, ok := result.EffectiveRepositories()
 	if !ok {
-		return InstallationToken{}, verificationFailure(result, errors.New("repositories are unreadable"))
+		return ReturnableIssuanceResult{}, verificationFailure(result, errors.New("repositories are unreadable"))
 	}
-	if err := verifyRepositories(repositories, grant.Repositories(), owner.ID()); err != nil {
-		return InstallationToken{}, verificationFailure(result, err)
+	if err := verifyRepositories(repositories, grant.Repositories(), allowedOwner.ID()); err != nil {
+		return ReturnableIssuanceResult{}, verificationFailure(result, err)
 	}
 	permissions, ok := result.EffectivePermissions()
 	if !ok {
-		return InstallationToken{}, verificationFailure(result, errors.New("permissions are unreadable"))
+		return ReturnableIssuanceResult{}, verificationFailure(result, errors.New("permissions are unreadable"))
 	}
 	if !permissions.EqualsAllowedExceptImplied() {
-		return InstallationToken{}, verificationFailure(result, errors.New("permissions do not equal allowed permissions except implied permissions"))
+		return ReturnableIssuanceResult{}, verificationFailure(result, errors.New("permissions do not equal allowed permissions except implied permissions"))
 	}
 	selection, ok := result.RepositorySelection()
 	if !ok {
-		return InstallationToken{}, verificationFailure(result, errors.New("repository_selection is unreadable"))
+		return ReturnableIssuanceResult{}, verificationFailure(result, errors.New("repository_selection is unreadable"))
 	}
 	if selection != github.RepositorySelectionSelected {
-		return InstallationToken{}, verificationFailure(result, errors.New("repository_selection is not selected"))
+		return ReturnableIssuanceResult{}, verificationFailure(result, errors.New("repository_selection is not selected"))
 	}
-	return InstallationToken{token: token, expiresAt: expiresAt, permissions: permissions, repositories: repositories}, nil
+	return ReturnableIssuanceResult{token: token, expiresAt: expiresAt, permissions: permissions, repositories: repositories}, nil
 }
 
 func verificationFailure(result github.IssuanceResult, condition error) error {

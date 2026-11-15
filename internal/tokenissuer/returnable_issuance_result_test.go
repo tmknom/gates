@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func verifiedToken(t *testing.T) InstallationToken {
+func returnableResult(t *testing.T) ReturnableIssuanceResult {
 	t.Helper()
 	got, err := verifyResult(t, issue(t, marshal(t, recordedIssuance())))
 	if err != nil {
@@ -20,27 +20,27 @@ func verifiedToken(t *testing.T) InstallationToken {
 }
 
 //trace:checks AC-QUALITY-002
-func TestInstallationToken_OutputDoesNotContainToken(t *testing.T) {
-	token := verifiedToken(t)
+func TestReturnableIssuanceResult_OutputDoesNotContainToken(t *testing.T) {
+	result := returnableResult(t)
 	tests := []struct {
 		name   string
 		output func() string
 	}{
-		{name: "fmt %v does not contain token", output: func() string { return fmt.Sprintf("%v", token) }},
-		{name: "fmt %+v does not contain token", output: func() string { return fmt.Sprintf("%+v", token) }},
-		{name: "fmt %#v does not contain token", output: func() string { return fmt.Sprintf("%#v", token) }},
+		{name: "fmt %v does not contain token", output: func() string { return fmt.Sprintf("%v", result) }},
+		{name: "fmt %+v does not contain token", output: func() string { return fmt.Sprintf("%+v", result) }},
+		{name: "fmt %#v does not contain token", output: func() string { return fmt.Sprintf("%#v", result) }},
 		{name: "slog does not contain token", output: func() string {
 			var buf bytes.Buffer
-			slog.New(slog.NewJSONHandler(&buf, nil)).Info("issued", "installation_token", token)
+			slog.New(slog.NewJSONHandler(&buf, nil)).Info("issued", "returnable_issuance_result", result)
 			return buf.String()
 		}},
 		// encoding/json/v2 は公開フィールドのない struct の Marshal を error にするため、出力と error の文言の両方を調べる
 		{name: "encoding/json does not contain token", output: func() string {
-			b, err := jsonv1.Marshal(token) //nolint:staticcheck // 公開フィールドを加えてもトークンが出ないことを確かめるため、出力するフィールドがなくても Marshal する
+			b, err := jsonv1.Marshal(result) //nolint:staticcheck // 公開フィールドを加えてもトークンが出ないことを確かめるため、出力するフィールドがなくても Marshal する
 			return string(b) + fmt.Sprint(err)
 		}},
 		{name: "encoding/json/v2 does not contain token", output: func() string {
-			b, err := json.Marshal(token)
+			b, err := json.Marshal(result)
 			return string(b) + fmt.Sprint(err)
 		}},
 	}
@@ -53,12 +53,12 @@ func TestInstallationToken_OutputDoesNotContainToken(t *testing.T) {
 	}
 }
 
-func TestInstallationToken_EffectiveRepositoriesCopiesValue(t *testing.T) {
-	token := verifiedToken(t)
-	repositories := token.EffectiveRepositories()
+func TestReturnableIssuanceResult_EffectiveRepositoriesCopiesValue(t *testing.T) {
+	result := returnableResult(t)
+	repositories := result.EffectiveRepositories()
 	repositories[0] = repositories[1]
 
-	if got := token.EffectiveRepositories()[0].RepositoryID(); got != repositoryIDA {
+	if got := result.EffectiveRepositories()[0].RepositoryID(); got != repositoryIDA {
 		t.Errorf("EffectiveRepositories()[0].RepositoryID() = %d after modifying the returned slice, want %d", got, repositoryIDA)
 	}
 }

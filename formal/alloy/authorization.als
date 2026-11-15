@@ -78,7 +78,7 @@ sig IssuanceResult {
   repositorySelection: one RepositorySelection
 }
 
-sig InstallationToken { result: one IssuanceResult }
+sig ReturnableIssuanceResult { result: one IssuanceResult }
 
 // The baseline policy is used by the original checks and witnesses.
 // The other policies deliberately disable exactly one return-time check.
@@ -91,7 +91,7 @@ one sig ModelConfiguration { policy: one VerificationPolicy }
 pred baseline { ModelConfiguration.policy = Baseline }
 
 // A single GitHub issuance API invocation can yield at most one modeled
-// result, and one result can become at most one installation token.
+// result, and one result can become at most one returnable issuance result.
 fact ResultCardinality {
   all c: IssueCall | lone c.~call
   all r: IssuanceResult | lone r.~result
@@ -159,8 +159,8 @@ pred verifiedResult[r: IssuanceResult] {
     r.effectivePermissions in (allowedPermissions + impliedPermissions)
 }
 
-fact OnlyVerifiedResultsBecomeTokens {
-  all t: InstallationToken | verifiedResult[t.result]
+fact OnlyVerifiedResultsBecomeReturnable {
+  all t: ReturnableIssuanceResult | verifiedResult[t.result]
 }
 
 // The following is an *external GitHub behavior assumption*, deliberately
@@ -196,27 +196,27 @@ assert AllIssueCallsExplicit {
     c.permissions = allowedPermissions
 }
 assert NoOverbroadTokenReturned {
-  baseline implies (all t: InstallationToken |
+  baseline implies (all t: ReturnableIssuanceResult |
     t.result.effectivePermissions in (allowedPermissions + impliedPermissions) and
     allowedPermissions in t.result.effectivePermissions and
     t.result.repositorySelection = Selected)
 }
 assert ExactNamesReturned {
-  baseline implies (all t: InstallationToken |
+  baseline implies (all t: ReturnableIssuanceResult |
     t.result.effectiveRepositories.repository.fullName = t.result.call.grant.request.repositories and
     #(t.result.effectiveRepositories) = #(t.result.call.grant.request.repositories))
 }
 assert NoDuplicateEffectiveRepositoriesReturned {
-  baseline implies (all t: InstallationToken | effectiveRepositoriesAreUnique[t.result])
+  baseline implies (all t: ReturnableIssuanceResult | effectiveRepositoriesAreUnique[t.result])
 }
 assert ReturnedReposOwnedByAllowedOwner {
-  baseline implies (all t: InstallationToken |
+  baseline implies (all t: ReturnableIssuanceResult |
     all r: t.result.effectiveRepositories.repository | r.owner = Config.allowedOwner)
 }
 // Conditional on the external assumption: GATES does not prevalidate coverage,
 // and its full-name check rejects a result that omits an uncovered name.
 assert CoverageHoldsWhenGitHubEnforces {
-  baseline implies (all t: InstallationToken |
+  baseline implies (all t: ReturnableIssuanceResult |
     githubResultRespectsInstallation[t.result] implies
     (all n: t.result.call.grant.repositories |
       some r: t.result.call.grant.installation.coveredRepositories |
@@ -228,28 +228,28 @@ assert CoverageHoldsWhenGitHubEnforces {
 // counterexamples; they are not assertions about the baseline implementation.
 assert WithoutOwnerCheckPreservesOwnerBoundary {
   ModelConfiguration.policy = WithoutOwnerCheck implies
-    (all t: InstallationToken |
+    (all t: ReturnableIssuanceResult |
       all r: t.result.effectiveRepositories.repository | r.owner = Config.allowedOwner)
 }
 assert WithoutNameCheckPreservesExactNames {
   ModelConfiguration.policy = WithoutNameCheck implies
-    (all t: InstallationToken |
+    (all t: ReturnableIssuanceResult |
       t.result.effectiveRepositories.repository.fullName = t.result.call.grant.request.repositories and
       #(t.result.effectiveRepositories) = #(t.result.call.grant.request.repositories))
 }
 assert WithoutCountCheckPreservesUniqueEffectiveRepositories {
   ModelConfiguration.policy = WithoutCountCheck implies
-    (all t: InstallationToken | effectiveRepositoriesAreUnique[t.result])
+    (all t: ReturnableIssuanceResult | effectiveRepositoriesAreUnique[t.result])
 }
 assert WithoutPermissionCheckPreservesPermissionBoundary {
   ModelConfiguration.policy = WithoutPermissionCheck implies
-    (all t: InstallationToken |
+    (all t: ReturnableIssuanceResult |
       t.result.effectivePermissions in (allowedPermissions + impliedPermissions) and
       allowedPermissions in t.result.effectivePermissions and
       t.result.repositorySelection = Selected)
 }
 assert ReturnedResultsHaveValidTokenAndExpiry {
-  all t: InstallationToken |
+  all t: ReturnableIssuanceResult |
     t.result.nonemptyToken = Yes and t.result.futureExpiry = Yes
 }
 
@@ -257,7 +257,7 @@ assert ReturnedResultsHaveValidTokenAndExpiry {
 // could pass vacuously in an inconsistent model.
 pred SuccessfulReturn {
   baseline
-  some t: InstallationToken |
+  some t: ReturnableIssuanceResult |
     githubResultRespectsInstallation[t.result]
 }
 
@@ -266,7 +266,7 @@ pred SuccessfulReturn {
 // access control is modeled, by design for Current Scope.
 pred CrossRepositoryWithinOwner {
   baseline
-  some t: InstallationToken, target: Repository |
+  some t: ReturnableIssuanceResult, target: Repository |
     githubResultRespectsInstallation[t.result] and
     target in t.result.effectiveRepositories.repository and
     target != t.result.call.grant.caller.repository and
@@ -286,7 +286,7 @@ pred IssueCallMayContainUncoveredNames {
 
 pred CoverageNotIndependentlyProved {
   baseline
-  some t: InstallationToken |
+  some t: ReturnableIssuanceResult |
     t.result.effectiveRepositories.repository not in t.result.call.grant.installation.coveredRepositories
 }
 
@@ -296,7 +296,7 @@ pred InvalidResultCanExist {
   baseline
   some r: IssuanceResult |
     ContentsWrite in r.effectivePermissions and
-    no t: InstallationToken | t.result = r
+    no t: ReturnableIssuanceResult | t.result = r
 }
 
 // All commands use a finite scope; absence of counterexamples is NOT

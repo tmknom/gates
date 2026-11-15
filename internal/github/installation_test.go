@@ -134,9 +134,9 @@ func allowedOwner(t *testing.T, ownerType authz.OwnerType) authz.AllowedOwner {
 	return owner
 }
 
-func newInstallation(t *testing.T, suspendedAt time.Time) authz.Installation {
+func newInstallation(t *testing.T, suspended bool) authz.Installation {
 	t.Helper()
-	installation, err := authz.NewInstallation(recordedInstallationID, recordedAccountID, suspendedAt)
+	installation, err := authz.NewInstallation(recordedInstallationID, recordedAccountID, suspended)
 	if err != nil {
 		t.Fatalf("NewInstallation returned error: %v", err)
 	}
@@ -250,14 +250,17 @@ func TestResolveInstallation_ReadsSuspendedAt(t *testing.T) {
 	suspended := recordedInstallation()
 	suspended["suspended_at"] = "2026-11-03T11:17:03Z"
 	suspended["suspended_by"] = map[string]any{"login": "octocat", "id": recordedAccountID}
+	zeroTimeSuspended := recordedInstallation()
+	zeroTimeSuspended["suspended_at"] = "0001-01-01T00:00:00Z"
 
 	tests := []struct {
 		name string
 		body map[string]any
-		want time.Time
+		want bool
 	}{
-		{name: "null suspended_at is not suspended", body: recordedInstallation(), want: time.Time{}},
-		{name: "time suspended_at is suspended", body: suspended, want: time.Date(2026, 11, 3, 11, 17, 3, 0, time.UTC)},
+		{name: "null suspended_at is not suspended", body: recordedInstallation(), want: false},
+		{name: "time suspended_at is suspended", body: suspended, want: true},
+		{name: "zero time suspended_at is suspended", body: zeroTimeSuspended, want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -293,7 +296,6 @@ func TestResolveInstallation_UnreadableInstallationReturnsErrInstallationUnavail
 		{name: "null account", body: with(func(body map[string]any) { body["account"] = nil })},
 		{name: "missing suspended_at", body: with(func(body map[string]any) { delete(body, "suspended_at") })},
 		{name: "non time suspended_at", body: with(func(body map[string]any) { body["suspended_at"] = responseMarker })},
-		{name: "zero time suspended_at", body: with(func(body map[string]any) { body["suspended_at"] = "0001-01-01T00:00:00Z" })},
 		{name: "non JSON body", body: raw("<html>" + responseMarker)},
 		{name: "duplicate id", body: raw(`{"id":1,"id":12345678,"account":{"id":583231},"suspended_at":null,"x":"` + responseMarker + `"}`)},
 	}

@@ -55,13 +55,13 @@ func TestEncodeFailure_RequestIDThatIsNotUTF8ReturnsZeroResponse(t *testing.T) {
 }
 
 //trace:checks AC-ISSUANCE-001 AC-ISSUANCE-002 AC-OPS-004
-func TestEncodeSuccess_WritesVerifiedInstallationToken(t *testing.T) {
-	token, err := issueInstallationToken(t, recordedIssuance(), http.StatusNoContent)
+func TestEncodeSuccess_WritesReturnableIssuanceResult(t *testing.T) {
+	result, err := issueInstallationAccessToken(t, recordedIssuance(), http.StatusNoContent)
 	if err != nil {
-		t.Fatalf("IssueInstallationToken returned error: %v", err)
+		t.Fatalf("IssueInstallationAccessToken returned error: %v", err)
 	}
 
-	decoded := decodeResponse(t, encodeSuccess(lambdaRequestID, token))
+	decoded := decodeResponse(t, encodeSuccess(lambdaRequestID, result))
 
 	assertKeys(t, "success response", decoded, "ok", "token", "expires_at", "repositories", "permissions", "request_id")
 	if decoded["ok"] != true {

@@ -10,12 +10,12 @@ import (
 
 // Authorize は、Security Design の認可条件を番号順に判定する。
 // 最初に満たさなかった条件で返す。ほかの条件の成否は、監査記録が別の項目として持つ Caller と要求から判定できるため。
-func Authorize(c caller.Caller, req request.TokenRequest, owner AllowedOwner) error {
-	if c.OwnerID() != owner.ID() {
+func Authorize(c caller.Caller, req request.TokenRequest, allowedOwner AllowedOwner) error {
+	if c.OwnerID() != allowedOwner.ID() {
 		return fmt.Errorf("%w: caller owner id does not match allowed owner id", ErrAuthorizationDenied)
 	}
 	for i, fullName := range req.Repositories() {
-		if !fullName.OwnerName().Equal(owner.Name()) {
+		if !fullName.OwnerName().Equal(allowedOwner.Name()) {
 			return fmt.Errorf("%w: repositories[%d] owner name does not match allowed owner name", ErrAuthorizationDenied, i)
 		}
 	}

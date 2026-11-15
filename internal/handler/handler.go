@@ -22,25 +22,25 @@ type oidcVerifier interface {
 	Authenticate(ctx context.Context, unverifiedIDToken request.UnverifiedIDToken) (caller.Caller, claimsset.SignatureVerified, error)
 }
 
-// installationTokenIssuer は、Token Issuer のうち Lambda Handler が使う操作である。
-type installationTokenIssuer interface {
-	IssueInstallationToken(ctx context.Context, grant tokenissuer.GrantFunc) (tokenissuer.InstallationToken, error)
+// installationAccessTokenIssuer は、Token Issuer のうち Lambda Handler が使う操作である。
+type installationAccessTokenIssuer interface {
+	IssueInstallationAccessToken(ctx context.Context, grant tokenissuer.GrantFunc) (tokenissuer.ReturnableIssuanceResult, error)
 }
 
 // Handler は Lambda Handler である。
 type Handler struct {
-	verifier    oidcVerifier
-	tokenIssuer installationTokenIssuer
-	owner       authz.AllowedOwner
-	log         *slog.Logger
+	verifier     oidcVerifier
+	tokenIssuer  installationAccessTokenIssuer
+	allowedOwner authz.AllowedOwner
+	log          *slog.Logger
 }
 
 // NewHandler は、Lambda Handler を作る。
 // log には、監査記録と回復した panic のログを書く。
-func NewHandler(verifier oidcVerifier, tokenIssuer installationTokenIssuer, owner authz.AllowedOwner, log *slog.Logger) *Handler {
+func NewHandler(verifier oidcVerifier, tokenIssuer installationAccessTokenIssuer, allowedOwner authz.AllowedOwner, log *slog.Logger) *Handler {
 	// ゼロ値の許可オーナーは、事前認可と Grant の照合先にならない
-	nonzero.Require(owner)
-	return &Handler{verifier: verifier, tokenIssuer: tokenIssuer, owner: owner, log: log}
+	nonzero.Require(allowedOwner)
+	return &Handler{verifier: verifier, tokenIssuer: tokenIssuer, allowedOwner: allowedOwner, log: log}
 }
 
 // Handle は、一回の発行処理を行い、応答の JSON を返す。
@@ -67,12 +67,12 @@ func (h *Handler) process(ctx context.Context, requestID RequestID, payload []by
 		// 回復の外のため、符号化できない応答は FunctionError になる。Handler が応答を書けない場合の扱いと同じである
 		nonzero.Require(resp)
 	}()
-	installationToken, err := h.runProcessingFlow(ctx, payload, record)
+	returnable, err := h.runProcessingFlow(ctx, payload, record)
 	if err != nil {
 		code := errorCodeOf(err)
 		result, resp = failedResult(code, err), encodeFailure(requestID.String(), code)
 	} else {
-		result, resp = audit.Succeeded(), encodeSuccess(requestID.String(), installationToken)
+		result, resp = audit.Succeeded(), encodeSuccess(requestID.String(), returnable)
 	}
 	// 相関 ID は RequestID の値で、成功応答のほかの値は GitHub Client が JSON として復号した値のため、符号化できない応答はプログラムの誤りである。
 	// 回復の範囲で止め、internal_error の応答と監査記録を返す
@@ -81,10 +81,10 @@ func (h *Handler) process(ctx context.Context, requestID RequestID, payload []by
 }
 
 // runProcessingFlow は、Processing Flow の手順を監査記録の出力の前まで順に行い、各手順で確定した値を監査記録に詰める。
-func (h *Handler) runProcessingFlow(ctx context.Context, payload []byte, record *audit.Record) (tokenissuer.InstallationToken, error) {
+func (h *Handler) runProcessingFlow(ctx context.Context, payload []byte, record *audit.Record) (tokenissuer.ReturnableIssuanceResult, error) {
 	unverifiedIDToken, tokenRequest, err := request.Validate(payload)
 	if err != nil {
-		return tokenissuer.InstallationToken{}, err
+		return tokenissuer.ReturnableIssuanceResult{}, err
 	}
 	record.SetTokenRequest(tokenRequest)
 	verified, claimsSet, err := h.verifier.Authenticate(ctx, unverifiedIDToken)
@@ -93,16 +93,16 @@ func (h *Handler) runProcessingFlow(ctx context.Context, payload []byte, record 
 		record.SetClaimsSet(claimsSet)
 	}
 	if err != nil {
-		return tokenissuer.InstallationToken{}, err
+		return tokenissuer.ReturnableIssuanceResult{}, err
 	}
 	record.SetCaller(verified)
-	if err := authz.Authorize(verified, tokenRequest, h.owner); err != nil {
-		return tokenissuer.InstallationToken{}, err
+	if err := authz.Authorize(verified, tokenRequest, h.allowedOwner); err != nil {
+		return tokenissuer.ReturnableIssuanceResult{}, err
 	}
 	// 要求の ctx を別の期限で包まない。失効のタイムアウトは要求の ctx の期限から決まる（Lambda Design の「Call Time Budget」）
-	return h.tokenIssuer.IssueInstallationToken(ctx, func(installation authz.Installation) (authz.TokenGrant, error) {
+	return h.tokenIssuer.IssueInstallationAccessToken(ctx, func(installation authz.Installation) (authz.TokenGrant, error) {
 		// Grant が拒否しても、Installation の解決には成功しているため、判定の前に詰める
 		record.SetInstallation(installation)
-		return authz.Grant(verified, tokenRequest, h.owner, installation)
+		return authz.Grant(verified, tokenRequest, h.allowedOwner, installation)
 	})
 }

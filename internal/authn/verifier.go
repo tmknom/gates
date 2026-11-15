@@ -101,7 +101,7 @@ func (r *keySetRecorder) VerifySignature(ctx context.Context, jwt string) ([]byt
 		return nil, err
 	}
 	claimsSet, err := claimsset.NewSignatureVerified(payload)
-	// checkClaimSet が同じ Payload を先に拒否するため届かないが、署名を検証した値を記録できないまま受理しないよう、拒否して Fail Closed にする
+	// checkClaimsSet が同じ Payload を先に拒否するため届かないが、署名を検証した値を記録できないまま受理しないよう、拒否して Fail Closed にする
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrAuthenticationFailure, err)
 	}
@@ -123,7 +123,7 @@ func (v *Verifier) Authenticate(ctx context.Context, unverifiedIDToken request.U
 		return caller.Caller{}, claimsset.SignatureVerified{}, err
 	}
 	// 署名を検証する前の Payload は拒否の判定だけに使い、Caller と署名検証済みの Claims Set は検証済みの Payload から作る
-	if err := checkClaimSet(signature.UnsafePayloadWithoutVerification()); err != nil {
+	if err := checkClaimsSet(signature.UnsafePayloadWithoutVerification()); err != nil {
 		return caller.Caller{}, claimsset.SignatureVerified{}, err
 	}
 

@@ -4,7 +4,7 @@
 Claims Set の受理条件は [GATES OIDC JWT Claims](gates-oidc-jwt-claims.md) に定め、規則の ID、根拠の区分、受理の分類もそちらに従います。
 各規則の ID は同じ `GOJ-` の接頭辞で始まります。
 
-Discovery / JWKS の取得時刻、キャッシュの存続、再取得の上限、タイムアウト、応答サイズ、失敗時の戻り値は本書の受理条件ではなく、検証器のコンポーネント設計が扱います。
+Discovery / JWKS の取得時刻、キャッシュの存続、再取得の上限、タイムアウト、応答サイズ、失敗時の戻り値は本書の受理条件ではなく、OIDC Verifier のコンポーネント設計が扱います。
 
 ## GOJ-SERIALIZATION JWS と JSON の基本条件
 

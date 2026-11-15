@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/tmknom/gates/internal/authz"
 	"github.com/tmknom/gates/internal/permission"
@@ -15,13 +14,11 @@ import (
 
 const installationID = 5005
 
-var suspendedAt = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-
 func TestGrant(t *testing.T) {
 	owner := mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName)
 	caller := mustNewCaller(t, allowedOwnerID)
 	req := mustTokenRequest(t, []string{"Example-Org/App", "example-org/lib"}, contentsRead)
-	inst := mustNewInstallation(t, allowedOwnerID, time.Time{})
+	inst := mustNewInstallation(t, allowedOwnerID, false)
 
 	grant, err := authz.Grant(caller, req, owner, inst)
 	if err != nil {
@@ -40,7 +37,7 @@ func TestTokenGrant_IsZero(t *testing.T) {
 	owner := mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName)
 	caller := mustNewCaller(t, allowedOwnerID)
 	req := mustTokenRequest(t, []string{"Example-Org/app"}, contentsRead)
-	grant, err := authz.Grant(caller, req, owner, mustNewInstallation(t, allowedOwnerID, time.Time{}))
+	grant, err := authz.Grant(caller, req, owner, mustNewInstallation(t, allowedOwnerID, false))
 	if err != nil {
 		t.Fatalf("Grant() returned error: %v", err)
 	}
@@ -57,7 +54,7 @@ func TestTokenGrant_RepositoriesCannotBeModifiedByCaller(t *testing.T) {
 	owner := mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName)
 	caller := mustNewCaller(t, allowedOwnerID)
 	req := mustTokenRequest(t, []string{"Example-Org/app", "Example-Org/lib"}, contentsRead)
-	grant, err := authz.Grant(caller, req, owner, mustNewInstallation(t, allowedOwnerID, time.Time{}))
+	grant, err := authz.Grant(caller, req, owner, mustNewInstallation(t, allowedOwnerID, false))
 	if err != nil {
 		t.Fatalf("Grant() returned error: %v", err)
 	}
@@ -82,7 +79,7 @@ func TestGrant_Denied(t *testing.T) {
 			name:          "installation owner id different from allowed owner id returns ErrInstallationUnavailable",
 			callerOwnerID: allowedOwnerID,
 			permissions:   contentsRead,
-			installation:  func(t *testing.T) authz.Installation { return mustNewInstallation(t, 2002, time.Time{}) },
+			installation:  func(t *testing.T) authz.Installation { return mustNewInstallation(t, 2002, false) },
 			want:          authz.ErrInstallationUnavailable,
 			notWant:       authz.ErrAuthorizationDenied,
 			wantReason:    "installation owner id",
@@ -91,7 +88,7 @@ func TestGrant_Denied(t *testing.T) {
 			name:          "suspended installation returns ErrInstallationUnavailable",
 			callerOwnerID: allowedOwnerID,
 			permissions:   contentsRead,
-			installation:  func(t *testing.T) authz.Installation { return mustNewInstallation(t, allowedOwnerID, suspendedAt) },
+			installation:  func(t *testing.T) authz.Installation { return mustNewInstallation(t, allowedOwnerID, true) },
 			want:          authz.ErrInstallationUnavailable,
 			notWant:       authz.ErrAuthorizationDenied,
 			wantReason:    "suspended",
@@ -100,7 +97,7 @@ func TestGrant_Denied(t *testing.T) {
 			name:          "request failing authorization with usable installation returns ErrAuthorizationDenied",
 			callerOwnerID: allowedOwnerID,
 			permissions:   map[string]string{"contents": "write"},
-			installation:  func(t *testing.T) authz.Installation { return mustNewInstallation(t, allowedOwnerID, time.Time{}) },
+			installation:  func(t *testing.T) authz.Installation { return mustNewInstallation(t, allowedOwnerID, false) },
 			want:          authz.ErrAuthorizationDenied,
 			notWant:       authz.ErrInstallationUnavailable,
 		},
@@ -108,7 +105,7 @@ func TestGrant_Denied(t *testing.T) {
 			name:          "request failing both authorization and installation validity returns ErrAuthorizationDenied",
 			callerOwnerID: 2002,
 			permissions:   contentsRead,
-			installation:  func(t *testing.T) authz.Installation { return mustNewInstallation(t, 2002, suspendedAt) },
+			installation:  func(t *testing.T) authz.Installation { return mustNewInstallation(t, 2002, true) },
 			want:          authz.ErrAuthorizationDenied,
 			notWant:       authz.ErrInstallationUnavailable,
 		},
@@ -137,7 +134,7 @@ func TestGrant_ErrorDoesNotContainValues(t *testing.T) {
 	owner := mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName)
 	caller := mustNewCaller(t, allowedOwnerID)
 	req := mustTokenRequest(t, []string{"Example-Org/app"}, contentsRead)
-	_, err := authz.Grant(caller, req, owner, mustNewInstallation(t, installationOwnerID, time.Time{}))
+	_, err := authz.Grant(caller, req, owner, mustNewInstallation(t, installationOwnerID, false))
 	if err == nil {
 		t.Fatal("Grant() returned no error")
 	}
@@ -148,9 +145,9 @@ func TestGrant_ErrorDoesNotContainValues(t *testing.T) {
 	}
 }
 
-func mustNewInstallation(t *testing.T, installationOwnerID int64, suspendedAt time.Time) authz.Installation {
+func mustNewInstallation(t *testing.T, installationOwnerID int64, suspended bool) authz.Installation {
 	t.Helper()
-	inst, err := authz.NewInstallation(installationID, installationOwnerID, suspendedAt)
+	inst, err := authz.NewInstallation(installationID, installationOwnerID, suspended)
 	if err != nil {
 		t.Fatalf("NewInstallation returned error: %v", err)
 	}

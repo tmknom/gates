@@ -3,13 +3,12 @@ package authz_test
 import (
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/tmknom/gates/internal/authz"
 )
 
 func TestInstallation_IDAndInstallationOwnerID(t *testing.T) {
-	installation, err := authz.NewInstallation(installationID, allowedOwnerID, time.Time{})
+	installation, err := authz.NewInstallation(installationID, allowedOwnerID, false)
 	if err != nil {
 		t.Fatalf("NewInstallation() error = %v", err)
 	}
@@ -32,7 +31,7 @@ func TestNewInstallation_Invalid(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := authz.NewInstallation(tt.id, tt.installationOwnerID, time.Time{})
+			_, err := authz.NewInstallation(tt.id, tt.installationOwnerID, false)
 			if !errors.Is(err, authz.ErrInvalidInstallation) {
 				t.Errorf("NewInstallation() error = %v, want %v", err, authz.ErrInvalidInstallation)
 			}

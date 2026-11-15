@@ -5,7 +5,6 @@ import (
 	"encoding/json/v2"
 	"log/slog"
 	"testing"
-	"time"
 
 	"github.com/tmknom/gates/internal/audit"
 	"github.com/tmknom/gates/internal/authz"
@@ -67,7 +66,7 @@ func signatureVerifiedClaimsSet(t *testing.T, payload string) claimsset.Signatur
 
 func installation(t *testing.T) authz.Installation {
 	t.Helper()
-	i, err := authz.NewInstallation(installationID, installationOwnerID, time.Time{})
+	i, err := authz.NewInstallation(installationID, installationOwnerID, false)
 	if err != nil {
 		t.Fatalf("NewInstallation returned error: %v", err)
 	}

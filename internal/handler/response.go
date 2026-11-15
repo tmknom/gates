@@ -41,19 +41,19 @@ func (r response) IsZero() bool {
 	return r == nil
 }
 
-// encodeSuccess は、照合を通った発行結果から成功応答を作る。
-func encodeSuccess(requestID string, installationToken tokenissuer.InstallationToken) response {
-	effective := installationToken.EffectiveRepositories()
+// encodeSuccess は、返却可能な発行結果から成功応答を作る。
+func encodeSuccess(requestID string, returnable tokenissuer.ReturnableIssuanceResult) response {
+	effective := returnable.EffectiveRepositories()
 	repositories := make([]string, 0, len(effective))
 	for _, repository := range effective {
 		repositories = append(repositories, repository.FullName().String())
 	}
 	return encode(successResponse{
 		OK:           true,
-		Token:        installationToken.Token().Expose(),
-		ExpiresAt:    installationToken.ExpiresAt(),
+		Token:        returnable.Token().Expose(),
+		ExpiresAt:    returnable.ExpiresAt(),
 		Repositories: repositories,
-		Permissions:  maps.Collect(installationToken.EffectivePermissions().Entries()),
+		Permissions:  maps.Collect(returnable.EffectivePermissions().Entries()),
 		RequestID:    requestID,
 	})
 }
