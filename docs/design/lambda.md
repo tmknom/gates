@@ -347,6 +347,9 @@ flowchart LR
 | Installation Access Token | 成功応答を書く Lambda Handler と、失効を要求する GitHub Client |
 
 検証済みの GATES 用 OIDC JWT は、OIDC Verifier が Caller を確定する間だけ存在し、OIDC Verifier の外に出しません。
+OIDC Verifier の外に出すのは、Caller と、署名を含まない [Domain Model](domain.md#36-audit-record) の署名検証済みの Claims Set だけです。
+署名検証済みの Claims Set を作れるのは OIDC Verifier だけで、読むのは監査記録だけです。
+Authorization が署名検証済みの Claims Set を受け取れないよう、その型を参照できる package を限ります。
 
 ### 4.1 Runtime Entry
 
@@ -531,8 +534,14 @@ Lambda の Go Runtime では標準出力が CloudWatch Logs に送られ、JSON 
 | 要求権限 | `request.permissions` | 権限名をキー、水準を値とするオブジェクト |
 | 取得した Installation の Installation ID とインストール先 Owner ID | `installation.id`、`installation.owner_id` | 整数 |
 | 失効の結果 | `revocation` | `not_attempted`、`succeeded`、`failed` のどれか |
+| 署名検証済みの Claims Set | `claims_set` | JSON オブジェクト。署名を検証した Payload を JSON として再符号化した値 |
 
 `caller`、`request`、`installation` は JSON のオブジェクトです。
+`claims_set` は `caller` の中に置きません。
+`caller` は認証に成功した後だけ記録し、`claims_set` は署名検証の後の認証失敗でも記録するためです。
+`claims_set` の値の再符号化では RFC 7493 の条件（UTF-8 と名前の一意性）を確かめ直し、文字列のエスケープを書き直し、数値の表記は変えません。
+制御文字と U+2028、U+2029 はエスケープされ、Payload の元の表記によらず、ワークフロー起動属性の文字列と同じく 1 行に収まります。
+数値の表記を変えないのは、未知の Claim の大きな整数を浮動小数点数に丸めると、調査に使う値が変わるためです。
 入れ子にするのは、Domain Model の概念の単位でキーがそろい、記録する条件もその単位で決まるためです。
 `time`、`level`、`msg` は `slog` のキーで、監査記録の項目には使いません。
 

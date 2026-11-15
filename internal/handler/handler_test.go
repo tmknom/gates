@@ -16,6 +16,7 @@ import (
 	"github.com/tmknom/gates/internal/authn"
 	"github.com/tmknom/gates/internal/authz"
 	"github.com/tmknom/gates/internal/caller"
+	"github.com/tmknom/gates/internal/claimsset"
 	"github.com/tmknom/gates/internal/nonzero"
 	"github.com/tmknom/gates/internal/request"
 	"github.com/tmknom/gates/internal/signer"
@@ -24,18 +25,19 @@ import (
 
 // verifierStub は OIDC Verifier のテストダブルである。
 type verifierStub struct {
-	caller caller.Caller
-	err    error
-	panics bool
-	calls  int
+	caller    caller.Caller
+	claimsSet claimsset.SignatureVerified
+	err       error
+	panics    bool
+	calls     int
 }
 
-func (v *verifierStub) Authenticate(context.Context, request.UnverifiedIDToken) (caller.Caller, error) {
+func (v *verifierStub) Authenticate(context.Context, request.UnverifiedIDToken) (caller.Caller, claimsset.SignatureVerified, error) {
 	v.calls++
 	if v.panics {
 		panicWithSecret()
 	}
-	return v.caller, v.err
+	return v.caller, v.claimsSet, v.err
 }
 
 // tokenIssuerStub は Token Issuer のテストダブルである。
@@ -109,6 +111,10 @@ func handle(t *testing.T, verifier oidcVerifier, tokenIssuer installationTokenIs
 			}
 		}
 	}
+	// 署名検証済みの Claims Set は監査記録にだけ書き、Caller への応答には出さない
+	if response := string(b); strings.Contains(response, claimsSetMarker) {
+		t.Errorf("response contains the signature-verified claims set: %s", response)
+	}
 	var logs []map[string]any
 	for line := range strings.Lines(log.String()) {
 		var record map[string]any
@@ -171,15 +177,19 @@ func installation(t *testing.T, installationOwnerID int64, suspendedAt time.Time
 	return &inst
 }
 
-//trace:checks AC-01 AC-18
+//trace:checks AC-01 AC-18 AC-34
 func TestHandle_IssuesTokenAndWritesOneAuditRecordOfSuccess(t *testing.T) {
-	inv := handle(t, &verifierStub{caller: verifiedCaller(t)}, newTokenIssuer(t, recordedIssuance(), http.StatusNoContent), validPayload(t))
+	verifier := &verifierStub{caller: verifiedCaller(t), claimsSet: signatureVerifiedClaimsSet(t)}
+	inv := handle(t, verifier, newTokenIssuer(t, recordedIssuance(), http.StatusNoContent), validPayload(t))
 
 	if inv.response["ok"] != true || inv.response["token"] != tokenMarker || inv.response["request_id"] != lambdaRequestID {
 		t.Errorf("response = %v, want the success response with the issued token and the request ID", inv.response)
 	}
 	record := inv.auditRecord(t)
-	assertKeys(t, "audit record", record, auditKeys("caller", "request", "installation")...)
+	assertKeys(t, "audit record", record, auditKeys("claims_set", "caller", "request", "installation")...)
+	if want := map[string]any{"head_ref": claimsSetMarker}; !reflect.DeepEqual(record["claims_set"], want) {
+		t.Errorf("claims_set = %v, want %v", record["claims_set"], want)
+	}
 	if record["result"] != "success" {
 		t.Errorf("result = %v, want success", record["result"])
 	}
@@ -243,6 +253,21 @@ func TestHandle_AuthenticationFailureStopsBeforeAuthorization(t *testing.T) {
 				t.Errorf("Token Issuer calls = %d, want 0", tokenIssuer.calls)
 			}
 		})
+	}
+}
+
+// 署名検証の後に認証が失敗すると、Caller は記録せず、署名検証済みの Claims Set を記録する。
+//
+//trace:checks AC-34
+func TestHandle_AuthenticationFailureAfterSignatureVerificationWritesClaimsSet(t *testing.T) {
+	verifier := &verifierStub{claimsSet: signatureVerifiedClaimsSet(t), err: fmt.Errorf("%w: sub mismatch", authn.ErrAuthenticationFailure)}
+
+	inv := handle(t, verifier, &tokenIssuerStub{}, validPayload(t))
+
+	record := inv.assertFailed(t, "invalid_id_token")
+	assertKeys(t, "audit record", record, auditKeys("reason", "request", "claims_set")...)
+	if want := map[string]any{"head_ref": claimsSetMarker}; !reflect.DeepEqual(record["claims_set"], want) {
+		t.Errorf("claims_set = %v, want %v", record["claims_set"], want)
 	}
 }
 

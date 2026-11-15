@@ -10,6 +10,7 @@ import (
 	"github.com/tmknom/gates/internal/audit"
 	"github.com/tmknom/gates/internal/authz"
 	"github.com/tmknom/gates/internal/caller"
+	"github.com/tmknom/gates/internal/claimsset"
 	"github.com/tmknom/gates/internal/request"
 )
 
@@ -53,6 +54,15 @@ func tokenRequest(t *testing.T) request.TokenRequest {
 		t.Fatalf("Validate returned error: %v", err)
 	}
 	return req
+}
+
+func signatureVerifiedClaimsSet(t *testing.T, payload string) claimsset.SignatureVerified {
+	t.Helper()
+	c, err := claimsset.NewSignatureVerified([]byte(payload))
+	if err != nil {
+		t.Fatalf("NewSignatureVerified returned error: %v", err)
+	}
+	return c
 }
 
 func installation(t *testing.T) authz.Installation {

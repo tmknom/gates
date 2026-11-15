@@ -2,7 +2,7 @@
 
 本ドキュメントは、GATES 用 OIDC JWT の Claims Set に GATES が課す受理条件を定めます。
 GATES 用 OIDC JWT は GitHub Actions OIDC Provider が発行し、Lambda の OIDC Verifier が検証する JWT です。
-Caller の認証とワークフロー起動属性の監査に使い、GATES 固有の Audience を指定して取得します。
+Caller の認証と監査（ワークフロー起動属性と、調査用に残す Claims Set の全体）に使い、GATES 固有の Audience を指定して取得します。
 同じジョブで取得する AWS 用 OIDC JWT とは Audience が異なる別の JWT です。
 
 Claim の意味と使い方、Claim 間の整合を記述します。
@@ -40,7 +40,7 @@ GATES は、適用対象の標準仕様が要求する検証を省略しませ�
 
 - **必須**：欠落、`null`、型の不一致、個別条件の不一致を拒否する。必須 Claim が成立しなければ Caller を生成しない。
 - **任意・検証**：欠落を許す。存在する場合は定めた型・値・時間条件を満たす必要がある。
-- **任意・監査**：欠落や型の不一致を許し、正しい型の値だけを監査に転送する。認可の根拠には使用しない。監査する値は構造化形式でエスケープして記録する。
+- **任意・監査**：欠落や型の不一致を許し、正しい型の値だけをワークフロー起動属性として監査に転送する。認可の根拠には使用しない。監査する値は構造化形式でエスケープして記録する。
 - **未使用**：Claim 自体の存在・値で追加の認可判断をしない。未知 Claim を含む JWT も、共通 JSON / 署名規則には従う。
 - **拒否**：GATES 用 OIDC JWT の検証条件を満たさない場合は Caller を確定せず、認証失敗として扱う。鍵の取得や JWKS 全体の異常による失敗は、JWT 自体の検証失敗とは別の障害として扱う。
 
@@ -382,13 +382,14 @@ Caller の確定後、固定した Allowed Owner ID との一致は認可で確�
 - 別名は、5 つの名前のどれかと Unicode の単純な Case Folding（[CaseFolding.txt](https://www.unicode.org/Public/UCD/latest/ucd/CaseFolding.txt) の状態 C と S）で同じ文字列に畳み込まれ、その名前自体とは異なる名前とする。5 つの名前の文字では、各 ASCII 英字の大文字と小文字、および `s`、`S`、`ſ`（U+017F）がそれぞれ同じ文字に畳み込まれる。別名は `iss` の 17 個（`ISS`、`iſſ`、`iſs` など）と、ほかの 4 つの名前の各 7 個（`AUD`、`eXp` など）の計 45 個である。
 - 完全な Case Folding（状態 F）とトルコ語用の対応（状態 T）は使わない。そのため、`iß` と `İss` は別名ではなく、未知の Claim として扱う。`ıss` も、`ı`（U+0131）がどの Case Folding でも `i` に畳み込まれないため、未知の Claim として扱う。範囲を単純な Case Folding に揃えるのは、検証ライブラリの JSON デコーダーが Claim 名を同一視する範囲がこれと一致し、`iß` のような名前は `iss` として読まれないためである。
 - 検証ライブラリと Claim 抽出処理で、同じ署名済み Claims Set の **同名・同値** を使用する。
-- 任意・監査用 Claim は JSON 文字列として読み取れた場合だけ転送する。型違い・欠落は拒否せず、構造化ログではエスケープする。未知 Claim を自動的に監査へ取り込まない。
+- 任意・監査用 Claim は JSON 文字列として読み取れた場合だけワークフロー起動属性に転送する。型違い・欠落は拒否せず、構造化ログではエスケープする。未知 Claim をワークフロー起動属性に取り込まない。
+- 署名検証を通った Claims Set は、Claim の分類によらずすべての Claim を、ワークフロー起動属性とは別に調査用として監査記録へ残す（[Requirements](../spec/requirements.md) の FR-021）。残した Claim は、認証、認可、ワークフロー起動属性のどれにも使わない。各 Claim の分類はこの記録によって変わらない。
 
 ### GOJ-DYNAMIC-CLAIM Discovery に掲載されない動的 Claim
 
 **GitHub 公式仕様**：Organization / Enterprise 管理者は Repository Custom Properties を OIDC JWT に追加できます。Claim 名は `repo_property_` とプロパティ名の連結です。文字列型と単一選択型は文字列、複数選択型は選択値のカンマ区切り文字列、真偽値型は JSON の boolean ではなく文字列の `"true"` / `"false"` として表現されます（[GitHub OIDC reference — Including repository custom properties in OIDC tokens](https://docs.github.com/en/actions/reference/security/oidc#including-repository-custom-properties-in-oidc-tokens)）。
 
-**GATES の設計**：`repo_property_*` は現在すべて未使用です。存在・欠落・値・型を認証、認可、監査の根拠とせず、存在するだけで JWT を拒否しません。例えば `repo_property_business_unit` や `repo_property_pci_compliant` を追加しても、必須 Claim の検証結果は変えません。将来 GitHub が追加する未知 Claim も同様です。ただし Claims Set 全体の JSON の妥当性、名前の重複、署名検証は引き続き必要です。将来この属性を認可に使うときは、意味・型・信頼性・変更権限を別途評価し、受理条件を改訂します。
+**GATES の設計**：`repo_property_*` は現在すべて未使用です。存在・欠落・値・型を認証、認可、ワークフロー起動属性の根拠とせず、存在するだけで JWT を拒否しません。署名検証を通った Claims Set の一部として、調査用に監査記録へ残すだけです（[GOJ-CLAIM-NAME](#goj-claim-name-json-と-claim-名の一貫した解釈)）。例えば `repo_property_business_unit` や `repo_property_pci_compliant` を追加しても、必須 Claim の検証結果は変えません。将来 GitHub が追加する未知 Claim も同様です。ただし Claims Set 全体の JSON の妥当性、名前の重複、署名検証は引き続き必要です。将来この属性を認可に使うときは、意味・型・信頼性・変更権限を別途評価し、受理条件を改訂します。
 
 ## Traceability
 
@@ -398,7 +399,7 @@ Caller の確定後、固定した Allowed Owner ID との一致は認可で確�
 | Claim 名の別名の拒否と、時刻の値の表記 | [Requirements](../spec/requirements.md) の FR-027 |
 | 不変形式 `sub` | [Requirements](../spec/requirements.md) の FR-005、FR-025 |
 | Caller の Owner ID による認可と Repository ID の監査利用 | [Requirements](../spec/requirements.md) の FR-002、FR-006 |
-| 起動属性のベストエフォート監査 | [Requirements](../spec/requirements.md) の FR-021 |
+| 起動属性のベストエフォート監査と、署名検証を通った Claims Set の調査用の記録 | [Requirements](../spec/requirements.md) の FR-021 |
 
 ## Verification Cases
 
@@ -413,6 +414,7 @@ Caller の確定後、固定した Allowed Owner ID との一致は認可で確�
 | 任意・監査 | `environment` 欠落、監査 Claim の型違い、制御文字入りの文字列 | 認証は継続し、ログでは安全に記録 |
 | Claim 名の比較 | `iss`、`ISS`、`iſſ`、`iſS` のような混在、`iß`、`İss`、`ıss`、`\u0069ss`、同時存在 | 厳密一致。GOJ-CLAIM-NAME の 45 個の別名は拒否し、`iß`、`İss`、`ıss` は別名として扱わない。エスケープ解除後の重複は拒否 |
 | 動的 Claim | `repo_property_*` の文字列・複数選択・真偽値文字列、未知 Claim | 追加 Claim があっても、必須 Claim が成立すれば認証を妨げない |
+| Claims Set の記録 | 署名検証の前の拒否、署名検証の後の Claim の拒否、認証の成功、制御文字入りの値、未知 Claim | 署名検証を通った場合だけ、未知 Claim を含むすべての Claim を残し、制御文字はエスケープする |
 | JSON の曖昧さ | 重複 Claim 名、Unicode エスケープによる重複、不正 UTF-8 | 署名が正しくても拒否 |
 
 ケースの詳細なテスト実装とモック方式はコンポーネント設計が担当します。この表は受理条件のテスト可能性の索引であり、コードのテスト一覧の正本を二重に設けるものではありません。

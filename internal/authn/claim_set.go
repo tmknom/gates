@@ -13,8 +13,9 @@ const maxAcceptedNumericDate = 253402300799
 // go-oidc の Config にこれらの判定を有効にする設定はなく、encoding/json (v1) で読むため、Payload を encoding/json/v2 で読む。
 // encoding/json/v2 のエラー文言は入力の断片を含むため包まない。
 func checkClaimSet(rawClaims []byte) error {
+	// encoding/json/v2 は null をエラーにせず nil の map に復号するため、nil を JSON オブジェクトでない Claims Set として拒否する
 	var claimSet map[string]jsontext.Value
-	if err := json.Unmarshal(rawClaims, &claimSet); err != nil {
+	if err := json.Unmarshal(rawClaims, &claimSet); err != nil || claimSet == nil {
 		return fmt.Errorf("%w: claims cannot be decoded", ErrAuthenticationFailure)
 	}
 	for name := range claimSet {

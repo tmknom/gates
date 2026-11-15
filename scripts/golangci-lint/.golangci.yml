@@ -60,7 +60,7 @@ linters:
       - path: _test\.go
         linters:
           - forbidigo
-        text: "use of `((caller\\.)?NewCaller|(github\\.)?NewAppJWT)`"
+        text: "use of `((caller\\.)?NewCaller|(github\\.)?NewAppJWT|(claimsset\\.)?NewSignatureVerified)`"
       # メソッドの違反は、変数の名前で表記が変わるため、メッセージで照合する
       - path: ^internal/request/.*_test\.go$
         linters:
@@ -69,7 +69,7 @@ linters:
       - path: ^internal/authn/
         linters:
           - forbidigo
-        text: "use of `caller\\.NewCaller`|only internal/authn may expose the unverified ID token"
+        text: "use of `(caller\\.NewCaller|claimsset\\.NewSignatureVerified)`|only internal/authn may expose the unverified ID token"
       - path: ^internal/signer/
         linters:
           - forbidigo
@@ -258,6 +258,30 @@ linters:
           allow:
             - $gostd
             - github.com/tmknom/gates/.github/actions/issue-token/internal/credential
+        # 署名検証済みの Claims Set は監査記録のためだけの値で、認証、認可、ワークフロー起動属性の判断に使わない（FR-021）。
+        # 作る OIDC Verifier、運ぶ Lambda Handler、書く監査記録のほかは import できなくし、Authorization が受け取れないようにする
+        claimsset-consumers:
+          list-mode: lax
+          files:
+            - "**/internal/**"
+            - "**/main.go"
+            - "!**/internal/authn/**"
+            - "!**/internal/audit/**"
+            - "!**/internal/claimsset/**"
+            - "!**/internal/handler/**"
+            - "!**/.github/**"
+          deny:
+            - pkg: github.com/tmknom/gates/internal/claimsset
+              desc: only internal/authn, internal/handler, and internal/audit may use the signature-verified Claims Set
+        # 署名検証済みの Claims Set は、認証の判定に使う型を持ち込まないよう、標準ライブラリだけに依存する
+        claimsset-standard-library-only:
+          list-mode: strict
+          files:
+            - "**/internal/claimsset/**"
+            - "!**/.github/**"
+          allow:
+            - $gostd
+            - github.com/tmknom/gates/internal/claimsset$
         # 監査記録は資格情報を含めない（QR-004）。資格情報の型を import しないことは型単位では禁じられないため、package 単位で限る。
         # 許可する package を完全一致で列挙し、資格情報の型を公開する package を既定で拒否する。
         # internal/request は発行要求のために許し、監査記録が未検証の GATES 用 OIDC JWT を持たないことはレビューで確かめる。テストも対象にし、監査記録に渡せる型を閉じたままにする
@@ -270,6 +294,7 @@ linters:
             - github.com/tmknom/gates/internal/audit$
             - github.com/tmknom/gates/internal/authz$
             - github.com/tmknom/gates/internal/caller$
+            - github.com/tmknom/gates/internal/claimsset$
             - github.com/tmknom/gates/internal/errorcode$
             - github.com/tmknom/gates/internal/nonzero$
             - github.com/tmknom/gates/internal/request$
@@ -296,6 +321,10 @@ linters:
         - pattern: ^caller\.NewCaller$
           pkg: ^github\.com/tmknom/gates/internal/caller$
           msg: only internal/authn may create a Caller
+        # 署名検証済みの Claims Set は、OIDC Verifier が署名を検証した Payload だけから作る。NewSignatureVerified は公開関数で、呼び出せる package を型で限定できないため
+        - pattern: ^claimsset\.NewSignatureVerified$
+          pkg: ^github\.com/tmknom/gates/internal/claimsset$
+          msg: only internal/authn may create a signature-verified Claims Set
         # AppJWT は KMS Signer だけが作る。NewAppJWT は公開関数で、呼び出せる package を型で限定できないため
         - pattern: ^github\.NewAppJWT$
           pkg: ^github\.com/tmknom/gates/internal/github$
