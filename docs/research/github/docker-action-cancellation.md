@@ -3,7 +3,7 @@
 本ドキュメントでは、GATES の Docker Action（`issue-token`）を、失敗するジョブとキャンセルするジョブから呼んだときの、post-entrypoint の実行とキャンセルのシグナルの届き方を記述します。
 あわせて、`docker run` のプロセスを強制終了した後のコンテナと、post-entrypoint が失効させた後のトークンを記述します。
 
-- 調査日：**2026/11/10**（[Killing the Docker Run Process](#killing-the-docker-run-process) と [Revoked Token after the Post-entrypoint](#revoked-token-after-the-post-entrypoint) は **2026/11/14**）
+- 調査日：**2026/11/10**（[Killing the Docker Run Process](#killing-the-docker-run-process) と [Revoked Token after the Post-entrypoint](#revoked-token-after-the-post-entrypoint) は **2026/11/14**、[Revocation Not Yet in Effect](#revocation-not-yet-in-effect) は **2026/11/15**）
 - 検証環境：個人アカウントのプライベートリポジトリ。`runs-on: ubuntu-latest`（Ubuntu 26.04、Runner 2.338.2）
 - 起動：作業ブランチへの push
 - ワークフロー：本リポジトリの [_e2e-failure.yml](../../../.github/workflows/_e2e-failure.yml) と [_e2e-cancel.yml](../../../.github/workflows/_e2e-cancel.yml) の `on:` に push のトリガーを加えたもの。Action は別のリポジトリとして commit SHA で参照した
@@ -179,10 +179,31 @@ post-entrypoint が失効させた後のトークンが使えないことを、p
 | 12 | `Post Checkout` | － |
 
 post はメインの処理と逆の順で動き、試験用の Action の post は post-entrypoint の約 0.3 秒後に、失効したトークンで `401` を得ました。
-post-entrypoint の失効の要求から `401` までの間に、失効が効かない時間は観測されませんでした。
+
+### Revocation Not Yet in Effect
+
+- 調査日：**2026/11/15**
+
+同じワークフローを、GitHub App Private Key の更新の前後に 4 回動かしました。
+そのうち 1 回で、失効の `204` の後にもトークンが使えました。
+
+| 実行 | `204` から post の読み取りまで | post の読み取り |
+|---|---|---|
+| 1 | 約 0.21 秒 | `401` |
+| 2 | 約 0.23 秒 | `401` |
+| 3 | 約 0.40 秒 | `200` |
+| 4 | 約 0.32 秒 | `401` |
+
+3 の実行では、post-entrypoint が `revocation succeeded: HTTP status 204` を出した約 0.4 秒後に、試験用の Action の post が同じトークンで `README.md` を読めました。
+それより早く読んだ 1、2、4 では `401` だったため、`204` からの経過時間だけでは、トークンが使えなくなったかは決まりません。
+
+GitHub の公式資料は、失効したトークンは無効になり使えないと書くだけで、失効が効くまでの時間には触れていません（[REST API endpoints for GitHub App installations](https://docs.github.com/en/rest/apps/installations)）。
+`204` が返っても、GitHub のすべての API で直ちにトークンが拒否されるとは限らないとみられます。
+使える状態がどれだけ続くかは、確かめていません。
 
 ## References
 
 - [GitHub — Workflow cancellation reference](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-cancellation)
 - [GitHub — Workflow syntax for GitHub Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax)
 - [GitHub — REST API endpoints for workflow runs](https://docs.github.com/en/rest/actions/workflow-runs)
+- [GitHub — REST API endpoints for GitHub App installations](https://docs.github.com/en/rest/apps/installations)

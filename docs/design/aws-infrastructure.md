@@ -156,7 +156,9 @@ Terraform に削除させないのは、`prevent_destroy` を外すと、同じ�
 
 State から外した鍵の削除の予約（`kms:ScheduleKeyDeletion`）は、運用者が KMS の API で行います。
 予約するのは、GitHub 側で旧鍵を削除して、旧鍵への切り戻しがあり得なくなった後です。
-予約した削除は、予約期間（30 日）のあいだ `kms:CancelKeyDeletion` で取り消せます。
+予約期間は、KMS が許す最短の 7 日にします。
+GitHub 側で削除した後の旧鍵は、署名できても GitHub App として認証に使えない見込みで、残す理由がないためです。
+予約した削除は、予約期間のあいだ `kms:CancelKeyDeletion` で取り消せます。
 
 ## 5. Lambda Deployment and Operation
 

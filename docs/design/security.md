@@ -161,7 +161,7 @@ KMS Key の署名能力は、GitHub App として認証する手段そのもの�
 | 実行 Role による別の鍵での署名 | 実行 Role の IAM ポリシーに使用中の鍵のほかの許可を含めず、GATES の鍵の集合（新旧の 2 つまで）のほかの鍵の Key Policy に実行 Role を書かない |
 | IAM の管理権限を持つ主体による直接の署名 | Key Policy で root に許可する操作を列挙し、`kms:Sign`、`kms:*`、`kms:CreateGrant` を含めない |
 | Terraform の操作による鍵の削除と置換 | `prevent_destroy` で該当する Plan を拒否する。鍵の集合から鍵を除いた Plan も拒否する |
-| 予約した削除の実行 | 削除の予約期間を 30 日にし、その間は `kms:CancelKeyDeletion` で取り消せるようにする |
+| 予約した削除の実行 | Terraform が管理する鍵の削除の予約期間（`deletion_window_in_days`）を 30 日にし、その間は `kms:CancelKeyDeletion` で取り消せるようにする |
 | CI からの権限の変更 | Terraform を運用者の手元から適用し、CI に適用権限を与えない |
 
 これらの設定は「鍵を管理できる主体は署名できない」を意味しません。
@@ -177,7 +177,7 @@ KMS Key の署名能力は、GitHub App として認証する手段そのもの�
 - **適用とインポートを同じ主体が担う構成**：Key Policy は鍵素材のインポートを許可する主体を区別しない。鍵素材のインポートの権限を通常の Terraform 適用から分離することは IAM の権限の割り当てに依存し、Key Policy では保証しない
 - **インポート前の秘密鍵のコピー**：運用者の手元のコピーを削除することは手順で定めるだけで、設定では強制できない
 - **鍵の更新の間の、使用中でない鍵での署名**：鍵の更新の間は、新旧どちらの鍵の Key Policy も実行 Role に `kms:Sign` を許可するため、実行 Role は使用中でない鍵でも署名できる。使用中でない鍵の Key Policy から実行 Role を外さないのは、外すと切り替えと切り戻しのたびに 2 つの Key Policy を書き換えることになり、上記の `kms:PutKeyPolicy` のリスクを持つ操作が増えるためである。2 つの鍵はどちらも同じ GitHub App の Private Key であり、実行 Role が侵害されたときに得られる能力（GitHub App としての認証）は 1 つの鍵のときと変わらない。新しい鍵は鍵素材のインポートまで署名できない。旧鍵は、切り替えの後の発行を確かめてから運用者が無効にし、この期間を短くする。GitHub 側で旧 Private Key を削除した後は、旧鍵での署名は GitHub に受理されない見込みである（削除した鍵の JWT を GitHub が拒否することは、公式資料からの推論で、GATES を通しては確かめられない）
-- **Terraform の管理から外した旧鍵**：退役させる鍵を State から外すと、その鍵の Key Policy と状態は Terraform の Plan に現れなくなる。外す前に鍵を無効にし、外した後は削除を予約する手順で、残る期間を予約期間（30 日）に限る。予約期間のあいだは `kms:EnableKey` と `kms:CancelKeyDeletion` を持つ主体が鍵を戻せるが、GitHub 側で Private Key を削除した後のため、戻した鍵で署名しても GitHub App として認証できない見込みである
+- **Terraform の管理から外した旧鍵**：退役させる鍵を State から外すと、その鍵の Key Policy と状態は Terraform の Plan に現れなくなる。外す前に鍵を無効にし、外した後は削除を予約する手順で、残る期間を予約期間（7 日）に限る。予約期間のあいだは `kms:EnableKey` と `kms:CancelKeyDeletion` を持つ主体が鍵を戻せるが、GitHub 側で Private Key を削除した後のため、戻した鍵で署名しても GitHub App として認証できない見込みである
 - **Terraform の設定の除去による鍵の削除**：`prevent_destroy` はリソースの設定自体を取り除いた場合の削除を防がない。Plan に現れた鍵の削除を運用者が確認して止める
 - **KMS の API からの鍵の無効化と削除の予約**：`kms:DisableKey` や `kms:ScheduleKeyDeletion` を IAM で許可された主体は、Terraform を経ずに実行できる。`prevent_destroy` は効かず、Terraform は鍵の有効と無効を設定に書かないため、無効化は Plan にも現れない（[AWS Fault Injection](../research/aws/fault-injection.md)）。Lambda は署名できなくなってトークンを発行できない。影響は可用性にとどまる。鍵の悪用が判明したときに一時的に止める手段でもあるため、Key Policy から外さない
 

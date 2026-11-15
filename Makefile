@@ -134,6 +134,15 @@ tf-state-rm-kms-key: tf-mountpoints ## remove the retired KMS key KMS_KEY_NAME f
 		|| (echo "KMS_KEY_NAME must be the name of the retired key in kms_keys, such as key-1" && exit 1)
 	$(TF_RUN) offline state rm -backup=$(TF_LOCAL_NAME)/terraform.tfstate.$(KMS_KEY_NAME).backup 'aws_kms_external_key.signing["$(KMS_KEY_NAME)"]'
 
+# 秘密鍵を扱うため、コンテナに入れず、運用者が手元のシェルで実行する。名前とパスの検査はスクリプトが行う
+.PHONY: kms-import-key-material
+kms-import-key-material: tf-aws-credentials ## import the GitHub App private key at GITHUB_PRIVATE_KEY_PATH into the PendingImport KMS key KMS_KEY_NAME, then remove the file
+	scripts/kms/import-key-material.sh
+
+.PHONY: kms-test
+kms-test: ## test the key material import script with a stubbed aws and throwaway keys
+	scripts/kms/import-key-material_test.sh
+
 # 古いコードを配布しないよう、Plan のたびにデプロイパッケージを作り直す
 # Terraform はエラーで止まった Plan も保存するため、失敗したら捨てる。prevent_destroy で止めた鍵の置換を含む Plan が残るのを防ぐ
 .PHONY: tf-plan

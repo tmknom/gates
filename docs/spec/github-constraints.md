@@ -258,7 +258,7 @@ GitHub は、トークンを、中身を解釈しない文字列として扱う�
 
 **公式仕様**：`DELETE /installation/token` は、その呼び出しを認証した Installation Access Token 自身を失効させます。GitHub App JWT で呼び出す API ではありません。成功の応答は `204` です（[REST API — App installations](https://docs.github.com/en/rest/apps/installations?apiVersion=2026-03-10)）。この資料も新形式への移行の案内も、新形式のトークンでの失効の動作を個別には説明していません。
 
-**実測値（失効）**：発行したトークンの失効は `204` を返し、失効したトークンによる要求は `401` で拒否されました（[GitHub Installation Access Token](../research/github/installation-access-token.md#失効の前後のトークン)）。
+**実測値（失効）**：発行したトークンの失効は `204` を返し、失効したトークンによる要求は `401` で拒否されました（[GitHub Installation Access Token](../research/github/installation-access-token.md#失効の前後のトークン)）。ただし、`204` の約 0.4 秒後の要求が `200` で通った事例が 1 回あり、失効が直ちにすべての要求に効くとは限りません。公式資料は、失効が効くまでの時間を記載していません（[GitHub Docker Action Failure and Cancellation](../research/github/docker-action-cancellation.md#revocation-not-yet-in-effect)）。
 
 ## 7. GitHub Actions Integration
 

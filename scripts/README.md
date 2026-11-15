@@ -5,6 +5,10 @@
 本ディレクトリでは、外部のツールを隔離して実行するコンテナの定義を、ツールごとのディレクトリで管理します。
 全コンテナに共通する方針は [コンテナのセキュリティ設計](container-design.md) に定めています。
 
+`kms/` だけはコンテナを使わず、運用者が手元のシェルで実行するスクリプトを置きます。
+GitHub App Private Key を KMS Key にインポートするスクリプトで、秘密鍵を扱うため、Coding Agent は実行しません。
+使い方は [Key Material Import](../docs/contributing/import-key-material.md) にあります。
+
 ## コンテナ一覧
 
 | コンテナ | 内容 |
@@ -41,6 +45,8 @@
 | `make tf-show` | Terraform | 保存した Plan を表示する | |
 | `make tf-apply` | Terraform | 保存した Plan を適用する | AWS の認証情報 |
 | `make z3` | Z3 | `formal/z3/` の検査をすべて実行し、期待する判定と比べる | |
+| `make kms-import-key-material` | なし（手元のシェル） | `KMS_KEY_NAME` の KMS Key に、`GITHUB_PRIVATE_KEY_PATH` の GitHub App Private Key をインポートし、そのファイルを削除する | AWS の認証情報、AWS CLI、OpenSSL 3 以降、`jq`、`xxd` |
+| `make kms-test` | なし（手元のシェル） | `aws` をスタブに差し替え、使い捨ての鍵でインポートのスクリプトを試験する | OpenSSL 3 以降、`jq`、`xxd` |
 
 Alloy のモデルを追加するときは、Makefile の `alloy` に実行の行を追加します。
 Z3 の検査を追加するときは、Makefile ではなく `formal/z3/checks/` にファイルを追加します。

@@ -261,6 +261,9 @@ git push origin HEAD:e2e/failure
 
 ワークフローを動かさずに文書だけを push するときは、コミットのメッセージに `[skip ci]` を付けます。
 
+複数のワークフローを動かすときは、1 つが終わってから次を push します。
+同じ `concurrency` のグループで待てる実行は 1 つだけで、新しい実行が待っている実行を取り消すためです（[GitHub — Control the concurrency of workflows and jobs](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)）。
+
 ## Checks
 
 ワークフローの成否のほかに、次を確かめます。
@@ -326,6 +329,10 @@ aws logs filter-log-events --log-group-name /aws/lambda/<GATES_FUNCTION_NAME> \
 
 Action が失敗すると、ステップの `::error::` の注釈に、失敗した段階と原因が出ます。
 GATES の失敗応答の注釈には `error.code` と `request_id` が入るため、`request_id` で監査記録の `reason` を引いて切り分けます。
+
+`_e2e-success.yml` の `Revoked token` が `the token is still usable` で失敗し、同じジョブの `Post Issue token` に `revocation succeeded: HTTP status 204` があるときは、GitHub 側で失効が効く前に post がトークンを使えた可能性があります（[GitHub Docker Action Failure and Cancellation](../research/github/docker-action-cancellation.md#revocation-not-yet-in-effect)）。
+ワークフローを動かし直して、`401` になることを確かめます。
+`204` の行がないときは、post-entrypoint の失効そのものが失敗しています。
 
 `Check job logs` が失敗したら、ジョブごとの件数の行で、どの確認が期待と違ったかを確かめます。
 `_e2e-reusable-credential-leak.yml` が失敗したら、ジョブごとの件数の行で、どのジョブのログに一致する行があったかを確かめます。

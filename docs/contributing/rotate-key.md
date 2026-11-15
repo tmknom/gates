@@ -22,12 +22,18 @@ Terraform での鍵の表し方は [AWS Infrastructure Design](../design/aws-inf
 | 5 | 旧 KMS Key を無効にする（§7） | `aws kms enable-key` で有効に戻す |
 | 6 | GitHub App から旧 Private Key を削除する（§8） | **切り戻せない** |
 | 7 | 旧鍵の削除の後の発行を確かめる（§9） | 確認だけ |
-| 8 | 旧 KMS Key を退役させる（§10） | 予約期間（30 日）のあいだは `aws kms cancel-key-deletion` で削除を取り消せる |
+| 8 | 旧 KMS Key を退役させる（§10） | 予約期間（7 日）のあいだは `aws kms cancel-key-deletion` で削除を取り消せる |
 
 GitHub App は Private Key を 25 個まで同時に持て、GitHub の公式資料は、複数の鍵を使って停止せずに鍵を更新することを勧めています。
 2 から 6 のあいだは、新旧どちらの鍵で署名した GitHub App JWT も GitHub に受け付けられます。
 6 で GitHub から削除した旧鍵は認証に使えなくなる見込みのため、6 の後は旧鍵に切り戻せません。
 6 は、4 と 5 の確認がそろうまで行いません。
+
+4 と 5 の確認がそろえば、続けて 6 に進んでかまいません。
+6 の後に問題が見つかっても、旧鍵に戻す代わりに、次の番号の鍵でこの手順をもう一度行えば直せるためです。
+新しい鍵の生成とインポートは、GitHub App を取り違えなければ何度でもやり直せます。
+普段の利用で問題が出ないことを数日見てから旧鍵を削除したいときは、5 と 6 のあいだに様子を見る期間を置きます。
+そのあいだは、旧鍵を無効にしたまま Terraform の管理に残し、5 の切り戻しで戻せる状態を保ちます。
 
 ## 2. Prerequisites
 
@@ -36,7 +42,7 @@ GitHub App は Private Key を 25 個まで同時に持て、GitHub の公式資
 - `terraform/local/terraform.tfvars` の `kms_keys` に旧鍵だけがあり、`active_kms_key` が旧鍵を指している
 - `make tf-plan` が `No changes` を示す
 - [E2E Tests](e2e-tests.md) の `_e2e-success.yml` が成功する
-- [Key Material Import](import-key-material.md) の手順を実行できる（AWS CLI、OpenSSL、`jq`、`xxd`）
+- [Key Material Import](import-key-material.md) の手順を実行できる（AWS CLI、OpenSSL 3 以降、`jq`、`xxd`）
 - [Testing Environment Setup](setup-environment.md) の §3.1 の前提（一時認証情報、IAM OIDC Provider）を満たしている
 
 コマンドはリポジトリのルートで、ひとつのシェルから実行します。
@@ -46,6 +52,9 @@ GitHub App は Private Key を 25 個まで同時に持て、GitHub の公式資
 make tf-output
 export OLD_KMS_KEY_ARN="$(jq -r '.outputs.kms_key_arns.value["key-1"]' terraform/local/terraform.tfstate)"
 ```
+
+各段階の `make tf-apply` が失敗したら、`make tf-plan` から作り直し、Plan を確かめ直してから適用します。
+一時認証情報の期限切れのように、何も適用せずに失敗した場合でも、Terraform が State を書き直して保存した Plan が古くなり、次の適用が `Saved plan is stale` で止まることがあります。
 
 ## 3. Adding the New KMS Key
 
@@ -83,11 +92,16 @@ aws kms describe-key --key-id "$NEW_KMS_KEY_ARN" \
 ## 4. Importing the New Private Key
 
 [Key Material Import](import-key-material.md) の手順で、新しい Private Key を生成して新しい KMS Key にインポートします。
-`KMS_KEY_NAME` には新しい鍵の名前（`key-2`）を設定します。
-手順の最後で、鍵が `Enabled` になり、公開鍵のフィンガープリントが GitHub App の `Key pairs` に新しく加わった鍵と一致することと、手元の秘密鍵のコピーと作業ディレクトリを削除したことを確かめます。
 
-鍵長が `key_spec` と違うと、`aws kms import-key-material` が失敗します。
-その場合は、手元の秘密鍵のコピーを削除し、GitHub App から生成した鍵を削除してから、§10 の手順の名前と ARN をこの KMS Key に読み替えて退役させ、鍵長に合わせた `key_spec` で次の番号の鍵を §3 から加え直します。
+```bash
+make kms-import-key-material KMS_KEY_NAME=key-2 GITHUB_PRIVATE_KEY_PATH=<ダウンロードした秘密鍵のパス>
+```
+
+最後に出るフィンガープリントが、GitHub App の `Key pairs` に新しく加わった鍵と一致することを確かめます。
+`Key pairs` には、新旧 2 つの鍵が並びます。
+
+鍵長が `key_spec` と違うと、インポートの前に止まり、手元の秘密鍵は削除されます。
+その場合は、GitHub App から生成した鍵を削除してから、§10 の手順の名前と ARN をこの KMS Key に読み替えて退役させ、鍵長に合わせた `key_spec` で次の番号の鍵を §3 から加え直します。
 `PendingImport` の鍵は署名に使えないため、無効にする手順（§7）は要りません。
 
 インポートの後に `make tf-plan` を実行し、`No changes` を示すことを確かめます。
@@ -206,15 +220,16 @@ make tf-plan
 適用の後の `make tf-plan` が `No changes` を示すことを確かめます。
 
 最後に、旧鍵の削除を予約し、状態が `PendingDeletion` であることを確かめます。
-予約期間は、Terraform の設定の `deletion_window_in_days` と同じ 30 日にします。
+予約期間は、KMS が許す最短の 7 日にします。
 
 ```bash
-aws kms schedule-key-deletion --key-id "$OLD_KMS_KEY_ARN" --pending-window-in-days 30
+aws kms schedule-key-deletion --key-id "$OLD_KMS_KEY_ARN" --pending-window-in-days 7
 aws kms describe-key --key-id "$OLD_KMS_KEY_ARN" --query 'KeyMetadata.KeyState' --output text
 ```
 
 予約期間のあいだは、`aws kms cancel-key-deletion` で削除を取り消せます。
 予約期間を過ぎると、KMS は旧鍵を削除し、取り消せなくなります。
+State のバックアップ（`terraform/local/terraform.tfstate.key-1.backup`）は、State から外す操作を取り消すときにだけ使い、旧鍵の削除が終われば要りません。
 
 ## 11. Sources
 
