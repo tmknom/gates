@@ -96,7 +96,7 @@ GATES はこの設定を実行時に確認しません。
 
 GATES は、デプロイ時に固定した GitHub App と許可オーナーの組から Installation が一意に決まるものとして扱います。
 これは、オーナーを指定して単一の Installation を返すエンドポイントがあることからの推論であり、GitHub が一意性を明示的に保証したものとは扱いません。
-Lambda は Installation ID を設定として持たず、固定したオーナーの Installation を GitHub API から取得し、`account.id` の一致で確認します。この導出は [Requirements](../spec/requirements.md) FR-024 に従います。Installation ID を設定値として持たないため、アプリの再インストールで ID が変わっても設定変更は不要であり、実行時の入力から Installation を指定する余地もありません。オーナーの名前変更やアプリの再インストールが起きても、固定した不変 Owner ID と異なる Installation へ発行しません。
+Lambda は Installation ID を設定として持たず、固定したオーナーの Installation を GitHub API から取得し、`account.id` の一致で確認します。この導出は [Requirements](../spec/requirements.md) FR-OPS-006 に従います。Installation ID を設定値として持たないため、アプリの再インストールで ID が変わっても設定変更は不要であり、実行時の入力から Installation を指定する余地もありません。オーナーの名前変更やアプリの再インストールが起きても、固定した不変 Owner ID と異なる Installation へ発行しません。
 
 ### 3.3 Permission Boundary
 
@@ -111,7 +111,7 @@ Lambda が許可する権限は `contents:read` に固定します。要求さ�
 - 発行応答の `repository_selection` が `selected` であることを確認する。`all` は Installation の全リポジトリを対象にしたことを意味し、要求外の対象を含むため返却しない。
 - 応答の Repository ID は発行結果の確認・監査に利用し、要求時に事前検証した ID と同一であることを証明するものではない。
 
-対象の全件一致を照合するため、[Requirements](../spec/requirements.md) FR-007 のうち範囲外の対象を含む要求にトークンを返さないことは、GitHub が範囲外の対象を拒否するかどうかに依存しません。
+対象の全件一致を照合するため、[Requirements](../spec/requirements.md) FR-AUTHZ-002 のうち範囲外の対象を含む要求にトークンを返さないことは、GitHub が範囲外の対象を拒否するかどうかに依存しません。
 GitHub が範囲外の対象を黙って除いて発行した場合は、応答の対象と発行許可の不一致を検出し、トークンを返さず、取得したトークンの失効を試みます。
 発行 API が呼び出しを `422` で拒否した場合は GitHub 発行拒否、発行応答を取得して照合が失敗した場合は照合失敗とします。どちらも、発行前の GATES の認可条件による認可拒否とは区別します。
 GitHub 側での失効成功や、応答喪失で取得できなかったトークンの不存在は保証せず、GitHub 側で有効なまま残る可能性があります。
@@ -199,15 +199,15 @@ GATES は不正な変更や署名を通知する仕組みを持たないため�
 
 | 機能 | 対応要求 |
 |---|---|
-| 入口制御と Caller の識別（§2） | FR-001〜005、FR-025、FR-027、FR-028、QR-007 |
-| 発行認可（§3.1〜3.3） | FR-006〜012、FR-024、QR-002、QR-007 |
-| 署名と発行結果の検証（§3.4、§4） | FR-013〜018、QR-001、QR-003、QR-006 |
-| 失敗時の扱いと監査（§5） | FR-020、FR-021、FR-026、QR-003、QR-004 |
-| 署名鍵のリスクの抑制と受容（§5.1） | FR-013、FR-023、QR-001、QR-006 |
+| 入口制御と Caller の識別（§2） | FR-AUTHN-001〜007、FR-OPS-007、QR-007 |
+| 発行認可（§3.1〜3.3） | FR-AUTHZ-001〜007、FR-OPS-006、QR-002、QR-007 |
+| 署名と発行結果の検証（§3.4、§4） | FR-ISSUANCE-001〜006、QR-001、QR-003、QR-006 |
+| 失敗時の扱いと監査（§5） | FR-OPS-002、FR-OPS-003、FR-ISSUANCE-007、QR-003、QR-004 |
+| 署名鍵のリスクの抑制と受容（§5.1） | FR-ISSUANCE-001、FR-OPS-005、QR-001、QR-006 |
 
 受け入れ条件は [Requirements](../spec/requirements.md) を正本とします。
 
-## 7. Sources
+## 7. References
 
 - [GitHub Constraints](../spec/github-constraints.md)
 - [AWS OIDC JWT](aws-oidc-jwt.md)

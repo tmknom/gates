@@ -49,7 +49,7 @@ JOSE Header は `alg` と `typ` の2つだけとし、`alg` は `RS256`、`typ` 
 
 | GATES の生成条件 | 要求上の根拠 |
 |---|---|
-| GitHub App JWT の生成、秘密鍵の非抽出、KMS 署名 | [Requirements](../spec/requirements.md) の FR-013 |
+| GitHub App JWT の生成、秘密鍵の非抽出、KMS 署名 | [Requirements](../spec/requirements.md) の FR-ISSUANCE-001 |
 
 ## Verification Cases
 
@@ -57,7 +57,7 @@ JOSE Header は `alg` と `typ` の2つだけとし、`alg` は `RS256`、`typ` 
 |---|---|---|
 | GitHub App JWT | Client ID、`iat=now-60`、`exp=now+300`、`alg=RS256` と `typ=JWT` だけの Header、RS256/KMS | GitHub 公式上限を満たす JWT を生成 |
 
-## Sources
+## References
 
 - [GitHub Constraints](../spec/github-constraints.md) — GitHub App JWT の GitHub 公式仕様
 - [GitHub App Installation](../research/github/app-installation.md) — GitHub が受け付けた GitHub App JWT の Header

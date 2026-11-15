@@ -186,7 +186,7 @@ JWT の `iss` の値は照合だけに使い、Discovery / JWKS の取得先に�
 
 **GitHub 公式仕様**：ワークフロー実行元のリポジトリの ID です。公式の JWT の例と実測6件では、JSON 数値でなく数字の文字列です。GitHub はすべての条件での型を明示していません（[GitHub Constraints §3.1](../spec/github-constraints.md#31-issueraudienceclaim)）。
 
-**GATES の受理条件**：必須。[GOJ-ID-FORMAT](#goj-id-format-id-の表記) の形式を満たす正の整数の **JSON 文字列**。`sub` 内の Repository ID と一致すること。Caller の識別・監査に用いますが、現在のオーナー単位の発行認可には使いません（[Requirements](../spec/requirements.md) の FR-002）。
+**GATES の受理条件**：必須。[GOJ-ID-FORMAT](#goj-id-format-id-の表記) の形式を満たす正の整数の **JSON 文字列**。`sub` 内の Repository ID と一致すること。Caller の識別・監査に用いますが、現在のオーナー単位の発行認可には使いません（[Requirements](../spec/requirements.md) の FR-AUTHN-002）。
 
 ### GOJ-REPOSITORY-OWNER `repository_owner`
 
@@ -198,7 +198,7 @@ JWT の `iss` の値は照合だけに使い、Discovery / JWKS の取得先に�
 
 **GitHub 公式仕様**：公式の Claim 表では Organization ID と説明されています。User が所有するリポジトリでも実測6件でこの Claim が存在し、所有者の ID と一致しました。ただし、User 所有の場合の一般保証は公式資料から確定していません（[GitHub Constraints §3.1](../spec/github-constraints.md#31-issueraudienceclaim)）。
 
-**GATES の受理条件**：必須。[GOJ-ID-FORMAT](#goj-id-format-id-の表記) の正の整数を示す JSON 文字列。`sub` 内の Owner ID と一致すること。Caller の Owner ID として認証し、固定した許可オーナーの Owner ID との照合に使用します（認可の条件は [Requirements](../spec/requirements.md) の FR-006）。User 所有で取得できない場合は自動的に名前へフォールバックせず拒否します。
+**GATES の受理条件**：必須。[GOJ-ID-FORMAT](#goj-id-format-id-の表記) の正の整数を示す JSON 文字列。`sub` 内の Owner ID と一致すること。Caller の Owner ID として認証し、固定した許可オーナーの Owner ID との照合に使用します（認可の条件は [Requirements](../spec/requirements.md) の FR-AUTHZ-001）。User 所有で取得できない場合は自動的に名前へフォールバックせず拒否します。
 
 ### GOJ-ENTERPRISE `enterprise`
 
@@ -378,12 +378,12 @@ Caller の確定後、固定した Allowed Owner ID との一致は認可で確�
 
 - Claims Set は UTF-8 の JSON オブジェクトとし、不正な UTF-8 と、エスケープ解除後に同一となる Claim 名の重複を拒否する。未使用 Claim の重複も拒否する（RFC 7519 §4 が許容する処理）。
 - Claim 名はエスケープ解除後の **厳密一致** で識別する。識別では、大文字小文字の同一視、Unicode 正規化、Unicode の Case Folding は行わない（[RFC 7519 §7.3](https://www.rfc-editor.org/rfc/rfc7519.html#section-7.3)、[OIDC Core §14](https://openid.net/specs/openid-connect-core-1_0.html#StringOps)）。`iss`、`ISS`、`iſſ` はそれぞれ別の名前として扱う。
-- `iss`、`aud`、`exp`、`iat`、`nbf` の **別名** の Claim があれば、正しい `iss` などが同時にあっても拒否する。JSON デコーダーが別名を同じ Claim として読む危険を防ぐための、[Requirements](../spec/requirements.md) の FR-027 に従う GATES の追加制約である。`iss` と `\u0069ss` の同時存在は名前の重複として拒否する。
+- `iss`、`aud`、`exp`、`iat`、`nbf` の **別名** の Claim があれば、正しい `iss` などが同時にあっても拒否する。JSON デコーダーが別名を同じ Claim として読む危険を防ぐための、[Requirements](../spec/requirements.md) の FR-AUTHN-006 に従う GATES の追加制約である。`iss` と `\u0069ss` の同時存在は名前の重複として拒否する。
 - 別名は、5 つの名前のどれかと Unicode の単純な Case Folding（[CaseFolding.txt](https://www.unicode.org/Public/UCD/latest/ucd/CaseFolding.txt) の状態 C と S）で同じ文字列に畳み込まれ、その名前自体とは異なる名前とする。5 つの名前の文字では、各 ASCII 英字の大文字と小文字、および `s`、`S`、`ſ`（U+017F）がそれぞれ同じ文字に畳み込まれる。別名は `iss` の 17 個（`ISS`、`iſſ`、`iſs` など）と、ほかの 4 つの名前の各 7 個（`AUD`、`eXp` など）の計 45 個である。
 - 完全な Case Folding（状態 F）とトルコ語用の対応（状態 T）は使わない。そのため、`iß` と `İss` は別名ではなく、未知の Claim として扱う。`ıss` も、`ı`（U+0131）がどの Case Folding でも `i` に畳み込まれないため、未知の Claim として扱う。範囲を単純な Case Folding に揃えるのは、検証ライブラリの JSON デコーダーが Claim 名を同一視する範囲がこれと一致し、`iß` のような名前は `iss` として読まれないためである。
 - 検証ライブラリと Claim 抽出処理で、同じ署名済み Claims Set の **同名・同値** を使用する。
 - 任意・監査用 Claim は JSON 文字列として読み取れた場合だけワークフロー起動属性に転送する。型違い・欠落は拒否せず、構造化ログではエスケープする。未知 Claim をワークフロー起動属性に取り込まない。
-- 署名検証を通った Claims Set は、Claim の分類によらずすべての Claim を、ワークフロー起動属性とは別に調査用として監査記録へ残す（[Requirements](../spec/requirements.md) の FR-021）。残した Claim は、認証、認可、ワークフロー起動属性のどれにも使わない。各 Claim の分類はこの記録によって変わらない。
+- 署名検証を通った Claims Set は、Claim の分類によらずすべての Claim を、ワークフロー起動属性とは別に調査用として監査記録へ残す（[Requirements](../spec/requirements.md) の FR-OPS-003）。残した Claim は、認証、認可、ワークフロー起動属性のどれにも使わない。各 Claim の分類はこの記録によって変わらない。
 
 ### GOJ-DYNAMIC-CLAIM Discovery に掲載されない動的 Claim
 
@@ -395,11 +395,11 @@ Caller の確定後、固定した Allowed Owner ID との一致は認可で確�
 
 | GATES の受理条件 | 要求・設計上の根拠 |
 |---|---|
-| 必須 Claim、Issuer、Audience、時間、ID の整合 | [Requirements](../spec/requirements.md) の FR-002、FR-003、[Domain Model](domain.md) の INV-009 |
-| Claim 名の別名の拒否と、時刻の値の表記 | [Requirements](../spec/requirements.md) の FR-027 |
-| 不変形式 `sub` | [Requirements](../spec/requirements.md) の FR-005、FR-025 |
-| Caller の Owner ID による認可と Repository ID の監査利用 | [Requirements](../spec/requirements.md) の FR-002、FR-006 |
-| 起動属性のベストエフォート監査と、署名検証を通った Claims Set の調査用の記録 | [Requirements](../spec/requirements.md) の FR-021 |
+| 必須 Claim、Issuer、Audience、時間、ID の整合 | [Requirements](../spec/requirements.md) の FR-AUTHN-002、FR-AUTHN-003、[Domain Model](domain.md) の INV-009 |
+| Claim 名の別名の拒否と、時刻の値の表記 | [Requirements](../spec/requirements.md) の FR-AUTHN-006 |
+| 不変形式 `sub` | [Requirements](../spec/requirements.md) の FR-AUTHN-005、FR-OPS-007 |
+| Caller の Owner ID による認可と Repository ID の監査利用 | [Requirements](../spec/requirements.md) の FR-AUTHN-002、FR-AUTHZ-001 |
+| 起動属性のベストエフォート監査と、署名検証を通った Claims Set の調査用の記録 | [Requirements](../spec/requirements.md) の FR-OPS-003 |
 
 ## Verification Cases
 
@@ -432,7 +432,7 @@ ID の `JV-C-` は、本書の未確認事項を表します。
 | JV-C-04 | `repo` だけを指定する `sub` カスタマイズの末尾形式 | 不変形式の設定を有効にしたジョブで実測 |
 | JV-C-05 | `sha`、`ref_protected`、`enterprise` 等の型・意味の一般保証 | 認可用途を追加する際に公式仕様と条件付き実測を確認 |
 
-## Sources
+## References
 
 - [JWT Constraints](../spec/jwt-constraints.md) — 規範と適用範囲の整理
 - [GitHub Constraints](../spec/github-constraints.md) — GitHub 公式資料、公開値・実測、相違・未確認事項

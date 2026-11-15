@@ -82,7 +82,7 @@ GitHub は生成する鍵の鍵長を文書で約束していないためです�
 インポートの後に止まったとき（鍵の状態やフィンガープリントが違うとき）は、鍵素材は取り込まれています。
 その KMS Key を使用中の鍵にせず、原因を調べます。
 
-## 5. Sources
+## 5. References
 
 - [GitHub — Managing private keys for GitHub Apps](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps)
 - [GitHub — REST API endpoints for GitHub Apps](https://docs.github.com/en/rest/apps/apps)

@@ -90,10 +90,10 @@ JWT の Header やリクエストが任意の鍵取得 URL を指定すること
 
 | GATES の受理条件 | 要求・設計上の根拠 |
 |---|---|
-| 署名と検証鍵 | [Requirements](../spec/requirements.md) の FR-002、FR-003 |
-| 署名鍵の固定 Issuer からの取得 | [JWT Constraints §6](../spec/jwt-constraints.md#6-jwt-security-considerations)、[Requirements](../spec/requirements.md) の FR-002 |
-| `crit`、`b64` の拒否と、JWK の用途、署名方式、強度の条件 | [Requirements](../spec/requirements.md) の FR-028 |
-| JWKS の取得の障害と使用可能な鍵がない JWKS を、認証失敗と区別すること | [Requirements](../spec/requirements.md) の FR-020 |
+| 署名と検証鍵 | [Requirements](../spec/requirements.md) の FR-AUTHN-002、FR-AUTHN-003 |
+| 署名鍵の固定 Issuer からの取得 | [JWT Constraints §6](../spec/jwt-constraints.md#6-jwt-security-considerations)、[Requirements](../spec/requirements.md) の FR-AUTHN-002 |
+| `crit`、`b64` の拒否と、JWK の用途、署名方式、強度の条件 | [Requirements](../spec/requirements.md) の FR-AUTHN-007 |
+| JWKS の取得の障害と使用可能な鍵がない JWKS を、認証失敗と区別すること | [Requirements](../spec/requirements.md) の FR-OPS-002 |
 
 ## Verification Cases
 
@@ -111,7 +111,7 @@ ID の `JV-S-` は、本書の未確認事項を表します。
 |---|---|---|
 | JV-S-01 | 複数証明書を含む `x5c` の実測がない | 証明書間の署名関係を含むテストで受理条件を確認 |
 
-## Sources
+## References
 
 - [JWT Constraints](../spec/jwt-constraints.md) — 規範と適用範囲の整理
 - [GitHub OIDC Discovery](../research/github/oidc-discovery.md) — Discovery の公開値

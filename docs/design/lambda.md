@@ -68,7 +68,7 @@ Lambda Invoke には HTTP の `Authorization` ヘッダーに相当するアプ�
 JSON として不正な Payload は、Lambda の Invoke API が関数に渡す前に拒否するため、GATES の応答も監査記録も残りません（[Runtime Entry](#41-runtime-entry)）。
 GATES はそれでもこの形を入力不正として判定し、Invoke API の検査に依存しません。
 
-空の Permissions を入力不正にするのは、`permissions` が必須であり、[Requirements](../spec/requirements.md) FR-012 が欠落・未知値を広い既定権限に読み替えないと定めているためです。
+空の Permissions を入力不正にするのは、`permissions` が必須であり、[Requirements](../spec/requirements.md) FR-AUTHZ-007 が欠落・未知値を広い既定権限に読み替えないと定めているためです。
 空の Map は、要求の欠落と同じく、要求した権限を読み取れない形として扱います。
 一方で、未知のキー（`issues` など）は認可拒否にします。
 `contents:write` と同じく、形式は読み取れて値が許可外の要求であり、監査記録に残す対象だからです。
@@ -161,7 +161,7 @@ GitHub 応答の `repository_selection` は返しません。
 `request_id` は失敗応答と同じ相関 ID で、資格情報ではありません。
 値には Lambda の request ID（Invoke 応答のヘッダー `x-amzn-RequestId` と同じ値）をそのまま使います。
 CloudWatch Logs に自動で記録されるため、独自に採番しなくても監査記録と突き合わせられます。
-成功時にも返すのは、呼び出し元がワークフローのログに残し、監査記録と突き合わせられるようにするためです（[Requirements](../spec/requirements.md) FR-021）。
+成功時にも返すのは、呼び出し元がワークフローのログに残し、監査記録と突き合わせられるようにするためです（[Requirements](../spec/requirements.md) FR-OPS-003）。
 
 Lambda は、GitHub API の発行応答を発行許可と照合し、照合を通ったときだけトークンを返します。
 照合の条件は [Security Design](security.md#34-issuance-result-verification) に、照合を通った発行結果が満たす不変条件は [Domain Model](domain.md) の INV-012 に定めます。
@@ -427,7 +427,7 @@ GitHub API の仕様は、Installation の取得を [GitHub Constraints](../spec
 GitHub API は SDK を使わず、Go 標準ライブラリの HTTP クライアントで呼び出します。
 使うエンドポイントが次の 3 つに限られるためです。
 
-- **Installation の取得**：GitHub App JWT で、許可オーナーの種別が Organization なら `GET /orgs/{org}/installation`、ユーザーアカウントなら `GET /users/{username}/installation` を呼び出す。`GET /repos/{owner}/{repo}/installation` はどちらの種別にも使えるが、採用しない。要求されたリポジトリから Installation を引くことになり、固定した設定から Installation を導出する [Requirements](../spec/requirements.md) FR-024 から外れるためである。停止の判定は Authorization が行う（[Processing Flow](#5-processing-flow) の手順 5）。
+- **Installation の取得**：GitHub App JWT で、許可オーナーの種別が Organization なら `GET /orgs/{org}/installation`、ユーザーアカウントなら `GET /users/{username}/installation` を呼び出す。`GET /repos/{owner}/{repo}/installation` はどちらの種別にも使えるが、採用しない。要求されたリポジトリから Installation を引くことになり、固定した設定から Installation を導出する [Requirements](../spec/requirements.md) FR-OPS-006 から外れるためである。停止の判定は Authorization が行う（[Processing Flow](#5-processing-flow) の手順 5）。
 - **トークンの発行**：`POST /app/installations/{installation_id}/access_tokens` に、TokenGrant の対象と Permissions を必ず指定する。発行 API の `repositories` はリポジトリ名だけを受け取るため、TokenGrant の各完全名を一度だけ `/` で分割し、リポジトリ名の部分を渡す。分割前の完全名は、発行応答の `full_name` との照合に使う。
 - **トークンの失効**：照合に失敗したトークンの失効には `DELETE /installation/token` を使う。このエンドポイントは App JWT ではなく、失効させる Installation Access Token 自体で認証する。`204` だけを失効の成功とし、失敗しても再試行せずに監査記録へ残す。
 - **リダイレクト**：従わず、`3xx` は [Failure](#32-failure) の分類で成功以外の応答として扱う。リダイレクト先は GATES が選んだエンドポイントではなく、その応答を Installation や発行応答として読む根拠がないためである。また、従うと、固定した API Host の外へ GitHub App JWT を送り得る。
@@ -549,7 +549,7 @@ Lambda の Go Runtime では標準出力が CloudWatch Logs に送られ、JSON 
 `null` や空文字列を値として書かないのは、条件を満たさなかったことと、値が空だったことを見分けるためです。
 ワークフロー起動属性は、欠落した属性のキーを出しません。
 
-## 8. Sources
+## 8. References
 
 - [AWS — Lambda Invoke](https://docs.aws.amazon.com/lambda/latest/dg/invocation-sync.html)
 - [AWS — Lambda API Reference: Invoke](https://docs.aws.amazon.com/lambda/latest/api/API_Invoke.html)
