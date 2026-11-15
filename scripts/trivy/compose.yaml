@@ -20,7 +20,7 @@ services:
       - /tmp:rw,noexec,nosuid,nodev,size=256m
       # 検査に不要なディレクトリを空の tmpfs で覆い、検査対象から外してコンテナからも隠す。
       # 隠すパスは .gitignore と連動せず、ここに列挙していないものはコンテナから読める。
-      # 追加するときは Makefile の container-mountpoints と scripts/golangci-lint/compose.yaml も更新する
+      # 追加するときはルートの Makefile の container-mountpoints と scripts/golangci-lint/compose.yaml も更新する
       - /src/.claude:ro,noexec,nosuid,nodev,size=1m
       - /src/.git:ro,noexec,nosuid,nodev,size=1m
       - /src/dist:ro,noexec,nosuid,nodev,size=1m

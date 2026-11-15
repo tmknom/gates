@@ -1,13 +1,13 @@
 # tflint を隔離して実行するサービス定義
 #
-# 環境変数は Makefile が設定する。
+# 環境変数は terraform/Makefile が設定する。
 #   TFLINT_TARGET  lint するディレクトリの絶対パス
 
 name: tflint
 
 services:
   lint:
-    # Makefile の tflint が実行のたびにビルドする。localhost/ を付け、Docker Hub の同名のイメージを取ってこないようにする
+    # terraform/Makefile の lint が実行のたびにビルドする。localhost/ を付け、Docker Hub の同名のイメージを取ってこないようにする
     build: .
     image: localhost/gates/tflint:latest
     pull_policy: never

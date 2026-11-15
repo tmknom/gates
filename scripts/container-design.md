@@ -62,8 +62,8 @@ Terraform の `aws` と `lock` は通信が欠かせないため、許可リス�
 - 読み取り専用の `/src` にはマウントポイントを作れないため、Makefile がホスト側に用意する
 
 隠すパスは `.gitignore` と連動せず、列挙していないものはコンテナから読めます。
-そこで機密ファイルの置き場所を `tmp/` と `terraform/local/` に定め、`terraform/` の中でほかの場所に置かれたものを Makefile の `tf-misplaced-values` で検出します。
-隠すパスを追加するときは、golangci-lint と trivy の `compose.yaml`、Makefile の `container-mountpoints` をそろえて変更します。
+そこで機密ファイルの置き場所を `terraform/local/` に定め、`terraform/` の中でほかの場所に置かれたものを `terraform/Makefile` の `misplaced-values` で検出します。
+隠すパスを追加するときは、golangci-lint と trivy の `compose.yaml`、ルートの Makefile の `container-mountpoints` をそろえて変更します。
 
 ## プロセスの権限と資源の上限
 
