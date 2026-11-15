@@ -107,7 +107,7 @@ Docker Action は応答を処理し、発行されたトークン、有効期限
 
 | 文書 | 主題 |
 |---|---|
-| [Requirements](../spec/requirements.md) | 目的、対象範囲、要求、受け入れ条件 |
+| [Requirements](../spec/requirements.md) | 目的、対象範囲、要求 |
 | [GitHub Constraints](../spec/github-constraints.md) | GATES が依存する GitHub の仕様、適用範囲、出典、未確認事項 |
 | [JWT Constraints](../spec/jwt-constraints.md) | JWT / JWS / JWK / OpenID Connect の標準仕様の規定と適用範囲 |
 

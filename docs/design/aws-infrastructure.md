@@ -216,7 +216,7 @@ Issuer と GitHub API Host は環境変数にしません。
 | FR-OPS-006、AC-AUTHZ-007 | 許可オーナー、GitHub App、KMS Key を Terraform 入力と Lambda 環境変数で固定。Installation は固定した GitHub App と不変 Owner ID から一意に導出する（[Security Design](security.md#32-installation-scope-as-authorization-boundary)） |
 | FR-OPS-003、QR-004 | CloudWatch Logs の保持期間・アクセス制限と資格情報の非記録 |
 
-受け入れ条件の正本は [Requirements](../spec/requirements.md) です。
+受け入れ条件の正本は [Acceptance Criteria](../spec/acceptance-criteria.md) です。
 
 ## 7. References
 
