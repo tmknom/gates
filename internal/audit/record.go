@@ -8,6 +8,8 @@ import (
 
 	"github.com/tmknom/gates/internal/authz"
 	"github.com/tmknom/gates/internal/caller"
+	"github.com/tmknom/gates/internal/claimsset"
+	"github.com/tmknom/gates/internal/nonzero"
 	"github.com/tmknom/gates/internal/request"
 )
 
@@ -16,6 +18,7 @@ import (
 // 詰めていない項目を nil で表す。値の型のゼロ値で表すと、未設定の判定をほかの package の型に求めることになるため。
 type Record struct {
 	requestID    string
+	claimsSet    *claimsset.SignatureVerified
 	caller       *caller.Caller
 	tokenRequest *request.TokenRequest
 	installation *authz.Installation
@@ -24,6 +27,13 @@ type Record struct {
 // NewRecord は、相関 ID だけを持つ監査記録を作る。
 func NewRecord(requestID string) Record {
 	return Record{requestID: requestID}
+}
+
+// SetClaimsSet は、署名検証済みの Claims Set を詰める。
+func (r *Record) SetClaimsSet(claimsSet claimsset.SignatureVerified) {
+	// ゼロ値は JSON を持たず、claims_set の値を書けない
+	nonzero.Require(claimsSet)
+	r.claimsSet = &claimsSet
 }
 
 // SetCaller は、認証で確定した Caller を詰める。
@@ -46,6 +56,10 @@ func (r *Record) SetInstallation(installation authz.Installation) {
 func (r *Record) Write(log *slog.Logger, result Result) {
 	attrs := []any{slog.String("request_id", r.requestID)}
 	attrs = append(attrs, result.attrs()...)
+	if r.claimsSet != nil {
+		// JSON Handler は MarshalJSON の JSON をオブジェクトのまま書く
+		attrs = append(attrs, slog.Any("claims_set", *r.claimsSet))
+	}
 	if r.caller != nil {
 		attrs = append(attrs, callerAttr(*r.caller))
 	}

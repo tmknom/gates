@@ -12,6 +12,7 @@ import (
 
 	"github.com/tmknom/gates/internal/authz"
 	"github.com/tmknom/gates/internal/caller"
+	"github.com/tmknom/gates/internal/claimsset"
 	"github.com/tmknom/gates/internal/github"
 	"github.com/tmknom/gates/internal/request"
 	"github.com/tmknom/gates/internal/tokenissuer"
@@ -26,6 +27,8 @@ const (
 	tokenMarker = "ghs_token-marker" //nolint:gosec // 資格情報ではなく、値を確かめるための目印である
 	// idTokenMarker は、Payload の GATES 用 OIDC JWT で、応答と監査記録に現れないことを確かめる目印である。
 	idTokenMarker = "id-token-header.id-token-payload.id-token-signature"
+	// claimsSetMarker は、署名検証済みの Claims Set の Claim の値で、監査記録にだけ現れ、応答に現れないことを確かめる目印である。
+	claimsSetMarker = "claims-set-marker"
 )
 
 // now は、記録した発行応答の有効期限の 1 時間前である。
@@ -122,6 +125,15 @@ func callerOf(t *testing.T, ownerID int64) caller.Caller {
 	c, err := caller.NewCaller(ownerID, 1234567890, 4004, 1, caller.WorkflowTriggerAttributes{})
 	if err != nil {
 		t.Fatalf("NewCaller returned error: %v", err)
+	}
+	return c
+}
+
+func signatureVerifiedClaimsSet(t *testing.T) claimsset.SignatureVerified {
+	t.Helper()
+	c, err := claimsset.NewSignatureVerified([]byte(`{"head_ref":"` + claimsSetMarker + `"}`))
+	if err != nil {
+		t.Fatalf("NewSignatureVerified returned error: %v", err)
 	}
 	return c
 }

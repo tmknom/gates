@@ -163,7 +163,7 @@ Docker Action が AWS の認証情報の取得、認証、トークン取得の�
 
 #### FR-021 資格情報を含まない監査記録
 
-認証済み Caller（Owner ID と Repository ID、ワークフロー実行 ID と試行番号、ワークフロー起動属性）、要求対象、要求権限、結果、相関 ID を資格情報を含めず監査可能にする。ワークフロー起動属性は JWT に含まれる範囲で記録する。相関 ID は成功・失敗のどちらの応答にも含め、呼び出し元が監査記録と突き合わせられるようにする。
+認証済み Caller（Owner ID と Repository ID、ワークフロー実行 ID と試行番号、ワークフロー起動属性）、要求対象、要求権限、結果、相関 ID を資格情報を含めず監査可能にする。ワークフロー起動属性は JWT に含まれる範囲で記録する。署名検証を通った GATES 用 OIDC JWT の Claims Set も、Claim の検証で認証に失敗した場合を含めて調査用に記録し、認証と認可には使わない。署名を検証する前の Payload と JWT の文字列は記録しない。相関 ID は成功・失敗のどちらの応答にも含め、呼び出し元が監査記録と突き合わせられるようにする。
 
 #### FR-022 Terraform による AWS リソースの管理
 
@@ -580,4 +580,15 @@ JWT 検証、Installation の解決、認可、署名、発行結果の照合が
 | Relationship | Target | Target Type |
 |---|---|---|
 | `alignment` | `FR-026` | Functional Requirement |
+| `alignment` | `QR-004` | Quality Requirement |
+
+### AC-34 署名検証を通った Claims Set の調査用の記録
+
+**条件**：発行の成功、署名検証の後の Claim の検証による認証失敗、署名検証による認証失敗をそれぞれ実行する。JWT には未知の Claim と、制御文字を含む文字列の Claim を含める
+
+**期待する結果**：署名検証を通った 2 つの場合は、監査記録に未知の Claim を含む Claims Set の全体が残り、制御文字はエスケープされて記録は 1 行に収まる。署名検証で拒否した場合は Claims Set が残らない。どの場合も JWT の文字列は残らず、Claims Set は応答に含まれない
+
+| Relationship | Target | Target Type |
+|---|---|---|
+| `alignment` | `FR-021` | Functional Requirement |
 | `alignment` | `QR-004` | Quality Requirement |

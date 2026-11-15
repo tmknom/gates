@@ -13,6 +13,7 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 
 	"github.com/tmknom/gates/internal/caller"
+	"github.com/tmknom/gates/internal/claimsset"
 	"github.com/tmknom/gates/internal/repository"
 	"github.com/tmknom/gates/internal/request"
 )
@@ -82,40 +83,57 @@ func newVerifier(issuer, audience string, keys oidc.KeySet, now func() time.Time
 	return &Verifier{issuer: issuer, keys: keys, config: config}
 }
 
-// retrievalRecorder は公開鍵の取得の失敗を Verify の戻り値の外に持ち出す。
+// keySetRecorder は、公開鍵の取得の失敗と、署名を検証した Payload を、Verify の戻り値の外に持ち出す。
 // go-oidc の Verify は oidc.KeySet の error を %v で包むため、戻り値からは errors.Is で判定できない。
-type retrievalRecorder struct {
-	keys    oidc.KeySet
-	failure error
+// go-oidc は署名を検証してから iss、aud、exp、nbf を判定し、それらで拒否すると Payload を返さない。
+type keySetRecorder struct {
+	keys      oidc.KeySet
+	failure   error
+	claimsSet claimsset.SignatureVerified
 }
 
-func (r *retrievalRecorder) VerifySignature(ctx context.Context, jwt string) ([]byte, error) {
+func (r *keySetRecorder) VerifySignature(ctx context.Context, jwt string) ([]byte, error) {
 	payload, err := r.keys.VerifySignature(ctx, jwt)
 	if errors.Is(err, ErrTransientFailure) || errors.Is(err, ErrInternalFailure) {
 		r.failure = err
 	}
-	return payload, err
+	if err != nil {
+		return nil, err
+	}
+	claimsSet, err := claimsset.NewSignatureVerified(payload)
+	// checkClaimSet が同じ Payload を先に拒否するため届かないが、署名を検証した値を記録できないまま受理しないよう、拒否して Fail Closed にする
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrAuthenticationFailure, err)
+	}
+	r.claimsSet = claimsSet
+	return payload, nil
 }
 
 // Authenticate は、未検証の GATES 用 OIDC JWT から Caller を確定する。
-func (v *Verifier) Authenticate(ctx context.Context, unverifiedIDToken request.UnverifiedIDToken) (caller.Caller, error) {
+// 署名検証済みの Claims Set は、署名検証の後の判定で error を返すときにも返す。署名を検証しなかったときはゼロ値を返す。
+func (v *Verifier) Authenticate(ctx context.Context, unverifiedIDToken request.UnverifiedIDToken) (caller.Caller, claimsset.SignatureVerified, error) {
 	jwt := unverifiedIDToken.Expose()
 
 	// Lambda Design の「取得前の拒否」に当たる条件を、公開鍵を取得する前に判定する
 	signature, err := parseCompact(jwt)
 	if err != nil {
-		return caller.Caller{}, err
+		return caller.Caller{}, claimsset.SignatureVerified{}, err
 	}
 	if err := checkJOSEHeader(jwt); err != nil {
-		return caller.Caller{}, err
+		return caller.Caller{}, claimsset.SignatureVerified{}, err
 	}
-	// 署名を検証する前の Payload は拒否の判定だけに使い、Caller は検証済みの Payload から作る
+	// 署名を検証する前の Payload は拒否の判定だけに使い、Caller と署名検証済みの Claims Set は検証済みの Payload から作る
 	if err := checkClaimSet(signature.UnsafePayloadWithoutVerification()); err != nil {
-		return caller.Caller{}, err
+		return caller.Caller{}, claimsset.SignatureVerified{}, err
 	}
 
 	// 記録先を呼び出しごとに分けるため、呼び出しごとに組み立てる。go-oidc の検証器は値を持つだけで、組み立ては軽い
-	recorder := &retrievalRecorder{keys: v.keys}
+	recorder := &keySetRecorder{keys: v.keys}
+	verified, err := v.verify(ctx, jwt, recorder)
+	return verified, recorder.claimsSet, err
+}
+
+func (v *Verifier) verify(ctx context.Context, jwt string, recorder *keySetRecorder) (caller.Caller, error) {
 	idToken, err := oidc.NewVerifier(v.issuer, recorder, v.config).Verify(ctx, jwt)
 	if err != nil {
 		if recorder.failure != nil {

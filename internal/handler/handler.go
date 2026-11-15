@@ -10,6 +10,7 @@ import (
 	"github.com/tmknom/gates/internal/audit"
 	"github.com/tmknom/gates/internal/authz"
 	"github.com/tmknom/gates/internal/caller"
+	"github.com/tmknom/gates/internal/claimsset"
 	"github.com/tmknom/gates/internal/errorcode"
 	"github.com/tmknom/gates/internal/nonzero"
 	"github.com/tmknom/gates/internal/request"
@@ -18,7 +19,7 @@ import (
 
 // oidcVerifier は、OIDC Verifier のうち Lambda Handler が使う操作である。
 type oidcVerifier interface {
-	Authenticate(ctx context.Context, unverifiedIDToken request.UnverifiedIDToken) (caller.Caller, error)
+	Authenticate(ctx context.Context, unverifiedIDToken request.UnverifiedIDToken) (caller.Caller, claimsset.SignatureVerified, error)
 }
 
 // installationTokenIssuer は、Token Issuer のうち Lambda Handler が使う操作である。
@@ -86,7 +87,11 @@ func (h *Handler) runProcessingFlow(ctx context.Context, payload []byte, record 
 		return tokenissuer.InstallationToken{}, err
 	}
 	record.SetTokenRequest(tokenRequest)
-	verified, err := h.verifier.Authenticate(ctx, unverifiedIDToken)
+	verified, claimsSet, err := h.verifier.Authenticate(ctx, unverifiedIDToken)
+	// 署名検証の後の判定で認証に失敗しても、署名検証済みの Claims Set は監査記録に残す（Domain Model の「Audit Record」）
+	if !claimsSet.IsZero() {
+		record.SetClaimsSet(claimsSet)
+	}
 	if err != nil {
 		return tokenissuer.InstallationToken{}, err
 	}

@@ -1,6 +1,7 @@
 package authn
 
 import (
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -12,6 +13,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,6 +26,7 @@ import (
 	"github.com/go-jose/go-jose/v4"
 
 	"github.com/tmknom/gates/internal/caller"
+	"github.com/tmknom/gates/internal/claimsset"
 	"github.com/tmknom/gates/internal/request"
 )
 
@@ -202,7 +205,7 @@ func TestVerifierAuthenticate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name+" returns Caller", func(t *testing.T) {
-			got, err := newTestVerifier(t).Authenticate(t.Context(), unverifiedIDToken(t, signClaims(t, tt.claims)))
+			got, _, err := newTestVerifier(t).Authenticate(t.Context(), unverifiedIDToken(t, signClaims(t, tt.claims)))
 			if err != nil {
 				t.Fatalf("Authenticate returned error: %v", err)
 			}
@@ -381,7 +384,7 @@ func TestVerifierAuthenticate_ObservedClaims(t *testing.T) {
 			// formal/z3 の実測の例と同じく、発行の 1 秒後に検証する
 			clock := func() time.Time { return time.Unix(observed.IssuedAt+1, 0) }
 			verifier := newVerifier(testIssuer, "https://github.com/octocat", keys, clock)
-			got, err := verifier.Authenticate(t.Context(), unverifiedIDToken(t, signPayload(t, jose.RS256, testKey(t), payload)))
+			got, _, err := verifier.Authenticate(t.Context(), unverifiedIDToken(t, signPayload(t, jose.RS256, testKey(t), payload)))
 			if err != nil {
 				t.Fatalf("Authenticate returned error: %v", err)
 			}
@@ -418,7 +421,7 @@ func TestVerifierAuthenticate_NonAliasClaimName(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name+" returns Caller", func(t *testing.T) {
 			payload := validClaimsAnd(t, `"`+tt.name+`":"https://evil.example"`)
-			got, err := newTestVerifier(t).Authenticate(t.Context(), unverifiedIDToken(t, signPayload(t, jose.RS256, testKey(t), []byte(payload))))
+			got, _, err := newTestVerifier(t).Authenticate(t.Context(), unverifiedIDToken(t, signPayload(t, jose.RS256, testKey(t), []byte(payload))))
 			if err != nil {
 				t.Fatalf("Authenticate returned error: %v", err)
 			}
@@ -543,7 +546,7 @@ func TestVerifierAuthenticate_ClaimAlias(t *testing.T) {
 
 func assertAuthenticationFailure(t *testing.T, token string, values ...string) {
 	t.Helper()
-	got, err := newTestVerifier(t).Authenticate(t.Context(), unverifiedIDToken(t, token))
+	got, _, err := newTestVerifier(t).Authenticate(t.Context(), unverifiedIDToken(t, token))
 	if !errors.Is(err, ErrAuthenticationFailure) {
 		t.Fatalf("Authenticate error = %v, want ErrAuthenticationFailure", err)
 	}
@@ -557,5 +560,139 @@ func assertAuthenticationFailure(t *testing.T, token string, values ...string) {
 		if strings.Contains(err.Error(), value) {
 			t.Errorf("error message %q contains %q", err.Error(), value)
 		}
+	}
+}
+
+// decodedClaimsSet は、署名検証済みの Claims Set の JSON を、Payload と比べられる値に復号する。
+func decodedClaimsSet(t *testing.T, claimsSet claimsset.SignatureVerified) map[string]any {
+	t.Helper()
+	b, err := claimsSet.MarshalJSON()
+	if err != nil {
+		t.Fatalf("MarshalJSON returned error: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("Unmarshal returned error: %v; claims set = %s", err, b)
+	}
+	return got
+}
+
+// TestVerifierAuthenticate_ClaimsSet は、成功した認証が、Caller に読まない Claim を含む Payload 全体だけを署名検証済みの Claims Set として返すことを確かめる。値の一致は、署名や JWT の文字列が加わらないことも確かめる。
+//
+//trace:checks AC-34
+func TestVerifierAuthenticate_ClaimsSet(t *testing.T) {
+	claims := claimsWith(map[string]any{"head_ref": "feature", "base_ref": "main", "repo_property_tier": "gold"})
+	token := signClaims(t, claims)
+
+	_, got, err := newTestVerifier(t).Authenticate(t.Context(), unverifiedIDToken(t, token))
+	if err != nil {
+		t.Fatalf("Authenticate returned error: %v", err)
+	}
+
+	var want map[string]any
+	if err := json.Unmarshal(marshalClaims(t, claims), &want); err != nil {
+		t.Fatalf("Unmarshal returned error: %v", err)
+	}
+	if decoded := decodedClaimsSet(t, got); !reflect.DeepEqual(decoded, want) {
+		t.Errorf("claims set = %v, want %v", decoded, want)
+	}
+}
+
+// TestVerifierAuthenticate_ClaimsSetOfRejectedToken は、署名検証の後に拒否した JWT だけが署名検証済みの Claims Set を返すことを確かめる。
+// 署名検証の後の拒否は、go-oidc の判定、Authenticate の判定、Caller の確定の判定から 1 つずつ選ぶ。
+//
+//trace:checks AC-34
+func TestVerifierAuthenticate_ClaimsSetOfRejectedToken(t *testing.T) {
+	tests := []struct {
+		name   string
+		claims map[string]any
+		token  func(t *testing.T, payload []byte) string
+		want   bool
+	}{
+		{
+			name:   "different iss rejected by go-oidc after signature verification returns the claims set",
+			claims: claimsWith(map[string]any{"iss": "https://other.example"}),
+			token:  signedByTestKey,
+			want:   true,
+		},
+		{
+			name:   "exp equal to current time rejected after signature verification returns the claims set",
+			claims: claimsWith(map[string]any{"exp": unixAfter(0)}),
+			token:  signedByTestKey,
+			want:   true,
+		},
+		{
+			name:   "sub rejected by caller rules returns the claims set",
+			claims: claimsWith(map[string]any{"sub": "repo:octo@99/app@22:ref:refs/heads/main"}),
+			token:  signedByTestKey,
+			want:   true,
+		},
+		{
+			name:   "signature by another key returns no claims set",
+			claims: validClaims(),
+			token: func(t *testing.T, payload []byte) string {
+				return signPayload(t, jose.RS256, generateKey(t), payload)
+			},
+		},
+		{
+			name:   "claim name alias rejected before signature verification returns no claims set",
+			claims: claimsWith(map[string]any{"ISS": testIssuer}),
+			token:  signedByTestKey,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload := marshalClaims(t, tt.claims)
+
+			_, got, err := newTestVerifier(t).Authenticate(t.Context(), unverifiedIDToken(t, tt.token(t, payload)))
+
+			if !errors.Is(err, ErrAuthenticationFailure) {
+				t.Fatalf("Authenticate error = %v, want ErrAuthenticationFailure", err)
+			}
+			if !tt.want {
+				if !got.IsZero() {
+					t.Errorf("claims set = %v, want zero", decodedClaimsSet(t, got))
+				}
+				return
+			}
+			var want map[string]any
+			if err := json.Unmarshal(payload, &want); err != nil {
+				t.Fatalf("Unmarshal returned error: %v", err)
+			}
+			if got.IsZero() {
+				t.Fatalf("claims set is zero, want %v", want)
+			}
+			if decoded := decodedClaimsSet(t, got); !reflect.DeepEqual(decoded, want) {
+				t.Errorf("claims set = %v, want %v", decoded, want)
+			}
+		})
+	}
+}
+
+func signedByTestKey(t *testing.T, payload []byte) string {
+	t.Helper()
+	return signPayload(t, jose.RS256, testKey(t), payload)
+}
+
+// payloadKeySet は、署名の検証に成功したものとして、決まった Payload を返す公開鍵の集合である。
+type payloadKeySet struct {
+	payload []byte
+}
+
+func (k payloadKeySet) VerifySignature(context.Context, string) ([]byte, error) {
+	return k.payload, nil
+}
+
+// Authenticate は JSON オブジェクトでない Claims Set を署名検証の前に拒否するため、keySetRecorder に届く経路は公開鍵の集合を差し替えて作る。
+func TestKeySetRecorder_RejectsPayloadThatIsNotClaimsSet(t *testing.T) {
+	recorder := &keySetRecorder{keys: payloadKeySet{payload: []byte(`[]`)}}
+
+	_, err := recorder.VerifySignature(t.Context(), "")
+
+	if !errors.Is(err, ErrAuthenticationFailure) {
+		t.Errorf("VerifySignature error = %v, want ErrAuthenticationFailure", err)
+	}
+	if !recorder.claimsSet.IsZero() {
+		t.Errorf("claims set is not zero for a payload that is not a claims set")
 	}
 }

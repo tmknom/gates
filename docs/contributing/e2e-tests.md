@@ -271,11 +271,11 @@ git push origin HEAD:e2e/failure
 | 確認 | 方法 | 期待する結果 |
 | --- | --- | --- |
 | 失効 | 発行のワークフローの各 `Post Issue token` のステップと、キャンセルのワークフローの `Check job logs` | 発行したトークンの数だけ `revocation succeeded: HTTP status 204` がある |
-| 監査記録 | CloudWatch Logs | Action が出した `request_id` ごとに `audit record` の行がちょうど 1 行あり、`caller.run_id` がワークフロー実行の ID と一致する。発行のワークフローでは `result` が `success` で、`request.repositories` が空白を除いた入力の表記と並びのまま。失敗のワークフローの `authorization` と `installation` では、`result` がエラーコードと一致し、`installation` は `installation` の事例にだけある |
+| 監査記録 | CloudWatch Logs | Action が出した `request_id` ごとに `audit record` の行がちょうど 1 行あり、`caller.run_id` がワークフロー実行の ID と一致する。発行のワークフローでは `result` が `success` で、`request.repositories` が空白を除いた入力の表記と並びのまま。`claims_set` があり、その `run_id` が `caller.run_id` と同じ値の文字列で、`head_ref` と `base_ref` の Claim も含む。失敗のワークフローの `authorization` と `installation` では、`result` がエラーコードと一致し、`installation` は `installation` の事例にだけある |
 | トークンの不発行 | CloudWatch Logs | 失敗のワークフローの時間帯に、`result` が `success` の監査記録がない |
 | 引き受けと Invoke の数 | CloudTrail と CloudWatch Logs | 失敗のワークフローで、成功した `AssumeRoleWithWebIdentity` の記録は `audience`、`function`、`authorization`、`installation` の 4 つの事例の数だけ増え、Lambda の `START` の行は `authorization` と `installation` の 2 つの事例の数だけ増える。`function` の Invoke は IAM が拒否するため、関数に届かない |
 | Invoke の間隔と実行時間 | CloudWatch Logs の `REPORT` 行 | 間隔の試験で、2 回目以降の Invoke に `Init Duration` がなく、直前の Invoke からの間隔が 1 分前後である |
-| Payload の拒否の監査記録 | CloudWatch Logs | Payload の拒否のワークフローの `request_id` ごとに `audit record` の行がちょうど 1 行あり、`result` が期待したエラーコードと一致する。`invalid_request` は `caller`、`request`、`installation` がなく、`reason` に未知のフィールドの名前や Payload の断片がない。`invalid_id_token` は `caller` と `installation` がない。`authorization_denied` は `caller` と `request` があり `installation` がない。`github_issuance_rejected` だけに `installation` がある |
+| Payload の拒否の監査記録 | CloudWatch Logs | Payload の拒否のワークフローの `request_id` ごとに `audit record` の行がちょうど 1 行あり、`result` が期待したエラーコードと一致する。`invalid_request` は `claims_set`、`caller`、`request`、`installation` がなく、`reason` に未知のフィールドの名前や Payload の断片がない。`invalid_id_token` は `caller` と `installation` がない。`authorization_denied` は `caller` と `request` があり `installation` がない。`github_issuance_rejected` だけに `installation` がある |
 | KMS の署名の数 | CloudTrail と CloudWatch Logs | Payload の拒否のワークフローの時間帯の KMS の `Sign` の記録が、`github_issuance_rejected` の事例の数（2）と一致する。ほかの事例は KMS と GitHub API に進まない |
 | 資格情報の非記録 | CloudWatch Logs | 同じ時間帯のロググループに `ghs_`、`eyJ`、`ASIA`、`FwoG`、`IQoJ` の文字列がない |
 
@@ -322,7 +322,7 @@ Payload の拒否のワークフローの監査記録は、試験の時間帯の
 aws logs filter-log-events --log-group-name /aws/lambda/<GATES_FUNCTION_NAME> \
   --start-time <開始> --end-time <終了> --filter-pattern '"audit record"' \
   --query 'events[].message' --output json \
-  | jq -r '.[] | fromjson | [.request_id, .result, ([("caller", "request", "installation", "revocation") as $k | select(has($k)) | $k] | join(",")), .reason] | @tsv'
+  | jq -r '.[] | fromjson | [.request_id, .result, ([("claims_set", "caller", "request", "installation", "revocation") as $k | select(has($k)) | $k] | join(",")), .reason] | @tsv'
 ```
 
 ## Troubleshooting

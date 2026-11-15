@@ -1,6 +1,7 @@
 package audit_test
 
 import (
+	"encoding/json/v2"
 	"maps"
 	"reflect"
 	"slices"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/tmknom/gates/internal/audit"
 	"github.com/tmknom/gates/internal/caller"
+	"github.com/tmknom/gates/internal/claimsset"
 	"github.com/tmknom/gates/internal/errorcode"
 	"github.com/tmknom/gates/internal/revocation"
 )
@@ -70,6 +72,7 @@ func TestRecord_Write_TopLevelKeys(t *testing.T) {
 		t.Helper()
 		r := audit.NewRecord(requestID)
 		r.SetTokenRequest(tokenRequest(t))
+		r.SetClaimsSet(signatureVerifiedClaimsSet(t, `{}`))
 		r.SetCaller(verifiedCaller(t, caller.WorkflowTriggerAttributes{}))
 		r.SetInstallation(installation(t))
 		return r
@@ -87,7 +90,7 @@ func TestRecord_Write_TopLevelKeys(t *testing.T) {
 			want:   failure,
 		},
 		{
-			name: "authentication failure records request without caller",
+			name: "authentication failure before signature verification records request without claims set or caller",
 			build: func(t *testing.T) audit.Record {
 				r := audit.NewRecord(requestID)
 				r.SetTokenRequest(tokenRequest(t))
@@ -97,33 +100,45 @@ func TestRecord_Write_TopLevelKeys(t *testing.T) {
 			want:   append(slices.Clone(failure), "request"),
 		},
 		{
+			name: "authentication failure after signature verification records claims set without caller",
+			build: func(t *testing.T) audit.Record {
+				r := audit.NewRecord(requestID)
+				r.SetTokenRequest(tokenRequest(t))
+				r.SetClaimsSet(signatureVerifiedClaimsSet(t, `{}`))
+				return r
+			},
+			result: audit.Failed(errorcode.InvalidIDToken, "reason"),
+			want:   append(slices.Clone(failure), "request", "claims_set"),
+		},
+		{
 			name: "failure before installation resolution records no installation",
 			build: func(t *testing.T) audit.Record {
 				r := audit.NewRecord(requestID)
 				r.SetTokenRequest(tokenRequest(t))
+				r.SetClaimsSet(signatureVerifiedClaimsSet(t, `{}`))
 				r.SetCaller(verifiedCaller(t, caller.WorkflowTriggerAttributes{}))
 				return r
 			},
 			result: audit.Failed(errorcode.AuthorizationDenied, "reason"),
-			want:   append(slices.Clone(failure), "request", "caller"),
+			want:   append(slices.Clone(failure), "request", "claims_set", "caller"),
 		},
 		{
 			name:   "failure after installation resolution records installation without revocation",
 			build:  stagesPassed,
 			result: audit.Failed(errorcode.GitHubIssuanceRejected, "reason"),
-			want:   append(slices.Clone(failure), "request", "caller", "installation"),
+			want:   append(slices.Clone(failure), "request", "claims_set", "caller", "installation"),
 		},
 		{
 			name:   "verification failure records revocation",
 			build:  stagesPassed,
 			result: audit.VerificationFailed(errorcode.IssuanceVerificationFailed, "reason", revocation.Succeeded),
-			want:   append(slices.Clone(failure), "request", "caller", "installation", "revocation"),
+			want:   append(slices.Clone(failure), "request", "claims_set", "caller", "installation", "revocation"),
 		},
 		{
 			name:   "success records neither reason nor revocation",
 			build:  stagesPassed,
 			result: audit.Succeeded(),
-			want:   []string{"time", "level", "msg", "request_id", "result", "request", "caller", "installation"},
+			want:   []string{"time", "level", "msg", "request_id", "result", "request", "claims_set", "caller", "installation"},
 		},
 	}
 	for _, tt := range tests {
@@ -213,6 +228,58 @@ func TestRecord_Write_Installation(t *testing.T) {
 	if !reflect.DeepEqual(got["installation"], want) {
 		t.Errorf("installation = %v, want %v", got["installation"], want)
 	}
+}
+
+// TestRecord_Write_ClaimsSet は、署名検証済みの Claims Set を、未知の Claim を含めて claims_set キーのオブジェクトに書くことを確かめる。再符号化の規則は claimsset のテストに任せる。
+func TestRecord_Write_ClaimsSet(t *testing.T) {
+	r := audit.NewRecord(requestID)
+	r.SetClaimsSet(signatureVerifiedClaimsSet(t, `{"head_ref":"feature","repo_property_tier":"gold","unknown":{"nested":[1,true,null]}}`))
+	_, got := write(t, r, audit.Failed(errorcode.InvalidIDToken, "reason"))
+	want := map[string]any{
+		"head_ref":           "feature",
+		"repo_property_tier": "gold",
+		"unknown":            map[string]any{"nested": []any{float64(1), true, nil}},
+	}
+	if !reflect.DeepEqual(got["claims_set"], want) {
+		t.Errorf("claims_set = %v, want %v", got["claims_set"], want)
+	}
+}
+
+// TestRecord_Write_UntrustedClaim は、利用者が選んだ文字列を含む Claim が、記録の行を分けたり別のキーを作ったりしないことを確かめる。
+//
+//trace:checks AC-34
+func TestRecord_Write_UntrustedClaim(t *testing.T) {
+	value := "line1\nline2\r\"quoted\"\x00\x01\x1f {\"injected\":true},\"result\":\"success\"}"
+	payload, err := json.Marshal(map[string]string{"head_ref": value})
+	if err != nil {
+		t.Fatalf("Marshal returned error: %v", err)
+	}
+	r := audit.NewRecord(requestID)
+	r.SetClaimsSet(signatureVerifiedClaimsSet(t, string(payload)))
+	line, got := write(t, r, audit.Failed(errorcode.InvalidIDToken, "reason"))
+	if n := strings.Count(line, "\n"); n != 1 || !strings.HasSuffix(line, "\n") {
+		t.Errorf("record has %d newlines, want exactly one at the end: %q", n, line)
+	}
+	recorded, ok := got["claims_set"].(map[string]any)
+	if !ok {
+		t.Fatalf("claims_set = %v, want an object", got["claims_set"])
+	}
+	if recorded["head_ref"] != value {
+		t.Errorf("claims_set.head_ref = %q, want %q", recorded["head_ref"], value)
+	}
+	if got["result"] != "invalid_id_token" {
+		t.Errorf("result = %v, want %q", got["result"], "invalid_id_token")
+	}
+}
+
+func TestRecord_SetClaimsSet_ZeroPanics(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("SetClaimsSet() with the zero value did not panic")
+		}
+	}()
+	r := audit.NewRecord(requestID)
+	r.SetClaimsSet(claimsset.SignatureVerified{})
 }
 
 // TestRecord_Write_RevocationOutcome は、失効の結果を revocation キーに書くことを確かめる。値ごとの表記は revocation のテストに任せる。
