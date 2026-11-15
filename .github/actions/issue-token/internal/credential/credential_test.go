@@ -26,7 +26,7 @@ func credentials() map[string]any {
 	}
 }
 
-//trace:checks AC-19
+//trace:checks AC-QUALITY-002
 func TestCredentials_HideValueInOutput(t *testing.T) {
 	t.Parallel()
 

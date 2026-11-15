@@ -36,7 +36,7 @@ IAM Role と Lambda の AWS リソース設定は [AWS Infrastructure Design](aw
 `action.yml` に `args` を書かず、入力をコマンドの引数にしません。
 Runner はコンテナを起動する `docker run` の行に環境変数の名前だけを載せ、値を載せないためです（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#inputs)）。
 
-接続情報は GATES 運用者が GitHub の Secrets と Variables に用意し、ワークフローはそれを参照します。AWS アカウント ID は Secrets に置き、その他の値は Variables に置きます。ワークフローに値を直接書かず参照だけにするのは、Role 名や関数名を変えたときに、Secrets と Variables の更新だけで済ませ、利用者のワークフロー定義を変えずに済ませるためです（[Requirements](../spec/requirements.md) AC-23）。
+接続情報は GATES 運用者が GitHub の Secrets と Variables に用意し、ワークフローはそれを参照します。AWS アカウント ID は Secrets に置き、その他の値は Variables に置きます。ワークフローに値を直接書かず参照だけにするのは、Role 名や関数名を変えたときに、Secrets と Variables の更新だけで済ませ、利用者のワークフロー定義を変えずに済ませるためです（[Requirements](../spec/requirements.md) AC-QUALITY-004）。
 
 Secrets と Variables を置く単位は、許可オーナーの種別で決まります（GitHub 側の仕様は [GitHub Constraints](../spec/github-constraints.md#7-github-actions-integration)）。
 オーナーが Organization なら Organization 単位に一度だけ登録します。

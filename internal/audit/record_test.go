@@ -152,7 +152,7 @@ func TestRecord_Write_TopLevelKeys(t *testing.T) {
 	}
 }
 
-//trace:checks AC-18
+//trace:checks AC-OPS-004
 func TestRecord_Write_Caller(t *testing.T) {
 	all := caller.WorkflowTriggerAttributes{
 		Actor:          "octocat",
@@ -247,7 +247,7 @@ func TestRecord_Write_ClaimsSet(t *testing.T) {
 
 // TestRecord_Write_UntrustedClaim は、利用者が選んだ文字列を含む Claim が、記録の行を分けたり別のキーを作ったりしないことを確かめる。
 //
-//trace:checks AC-34
+//trace:checks AC-OPS-009
 func TestRecord_Write_UntrustedClaim(t *testing.T) {
 	value := "line1\nline2\r\"quoted\"\x00\x01\x1f {\"injected\":true},\"result\":\"success\"}"
 	payload, err := json.Marshal(map[string]string{"head_ref": value})
@@ -312,7 +312,7 @@ func TestRecord_Write_UntrustedTriggerAttribute(t *testing.T) {
 	}
 }
 
-//trace:checks AC-19
+//trace:checks AC-QUALITY-002
 func TestRecord_Write_ExcludesIDToken(t *testing.T) {
 	r := audit.NewRecord(requestID)
 	r.SetTokenRequest(tokenRequest(t))

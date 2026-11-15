@@ -35,7 +35,7 @@ func credentials(t *testing.T) []credentialCase {
 // TestCredentials_AreRedactedInOutput は、credential.Redacted のメソッドが各資格情報の型に昇格していることを確かめる。
 // 書式指定や出力先ごとの網羅は credential package のテストが確かめる。
 //
-//trace:checks AC-19
+//trace:checks AC-QUALITY-002
 func TestCredentials_AreRedactedInOutput(t *testing.T) {
 	tests := []struct {
 		name   string

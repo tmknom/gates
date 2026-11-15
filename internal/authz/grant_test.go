@@ -66,7 +66,7 @@ func TestTokenGrant_RepositoriesCannotBeModifiedByCaller(t *testing.T) {
 	assertRepositories(t, grant.Repositories(), []string{"Example-Org/app", "Example-Org/lib"})
 }
 
-//trace:checks AC-07
+//trace:checks AC-AUTHZ-004
 func TestGrant_Denied(t *testing.T) {
 	tests := []struct {
 		name          string

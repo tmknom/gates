@@ -54,7 +54,7 @@ func TestEncodeFailure_RequestIDThatIsNotUTF8ReturnsZeroResponse(t *testing.T) {
 	}
 }
 
-//trace:checks AC-01 AC-09 AC-18
+//trace:checks AC-ISSUANCE-001 AC-ISSUANCE-002 AC-OPS-004
 func TestEncodeSuccess_WritesVerifiedInstallationToken(t *testing.T) {
 	token, err := issueInstallationToken(t, recordedIssuance(), http.StatusNoContent)
 	if err != nil {

@@ -30,7 +30,7 @@ func resolveLogValue(t *testing.T, value any) string {
 	return resolved.String()
 }
 
-//trace:checks AC-19
+//trace:checks AC-QUALITY-002
 func TestRedacted_HidesValueInOutput(t *testing.T) {
 	value := sample{Value: secretValue}
 	holder := struct{ Credential sample }{Credential: value}

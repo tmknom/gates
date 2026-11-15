@@ -90,7 +90,7 @@ run "single_key" {
   state_key = "rotation"
 }
 
-# trace:checks AC-14
+# trace:checks AC-ISSUANCE-005
 run "adding_a_key_keeps_the_active_key" {
   command   = plan
   state_key = "rotation"
@@ -143,7 +143,7 @@ run "two_keys" {
   }
 }
 
-# trace:checks AC-14
+# trace:checks AC-ISSUANCE-005
 run "switching_the_active_key_points_signing_to_it" {
   command   = plan
   state_key = "rotation"

@@ -109,7 +109,7 @@ func TestMain_ChildTermination(t *testing.T) {
 	}
 }
 
-//trace:checks AC-31
+//trace:checks AC-ISSUANCE-007
 func TestPostEntrypoint_ChildTermination(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -144,7 +144,7 @@ func TestPostEntrypoint_ChildTermination(t *testing.T) {
 	}
 }
 
-//trace:checks AC-33
+//trace:checks AC-ISSUANCE-009
 func TestMain_ForwardsSignalToChildAndWaits(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

@@ -42,7 +42,7 @@ func TestNewPermissions_CopiesInput(t *testing.T) {
 	}
 }
 
-//trace:checks AC-08
+//trace:checks AC-AUTHZ-005
 func TestNewPermissions_Invalid(t *testing.T) {
 	tests := []struct {
 		name   string

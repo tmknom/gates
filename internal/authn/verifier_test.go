@@ -216,7 +216,7 @@ func TestVerifierAuthenticate(t *testing.T) {
 	}
 }
 
-//trace:checks AC-03 AC-27
+//trace:checks AC-AUTHN-002 AC-AUTHN-004
 func TestVerifierAuthenticate_InvalidToken(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -321,7 +321,7 @@ func TestVerifierAuthenticate_InvalidToken(t *testing.T) {
 // 文字列、小数、指数表記の値は、go-oidc が読むと 3 つの Claim のどれでも時間条件を通る時刻にし、型の判定だけが拒否できるようにする。
 // 範囲の外の値は、Claim によっては go-oidc や iat の判定でも拒否される。
 //
-//trace:checks AC-27
+//trace:checks AC-AUTHN-004
 func TestVerifierAuthenticate_InvalidNumericDate(t *testing.T) {
 	literals := []struct {
 		name    string
@@ -512,7 +512,7 @@ func decodedClaimName(t *testing.T, name string) string {
 // GOJ-CLAIM-NAME が定める別名が、go-oidc のデコーダが 5 つの Claim 名として読む名前とも、isClaimAlias が拒否する名前とも一致することを確かめる。
 // デコーダの照合は Go の Unicode の版で広がり得るため、単純な Case Folding で畳み込まれる文字はすべて候補に入れる。
 //
-//trace:checks AC-27
+//trace:checks AC-AUTHN-004
 func TestClaimAliases_MatchDecoderAndRejection(t *testing.T) {
 	aliases := claimAliases(func(r rune) []rune { return claimAliasLetters[r] })
 	for _, name := range claimNameCandidates() {
@@ -529,7 +529,7 @@ func TestClaimAliases_MatchDecoderAndRejection(t *testing.T) {
 	}
 }
 
-//trace:checks AC-27
+//trace:checks AC-AUTHN-004
 func TestVerifierAuthenticate_ClaimAlias(t *testing.T) {
 	for alias, name := range claimAliases(func(r rune) []rune { return claimAliasLetters[r] }) {
 		t.Run(alias+" with "+name+" returns ErrAuthenticationFailure", func(t *testing.T) {
@@ -579,7 +579,7 @@ func decodedClaimsSet(t *testing.T, claimsSet claimsset.SignatureVerified) map[s
 
 // TestVerifierAuthenticate_ClaimsSet は、成功した認証が、Caller に読まない Claim を含む Payload 全体だけを署名検証済みの Claims Set として返すことを確かめる。値の一致は、署名や JWT の文字列が加わらないことも確かめる。
 //
-//trace:checks AC-34
+//trace:checks AC-OPS-009
 func TestVerifierAuthenticate_ClaimsSet(t *testing.T) {
 	claims := claimsWith(map[string]any{"head_ref": "feature", "base_ref": "main", "repo_property_tier": "gold"})
 	token := signClaims(t, claims)
@@ -601,7 +601,7 @@ func TestVerifierAuthenticate_ClaimsSet(t *testing.T) {
 // TestVerifierAuthenticate_ClaimsSetOfRejectedToken は、署名検証の後に拒否した JWT だけが署名検証済みの Claims Set を返すことを確かめる。
 // 署名検証の後の拒否は、go-oidc の判定、Authenticate の判定、Caller の確定の判定から 1 つずつ選ぶ。
 //
-//trace:checks AC-34
+//trace:checks AC-OPS-009
 func TestVerifierAuthenticate_ClaimsSetOfRejectedToken(t *testing.T) {
 	tests := []struct {
 		name   string
