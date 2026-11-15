@@ -209,11 +209,11 @@ Issuer と GitHub API Host は環境変数にしません。
 
 | 要求 | AWS における実現手段 |
 |---|---|
-| FR-AUTHN-001、FR-AUTHN-005、FR-OPS-007、AC-25、AC-26 | IAM OIDC Provider、不変 ID 入り `sub` を条件とする IAM Role Trust Policy、対象 Lambda に限定した Invoke 権限、IAM 認証付き Invoke 以外の呼び出し口を設けない Lambda 構成 |
-| FR-ISSUANCE-001、QR-001、QR-006、AC-20 | `EXTERNAL` origin の非対称署名 KMS Key、Lambda 実行 Role への `kms:Sign` のみの許可、Key Policy による署名権限と管理権限の分離 |
-| FR-ISSUANCE-005、FR-OPS-005、AC-14 | 鍵の集合への新 KMS Key の追加と使用中の鍵の切り替えによる鍵更新、`prevent_destroy` と Plan の確認による置換・削除の防止、退役させる鍵の State からの除外 |
-| FR-OPS-004、QR-006、AC-21 | AWS リソースの Terraform 管理と、鍵素材インポートおよびインポート前コピー削除の分離 |
-| FR-OPS-006、AC-24 | 許可オーナー、GitHub App、KMS Key を Terraform 入力と Lambda 環境変数で固定。Installation は固定した GitHub App と不変 Owner ID から一意に導出する（[Security Design](security.md#32-installation-scope-as-authorization-boundary)） |
+| FR-AUTHN-001、FR-AUTHN-005、FR-OPS-007、AC-OPS-007、AC-AUTHN-003 | IAM OIDC Provider、不変 ID 入り `sub` を条件とする IAM Role Trust Policy、対象 Lambda に限定した Invoke 権限、IAM 認証付き Invoke 以外の呼び出し口を設けない Lambda 構成 |
+| FR-ISSUANCE-001、QR-001、QR-006、AC-OPS-005 | `EXTERNAL` origin の非対称署名 KMS Key、Lambda 実行 Role への `kms:Sign` のみの許可、Key Policy による署名権限と管理権限の分離 |
+| FR-ISSUANCE-005、FR-OPS-005、AC-ISSUANCE-005 | 鍵の集合への新 KMS Key の追加と使用中の鍵の切り替えによる鍵更新、`prevent_destroy` と Plan の確認による置換・削除の防止、退役させる鍵の State からの除外 |
+| FR-OPS-004、QR-006、AC-OPS-006 | AWS リソースの Terraform 管理と、鍵素材インポートおよびインポート前コピー削除の分離 |
+| FR-OPS-006、AC-AUTHZ-007 | 許可オーナー、GitHub App、KMS Key を Terraform 入力と Lambda 環境変数で固定。Installation は固定した GitHub App と不変 Owner ID から一意に導出する（[Security Design](security.md#32-installation-scope-as-authorization-boundary)） |
 | FR-OPS-003、QR-004 | CloudWatch Logs の保持期間・アクセス制限と資格情報の非記録 |
 
 受け入れ条件の正本は [Requirements](../spec/requirements.md) です。

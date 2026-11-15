@@ -229,7 +229,7 @@ func TestTokenIssuer_IssueInstallationToken_ReturnsGrantFailureWithoutIssuance(t
 	}
 }
 
-//trace:checks AC-12
+//trace:checks AC-ISSUANCE-004
 func TestTokenIssuer_IssueInstallationToken_RevokesUnverifiedToken(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -292,7 +292,7 @@ func TestTokenIssuer_IssueInstallationToken_RevokesUnverifiedToken(t *testing.T)
 	}
 }
 
-//trace:checks AC-12 AC-29
+//trace:checks AC-ISSUANCE-004 AC-OPS-008
 func TestTokenIssuer_IssueInstallationToken_DoesNotRevokeWithoutToken(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -355,7 +355,7 @@ func TestTokenIssuer_IssueInstallationToken_RevocationEndsOneSecondBeforeRequest
 
 // 発行の要求を送った後に要求の ctx の期限が来ると、応答を受け取れずトークン文字列がないため失効を試みない。
 //
-//trace:checks AC-30
+//trace:checks AC-ISSUANCE-006
 func TestTokenIssuer_IssueInstallationToken_DoesNotRevokeAfterIssuanceDeadline(t *testing.T) {
 	waitForCancel := func(_ http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
@@ -410,7 +410,7 @@ func TestRevocationContext_IgnoresCancellationOfRequestContext(t *testing.T) {
 	}
 }
 
-//trace:checks AC-13
+//trace:checks AC-QUALITY-001
 func TestTokenIssuer_IssueInstallationToken_SignFailureCallsNoGitHubAPI(t *testing.T) {
 	want := errors.New("kms sign failed")
 	stub := newGitHubStub(t, nil)

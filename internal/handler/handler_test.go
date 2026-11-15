@@ -177,7 +177,7 @@ func installation(t *testing.T, installationOwnerID int64, suspendedAt time.Time
 	return &inst
 }
 
-//trace:checks AC-01 AC-18 AC-34
+//trace:checks AC-ISSUANCE-001 AC-OPS-004 AC-OPS-009
 func TestHandle_IssuesTokenAndWritesOneAuditRecordOfSuccess(t *testing.T) {
 	verifier := &verifierStub{caller: verifiedCaller(t), claimsSet: signatureVerifiedClaimsSet(t)}
 	inv := handle(t, verifier, newTokenIssuer(t, recordedIssuance(), http.StatusNoContent), validPayload(t))
@@ -208,7 +208,7 @@ func TestHandle_IssuesTokenAndWritesOneAuditRecordOfSuccess(t *testing.T) {
 	}
 }
 
-//trace:checks AC-08
+//trace:checks AC-AUTHZ-005
 func TestHandle_InvalidRequestDoesNotAuthenticate(t *testing.T) {
 	verifier := &verifierStub{caller: verifiedCaller(t)}
 	tokenIssuer := &tokenIssuerStub{}
@@ -228,7 +228,7 @@ func TestHandle_InvalidRequestDoesNotAuthenticate(t *testing.T) {
 	}
 }
 
-//trace:checks AC-02 AC-13 AC-17
+//trace:checks AC-AUTHN-001 AC-QUALITY-001 AC-OPS-003
 func TestHandle_AuthenticationFailureStopsBeforeAuthorization(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -258,7 +258,7 @@ func TestHandle_AuthenticationFailureStopsBeforeAuthorization(t *testing.T) {
 
 // 署名検証の後に認証が失敗すると、Caller は記録せず、署名検証済みの Claims Set を記録する。
 //
-//trace:checks AC-34
+//trace:checks AC-OPS-009
 func TestHandle_AuthenticationFailureAfterSignatureVerificationWritesClaimsSet(t *testing.T) {
 	verifier := &verifierStub{claimsSet: signatureVerifiedClaimsSet(t), err: fmt.Errorf("%w: sub mismatch", authn.ErrAuthenticationFailure)}
 
@@ -273,7 +273,7 @@ func TestHandle_AuthenticationFailureAfterSignatureVerificationWritesClaimsSet(t
 
 // Token Issuer が呼ばれないことで、KMS と GitHub API に進まないことを確かめる。
 //
-//trace:checks AC-02 AC-04 AC-18
+//trace:checks AC-AUTHN-001 AC-AUTHZ-001 AC-OPS-004
 func TestHandle_AuthorizationDeniedDoesNotCallTokenIssuer(t *testing.T) {
 	tokenIssuer := &tokenIssuerStub{}
 
@@ -303,7 +303,7 @@ func TestHandle_GrantRejectionKeepsResolvedInstallation(t *testing.T) {
 
 // 失敗の種別とエラーコードの対応は errorCodeOf が決めるため、ここでは写したエラーコードが応答と監査記録の両方に出て、拒否の理由が部品の文言であることだけを確かめる。
 //
-//trace:checks AC-13
+//trace:checks AC-QUALITY-001
 func TestHandle_TokenIssuerFailureWritesErrorCodeAndReason(t *testing.T) {
 	err := fmt.Errorf("%w: KMS throttled", signer.ErrTransientFailure)
 
@@ -316,7 +316,7 @@ func TestHandle_TokenIssuerFailureWritesErrorCodeAndReason(t *testing.T) {
 	}
 }
 
-//trace:checks AC-12 AC-18
+//trace:checks AC-ISSUANCE-004 AC-OPS-004
 func TestHandle_VerificationFailureWritesRevocationOutcome(t *testing.T) {
 	allRepositories := recordedIssuance()
 	allRepositories["repository_selection"] = "all"
@@ -381,7 +381,7 @@ func TestHandle_RecoversPanicOfComponent(t *testing.T) {
 	}
 }
 
-//trace:checks AC-19
+//trace:checks AC-QUALITY-002
 func TestHandle_LogsRecoveredPanicWithoutItsValue(t *testing.T) {
 	inv := handle(t, &verifierStub{panics: true}, &tokenIssuerStub{}, validPayload(t))
 

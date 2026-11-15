@@ -16,7 +16,7 @@ import (
 	"github.com/tmknom/gates/internal/tokenissuer"
 )
 
-//trace:checks AC-17 AC-28 AC-29
+//trace:checks AC-OPS-003 AC-AUTHN-005 AC-OPS-008
 func TestErrorCodeOf(t *testing.T) {
 	// 期待値は Lambda Design の「Failure」の表の失敗の種別とエラーコードの対応から取る
 	tests := []struct {

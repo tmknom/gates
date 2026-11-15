@@ -168,7 +168,7 @@ func assertRejected(t *testing.T, got authz.Installation, err, want error) {
 	}
 }
 
-//trace:checks AC-24
+//trace:checks AC-AUTHZ-007
 func TestResolveInstallation_RequestsOwnerTypeEndpoint(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -341,7 +341,7 @@ func TestResolveInstallation_StatusFailure(t *testing.T) {
 	}
 }
 
-//trace:checks AC-13
+//trace:checks AC-QUALITY-001
 func TestResolveInstallation_CommunicationFailureReturnsErrTransientFailure(t *testing.T) {
 	closeConnection := func(w http.ResponseWriter, _ *http.Request) {
 		conn, _, err := w.(http.Hijacker).Hijack()

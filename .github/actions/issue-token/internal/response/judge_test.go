@@ -66,7 +66,7 @@ func TestJudge_ExtractsToken(t *testing.T) {
 	}
 }
 
-//trace:checks AC-16 AC-17
+//trace:checks AC-OPS-002 AC-OPS-003
 func TestJudge_FailsWithAFixedMessage(t *testing.T) {
 	t.Parallel()
 

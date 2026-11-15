@@ -19,7 +19,7 @@ const (
 
 var contentsRead = map[string]string{"contents": "read"}
 
-//trace:checks AC-09
+//trace:checks AC-ISSUANCE-002
 func TestAuthorize(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -41,7 +41,7 @@ func TestAuthorize(t *testing.T) {
 	}
 }
 
-//trace:checks AC-02 AC-04 AC-06 AC-07 AC-08 AC-10
+//trace:checks AC-AUTHN-001 AC-AUTHZ-001 AC-AUTHZ-003 AC-AUTHZ-004 AC-AUTHZ-005 AC-AUTHZ-006
 func TestAuthorize_Denied(t *testing.T) {
 	tests := []struct {
 		name          string
