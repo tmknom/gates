@@ -6,10 +6,15 @@ Go のコードを静的解析する golangci-lint を、隔離したコンテ�
 
 | 対象 | 取得元 | バージョンの固定先 |
 |---|---|---|
-| golangci-lint | `docker.io/golangci/golangci-lint` | `compose.yaml` の `image` のタグと digest |
+| golangci-lint | ソース（`github.com/golangci/golangci-lint/v2`） | `Dockerfile` の `go install` のバージョン |
+| 実行用のイメージ | `docker.io/golangci/golangci-lint` | `Dockerfile` の `FROM` のタグと digest |
+| Go | `docker.io/library/golang` | `Dockerfile` の `FROM` のタグと digest |
 
-追加するものがないため Dockerfile を持たず、公式イメージを直接使います。
-バージョンを変えるときは、タグと digest を一緒に書き換えます。
+公式イメージの実行ファイルと同梱の Go は、修正版のある脆弱性を含む Go でビルドされていることがあります。
+このため、同じバージョンの golangci-lint を Docker Action のビルドと同じ Go でソースからビルドし、公式イメージの実行ファイルと Go をそれで差し替えます。
+公式イメージの OS のパッケージは、ビルド時に上げます。
+バージョンを変えるときは、`go install` のバージョンと公式イメージのタグと digest を一緒に書き換えます。
+`make lint` と `make action-lint` は実行のたびにイメージをビルドします。
 
 ## 使い方
 

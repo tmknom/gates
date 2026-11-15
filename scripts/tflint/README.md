@@ -6,10 +6,16 @@ Terraform のコードを静的解析する tflint を、隔離したコンテ�
 
 | 対象 | 取得元 | バージョンの固定先 |
 |---|---|---|
-| tflint | `ghcr.io/terraform-linters/tflint` | `Dockerfile` の `FROM` のタグと digest |
+| tflint | ソース（`github.com/terraform-linters/tflint`） | `Dockerfile` の `go install` のバージョン |
+| 実行用のイメージ | `ghcr.io/terraform-linters/tflint` | `Dockerfile` の `FROM` のタグと digest |
+| Go | `docker.io/library/golang` | `Dockerfile` の `FROM` のタグと digest |
 | AWS ruleset | `terraform-linters/tflint-ruleset-aws` の GitHub リリース | `Dockerfile` の URL と、アーキテクチャごとの SHA-256 |
 
 terraform ruleset は tflint に同梱されています。
+公式イメージの tflint は、修正版のある脆弱性を含む Go でビルドされていることがあります。
+このため、同じバージョンの tflint を Docker Action のビルドと同じ Go でソースからビルドし、公式イメージの実行ファイルを差し替えます。
+公式イメージの OS のパッケージは、ビルド時に上げます。
+tflint のバージョンを変えるときは、`go install` のバージョンと公式イメージのタグと digest を一緒に書き換えます。
 AWS ruleset のバージョンを変えるときは、URL と、`amd64` と `arm64` のハッシュを一緒に書き換えます。
 ハッシュには、リリースの `checksums.txt` にある zip の値を使います。
 

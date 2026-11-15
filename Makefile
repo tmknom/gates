@@ -33,7 +33,7 @@ vet: ## static analysis by vet
 .PHONY: lint
 lint: container-mountpoints tf-misplaced-values ## static analysis by golangci-lint in an isolated container
 	LINT_MODULE=$(CURDIR) LINT_GOMODCACHE="$$(go env GOMODCACHE)" \
-		docker compose -f scripts/golangci-lint/compose.yaml run --rm -T --interactive=false lint
+		docker compose -f scripts/golangci-lint/compose.yaml run --build --rm -T --interactive=false lint
 
 .PHONY: vuln
 vuln: ## check known vulnerabilities by govulncheck
@@ -220,7 +220,7 @@ container-mountpoints:
 # actionlint は .git からプロジェクトを探すが、コンテナには .github だけを渡すため、検査するファイルを引数で渡す
 .PHONY: lint-gha
 lint-gha: ## lint workflow files by actionlint in an isolated container
-	ACTIONLINT_TARGET=$(CURDIR)/.github docker compose -f scripts/actionlint/compose.yaml run --rm -T --interactive=false actionlint \
+	ACTIONLINT_TARGET=$(CURDIR)/.github docker compose -f scripts/actionlint/compose.yaml run --build --rm -T --interactive=false actionlint \
 		$(sort $(wildcard .github/workflows/*.yml .github/workflows/*.yaml))
 
 # Targets: Docker Action
@@ -256,7 +256,7 @@ action-vet: ## static analysis of the docker action by vet
 .PHONY: action-lint
 action-lint: container-mountpoints tf-misplaced-values ## static analysis of the docker action by golangci-lint in an isolated container
 	LINT_MODULE=$(CURDIR) LINT_GOMODCACHE="$$(go env GOMODCACHE)" \
-		docker compose -f scripts/golangci-lint/compose.yaml run --rm -T --interactive=false --workdir /src/$(ACTION_DIR) lint
+		docker compose -f scripts/golangci-lint/compose.yaml run --build --rm -T --interactive=false --workdir /src/$(ACTION_DIR) lint
 
 .PHONY: action-vuln
 action-vuln: ## check known vulnerabilities of the docker action by govulncheck

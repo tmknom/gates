@@ -8,8 +8,10 @@ name: golangci-lint
 
 services:
   lint:
-    image: docker.io/golangci/golangci-lint:v2.14.0@sha256:ad862ba6b3798cbe0fd9fd7408d498fd74fbd2623a92406b2fd3898faf0bf98f
-    pull_policy: missing
+    # Makefile の lint と action-lint が実行のたびにビルドする。localhost/ を付け、Docker Hub の同名のイメージを取ってこないようにする
+    build: .
+    image: localhost/gates/golangci-lint:latest
+    pull_policy: never
     user: "65534:65534"
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]

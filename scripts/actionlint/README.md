@@ -6,11 +6,16 @@ GitHub Actions のワークフローを静的解析する actionlint を、隔�
 
 | 対象 | 取得元 | バージョンの固定先 |
 |---|---|---|
-| actionlint と shellcheck | `docker.io/rhysd/actionlint` | `compose.yaml` の `image` のタグと digest |
+| actionlint | ソース（`github.com/rhysd/actionlint`） | `Dockerfile` の `go install` のバージョン |
+| shellcheck と実行用のイメージ | `docker.io/rhysd/actionlint` | `Dockerfile` の `FROM` のタグと digest |
+| Go | `docker.io/library/golang` | `Dockerfile` の `FROM` のタグと digest |
 
-追加するものがないため Dockerfile を持たず、公式イメージを直接使います。
+公式イメージの actionlint は、修正版のある脆弱性を含む Go でビルドされていることがあります。
+このため、同じバージョンの actionlint を Docker Action のビルドと同じ Go でソースからビルドし、公式イメージの実行ファイルを差し替えます。
+公式イメージの OS のパッケージは、ビルド時に上げます。
 `run` の中のスクリプトは、イメージに入っている shellcheck で検査します。
-バージョンを変えるときは、タグと digest を一緒に書き換えます。
+バージョンを変えるときは、`go install` のバージョンと公式イメージのタグと digest を一緒に書き換えます。
+`make lint-gha` は実行のたびにイメージをビルドします。
 
 ## 使い方
 
