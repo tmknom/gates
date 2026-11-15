@@ -547,6 +547,8 @@ post-entrypoint はジョブの最後に動くため、利用者のステップ�
 この確かめ方は、試験用の Action の post が Docker Action の post-entrypoint より後に動くことを前提とします。
 GitHub の資料に post の順序の明記はありませんが、Runner はメインの処理を始めるときに post をスタックに積み、ジョブの最後に積んだ逆の順で取り出します（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#runner-source)）。
 試験では、2 つの post の順序もステップの番号とログで確かめます。
+GitHub は失効が効くまでの時間を公開しておらず、失効の `204` の直後の読み取りが通ってこの試験が失敗した事例があります（[GitHub Constraints](../spec/github-constraints.md#63-失効)）。
+このため、この試験の失敗は、post-entrypoint の失効の結果と合わせて読みます。
 
 ## 7. Sources
 
