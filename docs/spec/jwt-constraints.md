@@ -147,7 +147,7 @@ Hybrid Flow では、Authorization Endpoint から返る ID Token は Implicit F
 - **受信した値**：`kid` はインジェクションを招かないよう検証または無害化する。`jku` と `x5u` の URL をそのままたどらず、SSRF を防ぐことが **SHOULD**（[§3.10](https://www.rfc-editor.org/rfc/rfc8725.html#section-3.10)）
 - **JWT の種類の区別**：同じ Issuer が複数の種類の JWT を発行し得る場合、検証規則は互いに排他的であることが **MUST**。手段には `typ`、必須 Claim、Header、鍵、`aud`、Issuer の違いがある。新しい用途では `typ` による明示が **RECOMMENDED**（[§3.11–§3.12](https://www.rfc-editor.org/rfc/rfc8725.html#section-3.11)）
 
-## 7. Sources
+## 7. References
 
 - [RFC 7159 — The JavaScript Object Notation (JSON) Data Interchange Format](https://www.rfc-editor.org/rfc/rfc7159.html)（2014、§8.3）
 - [RFC 7515 — JSON Web Signature (JWS)](https://www.rfc-editor.org/rfc/rfc7515.html)（2015、§3–§6）

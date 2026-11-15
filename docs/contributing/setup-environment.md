@@ -137,7 +137,7 @@ gh variable set GATES_AUDIENCE --repo <owner>/<repo> --body <gates_audience>
 
 `gh secret set` は `--body` を付けないと値の入力を求めるため、AWS アカウント ID をコマンドラインに書かずに済みます。
 
-## 4. Sources
+## 4. References
 
 - [GitHub — Registering a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app)
 - [GitHub — Installing your own GitHub App](https://docs.github.com/en/apps/using-github-apps/installing-your-own-github-app)

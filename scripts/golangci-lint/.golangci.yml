@@ -258,7 +258,7 @@ linters:
           allow:
             - $gostd
             - github.com/tmknom/gates/.github/actions/issue-token/internal/credential
-        # 署名検証済みの Claims Set は監査記録のためだけの値で、認証、認可、ワークフロー起動属性の判断に使わない（FR-021）。
+        # 署名検証済みの Claims Set は監査記録のためだけの値で、認証、認可、ワークフロー起動属性の判断に使わない（FR-OPS-003）。
         # 作る OIDC Verifier、運ぶ Lambda Handler、書く監査記録のほかは import できなくし、Authorization が受け取れないようにする
         claimsset-consumers:
           list-mode: lax

@@ -111,7 +111,7 @@ Docker Action は応答を処理し、発行されたトークン、有効期限
 | [GitHub Constraints](../spec/github-constraints.md) | GATES が依存する GitHub の仕様、適用範囲、出典、未確認事項 |
 | [JWT Constraints](../spec/jwt-constraints.md) | JWT / JWS / JWK / OpenID Connect の標準仕様の規定と適用範囲 |
 
-## 7. Sources
+## 7. References
 
 - [GitHub Constraints](../spec/github-constraints.md)
 - [JWT Constraints](../spec/jwt-constraints.md)

@@ -46,7 +46,7 @@ GATES は IAM Role の Trust Policy と許可する操作を設計します。
 
 | GATES の条件 | 要求上の根拠 |
 |---|---|
-| AWS STS の入口制御 | [Requirements](../spec/requirements.md) の FR-005、FR-025 |
+| AWS STS の入口制御 | [Requirements](../spec/requirements.md) の FR-AUTHN-005、FR-OPS-007 |
 
 ## Verification Cases
 
@@ -54,7 +54,7 @@ GATES は IAM Role の Trust Policy と許可する操作を設計します。
 |---|---|---|
 | IAM の境界 | 不変 Owner ID 入りの `sub`、旧形式、別オーナーの `sub` | 許可オーナーの接頭部分を制限し、全構文の検証とは区別 |
 
-## Sources
+## References
 
 - [GitHub Constraints](../spec/github-constraints.md) — GitHub 公式資料、旧形式と不変形式の `sub`、相違・未確認事項
 - [AWS STS Legacy Subject](../research/aws/sts-legacy-subject.md) — 旧形式の `sub` で IAM Role の引き受けを試みた結果

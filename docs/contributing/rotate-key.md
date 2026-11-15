@@ -231,7 +231,7 @@ aws kms describe-key --key-id "$OLD_KMS_KEY_ARN" --query 'KeyMetadata.KeyState' 
 予約期間を過ぎると、KMS は旧鍵を削除し、取り消せなくなります。
 State のバックアップ（`terraform/local/terraform.tfstate.key-1.backup`）は、State から外す操作を取り消すときにだけ使い、旧鍵の削除が終われば要りません。
 
-## 11. Sources
+## 11. References
 
 - [GitHub — Managing private keys for GitHub Apps](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps)
 - [AWS — Deleting AWS KMS keys](https://docs.aws.amazon.com/kms/latest/developerguide/deleting-keys.html)

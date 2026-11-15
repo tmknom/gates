@@ -39,17 +39,17 @@ flowchart TB
 
 | コマンド | 確かめること | 要件 |
 |---|---|---|
-| `NoForeignOwnerGrant` | 許可オーナー以外の Caller に発行許可を作らない | FR-006 |
-| `NoOtherInstallationGrant` | 発行許可の Installation はどれも同じで、許可オーナーのものであり、停止していない | FR-024 |
-| `OnlyCurrentPermissionGranted` | 発行許可の権限は `contents:read` だけである | FR-008, FR-012 |
-| `AllOrNothingGrant` | 発行許可の対象は要求した対象の全件と一致し、一部だけにならない | FR-011 |
-| `AllIssueCallsExplicit` | 発行 API の呼び出しは、要求された対象と `contents:read` を明示する | FR-015 |
-| `NoOverbroadTokenReturned` | 返却可能な発行結果の権限は `contents:read` と任意の `metadata:read` だけで、対象は `selected` である | FR-008, FR-018 |
-| `ExactNamesReturned` | 返却可能な発行結果の対象の完全名と件数は、要求と一致する | FR-010, FR-018 |
-| `NoDuplicateEffectiveRepositoriesReturned` | 返却可能な発行結果の実効対象に、同じ Repository ID や同じ完全名の要素はない | FR-018 |
-| `ReturnedReposOwnedByAllowedOwner` | 返却可能な発行結果の対象は、すべて許可オーナーのものである | FR-010, FR-018 |
-| `CoverageHoldsWhenGitHubEnforces` | GitHub が Installation の対象を強制するなら、要求した名前はすべて、その Installation に含まれる許可オーナーのリポジトリである | FR-007 |
-| `ReturnedResultsHaveValidTokenAndExpiry` | 返却可能な発行結果のトークンは空でなく、有効期限は将来である | FR-016 |
+| `NoForeignOwnerGrant` | 許可オーナー以外の Caller に発行許可を作らない | FR-AUTHZ-001 |
+| `NoOtherInstallationGrant` | 発行許可の Installation はどれも同じで、許可オーナーのものであり、停止していない | FR-OPS-006 |
+| `OnlyCurrentPermissionGranted` | 発行許可の権限は `contents:read` だけである | FR-AUTHZ-003, FR-AUTHZ-007 |
+| `AllOrNothingGrant` | 発行許可の対象は要求した対象の全件と一致し、一部だけにならない | FR-AUTHZ-006 |
+| `AllIssueCallsExplicit` | 発行 API の呼び出しは、要求された対象と `contents:read` を明示する | FR-ISSUANCE-003 |
+| `NoOverbroadTokenReturned` | 返却可能な発行結果の権限は `contents:read` と任意の `metadata:read` だけで、対象は `selected` である | FR-AUTHZ-003, FR-ISSUANCE-006 |
+| `ExactNamesReturned` | 返却可能な発行結果の対象の完全名と件数は、要求と一致する | FR-AUTHZ-005, FR-ISSUANCE-006 |
+| `NoDuplicateEffectiveRepositoriesReturned` | 返却可能な発行結果の実効対象に、同じ Repository ID や同じ完全名の要素はない | FR-ISSUANCE-006 |
+| `ReturnedReposOwnedByAllowedOwner` | 返却可能な発行結果の対象は、すべて許可オーナーのものである | FR-AUTHZ-005, FR-ISSUANCE-006 |
+| `CoverageHoldsWhenGitHubEnforces` | GitHub が Installation の対象を強制するなら、要求した名前はすべて、その Installation に含まれる許可オーナーのリポジトリである | FR-AUTHZ-002 |
+| `ReturnedResultsHaveValidTokenAndExpiry` | 返却可能な発行結果のトークンは空でなく、有効期限は将来である | FR-ISSUANCE-004 |
 
 表の「返却可能な発行結果」の権限と対象は GitHub の応答が示す値を指し、実際のトークンの権限を GitHub に問い合わせて確かめたものではありません。
 
@@ -117,12 +117,12 @@ stateDiagram-v2
 
 | コマンド | 確かめること | 要件 |
 |---|---|---|
-| `NoUnverifiedReturn` | 返却したなら、発行許可の確定、発行 API の呼び出し、トークン文字列の取得、発行結果の照合を経ている | QR-003, FR-018 |
+| `NoUnverifiedReturn` | 返却したなら、発行許可の確定、発行 API の呼び出し、トークン文字列の取得、発行結果の照合を経ている | QR-003, FR-ISSUANCE-006 |
 | `NoIssueBeforeExplicitGrant` | GitHub 側で発行されたなら、発行許可の確定と発行 API の呼び出しを経ている | QR-007 |
 | `NoReturnAfterLostResponse` | 応答を喪失した呼び出しは、トークンを返却しない | QR-003, AC-30 |
 | `NoRevokeWithoutKnownToken` | 失効を試みたなら、トークン文字列を取得している | AC-30 |
-| `NoFailureWithoutRevokeAttempt` | 照合に失敗したトークン文字列を取得した呼び出しが失敗で終わるなら、失効を試みている | FR-007, FR-018, AC-12 |
-| `NoConfirmedRevocationWithoutAttempt` | 失効の成功を確認したなら、失効を試みている | FR-018 |
+| `NoFailureWithoutRevokeAttempt` | 照合に失敗したトークン文字列を取得した呼び出しが失敗で終わるなら、失効を試みている | FR-AUTHZ-002, FR-ISSUANCE-006, AC-12 |
+| `NoConfirmedRevocationWithoutAttempt` | 失効の成功を確認したなら、失効を試みている | FR-ISSUANCE-006 |
 | `NoInterruptedInvocationReturns` | 中断した呼び出しは、トークンを返却していない | QR-003 |
 | `NoObservedSuccessWithoutReturn` | 呼び出し元が成功を受け取ったなら、その呼び出しは返却まで成功している | なし（モデル内の整合性） |
 
