@@ -234,6 +234,13 @@ func TestVerifierAuthenticate_InvalidToken(t *testing.T) {
 		{"different iss", func(t *testing.T) string {
 			return signClaims(t, claimsWith(map[string]any{"iss": "https://other.example"}))
 		}},
+		{"iss missing", func(t *testing.T) string {
+			return signClaims(t, claimsWithout("iss"))
+		}},
+		// 型の判定だけが拒否できるよう、寛容に読めば正しい Issuer になる値にする
+		{"iss as one-element array", func(t *testing.T) string {
+			return signClaims(t, claimsWith(map[string]any{"iss": []string{testIssuer}}))
+		}},
 		{"different aud", func(t *testing.T) string {
 			return signClaims(t, claimsWith(map[string]any{"aud": "other"}))
 		}},
@@ -245,6 +252,10 @@ func TestVerifierAuthenticate_InvalidToken(t *testing.T) {
 		}},
 		{"aud missing", func(t *testing.T) string {
 			return signClaims(t, claimsWithout("aud"))
+		}},
+		// 型の判定だけが拒否できるよう、寛容に読めば GATES 用 Audience になる値にする
+		{"aud array with an array element", func(t *testing.T) string {
+			return signClaims(t, claimsWith(map[string]any{"aud": []any{[]string{testAudience}}}))
 		}},
 		{"exp equal to current time", func(t *testing.T) string {
 			return signClaims(t, claimsWith(map[string]any{"exp": unixAfter(0)}))

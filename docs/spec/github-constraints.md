@@ -368,5 +368,5 @@ Client ID または App ID を `iss` にすることは、`iss` を文字列と�
 | GitHub App の鍵 | 新規生成される RSA 鍵のビット長 |
 | Installation の取得 API | Organization の API の `200` 以外の応答（インストールされていない場合を含む）、User の API のアンインストール以外の `200` 以外の応答、Organization の API の応答の形、停止中の Installation の `suspended_at` の値の形、GitHub App とオーナーの組での一意性 |
 | トークン発行 API | 範囲外リポジトリへの要求、500件超の要求、停止中の Installation への要求、`422` の原因、`metadata:read` の付与条件、応答フィールドの有無、`repositories` の並び |
-| トークン失効 API | 新形式のトークンでの失効の動作 |
+| トークン失効 API | 新形式のトークンでの失効の動作、`204` の後に失効が効くまでの時間 |
 | Docker Action | ジョブが失敗した状態とキャンセルした状態での post-entrypoint の実行、複数の Action の post が動く順序、別のリポジトリを `uses:` で参照したときのビルドの時間と post-entrypoint でのビルドのし直し、Dependabot の `docker` が `FROM` のタグと並べた digest を更新するか、Runner のバージョンやイメージが変わったときのソケットの所有グループ、ファイルコマンドのファイルをステップの後に残すこと、`ACTIONS_RUNTIME_TOKEN` と要求用トークンが同じ値であること |
