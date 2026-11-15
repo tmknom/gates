@@ -24,10 +24,10 @@ var errorCodesByFailureKind = []struct {
 	{kind: authn.ErrTransientFailure, code: errorcode.IdentityVerificationUnavailable},
 	{kind: authn.ErrInternalFailure, code: errorcode.InternalError},
 	{kind: authz.ErrAuthorizationDenied, code: errorcode.AuthorizationDenied},
-	{kind: authz.ErrInstallationUnavailable, code: errorcode.InstallationResolutionFailed},
+	{kind: authz.ErrInstallationUnavailable, code: errorcode.InstallationUnavailable},
 	{kind: signer.ErrTransientFailure, code: errorcode.SigningUnavailable},
 	{kind: signer.ErrInternalFailure, code: errorcode.InternalError},
-	{kind: github.ErrTransientFailure, code: errorcode.TokenIssuanceFailed},
+	{kind: github.ErrTransientFailure, code: errorcode.GitHubAPIUnavailable},
 	{kind: github.ErrIssuanceRejected, code: errorcode.GitHubIssuanceRejected},
 	{kind: tokenissuer.ErrVerificationFailure, code: errorcode.IssuanceVerificationFailed},
 }

@@ -1190,7 +1190,7 @@ func TestAuthenticate_ConcurrentRetrievalFailureDoesNotReachCallsRejectedWithout
 // 名前の判定と NumericDate の判定は、鍵情報に依存しないため取得の前に行う。
 //
 //trace:checks AC-AUTHN-004
-func TestAuthenticate_UnacceptableClaimSetIsRejectedWithoutRetrieval(t *testing.T) {
+func TestAuthenticate_UnacceptableClaimsSetIsRejectedWithoutRetrieval(t *testing.T) {
 	tests := []struct {
 		name    string
 		leading string
@@ -1220,7 +1220,7 @@ func TestAuthenticate_UnacceptableClaimSetIsRejectedWithoutRetrieval(t *testing.
 
 // Claims Set が JSON オブジェクトであることも鍵情報に依存しないため、取得の前に判定する。
 // 配列や文字列は復号の error で拒否され、null だけが error にならずに復号される。
-func TestAuthenticate_NullClaimSetIsRejectedWithoutRetrieval(t *testing.T) {
+func TestAuthenticate_NullClaimsSetIsRejectedWithoutRetrieval(t *testing.T) {
 	stub := newIssuerStub(t, testKey(t), testKeyID)
 	token := signWithKeyID(t, jose.RS256, testKey(t), testKeyID, []byte(`null`))
 

@@ -214,8 +214,8 @@ Lambda Handler は Payload を読む前に相関 ID を確かめます。
 | `authorization_denied` | 認可拒否 | Caller の Owner ID が許可オーナーと不一致、要求した権限が許可条件外、または要求したリポジトリのオーナー名が許可オーナー名と不一致。Installation の対象外であることが GitHub API の呼び出し後に判明した場合は、その処理段階の失敗として扱う |
 | `identity_verification_unavailable` | 一時的な障害 | OIDC Discovery / JWKS の取得が一時的に失敗した。通信の失敗、タイムアウト、5xx、403 / 429 で、再試行で解消し得る |
 | `signing_unavailable` | 一時的な障害 | KMS 署名が一時的に失敗した。通信の失敗、タイムアウト、呼び出し元の ctx の期限切れと中断、5xx、スロットリングで、再試行で解消し得る |
-| `installation_resolution_failed` | Installation 利用不可 | 固定した GitHub App と許可オーナーから、発行に使える Installation を得られない。一時的な障害を除く GitHub API の失敗（App JWT が受け付けられない 401、GitHub App が許可オーナーにインストールされていないときの 404 など）、Installation の応答に必要な項目がない、停止状態を読み取れない、Installation が停止している（`suspended_at` が時刻である）、`account.id` が許可オーナーの Owner ID と一致しない |
-| `token_issuance_failed` | 一時的な障害 | GitHub API の一時的な障害。通信の失敗、タイムアウト、5xx、レート制限による 403 / 429 で、Installation の取得と発行 API の呼び出しの両方を含む。再試行で解消し得る |
+| `installation_unavailable` | Installation 利用不可 | 固定した GitHub App と許可オーナーから、発行に使える Installation を得られない。一時的な障害を除く GitHub API の失敗（App JWT が受け付けられない 401、GitHub App が許可オーナーにインストールされていないときの 404 など）、Installation の応答に必要な項目がない、停止状態を読み取れない、Installation が停止している（`suspended_at` が時刻である）、`account.id` が許可オーナーの Owner ID と一致しない |
+| `github_api_unavailable` | 一時的な障害 | GitHub API の一時的な障害。通信の失敗、タイムアウト、5xx、レート制限による 403 / 429 で、Installation の取得と発行 API の呼び出しの両方を含む。再試行で解消し得る |
 | `github_issuance_rejected` | GitHub 発行拒否 | GATES の認可が成立した後、GitHub の発行 API が `422` で要求を拒否した。検証失敗やスパム判定など、原因は応答コードから特定できない |
 | `issuance_verification_failed` | 照合失敗 | GitHub API の発行応答が [Success](#31-success) の照合を通らない。空でないトークン文字列を取得できた場合は失効を試みる |
 | `internal_error` | 内部障害 | Handler の panic、部品が返したエラーがどの失敗の種別にも当たらないか複数の種別に当たる場合、Discovery / JWKS の非一時的な取得・構造異常、JWKS に使用可能な鍵がない場合、KMS が再試行では解消しない失敗を返した場合（鍵の無効化、鍵の状態、権限の不足など）、KMS の応答を署名として解釈できない場合、KMS に要求を送る前の AWS SDK の失敗を含む |
@@ -241,8 +241,8 @@ Lambda Handler は、その種別をエラーコードに写します。
 | `authorization_denied` | `The requested token is not permitted.` |
 | `identity_verification_unavailable` | `Identity verification is temporarily unavailable. Retry later.` |
 | `signing_unavailable` | `Signing is temporarily unavailable. Retry later.` |
-| `installation_resolution_failed` | `The GitHub App installation is not available for issuance.` |
-| `token_issuance_failed` | `The GitHub API is temporarily unavailable. Retry later.` |
+| `installation_unavailable` | `The GitHub App installation is not available for issuance.` |
+| `github_api_unavailable` | `The GitHub API is temporarily unavailable. Retry later.` |
 | `github_issuance_rejected` | `GitHub rejected the token issuance.` |
 | `issuance_verification_failed` | `The issued token did not pass verification and was not returned.` |
 | `internal_error` | `An internal error occurred.` |
@@ -250,18 +250,18 @@ Lambda Handler は、その種別をエラーコードに写します。
 #### GitHub API の失敗の分類
 
 GitHub API の失敗は、HTTP 応答から次のように分類します。
-通信の失敗、タイムアウト、5xx、レート制限による 403 / 429 は `token_issuance_failed` にします。
+通信の失敗、タイムアウト、5xx、レート制限による 403 / 429 は `github_api_unavailable` にします。
 発行 API の 422 は `github_issuance_rejected` にします。
-それ以外の失敗は `installation_resolution_failed` にします。
+それ以外の失敗は `installation_unavailable` にします。
 Client ID の誤り、KMS Key と GitHub に登録した Private Key の不一致、Installation の削除や停止が、ここに入ります。
 発行 API の呼び出しで起きた 401 / 403 / 404 も、直前に同じ App JWT で Installation を取得できているため、その間に Installation か App の状態が変わったものとしてこのコードに含めます。
-Installation の応答の形式が想定と異なる場合は `installation_resolution_failed` に、発行応答の形式が想定と異なる場合は `issuance_verification_failed` にします。
+Installation の応答の形式が想定と異なる場合は `installation_unavailable` に、発行応答の形式が想定と異なる場合は `issuance_verification_failed` にします。
 
 この分類は GATES のエラー分類であり、GitHub の HTTP ステータスの定義ではありません。
 発行 API の `422` は、GitHub の公開仕様では検証失敗またはスパム判定を指し、Installation の範囲外の要求だけを意味しません（[GitHub Constraints](../spec/github-constraints.md#61-発行-api-の呼び出しと有効期限)）。
 Installation の取得に使う Organization と User の API が公開している応答コードは `200` だけです（[GitHub Constraints](../spec/github-constraints.md#5-installation)）。
 上の 404 は、User の API でアンインストールの後に観測した応答で、Organization の API では確かめていません。
-分類は `200` 以外の応答をレート制限と一時的な障害を除いて `installation_resolution_failed` にすることで成り立ち、特定のステータスには依存しません。
+分類は `200` 以外の応答をレート制限と一時的な障害を除いて `installation_unavailable` にすることで成り立ち、特定のステータスには依存しません。
 発行 API の `422` を `authorization_denied` と分けるのは、`422` だけでは権限不足や悪意の有無を確定できないためです。
 
 403 と 429 のうちレート制限によるものは、応答のヘッダーで判定します。
@@ -269,7 +269,7 @@ Installation の取得に使う Organization と User の API が公開してい
 403 は、`x-ratelimit-remaining` が `0` か、`retry-after` のヘッダーがあるときだけレート制限とし、ほかの 403 はレート制限としません。
 本文のメッセージは判定に使いません。
 GitHub はセカンダリのレート制限を本文のメッセージだけで示す場合があり（[GitHub Constraints](../spec/github-constraints.md#61-発行-api-の呼び出しと有効期限)）、文言に頼ると、GitHub が文言を変えたときに分類が変わるためです。
-この判定は、ヘッダーのないレート制限の 403 を `installation_resolution_failed` として、レート制限でないのにこれらのヘッダーが付いた 403 を `token_issuance_failed` として伝え得ます。
+この判定は、ヘッダーのないレート制限の 403 を `installation_unavailable` として、レート制限でないのにこれらのヘッダーが付いた 403 を `github_api_unavailable` として伝え得ます。
 GitHub App JWT で認証した要求の応答は、レート制限に達していない記録では `x-ratelimit-*` を含まず（同節）、制限に達したときに付くかは確かめていません。
 どちらの誤りでもトークンは返さず、誤りが変えるのは、利用者に再実行を促すかどうかです。
 
@@ -329,8 +329,8 @@ flowchart LR
 | Runtime Entry | 起動時の固定設定の読み込みと各コンポーネントの組み立て、初期化の失敗の記録と異常終了、Lambda Runtime からの Payload と相関 ID の受け取りと、Lambda Handler の応答か相関 ID を確かめた結果のエラーの返却。Lambda Runtime のライブラリと AWS SDK の設定の読み込みを使う唯一のコンポーネントで、失敗の分類や値の検証の判断を持たない |
 | Lambda Handler | 相関 ID の検証、Payload の形式検証、各コンポーネントの呼び出し順序の制御、監査記録の出力、応答形式 |
 | OIDC Verifier | GitHub OIDC JWT の署名・Issuer・Audience・時間・Claim 検証と Caller の確定、Issuer の Discovery / JWKS の取得と保持 |
-| Authorization | Caller、要求（対象、権限）、取得済み Installation、固定設定から発行可否を判定し、TokenGrant を確定。ネットワーク通信を行わない |
-| Token Issuer | KMS Signer による App JWT の作成、GitHub Client を使った Installation の取得とトークン発行、GitHub 応答の TokenGrant への照合、照合に失敗したトークンの失効 |
+| Authorization | Caller、要求（対象、権限）、取得済み Installation、固定設定から発行可否を判定し、発行許可を確定。ネットワーク通信を行わない |
+| Token Issuer | KMS Signer による App JWT の作成、GitHub Client を使った Installation の取得とトークン発行、GitHub 応答の発行許可への照合、照合に失敗したトークンの失効 |
 | KMS Signer | 固定設定の Client ID と現在時刻から GitHub App JWT を組み立て、固定された非対称 KMS Key とアルゴリズムで署名 |
 | GitHub Client | GitHub API（Installation の取得、トークン発行、トークンの失効）に対する HTTP 通信と応答の復号 |
 
@@ -384,8 +384,8 @@ Discovery / JWKS は初期化で取得しません（[§6.1](#61-oidc-validation
 2. OIDC Verifier が GATES 用 OIDC JWT を認証し、Caller を確定する。
 3. Authorization が、Caller の Owner ID、要求した各完全名のオーナー名、要求の Permissions を許可条件と照合する。
 4. Token Issuer が KMS Signer で GitHub App JWT を作り、GitHub Client で許可オーナーの Installation を取得する。
-5. Authorization が取得した Installation の有効性を確かめ、TokenGrant を確定する（Grant）。
-6. Token Issuer が TokenGrant の対象と Permissions を明示して GitHub API にトークンを発行させ、発行応答を TokenGrant と照合する。
+5. Authorization が取得した Installation の有効性を確かめ、発行許可を確定する（Grant）。
+6. Token Issuer が発行許可の対象と Permissions を明示して GitHub API にトークンを発行させ、発行応答を発行許可と照合する。
 7. Lambda Handler が監査記録を出力し、応答を返す。
 
 どの手順で失敗しても、[Failure](#32-failure) のエラーコードで終わり、以降の手順に進みません。
@@ -428,15 +428,15 @@ GitHub API は SDK を使わず、Go 標準ライブラリの HTTP クライア�
 使うエンドポイントが次の 3 つに限られるためです。
 
 - **Installation の取得**：GitHub App JWT で、許可オーナーの種別が Organization なら `GET /orgs/{org}/installation`、ユーザーアカウントなら `GET /users/{username}/installation` を呼び出す。`GET /repos/{owner}/{repo}/installation` はどちらの種別にも使えるが、採用しない。要求されたリポジトリから Installation を引くことになり、固定した設定から Installation を導出する [Requirements](../spec/requirements.md) FR-OPS-006 から外れるためである。停止の判定は Authorization が行う（[Processing Flow](#5-processing-flow) の手順 5）。
-- **トークンの発行**：`POST /app/installations/{installation_id}/access_tokens` に、TokenGrant の対象と Permissions を必ず指定する。発行 API の `repositories` はリポジトリ名だけを受け取るため、TokenGrant の各完全名を一度だけ `/` で分割し、リポジトリ名の部分を渡す。分割前の完全名は、発行応答の `full_name` との照合に使う。
+- **トークンの発行**：`POST /app/installations/{installation_id}/access_tokens` に、発行許可の対象と Permissions を必ず指定する。発行 API の `repositories` はリポジトリ名だけを受け取るため、発行許可の各完全名を一度だけ `/` で分割し、リポジトリ名の部分を渡す。分割前の完全名は、発行応答の `full_name` との照合に使う。
 - **トークンの失効**：照合に失敗したトークンの失効には `DELETE /installation/token` を使う。このエンドポイントは App JWT ではなく、失効させる Installation Access Token 自体で認証する。`204` だけを失効の成功とし、失敗しても再試行せずに監査記録へ残す。
 - **リダイレクト**：従わず、`3xx` は [Failure](#32-failure) の分類で成功以外の応答として扱う。リダイレクト先は GATES が選んだエンドポイントではなく、その応答を Installation や発行応答として読む根拠がないためである。また、従うと、固定した API Host の外へ GitHub App JWT を送り得る。
-- **API バージョン**：すべての要求に `X-GitHub-Api-Version: 2026-03-10` を付ける。GitHub Constraints が REST API を確認した版であり、[調査記録](../research/github/installation-access-token.md)もこの版で取得している。ヘッダーを省略すると既定の版が使われ、その版のサポートが終わると既定の版が変わる（[GitHub Constraints](../spec/github-constraints.md#1-scope-and-evidence)）。省略すると、GATES のコードを変えずに応答の形が変わり得るため、省略しない。この版のサポートが終わると、GitHub はこの版を指定した要求に `410 Gone` を返し、[Failure](#32-failure) の分類で `installation_resolution_failed` になる。再試行では解消せず、運用者が版を更新するまで発行が止まる。版を更新するときは、GitHub Constraints と調査記録を新しい版で確かめ直す。
+- **API バージョン**：すべての要求に `X-GitHub-Api-Version: 2026-03-10` を付ける。GitHub Constraints が REST API を確認した版であり、[調査記録](../research/github/installation-access-token.md)もこの版で取得している。ヘッダーを省略すると既定の版が使われ、その版のサポートが終わると既定の版が変わる（[GitHub Constraints](../spec/github-constraints.md#1-scope-and-evidence)）。省略すると、GATES のコードを変えずに応答の形が変わり得るため、省略しない。この版のサポートが終わると、GitHub はこの版を指定した要求に `410 Gone` を返し、[Failure](#32-failure) の分類で `installation_unavailable` になる。再試行では解消せず、運用者が版を更新するまで発行が止まる。版を更新するときは、GitHub Constraints と調査記録を新しい版で確かめ直す。
 - **`User-Agent`**：すべての要求に、GATES を示す固定の値 `gates` を付ける。GitHub は `User-Agent` のない要求を拒否し、値にアプリケーションの名前を推奨する（[GitHub Constraints](../spec/github-constraints.md#1-scope-and-evidence)）。
 - **応答サイズの上限**：Installation の取得の応答は 64 KiB、発行応答は 16 MiB とする。失効の応答は、成否をステータスだけで判定するため本文を読まず、上限を設けない。Installation の応答は[調査記録](../research/github/app-installation.md)で約 1.6 KB であり、64 KiB は Discovery と JWKS の上限（[§6.1](#61-oidc-validation)）と同じく、増えても収まり、想定外に大きい応答を読み込み続けない大きさとする。発行応答は対象 1 件ごとにリポジトリの完全な表現を持ち、[調査記録](../research/github/installation-access-token.md)では 12 文字のリポジトリ名で 1 件あたり約 6 KB だった。この表現はリポジトリ名を約 40 回、オーナー名を約 50 回繰り返すため、100 文字のリポジトリ名と 39 文字のオーナー名では 1 件あたり約 12 KB になる。説明文やトピックのような自由記述のフィールドの最大長は確かめていない。16 MiB は、対象 500 件で 1 件あたり約 33 KB まで収まる大きさとする。
-- **上限を超えた応答**：Installation の応答は、形式が想定と異なる応答として `installation_resolution_failed` にする。発行応答は、形式が想定と異なる発行応答として `issuance_verification_failed` にし、失効を試みない。トークン文字列は、完全に受信して解釈できた発行応答からだけ取り出す。途中までの本文からトークン文字列を探すと、壊れた JSON の解釈という別の規則が要るためである。この場合、GitHub 側で発行されたトークンは有効期限まで残り得る。
+- **上限を超えた応答**：Installation の応答は、形式が想定と異なる応答として `installation_unavailable` にする。発行応答は、形式が想定と異なる発行応答として `issuance_verification_failed` にし、失効を試みない。トークン文字列は、完全に受信して解釈できた発行応答からだけ取り出す。途中までの本文からトークン文字列を探すと、壊れた JSON の解釈という別の規則が要るためである。この場合、GitHub 側で発行されたトークンは有効期限まで残り得る。
 - **発行応答の読み取り**：`201` の本文は、`token` とほかのフィールドを独立に読む。`token` を読み取れれば、ほかのフィールドが欠落しているか読み取れなくても発行結果にし、読み取れなかったことを発行結果に残す。本文を JSON のオブジェクトとして解釈できない場合（JSON でない、読まないフィールドの中を含めて本文のどこかに同じ名前の重複がある、UTF-8 として正しくない文字列がある）は、`token` を含めてどのフィールドも読み取らない。読み取れなかったフィールドは `issuance_verification_failed` になり、どの読み取りも失敗の種別を変えないため、GitHub Client は `201` をエラーにしない。
-- **名前の重複**：同じ名前を重複して持つ Installation の応答は、形式が想定と異なる応答として `installation_resolution_failed` にする。重複した名前のどちらの値を読むかが決まらず、Installation ID やインストール先 Owner ID を一つに定められないためである。
+- **名前の重複**：同じ名前を重複して持つ Installation の応答は、形式が想定と異なる応答として `installation_unavailable` にする。重複した名前のどちらの値を読むかが決まらず、Installation ID やインストール先 Owner ID を一つに定められないためである。
 
 [Domain Model](domain.md) の概念は、GitHub API の応答の次のフィールドから得ます。
 
@@ -444,7 +444,7 @@ GitHub API は SDK を使わず、Go 標準ライブラリの HTTP クライア�
 |---|---|---|---|
 | Installation ID | Installation | `id` | |
 | インストール先 Owner ID | Installation | `account.id` | 許可オーナーの Owner ID との照合は Authorization が行う |
-| 停止状態 | Installation | `suspended_at` | `null` なら停止していない。時刻なら停止している。キーの欠落と、`null` でも時刻でもない値は、停止状態を読み取れない応答として `installation_resolution_failed` にする。Go の時刻のゼロ値と同じ時刻（`0001-01-01T00:00:00Z`）も、停止していないことの表現と区別できないため、読み取れない値として扱う |
+| 停止状態 | Installation | `suspended_at` | `null` なら停止していない。時刻なら停止している。キーの欠落と、`null` でも時刻でもない値は、停止状態を読み取れない応答として `installation_unavailable` にする |
 | 対象の選び方 | 発行応答 | `repository_selection` | `selected` が選択したリポジトリに限る、`all` が全リポジトリ。文字列でなければ読み取れない。ほかの文字列も読み取り、照合が `selected` 以外として拒否する |
 | Installation Access Token | 発行応答 | `token` | 空でない文字列だけを読み取る。空文字列は失効 API の認証に使えないため、読み取れないものとする |
 | 実効権限 | 発行応答 | `permissions` | [権限名と水準の文字種](#権限名と水準の文字種)に合わない、空、またはオブジェクトでない値は読み取れない |

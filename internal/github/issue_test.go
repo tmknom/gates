@@ -84,7 +84,7 @@ func tokenGrant(t *testing.T) authz.TokenGrant {
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
-	grant, err := authz.Grant(c, req, allowedOwner(t, authz.OwnerTypeUser), newInstallation(t, time.Time{}))
+	grant, err := authz.Grant(c, req, allowedOwner(t, authz.OwnerTypeUser), newInstallation(t, false))
 	if err != nil {
 		t.Fatalf("Grant returned error: %v", err)
 	}

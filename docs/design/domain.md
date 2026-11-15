@@ -21,6 +21,7 @@ Docker Action、AWS IAM、KMS の鍵管理は、発行の判定と語の意味�
 英語名は概念の名前であり、複数の単語は空白で区切ります（Token Request など）。
 実装では空白を除いた形（TokenRequest など）を型名・関数名にし、実装と本ドキュメントの整合はこの対応で確かめます。
 package 名が概念名の前半を表すときは、型名からその部分を除きます（Revocation Outcome を revocation package の Outcome にするなど）。
+署名検証済みの Claims Set は、package 名が概念名の後半を表す例外で、claimsset package の SignatureVerified にします。
 
 本ドキュメントは、GATES に必要な値を概念として定義し、GitHub や AWS がその値をどのフィールドや Claim で提供するかは書きません。
 提供のされ方は手段であり、概念の意味を変えないためです。
@@ -52,6 +53,10 @@ GATES は、この二つの要求を同時に満たす仲介者です。
 GATES が所有する概念は、固定設定、発行要求、Caller、発行許可、発行結果、監査記録です。
 オーナー、リポジトリ、GitHub App、Installation は GitHub が所有する概念で、GATES はそれらを参照し、照合します。
 
+GATES は、発行の判定を Invoke ごとの **発行処理**（Issuance Process）で行います。
+発行処理は、Lambda Handler が一回の Invoke の相関 ID を確かめてから、成功応答か失敗応答を書くまでの処理です（事実：Lambda Design §3.2）。
+監査記録、失敗の種別、[INV-014 発行処理](#inv-014-発行処理)は、どれも発行処理 1 回を単位に定めます。
+
 ## 3. Concepts
 
 ### 3.1 GitHub Entities Referenced by GATES
@@ -70,6 +75,13 @@ GATES が所有する概念は、固定設定、発行要求、Caller、発行�
 名前は変わり得るため、認可の同一性は不変 ID で判断し、名前は要求の照合と GitHub API の呼び出しに使う表現と位置づけます（事実：Requirements FR-AUTHZ-001、FR-AUTHN-002）。
 名前が変わると、ID で同じものを指していても名前の照合は失敗します。
 この失敗は、GATES では Fail Closed として受け入れます（事実：AWS Infrastructure Design §3.1）。
+
+名前の表現は、次の二つの値で扱います。
+
+| 概念 | 英語名 | 種別 | 内容 | 根拠 |
+|---|---|---|---|---|
+| **完全名** | Full Name | 値 | `owner/repo` 形式のリポジトリ名。オーナー名とリポジトリ名に分割でき、比較は ASCII の範囲で大文字小文字を区別しない | 事実：Lambda Design §2.2 |
+| **オーナー名** | Owner Name | 値 | 完全名のオーナー部分と許可オーナー名の二か所に現れるオーナーの名前。どちらも同じ文字種の規則に従う。比較は ASCII の範囲で大文字小文字を区別しない | 事実：Lambda Design §2.2 |
 
 Installation には、GATES が参照する次の属性があります。
 
@@ -115,8 +127,6 @@ Client ID、KMS Key ARN、Audience、Issuer、API Host は、認証、署名、I
 | 概念 | 英語名 | 種別 | 内容 | 根拠 |
 |---|---|---|---|---|
 | **発行要求** | Token Request | 値 | 対象（重複のない完全名の列）と Permissions。利用者が明示する。対象は明示した完全名だけで、全リポジトリを対象にする手段を持たない | 事実：Requirements FR-AUTHZ-007、Lambda Design §2.1 |
-| **完全名** | Full Name | 値 | `owner/repo` 形式のリポジトリ名。オーナー名とリポジトリ名に分割でき、比較は ASCII の範囲で大文字小文字を区別しない | 事実：Lambda Design §2.2 |
-| **オーナー名** | Owner Name | 値 | 完全名のオーナー部分と許可オーナー名の二か所に現れるオーナーの名前。どちらも同じ文字種の規則に従う。比較は ASCII の範囲で大文字小文字を区別しない | 事実：Lambda Design §2.2 |
 | **Permission Entry** | Permission Entry | 値 | 権限名と水準の組（`contents:read` など） | 事実：Requirements FR-AUTHZ-003 |
 | **Permissions** | Permissions | 値 | Permission Entry の集合。権限名ごとに水準を一つ持つ（GitHub の権限の表現が権限名をキーに持つため）。要求では `{contents:read}` だけが許可される。GitHub REST API のスキーマ「App Permissions」に対応する | 事実：Requirements FR-AUTHZ-003、Security Design §3.1、GitHub Constraints §6.1、REST API endpoints for GitHub Apps のスキーマ「App Permissions」 |
 | **許可権限** | Allowed Permissions | 値 | GATES が発行を許可する Permissions。`{contents:read}` に固定 | 事実：Requirements §2.1 |
@@ -150,15 +160,14 @@ GATES は署名検証済みの Claims Set を監査記録に書き写すだけ�
 
 | 概念 | 英語名 | 種別 | 内容 | 根拠 |
 |---|---|---|---|---|
-| **発行結果** | Issuance Result | 値 | GitHub API が返した Installation Access Token、有効期限、実効対象の集合、実効権限、対象の選び方 | 事実：GitHub Constraints §6.2 |
+| **発行結果** | Issuance Result | 値 | GitHub API が返した Installation Access Token、有効期限、実効対象の集合、実効権限、対象の選び方。GitHub REST API のスキーマ「Installation Token」に対応する | 事実：GitHub Constraints §6.2、REST API endpoints for GitHub Apps のスキーマ「Installation Token」 |
 | **実効権限** | Effective Permissions | 値 | 発行結果に含まれる Permissions。許可権限と付随権限の範囲内であることを照合する | 事実：Requirements FR-ISSUANCE-004、FR-ISSUANCE-006 |
 | **実効対象** | Effective Repository | 値 | 発行結果に含まれる各リポジトリ。Repository ID、所有オーナーの Owner ID、完全名を持つ | 事実：Lambda Design §6.3 |
-| **返却可能な発行結果** | Installation Token | 値 | 発行許可との照合を通った発行結果。利用者に返せるのはこれだけ。名前は GitHub REST API の発行応答のスキーマ名で、トークン、有効期限、実効権限、実効対象の集合を持つ | 事実：Security Design §3.4、REST API endpoints for GitHub Apps のスキーマ「Installation Token」 |
+| **返却可能な発行結果** | Returnable Issuance Result | 値 | 発行許可との照合を通った発行結果。利用者に返せるのはこれだけ。トークン、有効期限、実効権限、実効対象の集合を持つ | 事実：Security Design §3.4 |
 
 **対象の選び方**（Repository Selection）は、発行結果の対象が選択したリポジトリに限られるか、全リポジトリかの二値です。
 
 Installation Access Token はトークン文字列そのもので、GitHub の名前です。
-本ドキュメントは Installation Token の名前を照合を通った発行結果にだけ使い、照合前の応答は発行結果と呼びます。
 照合の条件は [INV-012 返却可能な発行結果](#inv-012-返却可能な発行結果)に置きます。
 
 発行結果は照合の前の値であり、不変条件を持ちません。
@@ -178,7 +187,7 @@ GATES の処理には 5 種類の **資格情報**（Credential）が現れ、�
 | **AWS 一時認証情報** | AWS Credentials | AWS STS | Lambda Invoke の署名 | 現れない |
 | **GATES 用 OIDC JWT** | ID Token | GitHub OIDC Provider（Audience は GATES 用 Audience） | Caller の確定 | 現れる。認証の入力。名前は OIDC の応答名 |
 | **GitHub App JWT** | App JWT | Lambda が組み立て、KMS が署名 | GitHub API の呼び出し | 現れる。内部でだけ使い、外に出さない |
-| **Installation Access Token** | Installation Access Token | GitHub API | 対象リポジトリの読み取り | 現れる。発行結果の中心。返却可能な発行結果（Installation Token）はこれに有効期限・対象・実効権限を添えたもの |
+| **Installation Access Token** | Installation Access Token | GitHub API | 対象リポジトリの読み取り | 現れる。発行結果の中心。返却可能な発行結果はこれに有効期限・対象・実効権限を添えたもの |
 
 GATES 用 OIDC JWT は、Payload から取り出した時点では未検証であり、認証を通って初めて Caller の根拠になります。
 認証を通る前の値を **未検証の GATES 用 OIDC JWT**（Unverified ID Token）と呼びます。
@@ -240,7 +249,7 @@ flowchart LR
     REQ[発行要求<br/>Token Request]
     G[発行許可<br/>Token Grant]
     RES[発行結果<br/>Issuance Result]
-    IT[返却可能な発行結果<br/>Installation Token]
+    IT[返却可能な発行結果<br/>Returnable Issuance Result]
     AUD[監査記録<br/>Audit Record]
   end
   O -->|所有| R
@@ -281,7 +290,7 @@ flowchart LR
 | 発行 | Issue | Token Issuer | 発行許可、GitHub App JWT | 発行結果、または失敗 | 事実：Requirements FR-ISSUANCE-002、FR-ISSUANCE-003 |
 | 発行結果の照合 | Verify | Token Issuer | 発行結果、発行許可、許可オーナー、現在時刻 | 返却可能な発行結果、または拒否 | 事実：Requirements FR-ISSUANCE-006 |
 | 失効 | Revoke | Token Issuer | 照合を通らなかった発行結果のトークン | 成功または失敗。成否にかかわらず拒否のまま終わる | 事実：Requirements FR-AUTHZ-002、FR-ISSUANCE-006、Lambda Design §3.1 |
-| Installation Token の発行 | Issue Installation Token | Token Issuer | 発行許可の確定（Caller と発行要求は Token Issuer に渡さない）、許可オーナー、現在時刻 | 署名、Installation の解決、発行許可の確定、発行、発行結果の照合を順に行い、返却可能な発行結果、またはいずれかの段階の拒否。照合失敗には失効の結果を添える | 事実：Lambda Design §6.2。語は候補 |
+| Installation Access Token の発行 | Issue Installation Access Token | Token Issuer | 発行許可の確定（Caller と発行要求は Token Issuer に渡さない）、許可オーナー、現在時刻 | 署名、Installation の解決、発行許可の確定、発行、発行結果の照合を順に行い、返却可能な発行結果、またはいずれかの段階の拒否。照合失敗には失効の結果を添える | 事実：Lambda Design §6.2。語は候補 |
 | 監査記録の出力 | Audit | Lambda Handler | 発行処理の結果 | 監査記録 | 事実：Requirements FR-OPS-003 |
 | 署名鍵を更新する | （運用手順） | GATES 運用者 | 新しい Private Key | 鍵の集合への新しい KMS Key の追加と、使用中の鍵（Lambda が参照する Key ARN）の切り替え | 事実：Requirements FR-ISSUANCE-005、AWS Infrastructure Design §4.2、§4.3 |
 | Installation の対象を変える | （GitHub 側の操作） | GitHub App / オーナーの管理者 | 対象リポジトリの選択 | 読み取り可能範囲の上限が変わる | 事実：Requirements §2.3、Security Design §3.2 |
@@ -299,7 +308,7 @@ flowchart LR
 | Issue | GitHub 発行拒否（発行 API の `422`）。通信の失敗などは一時的な障害、その他の失敗は Installation 利用不可 |
 | Verify | 照合失敗 |
 | Revoke | なし。失効に失敗しても照合失敗のまま終わる |
-| Issue Installation Token | 失敗した段階（Sign、Resolve Installation、Grant、Issue、Verify）の種別をそのまま返す |
+| Issue Installation Access Token | 失敗した段階（Sign、Resolve Installation、Grant、Issue、Verify）の種別をそのまま返す |
 
 どの段階にも属さない想定外の障害も、Handler が応答を書ける限り内部障害で終わります。
 
@@ -402,16 +411,19 @@ stateDiagram-v2
 
 照合失敗は GitHub の発行応答を取得した後の拒否です。空でないトークン文字列を取得した場合は失効を試みます。発行 API への要求後に通信が断たれた場合は、GitHub 側で発行が成功していてもトークン文字列を取得できないことがあります。返却しないことは保証しますが、GitHub 側でトークンが残らないことは保証しません（事実：Requirements FR-ISSUANCE-006、QR-003）。
 
-発行処理は、失敗の種別で終わらずに打ち切られることもあります。
-タイムアウト、メモリ不足、初期化の失敗のように Handler が応答を書けない場合で、これを **中断**（Interruption）と呼びます（事実：Lambda Design §3.2。語は候補）。
+始まった発行処理は、失敗の種別で終わらずに打ち切られることもあります。
+タイムアウトやメモリ不足で Handler が応答を書けない場合で、これを **中断**（Interruption）と呼びます（事実：Lambda Design §3.2。語は候補）。
 中断を失敗の種別に含めないのは、種別は発行処理が判定して応答で表すものであり、中断では応答で表せないためです（推論）。
 タイムアウトでは、発行処理が期限切れを失敗の種別に判定した後、応答を返す前に打ち切られることがあります（事実：[AWS Fault Injection](../research/aws/fault-injection.md)）。
-初期化の失敗は、固定設定が不変条件（[INV-004 許可オーナー](#inv-004-許可オーナー)、[INV-005 認証の固定設定](#inv-005-認証の固定設定)、[INV-006 署名の固定設定](#inv-006-署名の固定設定)）を満たさないか、実行環境から AWS SDK の設定を読めず、部品を作れない場合です。
-その実行環境では発行処理を始められず、受理した要求は中断で終わります（事実：Lambda Design §4.1。推論：不変条件を満たさない値を作らない方針から）。
-どの段階でも起き得るため、状態図には描きません。
+中断はどの段階でも起き得るため、状態図には描きません。
 中断した発行処理は利用者にトークンを返しませんが、監査記録が残らない場合があります。
 残る場合もあり、その結果は発行処理が判定した結果（成功または失敗の種別）で、利用者が受け取った結果（応答のない中断）とは一致しません（推論：Lambda Handler は、成功でも失敗でも監査記録を書いてから応答を返すため）。
 トークン文字列を取得した後に中断すると、失効を試みられず、GitHub 側でトークンが有効なまま残り得ます（推論：Handler が処理を続けられないため）。
+
+Handler が応答を書けない Invoke には、発行処理を始めないものもあります。
+初期化の失敗と、相関 ID が UTF-8 として正しくない場合です（事実：Lambda Design §3.2、§4.1）。
+初期化の失敗は、固定設定が不変条件（[INV-004 許可オーナー](#inv-004-許可オーナー)、[INV-005 認証の固定設定](#inv-005-認証の固定設定)、[INV-006 署名の固定設定](#inv-006-署名の固定設定)）を満たさないか、実行環境から AWS SDK の設定を読めず、部品を作れない場合で、その実行環境は受け取った Invoke に対して発行処理を始めません（推論：不変条件を満たさない値を作らない方針から）。
+どちらも中断と異なり、監査記録は残らず、GitHub 側にトークンを残すこともありません（推論：発行処理を始める前に止まり、GitHub API を呼ばないため）。
 
 認可が事前認可と発行許可の確定の二段に分かれるのは、Installation を取得しないとインストール先 Owner ID を照合できず、Installation の取得には署名済みの GitHub App JWT が要るためです（推論：Lambda Design §5 手順 3 から 5 の順序から）。
 事前認可は、KMS と GitHub API を呼ぶ前に、認可の見込みがない要求を落とすための段階です（事実：Lambda Design §5）。
@@ -606,7 +618,7 @@ Installation に対象リポジトリが含まれることを、GATES は発行�
 
 #### INV-005 認証の固定設定
 
-**時点**：検証器を作った時点
+**時点**：OIDC Verifier を作った時点
 
 **常に成り立つこと**：Issuer が `https` のホストと、あれば空でないポートだけからなり、解析しても文字列が変わらない URL で、Audience が空でなく、AWS 用 OIDC JWT の Audience `sts.amazonaws.com` と異なり、ASCII の範囲で大文字小文字を区別せずに比べて、`https://github.com` と異なり、`https://github.com/` で始まらない
 
@@ -699,7 +711,7 @@ GitHub が発行した後に不整合を検出して失効に失敗した場合�
 | **認証** | Authentication | 未検証の GATES 用 OIDC JWT を、Issuer の公開鍵と固定設定の Issuer と Audience で検証し、Caller を確定する | Lambda の Go アプリケーションのうち OIDC Verifier | JWT、JOSE Header、Claim、主体（`sub`）、Issuer、Audience、Discovery、JWK / JWKS、`kid`、使用可能な鍵 |
 | **発行** | Issuance | 発行要求と Caller から発行許可を確定し、発行結果を照合して返す | Lambda の Go アプリケーションのうち OIDC Verifier を除く部分 | 本ドキュメント §3 の概念のうち、Issuer、GATES 用 Audience、Issuer の公開鍵集合、Discovery を除くもの |
 | **入口制御** | Entry Control | 許可オーナーのワークフローだけに Lambda の Invoke を許す | IAM OIDC Provider、IAM Role、Terraform | OIDC JWT の主体の文字列パターン、Audience、AWS 一時認証情報、`lambda:InvokeFunction` |
-| **利用者接点** | Workflow Integration | 利用者の入力を発行要求に変換し、Lambda の応答を判定して発行結果を Output として後続ステップへ渡し、受け取ったトークンの失効（失敗時の失効、ジョブの終了時の失効）を試みる | Docker Action | `repositories` と `permissions` のカンマ区切り、接続情報、要求用トークン、OIDC JWT、AWS 一時認証情報、Invoke の結果、成功応答と失敗応答、Output、通信の失敗、ワークフローコマンド（マスク、注釈）、ファイルコマンド（`GITHUB_OUTPUT`、`GITHUB_STATE`） |
+| **利用者接点** | Workflow Integration | 利用者の入力を Invoke Payload に変換し、Lambda の応答を判定して発行結果を Output として後続ステップへ渡し、受け取ったトークンの失効（失敗時の失効、ジョブの終了時の失効）を試みる | Docker Action | `repositories` と `permissions` のカンマ区切り、接続情報、要求用トークン、OIDC JWT、AWS 一時認証情報、Invoke の結果、成功応答と失敗応答、Output、通信の失敗、ワークフローコマンド（マスク、注釈）、ファイルコマンド（`GITHUB_OUTPUT`、`GITHUB_STATE`） |
 | **鍵管理** | Key Custody | KMS Key の作成、鍵素材のインポート、鍵の更新 | Terraform と独立した運用手順 | KMS Key、鍵素材、`PendingImport` と `Enabled`、`key_spec`、鍵の集合、使用中の鍵 |
 
 GitHub は、オーナー、リポジトリ、GitHub App、Installation を所有する上流です。
@@ -785,6 +797,7 @@ Lambda の Invoke API が JSON として読めずに拒否した Payload も、�
 | 検証と照合 | 署名と Claim の検証（Verify） | 発行結果と発行許可の照合（Verify）。英語名が同じため、日本語では「検証」と「照合」で区別する | 現れない | 現れない | 現れない |
 | 権限 / permissions | 現れない | GitHub App の Permissions（`contents:read`） | IAM の許可（`lambda:InvokeFunction`、`kms:Sign`） | 入力の `permissions`（カンマ区切り）とワークフローの `permissions: id-token: write` | KMS Key Policy の署名権限と管理権限 |
 | 応答 | 現れない | GitHub API の応答（発行応答など）と、Lambda Handler が書く成功応答と失敗応答 | 現れない | Lambda Handler が書いた成功応答と失敗応答を、Invoke の結果の Payload として読むもの | 現れない |
+| 発行要求 | 現れない | 形式検証を通った対象と Permissions（[INV-001 発行要求](#inv-001-発行要求)）。GATES 用 OIDC JWT を含まない | 現れない | リストの構造と UTF-8 の正しさだけを確かめた、入力の表記と順序のままの対象と権限。文字種と対象の上限は確かめていない | 現れない |
 | repositories | 現れない | 発行要求の完全名の列。GitHub API へはリポジトリ名の配列に変換する | 現れない | 入力と Output のカンマ区切り文字列 | 現れない |
 | 鍵 | Issuer の公開鍵（検証だけに使う） | 署名鍵の KMS Key ARN（署名だけを依頼する） | 現れない | 現れない | 鍵素材、KMS Key、Private Key のコピー |
 | 失効 | GATES 用 OIDC JWT の失効時刻（`exp`）。時刻の経過で効力を失うこと | 照合を通らなかった発行結果のトークンを GitHub API で無効にする操作（Revoke）。発行処理の不変条件が試行を求め、失効の結果を監査記録に残す | 現れない | 受け取った Installation Access Token を GitHub API で無効にする操作（Revoke）。「ジョブの終了時の失効」と「失敗時の失効」がある。どちらもベストエフォートで、結果はワークフローのログにだけ残る | GitHub 側での旧 Private Key の失効。GATES は代行しない |

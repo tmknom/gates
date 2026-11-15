@@ -21,47 +21,47 @@ type kmsSigner interface {
 // 署名から照合までを一つの操作にまとめる理由は、Lambda Design の「GitHub App JWT」に記述する。
 type GrantFunc func(installation authz.Installation) (authz.TokenGrant, error)
 
-// TokenIssuer は、KMS Signer と GitHub Client を使って Installation Token を発行する Token Issuer である。
+// TokenIssuer は、KMS Signer と GitHub Client を使って Installation Access Token を発行する Token Issuer である。
 // 入口を struct のメソッドにするのは、KMS Signer、GitHub Client、許可オーナーを要求をまたいで保持するためである。
 type TokenIssuer struct {
-	signer kmsSigner
-	client *github.Client
-	owner  authz.AllowedOwner
-	now    func() time.Time
+	signer       kmsSigner
+	client       *github.Client
+	allowedOwner authz.AllowedOwner
+	now          func() time.Time
 }
 
-// NewTokenIssuer は Token Issuer を作る。owner は固定設定の許可オーナーである。
-func NewTokenIssuer(signer kmsSigner, client *github.Client, owner authz.AllowedOwner, now func() time.Time) *TokenIssuer {
+// NewTokenIssuer は Token Issuer を作る。
+func NewTokenIssuer(signer kmsSigner, client *github.Client, allowedOwner authz.AllowedOwner, now func() time.Time) *TokenIssuer {
 	// ゼロ値は Installation の取得先を決められず、照合でも Owner ID 0 の実効対象と一致し得るため作らない
-	nonzero.Require(owner)
-	return &TokenIssuer{signer: signer, client: client, owner: owner, now: now}
+	nonzero.Require(allowedOwner)
+	return &TokenIssuer{signer: signer, client: client, allowedOwner: allowedOwner, now: now}
 }
 
-// IssueInstallationToken は、署名、Installation の解決、発行許可の確定、発行、発行結果の照合を一つの操作として行い、照合を通った発行結果だけを返す。
+// IssueInstallationAccessToken は、署名、Installation の解決、発行許可の確定、発行、発行結果の照合を一つの操作として行い、返却可能な発行結果だけを返す。
 // GitHub App JWT は 1 回だけ作り、Installation の解決と発行の両方に使い、戻り値にもエラーにも出さない。
 // 失敗はどの段階でも失敗の種別のまま返す。照合失敗は *VerificationFailure で、失効の結果を持つ。
-func (i *TokenIssuer) IssueInstallationToken(ctx context.Context, grant GrantFunc) (InstallationToken, error) {
+func (i *TokenIssuer) IssueInstallationAccessToken(ctx context.Context, grant GrantFunc) (ReturnableIssuanceResult, error) {
 	appJWT, err := i.signer.Sign(ctx)
 	if err != nil {
-		return InstallationToken{}, err
+		return ReturnableIssuanceResult{}, err
 	}
-	installation, err := i.client.ResolveInstallation(ctx, appJWT, i.owner)
+	installation, err := i.client.ResolveInstallation(ctx, appJWT, i.allowedOwner)
 	if err != nil {
 		// 段階名を足す理由は Lambda Design の「応答とエラー文言に出す情報」に記述する
-		return InstallationToken{}, fmt.Errorf("resolve installation: %w", err)
+		return ReturnableIssuanceResult{}, fmt.Errorf("resolve installation: %w", err)
 	}
 	tokenGrant, err := grant(installation)
 	if err != nil {
-		return InstallationToken{}, err
+		return ReturnableIssuanceResult{}, err
 	}
 	// 発行 API の失敗は発行結果を持たず、トークン文字列がないため失効を試みない
 	result, err := i.client.Issue(ctx, appJWT, tokenGrant)
 	if err != nil {
-		return InstallationToken{}, fmt.Errorf("issue: %w", err)
+		return ReturnableIssuanceResult{}, fmt.Errorf("issue: %w", err)
 	}
-	token, err := verify(result, tokenGrant, i.owner, i.now())
+	returnable, err := verify(result, tokenGrant, i.allowedOwner, i.now())
 	if err != nil {
-		return InstallationToken{}, i.revokeUnverified(ctx, result, err)
+		return ReturnableIssuanceResult{}, i.revokeAfterVerificationFailure(ctx, result, err)
 	}
-	return token, nil
+	return returnable, nil
 }

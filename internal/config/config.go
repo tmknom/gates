@@ -20,7 +20,7 @@ const (
 )
 
 // Config は、固定設定のうち GATES 運用者がデプロイ時に決める値である。
-// Client ID、Audience、KMS Key ARN を文字列のまま持つのは、それらの条件を検証器と KMS Signer が作る時点の不変条件として持ち、規則を 2 か所に分けないため。
+// Client ID、Audience、KMS Key ARN を文字列のまま持つのは、それらの条件を OIDC Verifier と KMS Signer が作る時点の不変条件として持ち、規則を 2 か所に分けないため。
 // フィールドを非公開にし、ゼロ値以外は Load でしか作れないようにする。
 type Config struct {
 	allowedOwner authz.AllowedOwner
@@ -115,11 +115,11 @@ func (l *loader) allowedOwner(rawID, name, rawType envValue) authz.AllowedOwner 
 		}
 		return authz.AllowedOwner{}
 	}
-	owner, err := authz.NewAllowedOwner(id, name.value, ownerType)
+	allowedOwner, err := authz.NewAllowedOwner(id, name.value, ownerType)
 	if err != nil {
 		l.fail(name.key, err)
 	}
-	return owner
+	return allowedOwner
 }
 
 func (l *loader) ownerID(raw envValue) (int64, bool) {

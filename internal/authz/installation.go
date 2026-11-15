@@ -2,7 +2,6 @@ package authz
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/tmknom/gates/internal/githubid"
 )
@@ -12,13 +11,12 @@ import (
 type Installation struct {
 	id                  githubid.InstallationID
 	installationOwnerID githubid.OwnerID
-	suspendedAt         time.Time
+	suspended           bool
 }
 
 // NewInstallation は、INV-010 が定める Installation の条件を検証する。
 // 応答から欠落した ID を 0 として受け取っても Installation にしないため。
-// suspendedAt はゼロ値で停止していないことを表す。GitHub の停止時刻がゼロ値の時刻になることはないため。
-func NewInstallation(id, installationOwnerID int64, suspendedAt time.Time) (Installation, error) {
+func NewInstallation(id, installationOwnerID int64, suspended bool) (Installation, error) {
 	installationID, err := githubid.NewInstallationID(id)
 	if err != nil {
 		return Installation{}, fmt.Errorf("%w: installation id %w", ErrInvalidInstallation, err)
@@ -27,7 +25,7 @@ func NewInstallation(id, installationOwnerID int64, suspendedAt time.Time) (Inst
 	if err != nil {
 		return Installation{}, fmt.Errorf("%w: installation owner id %w", ErrInvalidInstallation, err)
 	}
-	return Installation{id: installationID, installationOwnerID: ownerID, suspendedAt: suspendedAt}, nil
+	return Installation{id: installationID, installationOwnerID: ownerID, suspended: suspended}, nil
 }
 
 // ID は、Installation ID を返す。

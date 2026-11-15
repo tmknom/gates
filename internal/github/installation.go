@@ -31,11 +31,11 @@ type installationResponse struct {
 }
 
 // ResolveInstallation は、許可オーナーの種別に応じたエンドポイントから、許可オーナーの Installation を取得する。
-func (c *Client) ResolveInstallation(ctx context.Context, appJWT AppJWT, owner authz.AllowedOwner) (authz.Installation, error) {
+func (c *Client) ResolveInstallation(ctx context.Context, appJWT AppJWT, allowedOwner authz.AllowedOwner) (authz.Installation, error) {
 	ctx, cancel := context.WithTimeout(ctx, installationTimeout)
 	defer cancel()
 
-	body, requestID, err := c.fetchInstallation(ctx, appJWT, owner)
+	body, requestID, err := c.fetchInstallation(ctx, appJWT, allowedOwner)
 	if err != nil {
 		return authz.Installation{}, err
 	}
@@ -47,8 +47,8 @@ func (c *Client) ResolveInstallation(ctx context.Context, appJWT AppJWT, owner a
 }
 
 // fetchInstallation は、Installation の応答のうち 200 の本文と、GitHub の request ID を返す。
-func (c *Client) fetchInstallation(ctx context.Context, appJWT AppJWT, owner authz.AllowedOwner) ([]byte, string, error) {
-	response, err := c.httpClient.Do(c.newRequest(ctx, http.MethodGet, installationPath(owner), appJWT))
+func (c *Client) fetchInstallation(ctx context.Context, appJWT AppJWT, allowedOwner authz.AllowedOwner) ([]byte, string, error) {
+	response, err := c.httpClient.Do(c.newRequest(ctx, http.MethodGet, installationPath(allowedOwner), appJWT))
 	if err != nil {
 		// 通信の error は要求の URL（許可オーナー名を含む）を文言に含めるため包まない
 		return nil, "", fmt.Errorf("%w: request failed", ErrTransientFailure)
@@ -71,18 +71,18 @@ func (c *Client) fetchInstallation(ctx context.Context, appJWT AppJWT, owner aut
 }
 
 // 許可オーナー名は Lambda Design の「名前の文字種と比較規則」の文字種を満たし、パスの要素としてエスケープを要しない。
-func installationPath(owner authz.AllowedOwner) string {
+func installationPath(allowedOwner authz.AllowedOwner) string {
 	// ゼロ値は種別を持たず、取得先のエンドポイントを決められない
-	nonzero.Require(owner)
+	nonzero.Require(allowedOwner)
 	// default を置かず、種別が増えたときに exhaustive が case の不足を示すようにする
 	var accounts string
-	switch owner.Type() {
+	switch allowedOwner.Type() {
 	case authz.OwnerTypeOrganization:
 		accounts = "orgs"
 	case authz.OwnerTypeUser:
 		accounts = "users"
 	}
-	return "/" + accounts + "/" + owner.Name().String() + "/installation"
+	return "/" + accounts + "/" + allowedOwner.Name().String() + "/installation"
 }
 
 func decodeInstallation(body []byte) (authz.Installation, error) {
@@ -91,25 +91,25 @@ func decodeInstallation(body []byte) (authz.Installation, error) {
 		// 復号の error は本文の値を文言に含め得るため使わない
 		return authz.Installation{}, errors.New("response is not an installation")
 	}
-	suspendedAt, err := readSuspendedAt(response.SuspendedAt)
+	suspended, err := readSuspended(response.SuspendedAt)
 	if err != nil {
 		return authz.Installation{}, err
 	}
-	return authz.NewInstallation(response.ID, response.Account.ID, suspendedAt)
+	return authz.NewInstallation(response.ID, response.Account.ID, suspended)
 }
 
-// readSuspendedAt は、Lambda Design の「GitHub Client」の停止状態の読み取りに従い、
-// null を停止していない Installation のゼロ値の時刻として、時刻を停止した時刻として読む。
-func readSuspendedAt(value jsontext.Value) (time.Time, error) {
+// readSuspended は、Lambda Design の「GitHub Client」の停止状態の読み取りに従い、
+// null を停止していない、時刻を停止していると読む。
+func readSuspended(value jsontext.Value) (bool, error) {
 	if len(value) == 0 {
-		return time.Time{}, errors.New("suspended_at is missing")
+		return false, errors.New("suspended_at is missing")
 	}
 	if value.Kind() == 'n' {
-		return time.Time{}, nil
+		return false, nil
 	}
 	var suspendedAt time.Time
-	if err := json.Unmarshal(value, &suspendedAt); err != nil || suspendedAt.IsZero() {
-		return time.Time{}, errors.New("suspended_at is neither null nor a time")
+	if err := json.Unmarshal(value, &suspendedAt); err != nil {
+		return false, errors.New("suspended_at is neither null nor a time")
 	}
-	return suspendedAt, nil
+	return true, nil
 }

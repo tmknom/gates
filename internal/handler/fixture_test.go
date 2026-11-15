@@ -56,11 +56,11 @@ func recordedIssuance() map[string]any {
 	}
 }
 
-// issueInstallationToken は、返却可能な発行結果を Token Issuer の照合からしか作れないため、GitHub API の代わりのサーバーに対して Token Issuer を呼ぶ。
-func issueInstallationToken(t *testing.T, issuance map[string]any, revocationStatus int) (tokenissuer.InstallationToken, error) {
+// issueInstallationAccessToken は、返却可能な発行結果を Token Issuer の照合からしか作れないため、GitHub API の代わりのサーバーに対して Token Issuer を呼ぶ。
+func issueInstallationAccessToken(t *testing.T, issuance map[string]any, revocationStatus int) (tokenissuer.ReturnableIssuanceResult, error) {
 	t.Helper()
 	owner := allowedOwner(t)
-	return newTokenIssuer(t, issuance, revocationStatus).IssueInstallationToken(t.Context(), func(installation authz.Installation) (authz.TokenGrant, error) {
+	return newTokenIssuer(t, issuance, revocationStatus).IssueInstallationAccessToken(t.Context(), func(installation authz.Installation) (authz.TokenGrant, error) {
 		return authz.Grant(verifiedCaller(t), tokenRequest(t), owner, installation)
 	})
 }

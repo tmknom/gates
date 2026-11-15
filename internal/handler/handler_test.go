@@ -11,7 +11,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/tmknom/gates/internal/authn"
 	"github.com/tmknom/gates/internal/authz"
@@ -51,18 +50,18 @@ type tokenIssuerStub struct {
 	ctx          context.Context
 }
 
-func (i *tokenIssuerStub) IssueInstallationToken(ctx context.Context, grant tokenissuer.GrantFunc) (tokenissuer.InstallationToken, error) {
+func (i *tokenIssuerStub) IssueInstallationAccessToken(ctx context.Context, grant tokenissuer.GrantFunc) (tokenissuer.ReturnableIssuanceResult, error) {
 	i.calls++
 	i.ctx = ctx
 	if i.installation != nil {
 		if _, err := grant(*i.installation); err != nil {
-			return tokenissuer.InstallationToken{}, err
+			return tokenissuer.ReturnableIssuanceResult{}, err
 		}
 	}
 	if i.panics {
 		panicWithSecret()
 	}
-	return tokenissuer.InstallationToken{}, i.err
+	return tokenissuer.ReturnableIssuanceResult{}, i.err
 }
 
 // secretMarker は、nonzero.Require の panic の値に型名として入る目印である。
@@ -86,7 +85,7 @@ type invocation struct {
 
 // handle は Handle を呼び、応答とログの行を返す。
 // どのケースでも、資格情報と panic の値が成功応答の token 以外に現れないことを確かめる。
-func handle(t *testing.T, verifier oidcVerifier, tokenIssuer installationTokenIssuer, payload []byte) invocation {
+func handle(t *testing.T, verifier oidcVerifier, tokenIssuer installationAccessTokenIssuer, payload []byte) invocation {
 	t.Helper()
 	var log bytes.Buffer
 	requestID, err := NewRequestID(lambdaRequestID)
@@ -168,9 +167,9 @@ func auditKeys(keys ...string) []string {
 	return append([]string{"time", "level", "msg", "request_id", "result"}, keys...)
 }
 
-func installation(t *testing.T, installationOwnerID int64, suspendedAt time.Time) *authz.Installation {
+func installation(t *testing.T, installationOwnerID int64, suspended bool) *authz.Installation {
 	t.Helper()
-	inst, err := authz.NewInstallation(installationID, installationOwnerID, suspendedAt)
+	inst, err := authz.NewInstallation(installationID, installationOwnerID, suspended)
 	if err != nil {
 		t.Fatalf("NewInstallation returned error: %v", err)
 	}
@@ -290,11 +289,11 @@ func TestHandle_AuthorizationDeniedDoesNotCallTokenIssuer(t *testing.T) {
 // Grant の認可拒否は、Authorize と同じ認可条件を判定し直すため、Authorize を通った要求では起きない。
 func TestHandle_GrantRejectionKeepsResolvedInstallation(t *testing.T) {
 	// インストール先 Owner ID が許可オーナーと異なり、監査記録の owner_id が許可オーナーの値と見分けられる
-	inst := installation(t, allowedOwnerID+1, time.Time{})
+	inst := installation(t, allowedOwnerID+1, false)
 
 	inv := handle(t, &verifierStub{caller: verifiedCaller(t)}, &tokenIssuerStub{installation: inst}, validPayload(t))
 
-	record := inv.assertFailed(t, "installation_resolution_failed")
+	record := inv.assertFailed(t, "installation_unavailable")
 	assertKeys(t, "audit record", record, auditKeys("reason", "request", "caller", "installation")...)
 	if want := map[string]any{"id": float64(installationID), "owner_id": float64(allowedOwnerID + 1)}; !reflect.DeepEqual(record["installation"], want) {
 		t.Errorf("installation = %v, want %v", record["installation"], want)
@@ -367,7 +366,7 @@ func TestHandle_RecoversPanicOfComponent(t *testing.T) {
 		keys        []string
 	}{
 		{name: "panic of OIDC Verifier keeps the token request", verifier: &verifierStub{panics: true}, tokenIssuer: &tokenIssuerStub{}, keys: auditKeys("reason", "request")},
-		{name: "panic of Token Issuer keeps the values settled before it", verifier: &verifierStub{caller: verifiedCaller(t)}, tokenIssuer: &tokenIssuerStub{installation: installation(t, allowedOwnerID, time.Time{}), panics: true}, keys: auditKeys("reason", "request", "caller", "installation")},
+		{name: "panic of Token Issuer keeps the values settled before it", verifier: &verifierStub{caller: verifiedCaller(t)}, tokenIssuer: &tokenIssuerStub{installation: installation(t, allowedOwnerID, false), panics: true}, keys: auditKeys("reason", "request", "caller", "installation")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			inv := handle(t, tc.verifier, tc.tokenIssuer, validPayload(t))

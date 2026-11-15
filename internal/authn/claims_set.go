@@ -9,23 +9,23 @@ import (
 
 const maxAcceptedNumericDate = 253402300799
 
-// checkClaimSet は、go-oidc が読む Claim を受理の判定に使ってよい Claim の組かを、go-oidc が読む前に確かめる。
+// checkClaimsSet は、go-oidc が読む Claim を受理の判定に使ってよい Claim の組かを、go-oidc が読む前に確かめる。
 // go-oidc の Config にこれらの判定を有効にする設定はなく、encoding/json (v1) で読むため、Payload を encoding/json/v2 で読む。
 // encoding/json/v2 のエラー文言は入力の断片を含むため包まない。
-func checkClaimSet(rawClaims []byte) error {
+func checkClaimsSet(rawClaims []byte) error {
 	// encoding/json/v2 は null をエラーにせず nil の map に復号するため、nil を JSON オブジェクトでない Claims Set として拒否する
-	var claimSet map[string]jsontext.Value
-	if err := json.Unmarshal(rawClaims, &claimSet); err != nil || claimSet == nil {
+	var claimsSet map[string]jsontext.Value
+	if err := json.Unmarshal(rawClaims, &claimsSet); err != nil || claimsSet == nil {
 		return fmt.Errorf("%w: claims cannot be decoded", ErrAuthenticationFailure)
 	}
-	for name := range claimSet {
+	for name := range claimsSet {
 		if isClaimAlias(name) {
 			return fmt.Errorf("%w: a claim name is an alias of iss, aud, exp, iat, or nbf", ErrAuthenticationFailure)
 		}
 	}
 	for _, name := range []string{"exp", "iat", "nbf"} {
 		// exp と iat の欠落は go-oidc の判定と Authenticate の判定が拒否し、nbf は欠落を許す
-		if value, ok := claimSet[name]; ok && !isAcceptedNumericDate(value) {
+		if value, ok := claimsSet[name]; ok && !isAcceptedNumericDate(value) {
 			return fmt.Errorf("%w: %s must be an integer NumericDate within the accepted range", ErrAuthenticationFailure, name)
 		}
 	}

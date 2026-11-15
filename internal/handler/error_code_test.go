@@ -29,10 +29,10 @@ func TestErrorCodeOf(t *testing.T) {
 		{name: "authn transient failure maps to identity_verification_unavailable", failure: authn.ErrTransientFailure, want: errorcode.IdentityVerificationUnavailable},
 		{name: "authn internal failure maps to internal_error", failure: authn.ErrInternalFailure, want: errorcode.InternalError},
 		{name: "authorization denied maps to authorization_denied", failure: authz.ErrAuthorizationDenied, want: errorcode.AuthorizationDenied},
-		{name: "installation unavailable maps to installation_resolution_failed", failure: authz.ErrInstallationUnavailable, want: errorcode.InstallationResolutionFailed},
+		{name: "installation unavailable maps to installation_unavailable", failure: authz.ErrInstallationUnavailable, want: errorcode.InstallationUnavailable},
 		{name: "signer transient failure maps to signing_unavailable", failure: signer.ErrTransientFailure, want: errorcode.SigningUnavailable},
 		{name: "signer internal failure maps to internal_error", failure: signer.ErrInternalFailure, want: errorcode.InternalError},
-		{name: "github transient failure maps to token_issuance_failed", failure: github.ErrTransientFailure, want: errorcode.TokenIssuanceFailed},
+		{name: "github transient failure maps to github_api_unavailable", failure: github.ErrTransientFailure, want: errorcode.GitHubAPIUnavailable},
 		{name: "github issuance rejected maps to github_issuance_rejected", failure: github.ErrIssuanceRejected, want: errorcode.GitHubIssuanceRejected},
 		{name: "verification failure maps to issuance_verification_failed", failure: tokenissuer.ErrVerificationFailure, want: errorcode.IssuanceVerificationFailed},
 		{name: "failure of no failure kind maps to internal_error", failure: errors.New("unexpected"), want: errorcode.InternalError},
@@ -59,10 +59,10 @@ func TestErrorCodeOf_FailureOfMultipleKindsMapsToInternalError(t *testing.T) {
 func TestErrorCodeOf_VerificationFailureWithFailedRevocationMapsToIssuanceVerificationFailed(t *testing.T) {
 	issuance := recordedIssuance()
 	issuance["repository_selection"] = "all"
-	_, err := issueInstallationToken(t, issuance, http.StatusServiceUnavailable)
+	_, err := issueInstallationAccessToken(t, issuance, http.StatusServiceUnavailable)
 	failure, ok := errors.AsType[*tokenissuer.VerificationFailure](err)
 	if !ok || failure.RevocationOutcome() != revocation.Failed {
-		t.Fatalf("IssueInstallationToken error = %v, want *tokenissuer.VerificationFailure with failed revocation", err)
+		t.Fatalf("IssueInstallationAccessToken error = %v, want *tokenissuer.VerificationFailure with failed revocation", err)
 	}
 
 	if got := errorCodeOf(err); got != errorcode.IssuanceVerificationFailed {

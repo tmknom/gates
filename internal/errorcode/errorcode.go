@@ -18,8 +18,8 @@ var (
 	AuthorizationDenied             = Code{value: "authorization_denied", message: "The requested token is not permitted."}
 	IdentityVerificationUnavailable = Code{value: "identity_verification_unavailable", message: "Identity verification is temporarily unavailable. Retry later."}
 	SigningUnavailable              = Code{value: "signing_unavailable", message: "Signing is temporarily unavailable. Retry later."}
-	InstallationResolutionFailed    = Code{value: "installation_resolution_failed", message: "The GitHub App installation is not available for issuance."}
-	TokenIssuanceFailed             = Code{value: "token_issuance_failed", message: "The GitHub API is temporarily unavailable. Retry later."}
+	InstallationUnavailable         = Code{value: "installation_unavailable", message: "The GitHub App installation is not available for issuance."}
+	GitHubAPIUnavailable            = Code{value: "github_api_unavailable", message: "The GitHub API is temporarily unavailable. Retry later."}
 	GitHubIssuanceRejected          = Code{value: "github_issuance_rejected", message: "GitHub rejected the token issuance."}
 	IssuanceVerificationFailed      = Code{value: "issuance_verification_failed", message: "The issued token did not pass verification and was not returned."}
 	InternalError                   = Code{value: "internal_error", message: "An internal error occurred."}

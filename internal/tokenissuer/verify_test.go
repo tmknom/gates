@@ -102,7 +102,7 @@ func issue(t *testing.T, body string) github.IssuanceResult {
 // tokenGrant は、TokenGrant を Grant でしか作れないため、記録した Installation で grant を通す。
 func tokenGrant(t *testing.T) authz.TokenGrant {
 	t.Helper()
-	installation, err := authz.NewInstallation(installationID, allowedOwnerID, time.Time{})
+	installation, err := authz.NewInstallation(installationID, allowedOwnerID, false)
 	if err != nil {
 		t.Fatalf("NewInstallation returned error: %v", err)
 	}
@@ -142,7 +142,7 @@ func allowedOwner(t *testing.T) authz.AllowedOwner {
 	return owner
 }
 
-func verifyResult(t *testing.T, result github.IssuanceResult) (InstallationToken, error) {
+func verifyResult(t *testing.T, result github.IssuanceResult) (ReturnableIssuanceResult, error) {
 	t.Helper()
 	return verify(result, tokenGrant(t), allowedOwner(t), now)
 }
@@ -164,7 +164,7 @@ func fullNames(repositories []github.EffectiveRepository) []string {
 	return names
 }
 
-func TestVerify_ReturnsInstallationTokenOfIssuanceResult(t *testing.T) {
+func TestVerify_ReturnsReturnableIssuanceResult(t *testing.T) {
 	result := issue(t, marshal(t, recordedIssuance()))
 
 	got, err := verifyResult(t, result)
@@ -274,7 +274,7 @@ func TestVerify_Rejects(t *testing.T) {
 				t.Fatalf("Verify error = %v, want %v", err, ErrVerificationFailure)
 			}
 			if !reflect.ValueOf(got).IsZero() {
-				t.Errorf("Verify returned non-zero InstallationToken with error")
+				t.Errorf("Verify returned non-zero ReturnableIssuanceResult with error")
 			}
 			message := err.Error()
 			if !strings.Contains(message, tt.condition) {
