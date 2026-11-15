@@ -205,7 +205,7 @@ GATES は不正な変更や署名を通知する仕組みを持たないため�
 | 失敗時の扱いと監査（§5） | FR-OPS-002、FR-OPS-003、FR-ISSUANCE-007、QR-003、QR-004 |
 | 署名鍵のリスクの抑制と受容（§5.1） | FR-ISSUANCE-001、FR-OPS-005、QR-001、QR-006 |
 
-受け入れ条件は [Requirements](../spec/requirements.md) を正本とします。
+受け入れ条件は [Acceptance Criteria](../spec/acceptance-criteria.md) を正本とします。
 
 ## 7. References
 

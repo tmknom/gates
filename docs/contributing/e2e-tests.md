@@ -109,7 +109,7 @@ KMS Key の無効化による `internal_error`、関数の初期化の失敗と�
 検証環境で一度ずつ起こした結果は、[AWS Fault Injection](../research/aws/fault-injection.md) に記録しています。
 次の障害は、検証環境でも起こさず、Lambda のローカルの試験だけで確かめます。
 どれも本番のコードに試験のための分岐や設定を加えれば起こせますが、その経路は本番で発行結果の照合や失敗の扱いを迂回する経路になり得るため、加えません。
-表の受け入れ基準は [Requirements](../spec/requirements.md) の AC で、ローカルの試験はそれを `trace:checks` で宣言しています（[Documentation Policy](docs-policy.md)）。
+表の受け入れ基準は [Acceptance Criteria](../spec/acceptance-criteria.md) の AC で、ローカルの試験はそれを `trace:checks` で宣言しています（[Documentation Policy](docs-policy.md)）。
 
 | 障害 | 検証環境で起こさない理由 | 受け入れ基準 |
 | --- | --- | --- |

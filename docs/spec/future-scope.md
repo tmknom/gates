@@ -3,7 +3,7 @@
 ## 1. Purpose
 
 本ドキュメントは、GATES の現在のスコープから外しているものの、将来取り込むことを想定している機能を示します。
-現在必ず満たす要求と受け入れ条件は [Requirements](requirements.md) に定めるため、本ドキュメントを更新しただけでは GATES への要求は変わりません。
+現在必ず満たす要求は [Requirements](requirements.md) に定めるため、本ドキュメントを更新しただけでは GATES への要求は変わりません。
 
 ## 2. Current Scope
 
