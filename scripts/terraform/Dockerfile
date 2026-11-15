@@ -1,7 +1,11 @@
 # syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 
 # Terraform のバージョンを変えるときは terraform/versions.tf の required_version も書き換える
-FROM docker.io/hashicorp/terraform:1.16.7@sha256:c9c77f5b9820832cbc7b88d16df406ac6e75fee5a9077e5437db0c54e5ff33e3 AS base
+FROM docker.io/hashicorp/terraform:1.17.2@sha256:6e9c1e647c31a960dc9b59e13272f9111d90010c10b717f77ffb324767660475 AS base
+
+# 基準のイメージの Alpine のパッケージに修正版のある脆弱性が残るため、ビルド時に上げる
+USER root
+RUN apk upgrade --no-cache
 
 USER 65534:65534
 

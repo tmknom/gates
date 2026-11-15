@@ -10,8 +10,10 @@ name: actionlint
 
 services:
   actionlint:
-    image: docker.io/rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
-    pull_policy: missing
+    # Makefile の lint-gha が実行のたびにビルドする。localhost/ を付け、Docker Hub の同名のイメージを取ってこないようにする
+    build: .
+    image: localhost/gates/actionlint:latest
+    pull_policy: never
     user: "65534:65534"
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]

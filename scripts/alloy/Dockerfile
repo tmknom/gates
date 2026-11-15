@@ -1,6 +1,13 @@
 # syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 
-FROM docker.io/library/eclipse-temurin:17.0.20.1_1-jre@sha256:4faa9eaf440514dd4f7ef71fecb92526e13679aea039bed5d2fc98e885c60dee
+FROM docker.io/library/eclipse-temurin:17.0.21_9-jre@sha256:0b6521287f850ec1c4b31c9074c5a1ae1d67c5922c3fefd21065c7c32e244d4a
+
+# 基準のイメージのパッケージに修正版のある脆弱性が残ることがあるため、ビルド時に上げる。
+# ARG はビルド時だけ有効で、実行時の環境変数には残らない
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+  && apt-get upgrade -y --no-install-recommends \
+  && rm -rf /var/lib/apt/lists/*
 
 # 実行時はネットワークを持たないため、JAR はビルド時に入れる。
 # リリースにハッシュの公開がないため、取得した JAR から計算した値で固定している。URL のバージョンを変えるときは一緒に書き換える。

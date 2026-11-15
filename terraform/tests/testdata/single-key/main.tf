@@ -1,11 +1,11 @@
 # 鍵の集合を導入する前の、KMS Key を 1 つだけ定義していた構成のアドレスを再現する。試験のための構成で、モジュールとして配布しない
 terraform {
-  required_version = "1.16.7"
+  required_version = "1.17.2"
 
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "6.70.0"
+      version = "6.73.0"
     }
   }
 }
