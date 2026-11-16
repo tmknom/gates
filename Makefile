@@ -70,17 +70,29 @@ cover: ## measure test coverage excluding main.go and require 100% under interna
 clean: ## remove build artifacts
 	[ ! -e $(DIST_DIR) ] || rm -r $(DIST_DIR)
 
-# コードが同じなら ZIP のハッシュを同じにし、変更のない関数の更新を Plan に出さない。
-# そのため、コミットごとに変わる VCS の情報をバイナリに入れず、ZIP に入る権限と更新時刻を固定する。zip は更新時刻をローカル時刻で記録するため、TZ も固定する
+# リリースの配布物と同じバイト列の ZIP を作り、運用者が Lambda の CodeSha256 を配布物と照合できるようにする。
+# そのため、.github/workflows/reusable-build.yml の Build と同じ設定でビルドする。
+# Go は go.mod の toolchain の行のバージョンを使い、手元の Go と違えば go コマンドが取得する。
+# ビルドの結果を変える設定は、手元の環境変数や go env -w の値を引き継がないよう、環境変数で固定する
+LAMBDA_TOOLCHAIN = $(shell awk '$$1 == "toolchain" { print $$2 }' go.mod)
+LAMBDA_GOENV = CGO_ENABLED=0 GOOS=linux GOARCH=arm64 GOARM64=v8.0 GOTOOLCHAIN=$(LAMBDA_TOOLCHAIN) \
+	GOFLAGS=-mod=readonly GOEXPERIMENT= GOFIPS140=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org \
+	GOPRIVATE= GONOPROXY= GONOSUMDB= GOINSECURE=
+
+# VCS の情報はバイナリに入れず、ZIP に入る権限と更新時刻を固定する。zip は更新時刻をローカル時刻で記録するため、TZ も固定する。
+# 更新時刻は配布物に合わせてコミット日時にするため、コードが同じでもコミットが変われば ZIP は変わり、Plan に関数の更新が出る
 # terraform/Makefile の plan が、Plan のたびに呼び出す
 .PHONY: lambda-package
-lambda-package: ## build the deployment package for Lambda
+lambda-package: ## build the deployment package for Lambda with the same settings as the release package
 	[ ! -e $(LAMBDA_BUILD_DIR) ] || rm -r $(LAMBDA_BUILD_DIR)
 	[ ! -e $(LAMBDA_PACKAGE) ] || rm $(LAMBDA_PACKAGE)
+	[ -n "$(LAMBDA_TOOLCHAIN)" ] || (echo "go.mod must have a toolchain line" && exit 1)
+	[ "$$($(LAMBDA_GOENV) go env GOVERSION)" = "$(LAMBDA_TOOLCHAIN)" ] \
+		|| (echo "Go $(LAMBDA_TOOLCHAIN) is required, but $$($(LAMBDA_GOENV) go env GOVERSION) is in use" && exit 1)
 	mkdir -p $(LAMBDA_BUILD_DIR)
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -buildvcs=false -o $(LAMBDA_BUILD_DIR)/bootstrap .
+	$(LAMBDA_GOENV) go build -trimpath -buildvcs=false -ldflags="-s -w" -o $(LAMBDA_BUILD_DIR)/bootstrap .
 	chmod 755 $(LAMBDA_BUILD_DIR)/bootstrap
-	TZ=UTC touch -t 200001010000 $(LAMBDA_BUILD_DIR)/bootstrap
+	TZ=UTC touch -t "$$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y%m%d%H%M.%S)" $(LAMBDA_BUILD_DIR)/bootstrap
 	TZ=UTC zip -X -j $(LAMBDA_PACKAGE) $(LAMBDA_BUILD_DIR)/bootstrap
 
 # Targets: Terraform

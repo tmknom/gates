@@ -141,13 +141,14 @@ GitHub 側の設定（GitHub App のインストール対象と権限、古い P
 
 | ツール | 使う場面 |
 |---|---|
-| Git | GATES のリポジトリを取得する |
+| Git | GATES のリポジトリを取得し、リリースのタグが指すコミットを調べる |
 | `make` | デプロイと鍵素材のインポートの各操作を実行する |
 | Docker（Docker Compose を含む） | Terraform をコンテナの中で実行する |
 | Go | Lambda のデプロイパッケージを手元でビルドする |
-| `zip`、`shasum` | デプロイパッケージを作り、Plan と適用のあいだでパッケージが変わっていないことを確かめる |
+| `zip`、`shasum` | デプロイパッケージを作り、Plan と適用のあいだでパッケージが変わっていないことを確かめる。GitHub Releases に置いた Lambda の zip（配布物）のチェックサムを照合する |
 | AWS CLI、`jq`、`xxd`、OpenSSL 3 以降 | 鍵素材を KMS にインポートし、鍵を更新する。macOS に標準で入っている LibreSSL では動かない |
-| GitHub CLI | 接続情報を登録し、配布物を検証する |
+| AWS CLI、OpenSSL | デプロイした Lambda の関数のコードを、zip の SHA-256 と照合する |
+| GitHub CLI | 接続情報を登録し、配布物の来歴を検証する |
 
 ### 6.4 費用が発生するリソース
 

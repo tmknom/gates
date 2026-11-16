@@ -4,6 +4,7 @@ module github.com/tmknom/gates
 go 1.27.0
 
 // リリースビルドに使う Go は、setup-go がこの行から決める。一致しなければ reusable-build.yml のビルドが失敗する
+// Makefile の lambda-package も、配布物と同じバイト列を作るため、この行のバージョンでビルドする
 toolchain go1.27.4
 
 require (
