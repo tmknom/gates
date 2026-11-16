@@ -1,6 +1,6 @@
 # Terraform を隔離して実行するサービス定義
 #
-# 環境変数は Makefile が設定する。
+# 環境変数は terraform/Makefile が設定する。
 #   TF_HOST_DIR        terraform/ にあたるディレクトリの絶対パス
 #   TF_HOST_LOCAL_DIR  terraform/local/ にあたるディレクトリの絶対パス
 #   TF_HOST_DIST_DIR   dist/ の絶対パス
@@ -26,7 +26,7 @@ x-terraform: &terraform
     additional_contexts:
       config: .
     target: provider
-  # Makefile が実行のたびにビルドする。localhost/ を付け、Docker Hub の同名のイメージを取ってこないようにする
+  # terraform/Makefile が実行のたびにビルドする。localhost/ を付け、Docker Hub の同名のイメージを取ってこないようにする
   image: localhost/gates/terraform:latest
   pull_policy: never
   # State と lock ファイルを運用者のファイルとして残すため、65534 ではなく手元のユーザーで実行する
@@ -115,7 +115,7 @@ services:
     environment:
       <<: *terraform-environment
       HTTPS_PROXY: http://proxy-aws:3128
-      # 値はシェルから引き継ぐ。${VAR:?} はファイル全体の展開で評価され、ほかのサービスまで起動できなくなるため、必須の確認は Makefile の tf-aws-credentials で行う
+      # 値はシェルから引き継ぐ。${VAR:?} はファイル全体の展開で評価され、ほかのサービスまで起動できなくなるため、必須の確認は terraform/Makefile の aws-credentials で行う
       AWS_ACCESS_KEY_ID:
       AWS_SECRET_ACCESS_KEY:
       AWS_SESSION_TOKEN:

@@ -53,7 +53,7 @@ resource "aws_kms_external_key" "signing" {
     ]
   })
 
-  # Map から鍵を除いた Plan も拒否する。退役させる鍵は、Map から除くのと同時に make tf-state-rm-kms-key で State から外す
+  # Map から鍵を除いた Plan も拒否する。退役させる鍵は、Map から除くのと同時に make -C terraform state-rm-kms-key で State から外す
   lifecycle {
     prevent_destroy = true
   }

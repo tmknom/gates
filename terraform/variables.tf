@@ -90,7 +90,7 @@ variable "kms_keys" {
     error_message = "kms_keys must have one or two keys."
   }
 
-  # 名前は State のアドレスに入り、make tf-state-rm-kms-key の引数にもなるため、形を固定する
+  # 名前は State のアドレスに入り、make -C terraform state-rm-kms-key の引数にもなるため、形を固定する
   validation {
     condition     = alltrue([for name in keys(var.kms_keys) : can(regex("^key-[1-9][0-9]{0,8}$", name))])
     error_message = "every name in kms_keys must be key-N, where N is a positive integer without leading zeros."
@@ -130,7 +130,7 @@ variable "lambda_reserved_concurrency" {
   }
 }
 
-# チェックサムで確かめるパッケージと揃えるため、tfvars には書かず、Makefile の tf-plan で渡す
+# チェックサムで確かめるパッケージと揃えるため、tfvars には書かず、terraform/Makefile の plan で渡す
 variable "lambda_package_path" {
   description = "Lambda のデプロイパッケージの terraform/ からの相対パス"
   type        = string

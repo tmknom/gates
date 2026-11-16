@@ -49,7 +49,7 @@ GitHub App は Private Key を 25 個まで同時に持て、GitHub の公式資
 旧鍵の ARN を確かめて、環境変数に設定しておきます。
 
 ```bash
-make tf-output
+make -C terraform output
 export OLD_KMS_KEY_ARN="$(jq -r '.outputs.kms_key_arns.value["key-1"]' terraform/local/terraform.tfstate)"
 ```
 
@@ -202,7 +202,7 @@ active_kms_key = "key-2"
 このターゲットは、`KMS_KEY_NAME` で指定した鍵だけを、削除せずに State から外し、外す前の State を `terraform/local/terraform.tfstate.key-1.backup` に残します。
 
 ```bash
-make tf-state-rm-kms-key KMS_KEY_NAME=key-1
+make -C terraform state-rm-kms-key KMS_KEY_NAME=key-1
 ```
 
 `make tf-plan` を実行し、Plan がリソースの変更を示さず、Output の `kms_key_arns` から旧鍵が消える変更だけを示すことを確かめます。

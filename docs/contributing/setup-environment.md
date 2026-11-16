@@ -104,11 +104,11 @@ State を失うと、Terraform は作成済みのリソースを管理できな�
 
 GATES を呼び出すワークフローのために、接続情報を GitHub の Secrets と Variables に登録します（[GitHub Actions Design](../design/github-actions.md#21-inputs-and-outputs)）。
 AWS アカウント ID は GATES を適用したアカウントの ID で、適用に使った認証情報で `aws sts get-caller-identity --query Account --output text` を実行すると確かめられます。
-Role 名と関数名は、`make tf-output` が State から表示する `github_actions_role_name` と `lambda_function_name` の値です。
+Role 名と関数名は、`make -C terraform output` が State から表示する `github_actions_role_name` と `lambda_function_name` の値です。
 リージョンと Audience は、`terraform/local/terraform.tfvars` の `region` と `gates_audience` の値です。
 
 ```bash
-make tf-output
+make -C terraform output
 ```
 
 登録する単位は、許可オーナーの種別で決まります。
