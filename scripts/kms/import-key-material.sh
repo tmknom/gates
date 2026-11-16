@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # GitHub App Private Key を、Terraform が作った PendingImport の KMS Key に鍵素材としてインポートする
-# 手順と、ラップのアルゴリズムを選んだ理由は docs/contributing/import-key-material.md にある
+# 手順と、ラップのアルゴリズムを選んだ理由は docs/user-guide/import-key-material.md にある
 # 秘密鍵を扱うため、運用者が手元のシェルで実行する。Coding Agent は実行しない
 set -euo pipefail
 # 作業ディレクトリと、その中の鍵素材を、ほかのユーザーから読めなくする
@@ -112,7 +112,7 @@ private_key_path="${candidate}"
 
 bits="$(printf '%s\n' "${public_text}" | sed -n 's/^Public-Key: (\([0-9]*\) bit)$/\1/p')"
 [ "${bits}" = "${expected_bits}" ] ||
-  fail "the private key is ${bits} bit, but the KMS key expects ${key_spec}: see Key Rotation in docs/contributing/rotate-key.md"
+  fail "the private key is ${bits} bit, but the KMS key expects ${key_spec}: see Key Rotation in docs/user-guide/rotate-key.md"
 info "Key length: ${bits} bit"
 local_fingerprint="$(openssl pkey -in "${private_key_path}" -pubout -outform DER | openssl sha256 -binary | openssl base64)"
 

@@ -4,8 +4,8 @@
 KMS にインポートした鍵素材は別の鍵素材に交換できないため、新しい KMS Key を加えて鍵素材をインポートし、Lambda が署名に使う鍵（使用中の鍵）を切り替え、旧 KMS Key を退役させます。
 Terraform での鍵の表し方は [AWS Infrastructure Design](../design/aws-infrastructure.md) の §4.3 にあります。
 
-更新で変わるのは Lambda の環境変数の Key ARN と、実行 Role の IAM ポリシーだけです。
-利用者のワークフローと、GitHub に登録した接続情報は変えません。
+鍵の追加、無効化、退役を除くと、GATES の設定のうち更新で変わるのは Lambda の環境変数の Key ARN と、実行 Role（Lambda の関数が KMS での署名などに使う IAM Role）の IAM ポリシーだけです。
+利用者のワークフローと、GitHub の Secrets と Variables に登録した接続情報は変えません。
 
 ## 1. Order of the Work
 
@@ -21,19 +21,19 @@ Terraform での鍵の表し方は [AWS Infrastructure Design](../design/aws-inf
 | 4 | 新しい鍵での発行を確かめる（§6） | 確認だけ |
 | 5 | 旧 KMS Key を無効にする（§7） | `aws kms enable-key` で有効に戻す |
 | 6 | GitHub App から旧 Private Key を削除する（§8） | **切り戻せない** |
-| 7 | 旧鍵の削除の後の発行を確かめる（§9） | 確認だけ |
+| 7 | 旧 Private Key の削除の後の発行を確かめる（§9） | 確認だけ |
 | 8 | 旧 KMS Key を退役させる（§10） | 予約期間（7 日）のあいだは `aws kms cancel-key-deletion` で削除を取り消せる |
 
-GitHub App は Private Key を 25 個まで同時に持て、GitHub の公式資料は、複数の鍵を使って停止せずに鍵を更新することを勧めています。
-2 から 6 のあいだは、新旧どちらの鍵で署名した GitHub App JWT も GitHub に受け付けられます。
-6 で GitHub から削除した旧鍵は認証に使えなくなる見込みのため、6 の後は旧鍵に切り戻せません。
-6 は、4 と 5 の確認がそろうまで行いません。
+GitHub App は Private Key を 25 個まで同時に持て、GitHub の公式資料は、鍵が漏えいしたときに停止せずに鍵を更新できるよう、複数の鍵を使うことを勧めています。
+順 2 から順 6 のあいだは、新旧どちらの鍵で署名した GitHub App JWT も GitHub に受け付けられます。
+順 6 で GitHub から削除した旧 Private Key は認証に使えなくなる見込みのため、順 6 の後は旧 KMS Key に切り戻せません。
+順 6 は、順 4 と順 5 の確認がそろうまで行いません。
 
-4 と 5 の確認がそろえば、続けて 6 に進んでかまいません。
-6 の後に問題が見つかっても、旧鍵に戻す代わりに、次の番号の鍵でこの手順をもう一度行えば直せるためです。
-新しい鍵の生成とインポートは、GitHub App を取り違えなければ何度でもやり直せます。
-普段の利用で問題が出ないことを数日見てから旧鍵を削除したいときは、5 と 6 のあいだに様子を見る期間を置きます。
-そのあいだは、旧鍵を無効にしたまま Terraform の管理に残し、5 の切り戻しで戻せる状態を保ちます。
+順 4 と順 5 の確認がそろえば、続けて順 6 に進んでかまいません。
+順 6 の後に問題が見つかっても、旧鍵に戻す代わりに、次の番号の鍵でこの手順をもう一度行えば直せるためです。
+新しい鍵の生成とインポートは、GitHub App を取り違えない限り何度でもやり直せます。
+普段の利用で問題が出ないことを数日見てから旧 Private Key を削除したいときは、順 5 と順 6 のあいだに様子を見る期間を置きます。
+そのあいだは、旧鍵を無効にしたまま Terraform の管理に残し、順 5 の切り戻しで戻せる状態を保ちます。
 
 ## 2. Prerequisites
 
@@ -41,11 +41,15 @@ GitHub App は Private Key を 25 個まで同時に持て、GitHub の公式資
 
 - `terraform/local/terraform.tfvars` の `kms_keys` に旧鍵だけがあり、`active_kms_key` が旧鍵を指している
 - `make tf-plan` が `No changes` を示す
-- [E2E Tests](e2e-tests.md) の `_e2e-success.yml` が成功する
+- 許可オーナーのリポジトリで、GATES の Docker Action でトークンを受け取るワークフローが成功する
 - [Key Material Import](import-key-material.md) の手順を実行できる（AWS CLI、OpenSSL 3 以降、`jq`、`xxd`）
-- [Testing Environment Setup](setup-environment.md) の §3.1 の前提（一時認証情報、IAM OIDC Provider）を満たしている
+- AWS の一時認証情報（`AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY`、`AWS_SESSION_TOKEN`）をシェルの環境変数に設定してある。`make tf-plan` と `make tf-apply` は、`AWS_SESSION_TOKEN` のない長期のアクセスキーでは起動しない
+- AWS アカウントに `https://token.actions.githubusercontent.com` の IAM OIDC Provider があり、Client ID に `sts.amazonaws.com` を含む。Terraform はこの Provider を参照するため、ない間は `make tf-plan` が失敗する
+- 一時認証情報に、Terraform の適用と鍵素材のインポートの権限に加えて、KMS Key の無効化（`kms:DisableKey`）と削除の予約（`kms:ScheduleKeyDeletion`）、CloudTrail の参照（`cloudtrail:LookupEvents`）の権限がある
+- AWS CLI のリージョン（`AWS_REGION`）を、GATES の KMS Key と同じリージョンにしてある
 
-コマンドはリポジトリのルートで、ひとつのシェルから実行します。
+コマンドはリポジトリのルートで実行します。
+手順の中で設定する環境変数（`OLD_KMS_KEY_ARN`、`NEW_KMS_KEY_ARN`）を後の段階で使うため、同じシェルから実行します。
 旧鍵の ARN を確かめて、環境変数に設定しておきます。
 
 ```bash
@@ -54,13 +58,13 @@ export OLD_KMS_KEY_ARN="$(jq -r '.outputs.kms_key_arns.value["key-1"]' terraform
 ```
 
 各段階の `make tf-apply` が失敗したら、`make tf-plan` から作り直し、Plan を確かめ直してから適用します。
-一時認証情報の期限切れのように、何も適用せずに失敗した場合でも、Terraform が State を書き直して保存した Plan が古くなり、次の適用が `Saved plan is stale` で止まることがあります。
+一時認証情報の期限切れのように、何も適用せずに失敗した場合でも、Terraform が State を書き直すため、保存した Plan が古くなり、次の適用が `Saved plan is stale` で止まることがあります。
 
 ## 3. Adding the New KMS Key
 
 `terraform/local/terraform.tfvars` の `kms_keys` に新しい鍵を加えます。
 `active_kms_key` は旧鍵のままにします。
-新しい鍵の `key_spec` は、インポートする鍵の見込みの鍵長に合わせます。
+新しい鍵の `key_spec` は、インポートする鍵の鍵長の見込みに合わせます。
 GitHub は生成する鍵の鍵長を文書で約束していないため、旧鍵と同じ値を見込みとします。
 
 ```hcl
@@ -100,7 +104,7 @@ make kms-import-key-material KMS_KEY_NAME=key-2 GITHUB_PRIVATE_KEY_PATH=<ダウ�
 最後に出るフィンガープリントが、GitHub App の `Key pairs` に新しく加わった鍵と一致することを確かめます。
 `Key pairs` には、新旧 2 つの鍵が並びます。
 
-鍵長が `key_spec` と違うと、インポートの前に止まり、手元の秘密鍵は削除されます。
+鍵長が `key_spec` と違うと、インポートの前に止まり、ダウンロードした Private Key は削除されます。
 その場合は、GitHub App から生成した鍵を削除してから、§10 の手順の名前と ARN をこの KMS Key に読み替えて退役させ、鍵長に合わせた `key_spec` で次の番号の鍵を §3 から加え直します。
 `PendingImport` の鍵は署名に使えないため、無効にする手順（§7）は要りません。
 
@@ -132,12 +136,12 @@ make tf-plan
 
 ## 6. Checking Issuance with the New Key
 
-[E2E Tests](e2e-tests.md) の `_e2e-success.yml` を実行し、成功することを確かめます。
-ワークフローの実行の時間帯の KMS の `Sign` の記録を CloudTrail から引き、署名に使われた鍵がすべて新しい鍵であることを確かめます。
+§2 の前提で成功を確かめたワークフローを実行し、成功することを確かめます。
+ワークフローを実行した時間帯について、KMS の `Sign` の記録を CloudTrail から引き、署名に使われた鍵がすべて新しい鍵であることを確かめます。
 `Sign` の記録は `resources` に KMS Key の ARN を持ちます。
 
 ```bash
-aws cloudtrail lookup-events --region <GATES_AWS_REGION> \
+aws cloudtrail lookup-events --region <KMS Key のリージョン> \
   --lookup-attributes AttributeKey=EventName,AttributeValue=Sign \
   --start-time <開始> --end-time <終了> \
   --query 'Events[].CloudTrailEvent' --output json \
@@ -150,6 +154,7 @@ aws cloudtrail lookup-events --region <GATES_AWS_REGION> \
 ## 7. Disabling the Old KMS Key
 
 旧鍵を無効にする前に、§8 で GitHub の鍵を見分けるために、旧鍵の公開鍵のフィンガープリントを控えます。
+このコマンドと §8 のコマンドの出力には `SHA256:` が付かないため、GitHub の `Key pairs` の表示とは `SHA256:` の後を比べます。
 
 ```bash
 aws kms get-public-key --key-id "$OLD_KMS_KEY_ARN" --query PublicKey --output text | openssl base64 -d -A | openssl sha256 -binary | openssl base64
@@ -163,7 +168,7 @@ aws kms describe-key --key-id "$OLD_KMS_KEY_ARN" --query 'KeyMetadata.KeyState' 
 ```
 
 `make tf-plan` が `No changes` を示すことを確かめます。
-そして `_e2e-success.yml` をもう一度実行し、成功することを確かめます。
+そして §6 のワークフローをもう一度実行し、成功することを確かめます。
 旧鍵を無効にしても発行できれば、GATES が旧鍵に依存していないと分かります。
 
 発行が成功しなければ、`aws kms enable-key --key-id "$OLD_KMS_KEY_ARN"` で旧鍵を有効に戻し、§6 の切り戻しを行います。
@@ -172,6 +177,7 @@ aws kms describe-key --key-id "$OLD_KMS_KEY_ARN" --query 'KeyMetadata.KeyState' 
 
 この操作の後は、旧鍵に切り戻せません。
 §6 と §7 の確認がそろってから行います。
+GitHub App の Private Key の削除は、GitHub App の管理者が行います（ユーザーアカウントを許可オーナーにする構成では、運用者が兼ねることが多い）。
 
 GitHub App の設定ページで `Credentials` → `Key pairs` を開き、§7 で控えたフィンガープリントの鍵の `Delete` をクリックします。
 削除の後、`Key pairs` に残った鍵のフィンガープリントが、新しい KMS Key の公開鍵のフィンガープリントと一致することを確かめます。
@@ -182,12 +188,13 @@ aws kms get-public-key --key-id "$NEW_KMS_KEY_ARN" --query PublicKey --output te
 
 ## 9. Checking Issuance after Deleting the Old Key
 
-[E2E Tests](e2e-tests.md) のワークフローをすべて実行し、成功することを確かめます。
+§6 のワークフローをもう一度実行し、成功することを確かめます。
 
 ## 10. Retiring the Old KMS Key
 
 旧鍵を Terraform の管理から外し、削除を予約します。
-Terraform に旧鍵を削除させないのは、`prevent_destroy` が、鍵の集合から除いた鍵の削除を拒否するためです。
+鍵の集合（`kms_keys` に並べた KMS Key）から除いた鍵の削除は `prevent_destroy` が拒否します。
+`prevent_destroy` は鍵の集合の全体に掛かり、外すと使用中の鍵も守られなくなるため、Terraform には旧鍵を削除させません。
 
 `terraform/local/terraform.tfvars` の `kms_keys` から旧鍵を除きます。
 
