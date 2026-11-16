@@ -112,7 +112,7 @@ private_key_path="${candidate}"
 
 bits="$(printf '%s\n' "${public_text}" | sed -n 's/^Public-Key: (\([0-9]*\) bit)$/\1/p')"
 [ "${bits}" = "${expected_bits}" ] ||
-  fail "the private key is ${bits} bit, but the KMS key expects ${key_spec}: see Key Rotation in docs/user-guide/rotate-key.md"
+  fail "the private key is ${bits} bit, but the KMS key expects ${key_spec}: see Deployment in docs/user-guide/deployment.md for the first import, or Key Rotation in docs/user-guide/rotate-key.md"
 info "Key length: ${bits} bit"
 local_fingerprint="$(openssl pkey -in "${private_key_path}" -pubout -outform DER | openssl sha256 -binary | openssl base64)"
 

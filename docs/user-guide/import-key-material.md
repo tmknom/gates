@@ -1,7 +1,7 @@
 # Key Material Import
 
-本ドキュメントでは、GitHub App Private Key（以下、秘密鍵）を生成して、Terraform が作った KMS Key に鍵素材として取り込むまでの手順を扱います。
-取り込みは `make kms-import-key-material` が行い、運用者が行うのは、GitHub App での秘密鍵の生成と、インポートの後に出るフィンガープリントを GitHub の表示と照合することです。
+本ドキュメントでは、GitHub App Private Key（以下、秘密鍵）を生成して、Terraform が作った KMS Key に **鍵素材**（KMS Key にインポートする秘密鍵の中身）として取り込むまでの手順を扱います。
+取り込みは `make kms-import-key-material` が行い、**GATES 運用者**（GATES を AWS にデプロイして運用する人。以下、運用者）が行うのは、GitHub App での秘密鍵の生成と、インポートの後に出るフィンガープリントを GitHub の表示と照合することです。
 
 ## 1. Order of the Work
 
@@ -79,6 +79,8 @@ GitHub App の鍵がその 1 つだけのとき（初回のインポートなど
 
 鍵長が `KeySpec` と違って止まったときは、その KMS Key は使えないため、同じ `KMS_KEY_NAME` では実行し直せません。
 鍵長に合わせた `key_spec` の KMS Key を `kms_keys` に加えて適用し、その名前で実行し直します。
+使えなくなった KMS Key は、Terraform の管理から外して削除を予約します。
+`kms_keys` に置ける KMS Key は 2 つまでのため、すでに 2 つあるとき（鍵の更新の途中など）は、先に使えなくなった KMS Key を外してから加えます。
 
 インポートの後に止まったとき（鍵の状態やフィンガープリントが違うとき）は、鍵素材は取り込まれています。
 その KMS Key を使用中の鍵（`terraform/local/terraform.tfvars` の `active_kms_key` で指定する、Lambda が署名に使う鍵）にせず、原因を調べます。

@@ -5,7 +5,7 @@ KMS にインポートした鍵素材は別の鍵素材に交換できないた�
 Terraform での鍵の表し方は [AWS Infrastructure Design](../design/aws-infrastructure.md) の §4.3 にあります。
 
 鍵の追加、無効化、退役を除くと、GATES の設定のうち更新で変わるのは Lambda の環境変数の Key ARN と、実行 Role（Lambda の関数が KMS での署名などに使う IAM Role）の IAM ポリシーだけです。
-利用者のワークフローと、GitHub の Secrets と Variables に登録した接続情報は変えません。
+ワークフロー利用者のワークフローと、GitHub の Secrets と Variables に登録した接続情報は変えません。
 
 ## 1. Order of the Work
 
@@ -41,12 +41,9 @@ GitHub App は Private Key を 25 個まで同時に持て、GitHub の公式資
 
 - `terraform/local/terraform.tfvars` の `kms_keys` に旧鍵だけがあり、`active_kms_key` が旧鍵を指している
 - `make tf-plan` が `No changes` を示す
-- 許可オーナーのリポジトリで、GATES の Docker Action でトークンを受け取るワークフローが成功する
-- [Key Material Import](import-key-material.md) の手順を実行できる（AWS CLI、OpenSSL 3 以降、`jq`、`xxd`）
-- AWS の一時認証情報（`AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY`、`AWS_SESSION_TOKEN`）をシェルの環境変数に設定してある。`make tf-plan` と `make tf-apply` は、`AWS_SESSION_TOKEN` のない長期のアクセスキーでは起動しない
-- AWS アカウントに `https://token.actions.githubusercontent.com` の IAM OIDC Provider があり、Client ID に `sts.amazonaws.com` を含む。Terraform はこの Provider を参照するため、ない間は `make tf-plan` が失敗する
-- 一時認証情報に、Terraform の適用と鍵素材のインポートの権限に加えて、KMS Key の無効化（`kms:DisableKey`）と削除の予約（`kms:ScheduleKeyDeletion`）、CloudTrail の参照（`cloudtrail:LookupEvents`）の権限がある
-- AWS CLI のリージョン（`AWS_REGION`）を、GATES の KMS Key と同じリージョンにしてある
+- 許可オーナーのリポジトリで、[Deployment](deployment.md) の §9.1 のワークフローのように GATES の Docker Action でトークンを受け取るワークフローが成功する
+- [Deployment](deployment.md) の §2.1 から §2.3 の前提（手元のツール、AWS の一時認証情報とその権限、AWS CLI のリージョン、IAM OIDC Provider）を満たしている
+- 一時認証情報に、Deployment の §2.2 の権限に加えて、KMS Key の無効化（`kms:DisableKey`）と削除の予約（`kms:ScheduleKeyDeletion`）、CloudTrail の参照（`cloudtrail:LookupEvents`）の権限がある
 
 コマンドはリポジトリのルートで実行します。
 手順の中で設定する環境変数（`OLD_KMS_KEY_ARN`、`NEW_KMS_KEY_ARN`）を後の段階で使うため、同じシェルから実行します。
@@ -177,7 +174,7 @@ aws kms describe-key --key-id "$OLD_KMS_KEY_ARN" --query 'KeyMetadata.KeyState' 
 
 この操作の後は、旧鍵に切り戻せません。
 §6 と §7 の確認がそろってから行います。
-GitHub App の Private Key の削除は、GitHub App の管理者が行います（ユーザーアカウントを許可オーナーにする構成では、運用者が兼ねることが多い）。
+GitHub App の Private Key の削除は、GitHub App とオーナーの管理者が行います（ユーザーアカウントを許可オーナーにする構成では、運用者が兼ねることが多い）。
 
 GitHub App の設定ページで `Credentials` → `Key pairs` を開き、§7 で控えたフィンガープリントの鍵の `Delete` をクリックします。
 削除の後、`Key pairs` に残った鍵のフィンガープリントが、新しい KMS Key の公開鍵のフィンガープリントと一致することを確かめます。

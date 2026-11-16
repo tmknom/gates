@@ -103,7 +103,7 @@ GATES は、呼び出し元を許可オーナー単位でしか区別しませ�
 - **GitHub Actions だけ**：GitHub Actions 以外の実行環境やクライアントには発行しない
 - **OIDC JWT の `sub` の形式**：呼び出し元のリポジトリの OIDC JWT は、呼び出し元を示す値 `sub` が、`repo:<オーナー名>@<Owner ID>/<リポジトリ名>@<Repository ID>:...` のように不変の ID を含む形式でなければならない。新しく作るリポジトリは既定でこの形式になるが、古いリポジトリは、Organization かリポジトリの設定（REST API では `use_immutable_subject`）で切り替える必要がある。`sub` の形式をカスタマイズして先頭がこの形式でなくなったリポジトリも受け付けない
 - **Runner**：Linux で Docker を使える Runner が要る。GitHub がホストする `ubuntu-latest` はこれを満たす。セルフホストの Runner では、Docker Hub、`proxy.golang.org`、OIDC JWT の取得先、AWS STS と Lambda の API、`api.github.com` への通信を許可し、Docker Hub の取得回数の制限に備えて認証かミラーを用意する（[GitHub Actions Design](../design/github-actions.md) の Runner Requirements）
-- **実環境で確かめた構成**：実環境で動作を確かめたのは、ユーザーアカウントを許可オーナーにした構成だけで、Organization を許可オーナーにした構成は確かめていない
+- **実環境で確かめた構成**：GATES の検証環境で動作を確かめたのは、ユーザーアカウントを許可オーナーにした構成だけで、Organization を許可オーナーにした構成は確かめていない
 
 現在の範囲と対象外とする範囲は [Scope](../spec/scope.md) に、`sub` の形式は [GitHub Constraints](../spec/github-constraints.md) の §3 に、目的の境界は [Constitution](../CONSTITUTION.md) の Non-Goals にあります。
 
@@ -127,7 +127,7 @@ GitHub 側の設定（GitHub App のインストール対象と権限、古い P
 ### 6.1 AWS
 
 - **AWS アカウント**：GATES は、このアカウントに Lambda の関数、KMS Key、IAM Role、CloudWatch Logs のロググループなどを作る
-- **Terraform の適用（apply）の権限**：IAM Role とポリシー、KMS Key と Key Policy、Lambda の関数を作成し、変更できる権限
+- **Terraform の適用（apply）の権限**：IAM Role とポリシー、KMS Key と Key Policy、Lambda の関数、CloudWatch Logs のロググループを作成し、変更できる権限
 - **鍵素材のインポートの権限**：**鍵素材**（KMS Key にインポートする GitHub App Private Key の中身）を KMS Key にインポートする権限。Terraform の適用とは別の運用として行う
 - **運用者の一時認証情報**：Terraform の適用と鍵素材のインポートは、セッショントークンを含む AWS の一時認証情報でだけ動く
 - **IAM OIDC Provider**：AWS STS が GitHub の OIDC JWT を信頼するための設定で、`https://token.actions.githubusercontent.com` を指し、Client ID に `sts.amazonaws.com` を含むもの。この URL を指す Provider はアカウントに一つだけ置ける共有のリソースのため、GATES の Terraform は作らず、アカウントにあるものを参照する。なければ運用者が先に作る

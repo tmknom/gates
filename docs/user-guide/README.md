@@ -13,6 +13,7 @@
 
 | ファイル | 内容 |
 |---|---|
+| [Deployment](deployment.md) | GATES を初めてデプロイするチュートリアル。前提の確認、GitHub App の作成とインストール、配布物の検証、`terraform.tfvars` の値の決め方、Terraform の適用とデプロイしたコードの照合、鍵素材のインポートと鍵長が違ったときの扱い、接続情報の登録、最初の発行と監査記録の確認 |
 | [Release Verification](verify-release.md) | GitHub Releases の配布物の来歴をチェックサムと Attestation で検証する手順と、デプロイした Lambda の関数のコードを照合する手順、照合で確かめられる範囲 |
 | [Key Material Import](import-key-material.md) | GitHub App Private Key を生成して鍵素材として KMS Key にインポートし、GitHub App の鍵と一致することを確かめる手順と、インポートが確かめることと止まったときの扱い |
 | [Key Rotation](rotate-key.md) | GitHub App Private Key を更新する手順。新しい KMS Key を加えて鍵素材をインポートし、使用中の鍵を切り替えて発行を確かめ、旧 KMS Key の無効化、GitHub からの旧 Private Key の削除、旧 KMS Key の State からの除外と削除の予約までを、切り戻しの方法と切り戻せなくなる時点とともに示す |

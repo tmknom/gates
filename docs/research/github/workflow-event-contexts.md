@@ -94,7 +94,7 @@ fork からの `pull_request` は既定では OIDC JWT を要求できず、`pul
 
 試験に使用したワークフローファイルは次のとおりです。
 `workflow_run` の起点には、作業ブランチへの push で動き、何もしないワークフロー（`name: Event Contexts Trigger`）を使いました。
-接続情報の Secret と Variables の名前は、[Testing Environment Setup](../../contributing/setup-environment.md) の登録に従います。
+試験用のリポジトリには、AWS アカウント ID を Secret の `GATES_AWS_ACCOUNT_ID` に、IAM Role の名前、関数名、リージョン、Audience を Variables の `GATES_ROLE_NAME`、`GATES_FUNCTION_NAME`、`GATES_AWS_REGION`、`GATES_AUDIENCE` に登録しました。
 ジョブのログの資格情報の検索は、E2E テストの `_e2e-reusable-credential-leak.yml` と同じ検索を、スキップしたジョブを除いて行いました。ここでは省いています。
 
 ```yaml
