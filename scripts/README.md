@@ -7,7 +7,7 @@
 
 `kms/` だけはコンテナを使わず、運用者が手元のシェルで実行するスクリプトを置きます。
 GitHub App Private Key を KMS Key にインポートするスクリプトで、秘密鍵を扱うため、Coding Agent は実行しません。
-使い方は [Key Material Import](../docs/contributing/import-key-material.md) にあります。
+使い方は [Key Material Import](../docs/user-guide/import-key-material.md) にあります。
 
 ## コンテナ一覧
 

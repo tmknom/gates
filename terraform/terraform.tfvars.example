@@ -9,7 +9,7 @@ github_app_client_id = "Iv23example"
 gates_audience       = "example-owner-gates"
 
 # 値の決め方は docs/contributing/setup-environment.md の kms_keys を参照する。key_spec は RSA_2048、RSA_3072、RSA_4096 のいずれか
-# 鍵の名前は key-1、key-2 のように付け、最初の鍵は key-1 にする。鍵の更新の手順は docs/contributing/rotate-key.md にある
+# 鍵の名前は key-1、key-2 のように付け、最初の鍵は key-1 にする。鍵の更新の手順は docs/user-guide/rotate-key.md にある
 # kms_keys = {
 #   key-1 = ""
 # }

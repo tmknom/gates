@@ -34,7 +34,7 @@ GATES の動作を検証するには、トークンの発行元となる GitHub 
 
 ## 2. GitHub App Private Key
 
-GitHub App Private Key は、AWS リソースを適用した後に、[Key Material Import](import-key-material.md) の手順の中で生成します。
+GitHub App Private Key は、AWS リソースを適用した後に、[Key Material Import](../user-guide/import-key-material.md) の手順の中で生成します。
 生成した鍵は KMS Key にインポートし、手元のコピーは削除します。
 先に生成すると、インポートするまでのあいだ、秘密鍵が手元に残り続けるためです。
 
@@ -55,7 +55,7 @@ Plan の前に次を満たしておきます。
 `terraform.tfvars` の値のうち、次の 3 つは適用の前に確かめて決めます。
 
 - **`gates_audience`**：GATES 専用の、URL でない文字列にする（例：`<owner>-gates`）。`sts.amazonaws.com`、`https://github.com`、`https://github.com/` で始まる値は、変数の検証で拒否される（[Domain Model](../design/domain.md) の INV-005）
-- **`kms_keys`**：KMS Key の名前から `key_spec` への Map。最初は `key-1` の 1 つだけにし、`active_kms_key` に `key-1` を指定する。`key_spec` は、インポートする GitHub App Private Key の鍵長に合わせる。秘密鍵は適用の後に生成するため、検証用 App で生成した鍵の鍵長（2048 bit）から `RSA_2048` とする。鍵の更新で 2 つ目の鍵を加える手順は [Key Rotation](rotate-key.md) にある
+- **`kms_keys`**：KMS Key の名前から `key_spec` への Map。最初は `key-1` の 1 つだけにし、`active_kms_key` に `key-1` を指定する。`key_spec` は、インポートする GitHub App Private Key の鍵長に合わせる。秘密鍵は適用の後に生成するため、検証用 App で生成した鍵の鍵長（2048 bit）から `RSA_2048` とする。鍵の更新で 2 つ目の鍵を加える手順は [Key Rotation](../user-guide/rotate-key.md) にあり、その中の発行の確認には [E2E Tests](e2e-tests.md) のワークフローを使う
 - **`lambda_reserved_concurrency`**：`aws lambda get-account-settings` の `UnreservedConcurrentExecutions` から予約する数を引いても、Lambda が求める未予約の下限（100）を下回らない値にする
 
 `lambda_package_path` は `terraform.tfvars` に書きません。
@@ -89,7 +89,7 @@ make tf-apply
 aws kms describe-key --key-id <kms_key_arn>
 ```
 
-続けて、[Key Material Import](import-key-material.md) の手順で、GitHub App Private Key を生成して KMS Key にインポートします。
+続けて、[Key Material Import](../user-guide/import-key-material.md) の手順で、GitHub App Private Key を生成して KMS Key にインポートします。
 
 ### 3.3 Local Terraform Files
 

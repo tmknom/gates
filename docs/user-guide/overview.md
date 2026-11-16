@@ -146,7 +146,7 @@ GitHub 側の設定（GitHub App のインストール対象と権限、古い P
 | Docker（Docker Compose を含む） | Terraform をコンテナの中で実行する |
 | Go | Lambda のデプロイパッケージを手元でビルドする |
 | `zip`、`shasum` | デプロイパッケージを作り、Plan と適用のあいだでパッケージが変わっていないことを確かめる |
-| AWS CLI、`jq`、`xxd`、OpenSSL 3 以降 | 鍵素材を KMS にインポートする。macOS に標準で入っている LibreSSL では動かない |
+| AWS CLI、`jq`、`xxd`、OpenSSL 3 以降 | 鍵素材を KMS にインポートし、鍵を更新する。macOS に標準で入っている LibreSSL では動かない |
 | GitHub CLI | 接続情報を登録し、配布物を検証する |
 
 ### 6.4 費用が発生するリソース
