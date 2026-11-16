@@ -44,7 +44,8 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      # 同じコミットと同じバージョンの Go からは、同じバイト列の zip ができる
+      # 同じコミットと同じバージョンの Go からは、同じバイト列の zip ができる。
+      # 運用者が手元で同じ zip を作れるよう、Makefile の lambda-package も同じ設定でビルドする。設定を変えるときは両方を変える
       - name: Build
         id: build
         env:

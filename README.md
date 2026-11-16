@@ -151,4 +151,4 @@ Finer-grained authorization per caller or team, and permissions beyond `contents
 See [GitHub Releases](https://github.com/tmknom/gates/releases).
 
 Each release includes the Lambda deployment package `gates-lambda-linux-arm64.zip`, its `SHA256SUMS`, and a build provenance attestation.
-To verify the package, see [Release](docs/contributing/release.md).
+To verify the package, see [Release Verification](docs/user-guide/verify-release.md).
