@@ -228,7 +228,7 @@ on:
 | E2E Cancel | `e2e/cancel` |
 
 試験用のリポジトリに、次の Secrets と Variables を登録します。
-接続情報の値と登録のコマンドは [Testing Environment Setup](setup-environment.md) にあります。
+接続情報の値と登録のコマンドは [Deployment](../user-guide/deployment.md) の §8 にあります。
 
 | 名前 | 種類 | 値 |
 | --- | --- | --- |

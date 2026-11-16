@@ -155,10 +155,12 @@ GATES の開発に固有でない運用者の手順は、`docs/user-guide/`（[�
 flowchart TD
     overview["overview.md"] --> security["security-considerations.md"]
     deployment["deployment.md"] --> security
+    deployment --> overview
     deployment --> verify["verify-release.md"]
     deployment --> import["import-key-material.md"]
     deployment --> usage["workflow-usage.md"]
     rotate["rotate-key.md"] --> import
+    rotate --> deployment
     usage --> security
     usage --> trouble["troubleshooting.md"]
     operations["operations.md"] --> deployment
