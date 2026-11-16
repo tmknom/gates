@@ -154,7 +154,7 @@ JWT の `iss` の値は照合だけに使い、Discovery / JWKS の取得先に�
 
 **実測値**：6件すべてで文字列です。
 
-**GATES の設計**：未使用。`jti` の存在、値、過去に使用したことの有無を認証・認可に用いません。JWT の有効期間内の再利用を検出しないのは [Requirements §2.2](../spec/requirements.md#22-out-of-scope) の明示的な対象外事項です。
+**GATES の設計**：未使用。`jti` の存在、値、過去に使用したことの有無を認証・認可に用いません。JWT の有効期間内の再利用の検出は、[Scope §3](../spec/scope.md#3-deferred-capabilities) で現在のスコープに含めていない機能です。
 
 ### GOJ-NBF `nbf`
 

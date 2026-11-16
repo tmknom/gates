@@ -89,6 +89,7 @@ run "trust_policy_conditions_are_only_aud_and_sub" {
   }
 }
 
+# trace:checks AC-OPS-005
 run "invoke_policy_allows_only_invoking_the_function" {
   assert {
     condition     = length(jsondecode(aws_iam_policy.github_actions_invoke.policy).Statement) == 1
@@ -111,6 +112,7 @@ run "invoke_policy_allows_only_invoking_the_function" {
   }
 }
 
+# trace:checks AC-OPS-005
 run "invoke_policy_is_attached_to_role" {
   assert {
     condition     = aws_iam_role_policy_attachment.github_actions_invoke.role == "gates-github-actions"

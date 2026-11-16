@@ -25,15 +25,15 @@ B のファイル名、節、記述の変更によって A の修正が必要に
 ```mermaid
 flowchart TD
     design["docs/design/ (architecture.md 以外)"] --> architecture["docs/design/architecture.md"]
-    design --> future["docs/spec/future-scope.md"]
+    design --> scope["docs/spec/scope.md"]
     design --> acceptance["docs/spec/acceptance-criteria.md"]
     acceptance --> requirements
     architecture --> requirements["docs/spec/requirements.md"]
     architecture --> github["docs/spec/github-constraints.md"]
     architecture --> jwt["docs/spec/jwt-constraints.md"]
-    future --> requirements
+    scope --> requirements
     requirements --> constitution["docs/CONSTITUTION.md"]
-    future --> constitution
+    scope --> constitution
     requirements --> research["docs/research/"]
     github --> research
     github -->|標準仕様との差分の説明に限る| jwt
@@ -57,16 +57,17 @@ flowchart TD
 
 | ドキュメント | 責務 | 依存してよい範囲 |
 |---|---|---|
-| `requirements.md` | 目的、対象範囲、要求 | `CONSTITUTION.md`、`docs/research/` |
+| `requirements.md` | 目的、関係者の責任、要求 | `CONSTITUTION.md`、`docs/research/` |
 | `acceptance-criteria.md` | 受け入れ条件と、各受け入れ条件が適合を判定する要求 | `requirements.md` |
-| `future-scope.md` | 現在のスコープと、将来取り込む想定の機能 | `CONSTITUTION.md`、`requirements.md` |
+| `scope.md` | 現在のスコープ、将来取り込む想定の機能、対象外とする範囲 | `CONSTITUTION.md`、`requirements.md` |
 | `jwt-constraints.md` | JWT / JWS / JWK / OpenID Connect の標準仕様の規定 | 標準仕様のドキュメント |
 | `github-constraints.md` | GitHub の仕様 | `docs/research/github/`、GitHub の公式ドキュメント。標準仕様との差分を説明する箇所に限り `jwt-constraints.md` |
 
-`requirements.md` が技術の選択（Lambda、KMS、Terraform など）を制約として定めることは、`docs/design/` への依存に当たりません。
-定めた内容を `requirements.md` だけで読み取れ、`docs/design/` の変更に左右されないためです。
+`requirements.md` が、GATES の前提とする AWS（Lambda、KMS、IAM）と GitHub（Actions、App）のサービス名を書くことは、`docs/design/` への依存に当たりません。
+これらは GATES が動く前提であり、設計の変更では変わらないためです。
+構成管理のツールや利用者接点の実装方式のような、設計で選ぶものは `requirements.md` に書きません。
 
-`future-scope.md` には、設計の内容を書きません。
+`scope.md` には、設計の内容を書きません。
 将来の機能が設計に及ぼす影響は、影響を受ける `docs/design/` のドキュメントの側に書きます。
 
 ### 2.3 docs/design/
@@ -86,7 +87,7 @@ flowchart TD
 | `aws-infrastructure.md` | AWS リソースの構成 |
 | `github-actions.md` | Docker Action の入出力と処理手順 |
 
-`architecture.md` は、`docs/design/` の他のドキュメントと `future-scope.md` に依存しません。
+`architecture.md` は、`docs/design/` の他のドキュメントと `scope.md` に依存しません。
 将来の機能を取り込むときは先に `requirements.md` を変更するため、`architecture.md` への影響は `requirements.md` への依存を通じて確かめられます。
 
 例外として、全体構成から詳細な設計へ読み進められるよう、付録に `domain.md` を除く `docs/design/` の他のドキュメントの案内を置きます。
@@ -116,7 +117,7 @@ flowchart TD
 それらは目的や原則を具体化した結果であり、`CONSTITUTION.md` に書くと、要求や設計の変更のたびに `CONSTITUTION.md` も変わるためです。
 
 - リポジトリ内の他のドキュメントに依存しない
-- `CONSTITUTION.md` に依存してよいのは、`requirements.md`、`future-scope.md`、`docs/design/`、`docs/contributing/` に限る
+- `CONSTITUTION.md` に依存してよいのは、`requirements.md`、`scope.md`、`docs/design/`、`docs/contributing/` に限る
 
 ### 2.7 Docker Action README
 
@@ -175,12 +176,12 @@ flowchart TD
 | 対象 | 概念名の扱い |
 |---|---|
 | `architecture.md` 以外の `docs/design/`、コード、`formal/` | `domain.md` の概念名を使う |
-| `CONSTITUTION.md`、`architecture.md`、`requirements.md`、`acceptance-criteria.md`、`future-scope.md` | `domain.md` の概念名を使う。ただし `domain.md` を参照しない |
+| `CONSTITUTION.md`、`architecture.md`、`requirements.md`、`acceptance-criteria.md`、`scope.md` | `domain.md` の概念名を使う。ただし `domain.md` を参照しない |
 | `jwt-constraints.md`、`github-constraints.md`、`docs/research/` | 外部仕様の用語を使う。`domain.md` の概念名を持ち込まない |
 
 外部仕様の用語と概念名の対応は、`docs/design/` の側に書きます。
 
-概念名の変更に伴う `CONSTITUTION.md`、`architecture.md`、`requirements.md`、`acceptance-criteria.md`、`future-scope.md` の語の置き換えは、`CONSTITUTION.md` が他のドキュメントに依存しないという [§2.6](#26-constitutionmd) の規則と、`docs/spec/` が `docs/design/` に依存しないという [§2.2](#22-docsspec) の規則と、`architecture.md` が `docs/design/` の他のドキュメントに依存しないという [§2.3](#23-docsdesign) の規則の例外です。
+概念名の変更に伴う `CONSTITUTION.md`、`architecture.md`、`requirements.md`、`acceptance-criteria.md`、`scope.md` の語の置き換えは、`CONSTITUTION.md` が他のドキュメントに依存しないという [§2.6](#26-constitutionmd) の規則と、`docs/spec/` が `docs/design/` に依存しないという [§2.2](#22-docsspec) の規則と、`architecture.md` が `docs/design/` の他のドキュメントに依存しないという [§2.3](#23-docsdesign) の規則の例外です。
 例外は語を揃えるだけの変更に限ります。
 要求や受け入れ条件の内容まで変わるなら、`domain.md` の都合でそれらを変えることになるため、`requirements.md` や `acceptance-criteria.md` の変更として別に判断します。
 
@@ -191,11 +192,12 @@ flowchart TD
 | 内容 | 正とするもの | 従う側 |
 |---|---|---|
 | 外部仕様の事実 | 外部仕様そのもの | リポジトリ内のすべてのドキュメント |
-| 存在理由、解決する問題、提供価値、設計上の判断原則、目的の境界 | `CONSTITUTION.md` | `requirements.md`、`future-scope.md`、`docs/design/` |
-| GATES が満たす要求 | `requirements.md` | `acceptance-criteria.md`、`future-scope.md`、`docs/design/` |
+| 存在理由、解決する問題、提供価値、設計上の判断原則、目的の境界 | `CONSTITUTION.md` | `requirements.md`、`scope.md`、`docs/design/` |
+| GATES が満たす要求 | `requirements.md` | `acceptance-criteria.md`、`scope.md`、`docs/design/` |
+| 現在のスコープ、将来取り込む想定の機能、対象外とする範囲 | `scope.md` | `docs/design/` |
 | 受け入れ条件 | `acceptance-criteria.md` | `docs/design/`、テスト、`formal/` |
 | コンポーネントの全体構成と処理の流れ | `architecture.md` | `docs/design/` の他のドキュメント |
-| 概念の名前と意味 | `domain.md` | `requirements.md`、`acceptance-criteria.md`、`future-scope.md`、`docs/design/` の他のドキュメント、コード、`formal/` |
+| 概念の名前と意味 | `domain.md` | `requirements.md`、`acceptance-criteria.md`、`scope.md`、`docs/design/` の他のドキュメント、コード、`formal/` |
 | JWT の Claim・JOSE・JWK の受理・生成条件 | `gates-oidc-jwt-claims.md`、`gates-oidc-jwt-signature.md`、`aws-oidc-jwt.md`、`github-app-jwt.md` | `docs/design/` の他のドキュメント、コード |
 | Docker Action の入出力と処理手順 | `github-actions.md` | Docker Action の `README.md`、コード |
 
@@ -217,8 +219,8 @@ ID を付ける種類は次のとおりです。
 
 | 接頭辞 | 対象 | 定めるドキュメント | ID の形 |
 |---|---|---|---|
-| `FR-` | 機能要求 | `requirements.md` | カテゴリのスラッグと、カテゴリごとの 3 桁の連番（`FR-AUTHN-001`）。スラッグは `AUTHN`（Authentication）、`AUTHZ`（Authorization）、`ISSUANCE`（Token Issuance）、`OPS`（Usability and Operations） |
-| `QR-` | 品質とセキュリティの要求 | `requirements.md` | 3 桁の連番（`QR-001`） |
+| `FR-` | 機能要求 | `requirements.md` | カテゴリのスラッグと、カテゴリごとの 3 桁の連番（`FR-AUTHN-002`）。スラッグは `AUTHN`（Authentication）、`AUTHZ`（Authorization）、`ISSUANCE`（Token Issuance）、`OPS`（Usability and Operations） |
+| `QR-` | 品質とセキュリティの要求 | `requirements.md` | 3 桁の連番（`QR-003`） |
 | `AC-` | 受け入れ条件 | `acceptance-criteria.md` | カテゴリのスラッグと、カテゴリごとの 3 桁の連番（`AC-AUTHZ-001`）。スラッグは `FR-` の 4 つに `QUALITY`（Quality and Security）を加えた 5 つ。`FR-` を判定する AC は、期待する結果が判定する `FR-` のカテゴリに置き、`QR-` だけを判定する AC は `QUALITY` に置く |
 | `GOJ-` | GATES 用 OIDC JWT の受理条件 | `gates-oidc-jwt-claims.md`、`gates-oidc-jwt-signature.md` | Claim 名か、規則の内容を表す名前。作り方は `gates-oidc-jwt-claims.md` に定める |
 | `AOJ-` | AWS 用 OIDC JWT の Claim に課す条件 | `aws-oidc-jwt.md` | Claim 名か、条件の内容を表す名前 |
@@ -254,7 +256,7 @@ ID は定義の意味を指し、定義の書き方や置き場所を指しま�
 - 定義ごとに見出しを置き、見出しは ID、半角スペース、タイトルの順に書く（例：`#### FR-AUTHZ-001 許可オーナーの Owner ID による認可`）
 - 定義を並べる節の直下の見出しは、定義の見出しだけにする
 - 文書の直下は、定義を並べる節に当たらない。定義の見出しを、定義でない節の見出しと同じ階層に並べてよい（例：`github-app-jwt.md` の `## GAJ-ISS` と `## Traceability`）。定義でない節は見出しで区切られ、直前の定義の本文として読まれないためである
-- 定義を分類するときは、分類ごとに節を設け、その節の直下に定義の見出しを並べる（例：`requirements.md` の `### 5.2 Authorization` の直下に `#### FR-AUTHZ-001 …`）
+- 定義を分類するときは、分類ごとに節を設け、その節の直下に定義の見出しを並べる（例：`requirements.md` の `### 3.2 Authorization` の直下に `#### FR-AUTHZ-001 …`）
 - 定義を並べる節の説明は、最初の定義の見出しより前に書く。最後の定義の後に書くと、その定義の本文として読まれるためである
 - 定義を一覧する表を索引として置いてもよい。その場合も、定義の見出しとその下の本文を正とする
 
