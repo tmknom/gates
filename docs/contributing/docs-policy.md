@@ -20,7 +20,7 @@ B のファイル名、節、記述の変更によって A の修正が必要に
 ## 2. Dependency Rules by Document
 
 依存の主な向きは次のとおりで、依存してよい範囲は各節に定めます。
-`docs/design/` 内の向きは [§3](#3-dependencies-within-docsdesign) に示します。
+`docs/design/` 内の向きは [§3](#3-dependencies-within-docsdesign) に、`docs/user-guide/` 内の向きは [§2.8](#28-docsuser-guide) に示します。
 
 ```mermaid
 flowchart TD
@@ -41,6 +41,13 @@ flowchart TD
     jwt --> standards["標準仕様"]
     research --> external["調査対象の外部ドキュメント"]
     github --> external
+    guide["docs/user-guide/"] --> design
+    guide --> architecture
+    guide --> requirements
+    guide --> scope
+    guide --> constitution
+    guide --> research
+    guide --> action["Docker Action の README.md"]
 ```
 
 ### 2.1 docs/research/
@@ -102,6 +109,9 @@ flowchart TD
 `docs/contributing/` は他のドキュメントに依存してよく、`docs/spec/` と `docs/design/` は `docs/contributing/` に依存しません。
 手順の変更が仕様や設計の変更を求めないようにするためです。
 
+GATES の開発に固有でない運用者の手順は、`docs/user-guide/`（[§2.8](#28-docsuser-guide)）を参照し、`docs/contributing/` に重ねて書きません。
+`docs/contributing/` に書くのは、検証用の GitHub App の設定や E2E テストのような、開発に固有の差分だけです。
+
 ### 2.5 README.md
 
 `docs/` と、その配下の各ディレクトリに置く `README.md` は、配下のドキュメントを案内します。
@@ -117,13 +127,47 @@ flowchart TD
 それらは目的や原則を具体化した結果であり、`CONSTITUTION.md` に書くと、要求や設計の変更のたびに `CONSTITUTION.md` も変わるためです。
 
 - リポジトリ内の他のドキュメントに依存しない
-- `CONSTITUTION.md` に依存してよいのは、`requirements.md`、`scope.md`、`docs/design/`、`docs/contributing/` に限る
+- `CONSTITUTION.md` に依存してよいのは、`requirements.md`、`scope.md`、`docs/design/`、`docs/contributing/`、`docs/user-guide/` に限る
 
 ### 2.7 Docker Action README
 
 `.github/actions/` の各 Docker Action の隣に置く `README.md` は、利用者向けの手引きです。
 `docs/` の外にありますが、依存の扱いは [§2.4](#24-docscontributing) と同じとします。
 この `README.md` は `docs/` 配下のドキュメントに依存してよく、`docs/` 配下のドキュメントはこの `README.md` に依存しません。
+
+例外として、`docs/user-guide/` はこの `README.md` に依存してよく、この `README.md` は `docs/user-guide/` に依存しません。
+入力、出力、失敗の注釈のような Action のリファレンスをこの `README.md` の一か所に保ち、`docs/user-guide/` に転記しないためです。
+逆向きを禁じるのは、相互依存を作らないためです。
+
+### 2.8 docs/user-guide/
+
+導入を判断する人、GATES 運用者、ワークフロー利用者に向けて、判断の材料と作業の手順を記述します。
+
+- `CONSTITUTION.md`、`docs/spec/`、`docs/design/`、`docs/research/`、Docker Action の `README.md`（[§2.7](#27-docker-action-readme)）、調査対象の外部ドキュメントに依存してよい
+- `docs/contributing/` に依存しない。開発の都合で変わる手順や規約の変更が、利用者向けの文書に波及しないようにするためである
+- `docs/spec/`、`docs/design/`、`docs/research/` は `docs/user-guide/` に依存しない
+- リンク先を読まなくても作業と判断が完了するように書く。仕様や設計へのリンクは、根拠を確かめたい読者のために添えるものとする。ただし、Action のリファレンスは Docker Action の `README.md`（[§2.7](#27-docker-action-readme)）を参照させてよい
+
+`docs/user-guide/` の中の依存は、次の向きを基準にします。
+
+```mermaid
+flowchart TD
+    overview["overview.md"] --> security["security-considerations.md"]
+    deployment["deployment.md"] --> security
+    deployment --> verify["verify-release.md"]
+    deployment --> import["import-key-material.md"]
+    deployment --> usage["workflow-usage.md"]
+    rotate["rotate-key.md"] --> import
+    usage --> security
+    usage --> trouble["troubleshooting.md"]
+    operations["operations.md"] --> deployment
+    operations --> verify
+    operations --> rotate
+    operations --> trouble
+    operations --> security
+```
+
+図にないドキュメントを加えるときや、図と逆向きの依存を足すときは、先にこの図を変更します。
 
 ## 3. Dependencies within docs/design
 
@@ -178,6 +222,7 @@ flowchart TD
 | `architecture.md` 以外の `docs/design/`、コード、`formal/` | `domain.md` の概念名を使う |
 | `CONSTITUTION.md`、`architecture.md`、`requirements.md`、`acceptance-criteria.md`、`scope.md` | `domain.md` の概念名を使う。ただし `domain.md` を参照しない |
 | `jwt-constraints.md`、`github-constraints.md`、`docs/research/` | 外部仕様の用語を使う。`domain.md` の概念名を持ち込まない |
+| `docs/user-guide/` | `domain.md` の概念名を使い、初出で平易な説明を添える（例：「許可オーナー（GATES がトークンを発行してよいと設定した GitHub のアカウント）」）。`domain.md` へのリンクは求めない |
 
 外部仕様の用語と概念名の対応は、`docs/design/` の側に書きます。
 
@@ -192,18 +237,21 @@ flowchart TD
 | 内容 | 正とするもの | 従う側 |
 |---|---|---|
 | 外部仕様の事実 | 外部仕様そのもの | リポジトリ内のすべてのドキュメント |
-| 存在理由、解決する問題、提供価値、設計上の判断原則、目的の境界 | `CONSTITUTION.md` | `requirements.md`、`scope.md`、`docs/design/` |
-| GATES が満たす要求 | `requirements.md` | `acceptance-criteria.md`、`scope.md`、`docs/design/` |
-| 現在のスコープ、将来取り込む想定の機能、対象外とする範囲 | `scope.md` | `docs/design/` |
+| 存在理由、解決する問題、提供価値、設計上の判断原則、目的の境界 | `CONSTITUTION.md` | `requirements.md`、`scope.md`、`docs/design/`、`docs/user-guide/` |
+| GATES が満たす要求 | `requirements.md` | `acceptance-criteria.md`、`scope.md`、`docs/design/`、`docs/user-guide/` |
+| 現在のスコープ、将来取り込む想定の機能、対象外とする範囲 | `scope.md` | `docs/design/`、`docs/user-guide/` |
 | 受け入れ条件 | `acceptance-criteria.md` | `docs/design/`、テスト、`formal/` |
-| コンポーネントの全体構成と処理の流れ | `architecture.md` | `docs/design/` の他のドキュメント |
-| 概念の名前と意味 | `domain.md` | `requirements.md`、`acceptance-criteria.md`、`scope.md`、`docs/design/` の他のドキュメント、コード、`formal/` |
-| JWT の Claim・JOSE・JWK の受理・生成条件 | `gates-oidc-jwt-claims.md`、`gates-oidc-jwt-signature.md`、`aws-oidc-jwt.md`、`github-app-jwt.md` | `docs/design/` の他のドキュメント、コード |
-| Docker Action の入出力と処理手順 | `github-actions.md` | Docker Action の `README.md`、コード |
+| コンポーネントの全体構成と処理の流れ | `architecture.md` | `docs/design/` の他のドキュメント、`docs/user-guide/` |
+| 概念の名前と意味 | `domain.md` | `requirements.md`、`acceptance-criteria.md`、`scope.md`、`docs/design/` の他のドキュメント、`docs/user-guide/`、コード、`formal/` |
+| JWT の Claim・JOSE・JWK の受理・生成条件 | `gates-oidc-jwt-claims.md`、`gates-oidc-jwt-signature.md`、`aws-oidc-jwt.md`、`github-app-jwt.md` | `docs/design/` の他のドキュメント、`docs/user-guide/`、コード |
+| Docker Action の入出力と処理手順 | `github-actions.md` | Docker Action の `README.md`、`docs/user-guide/`、コード |
+| 運用者の手順（デプロイ、鍵素材のインポート、鍵の更新、配布物の検証） | `docs/user-guide/` | `docs/contributing/` |
 
 外部仕様の事実は GATES の文書では決められないため、事実と食い違う要求は `requirements.md` の側を直します。
 `domain.md` の定義が要求の内容と食い違うときも、`domain.md` の側を直します。
 受け入れ条件が要求と食い違うときは、受け入れ条件は要求への適合を判定するためのものなので、`acceptance-criteria.md` の側を直します。
+`docs/user-guide/` は、`docs/spec/` と `docs/design/` が定めた振る舞いを利用者に向けて説明します。
+振る舞いの記述が食い違うときは、`docs/user-guide/` の側を直します。
 
 正とするドキュメント自体に誤りがある可能性は残ります。
 食い違いを見つけたら、機械的に合わせず、正とするドキュメントの記述が根拠に照らして正しいかを確かめてから、誤っている側を直します。
