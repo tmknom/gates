@@ -30,7 +30,7 @@ GATES は IAM Role の Trust Policy と許可する操作を設計します。
 
 **外部仕様**：GitHub の旧形式と不変形式が混在
 
-**GATES の設計**：許可オーナー名と不変 Owner ID を含む接頭部分を固定し、旧形式を拒否
+**GATES の設計**：許可オーナー名と不変 Owner ID を含む接頭部分を固定し、旧形式と、カスタマイズによりこの接頭部分で始まらなくなった `sub` を拒否
 
 **保証しないこと**：Repository ID とコンテキストの完全な構文検証。起動イベント、ref、Environment による制限。同じリポジトリのブランチからの Pull Request の `pull_request` と `pull_request_target`、Environment を使うジョブ、`workflow_run` のどれも引き受けられ、`pull_request_target` の `sub` は `pull_request` と同じ形のため、2 つを `sub` で区別することもできない（[GitHub Workflow Event Contexts](../research/github/workflow-event-contexts.md)）
 
@@ -52,7 +52,7 @@ GATES は IAM Role の Trust Policy と許可する操作を設計します。
 
 | 対象 | 受理例・拒否例の焦点 | 期待結果 |
 |---|---|---|
-| IAM の境界 | 不変 Owner ID 入りの `sub`、旧形式、別オーナーの `sub` | 許可オーナーの接頭部分を制限し、全構文の検証とは区別 |
+| IAM の境界 | 不変 Owner ID 入りの `sub`、旧形式、カスタマイズにより接頭部分で始まらない `sub`、別オーナーの `sub` | 許可オーナーの接頭部分を制限し、全構文の検証とは区別 |
 
 ## References
 

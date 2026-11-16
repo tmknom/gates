@@ -68,7 +68,7 @@ Lambda Invoke には HTTP の `Authorization` ヘッダーに相当するアプ�
 JSON として不正な Payload は、Lambda の Invoke API が関数に渡す前に拒否するため、GATES の応答も監査記録も残りません（[Runtime Entry](#41-runtime-entry)）。
 GATES はそれでもこの形を入力不正として判定し、Invoke API の検査に依存しません。
 
-空の Permissions を入力不正にするのは、`permissions` が必須であり、[Requirements](../spec/requirements.md) FR-AUTHZ-007 が欠落・未知値を広い既定権限に読み替えないと定めているためです。
+空の Permissions を入力不正にするのは、`permissions` が必須であり、[Requirements](../spec/requirements.md) FR-AUTHZ-007 が欠落・未知値を広い既定値に読み替えないと定めているためです。
 空の Map は、要求の欠落と同じく、要求した権限を読み取れない形として扱います。
 一方で、未知のキー（`issues` など）は認可拒否にします。
 `contents:write` と同じく、形式は読み取れて値が許可外の要求であり、監査記録に残す対象だからです。
@@ -570,7 +570,8 @@ Lambda の Go Runtime では標準出力が CloudWatch Logs に送られ、JSON 
 
 ## Appendix: Impact of Future Scope
 
-[Future Scope](../spec/future-scope.md) が想定する機能を取り込む場合、本ドキュメントには次の影響が及びます。
+[Scope](../spec/scope.md) が将来取り込むことを想定する機能を導入する場合、本ドキュメントには次の影響が及びます。
 
 - **細粒度の認可**：処理フロー（§5）の手順 3 の照合と Grant が判定する認可条件が変わる
 - **発行可能な権限の拡大**：`permissions` の値（§2.1）、入力不正と認可拒否の分け方（§2.2）、手順 3 の権限の確認（§5）が変わる。許可する権限名が増えると、権限名と水準の文字種の規則（§2.2）が GitHub の権限名に合うかも確かめ直す
+- **OIDC JWT の再利用の検出とレート制限**：処理フロー（§5）に要求の履歴を照会して記録する手順が加わり、その拒否と履歴の照会の障害を表すエラーコード（§3.2）が加わる

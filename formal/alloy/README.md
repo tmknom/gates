@@ -44,10 +44,10 @@ flowchart TB
 | `OnlyCurrentPermissionGranted` | 発行許可の権限は `contents:read` だけである | FR-AUTHZ-003, FR-AUTHZ-007 |
 | `AllOrNothingGrant` | 発行許可の対象は要求した対象の全件と一致し、一部だけにならない | FR-AUTHZ-006 |
 | `AllIssueCallsExplicit` | 発行 API の呼び出しは、要求された対象と `contents:read` を明示する | FR-ISSUANCE-003 |
-| `NoOverbroadTokenReturned` | 返却可能な発行結果の権限は `contents:read` と任意の `metadata:read` だけで、対象は `selected` である | FR-AUTHZ-003, FR-ISSUANCE-006 |
-| `ExactNamesReturned` | 返却可能な発行結果の対象の完全名と件数は、要求と一致する | FR-AUTHZ-005, FR-ISSUANCE-006 |
+| `NoOverbroadTokenReturned` | 返却可能な発行結果の権限は `contents:read` と任意の `metadata:read` だけで、対象は `selected` である | FR-AUTHZ-003, FR-AUTHZ-007, FR-ISSUANCE-006 |
+| `ExactNamesReturned` | 返却可能な発行結果の対象の完全名と件数は、要求と一致する | FR-ISSUANCE-006 |
 | `NoDuplicateEffectiveRepositoriesReturned` | 返却可能な発行結果の実効対象に、同じ Repository ID や同じ完全名の要素はない | FR-ISSUANCE-006 |
-| `ReturnedReposOwnedByAllowedOwner` | 返却可能な発行結果の対象は、すべて許可オーナーのものである | FR-AUTHZ-005, FR-ISSUANCE-006 |
+| `ReturnedReposOwnedByAllowedOwner` | 返却可能な発行結果の対象は、すべて許可オーナーのものである | FR-ISSUANCE-006 |
 | `CoverageHoldsWhenGitHubEnforces` | GitHub が Installation の対象を強制するなら、要求した名前はすべて、その Installation に含まれる許可オーナーのリポジトリである | FR-AUTHZ-002 |
 | `ReturnedResultsHaveValidTokenAndExpiry` | 返却可能な発行結果のトークンは空でなく、有効期限は将来である | FR-ISSUANCE-004 |
 
@@ -118,10 +118,10 @@ stateDiagram-v2
 | コマンド | 確かめること | 要件 |
 |---|---|---|
 | `NoUnverifiedReturn` | 返却したなら、発行許可の確定、発行 API の呼び出し、トークン文字列の取得、発行結果の照合を経ている | QR-003, FR-ISSUANCE-006 |
-| `NoIssueBeforeExplicitGrant` | GitHub 側で発行されたなら、発行許可の確定と発行 API の呼び出しを経ている | QR-007 |
+| `NoIssueBeforeExplicitGrant` | GitHub 側で発行されたなら、発行許可の確定と発行 API の呼び出しを経ている | FR-ISSUANCE-002 |
 | `NoReturnAfterLostResponse` | 応答を喪失した呼び出しは、トークンを返却しない | QR-003, AC-ISSUANCE-006 |
 | `NoRevokeWithoutKnownToken` | 失効を試みたなら、トークン文字列を取得している | AC-ISSUANCE-006 |
-| `NoFailureWithoutRevokeAttempt` | 照合に失敗したトークン文字列を取得した呼び出しが失敗で終わるなら、失効を試みている | FR-AUTHZ-002, FR-ISSUANCE-006, AC-ISSUANCE-004 |
+| `NoFailureWithoutRevokeAttempt` | 照合に失敗したトークン文字列を取得した呼び出しが失敗で終わるなら、失効を試みている | FR-ISSUANCE-006, AC-ISSUANCE-004 |
 | `NoConfirmedRevocationWithoutAttempt` | 失効の成功を確認したなら、失効を試みている | FR-ISSUANCE-006 |
 | `NoInterruptedInvocationReturns` | 中断した呼び出しは、トークンを返却していない | QR-003 |
 | `NoObservedSuccessWithoutReturn` | 呼び出し元が成功を受け取ったなら、その呼び出しは返却まで成功している | なし（モデル内の整合性） |

@@ -36,7 +36,7 @@ IAM Role と Lambda の AWS リソース設定は [AWS Infrastructure Design](aw
 `action.yml` に `args` を書かず、入力をコマンドの引数にしません。
 Runner はコンテナを起動する `docker run` の行に環境変数の名前だけを載せ、値を載せないためです（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#inputs)）。
 
-接続情報は GATES 運用者が GitHub の Secrets と Variables に用意し、ワークフローはそれを参照します。AWS アカウント ID は Secrets に置き、その他の値は Variables に置きます。ワークフローに値を直接書かず参照だけにするのは、Role 名や関数名を変えたときに、Secrets と Variables の更新だけで済ませ、利用者のワークフロー定義を変えずに済ませるためです（[Acceptance Criteria](../spec/acceptance-criteria.md) AC-QUALITY-004）。
+接続情報は GATES 運用者が GitHub の Secrets と Variables に用意し、ワークフローはそれを参照します。AWS アカウント ID は Secrets に置き、その他の値は Variables に置きます。ワークフローに値を直接書かず参照だけにするのは、Role 名や関数名を変えたときに、Secrets と Variables の更新だけで済ませ、利用者のワークフロー定義を変えずに済ませるためです（[Acceptance Criteria](../spec/acceptance-criteria.md) AC-OPS-010）。
 
 Secrets と Variables を置く単位は、許可オーナーの種別で決まります（GitHub 側の仕様は [GitHub Constraints](../spec/github-constraints.md#7-github-actions-integration)）。
 オーナーが Organization なら Organization 単位に一度だけ登録します。
@@ -359,7 +359,7 @@ post-entrypoint は、失効の成否によらず終了コード 0 で終えま�
 失効はベストエフォートであり、トークンは GitHub が定めた有効期限を過ぎれば使えなくなるため、失効の失敗でジョブを失敗させるより、利用者の処理の結果をそのまま残すことを選びます。
 
 失効の宛先は固定し、Runner の環境変数（`GITHUB_API_URL` など）から読みません。
-GATES は GitHub.com だけを対象とし（[Requirements](../spec/requirements.md) §2.2）、トークンを送る宛先を実行環境の値で変えられないようにするためです。
+GATES は GitHub.com だけを対象とし（[Scope](../spec/scope.md) §4）、トークンを送る宛先を実行環境の値で変えられないようにするためです。
 `X-GitHub-Api-Version` を Lambda と同じ版にするのは、Lambda Design が GitHub API を確認した版にそろえるためです（[Lambda Design](lambda.md#63-github-client)）。
 
 入力で失効を止める手段は設けません。
@@ -570,7 +570,7 @@ GitHub は失効が効くまでの時間を公開しておらず、失効の `20
 
 ## Appendix: Impact of Future Scope
 
-[Future Scope](../spec/future-scope.md) が想定する機能を取り込む場合、本ドキュメントには次の影響が及びます。
+[Scope](../spec/scope.md) が将来取り込むことを想定する機能を導入する場合、本ドキュメントには次の影響が及びます。
 
 - **細粒度の認可**：発行の可否の判定は Lambda 側が行う（§1）ため、利用者が指定する入力が増えない限り、Docker Action は変わらない
 - **発行可能な権限の拡大**：`permissions` 入力の値（§2.1）と利用例（§4.1）が変わる。許可条件の判定を Lambda の認可に委ねる方針（§2.2）は変わらない。Account / Organization に関係する権限の対象を `repositories` 入力で表せないなら、入力も見直す

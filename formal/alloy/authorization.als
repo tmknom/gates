@@ -1,7 +1,7 @@
 module gates/authorization
 
 // GATES authorization model, Current Scope.
-// Source of truth: FR-AUTHZ-001..003, FR-AUTHZ-005..007, FR-ISSUANCE-003, FR-ISSUANCE-004, FR-ISSUANCE-006, FR-OPS-006,
+// Source of truth: FR-AUTHZ-001..003, FR-AUTHZ-006..007, FR-ISSUANCE-003, FR-ISSUANCE-004, FR-ISSUANCE-006, FR-OPS-006,
 // RULE-010, RULE-011, INV-011, INV-012;
 // docs/design/security.md 3.1..3.4; docs/design/domain.md 3.3.
 // This is a finite structural abstraction, NOT the complete GATES implementation.

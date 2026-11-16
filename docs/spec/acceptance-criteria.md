@@ -16,8 +16,8 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-AUTHN-001` | Functional Requirement |
 | `alignment` | `FR-AUTHN-003` | Functional Requirement |
+| `alignment` | `FR-AUTHZ-001` | Functional Requirement |
 
 ### AC-AUTHN-002 JWT の欠落と、改ざん、期限切れ、Audience 不一致、必須 Claim の欠落・不正型の JWT の拒否
 
@@ -30,9 +30,9 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 | `alignment` | `FR-AUTHN-002` | Functional Requirement |
 | `alignment` | `FR-AUTHN-003` | Functional Requirement |
 
-### AC-AUTHN-003 名前だけで呼び出し元を特定する JWT による IAM Role の引き受けの拒否
+### AC-AUTHN-003 `sub` の先頭で許可オーナーの不変 Owner ID を示さない JWT による IAM Role の引き受けの拒否
 
-**条件**：呼び出し元を名前だけで特定する形式の OIDC JWT を持つワークフローが、IAM Role の引き受けを試みる
+**条件**：`sub` が呼び出し元を名前だけで特定する形式の OIDC JWT、`sub` のカスタマイズにより先頭で不変 Owner ID を示さなくなった OIDC JWT、または `sub` の先頭が別のオーナーの不変 Owner ID を示す OIDC JWT を持つワークフローが、IAM Role の引き受けを試みる
 
 **期待する結果**：引き受けが拒否され、Lambda は呼び出されない
 
@@ -75,18 +75,16 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-AUTHN-003` | Functional Requirement |
 | `alignment` | `FR-AUTHZ-001` | Functional Requirement |
 
-### AC-AUTHZ-002 Payload での Caller、Installation ID、認可設定の指定の拒否
+### AC-AUTHZ-002 Payload での Caller、Installation ID、認可設定、API Host の指定の拒否
 
-**条件**：Caller・Installation ID・任意の認可設定を Payload で指定
+**条件**：Caller・Installation ID・任意の認可設定・API Host を Payload で指定
 
 **期待する結果**：入力を受け付けず拒否
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-AUTHN-004` | Functional Requirement |
 | `alignment` | `FR-AUTHZ-004` | Functional Requirement |
 
 ### AC-AUTHZ-003 Installation の対象外のリポジトリか、他のオーナーの Private Repository の要求の拒否
@@ -98,8 +96,6 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 | Relationship | Target | Target Type |
 |---|---|---|
 | `alignment` | `FR-AUTHZ-002` | Functional Requirement |
-| `alignment` | `FR-AUTHZ-005` | Functional Requirement |
-| `alignment` | `QR-007` | Quality Requirement |
 
 ### AC-AUTHZ-004 `contents:read` 以外の権限と全リポジトリの要求の拒否
 
@@ -110,7 +106,7 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 | Relationship | Target | Target Type |
 |---|---|---|
 | `alignment` | `FR-AUTHZ-003` | Functional Requirement |
-| `alignment` | `QR-007` | Quality Requirement |
+| `alignment` | `FR-AUTHZ-007` | Functional Requirement |
 
 ### AC-AUTHZ-005 リポジトリか権限が欠落、空、未知値の要求の拒否
 
@@ -176,9 +172,8 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-ISSUANCE-002` | Functional Requirement |
 | `alignment` | `FR-ISSUANCE-003` | Functional Requirement |
-| `alignment` | `QR-002` | Quality Requirement |
+| `alignment` | `FR-ISSUANCE-006` | Functional Requirement |
 
 ### AC-ISSUANCE-004 照合に失敗した発行応答でのトークンの不返却と失効の試行
 
@@ -189,19 +184,18 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 | Relationship | Target | Target Type |
 |---|---|---|
 | `alignment` | `FR-AUTHZ-002` | Functional Requirement |
-| `alignment` | `FR-AUTHZ-005` | Functional Requirement |
 | `alignment` | `FR-ISSUANCE-006` | Functional Requirement |
 
 ### AC-ISSUANCE-005 GitHub App Private Key の更新後の発行
 
-**条件**：GitHub App Private Key の更新と GitHub 側の旧鍵失効
+**条件**：署名に用いる GitHub App Private Key の新しい鍵への切り替えと、GitHub 側の旧鍵失効
 
-**期待する結果**：更新後も署名と発行が成立
+**期待する結果**：新しい鍵を加えても旧鍵での署名と発行が続き、切り替えの後と旧鍵の失効の後も署名と発行が成立
 
 | Relationship | Target | Target Type |
 |---|---|---|
 | `alignment` | `FR-ISSUANCE-001` | Functional Requirement |
-| `alignment` | `FR-ISSUANCE-005` | Functional Requirement |
+| `alignment` | `FR-OPS-008` | Functional Requirement |
 
 ### AC-ISSUANCE-006 発行 API の応答を受信できない場合の扱い
 
@@ -216,9 +210,9 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 ### AC-ISSUANCE-007 ジョブの終了時のトークンの失効
 
-**条件**：Docker Action がトークンを後続ステップへ渡したジョブが終了する
+**条件**：利用者接点がトークンを後続ステップへ渡したジョブが終了する
 
-**期待する結果**：ジョブの終了時に Docker Action がそのトークンの失効を試み、失効の成否をワークフローのログに出し、トークンをログに出さない。失効が失敗してもジョブの結果は変わらない
+**期待する結果**：ジョブの終了時に利用者接点がそのトークンの失効を試み、失効の成否をワークフローのログに出し、トークンをログに出さない。失効が失敗してもジョブの結果は変わらない
 
 | Relationship | Target | Target Type |
 |---|---|---|
@@ -227,9 +221,9 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 ### AC-ISSUANCE-008 後続ステップへ渡す前に失敗した場合のトークンの失効
 
-**条件**：Docker Action がトークンを受け取った後、成功応答の判定か、Output か `GITHUB_STATE` への書き込みに失敗する
+**条件**：利用者接点がトークンを受け取った後、成功応答の判定か、後続ステップとジョブの終了時の処理へのトークンの受け渡しに失敗する
 
-**期待する結果**：Docker Action がその時点でトークンの失効を試み、失効の成否をワークフローのログに出し、トークンをログに出さずにエラー終了する
+**期待する結果**：利用者接点がその時点でトークンの失効を試み、失効の成否をワークフローのログに出し、トークンをログに出さずにエラー終了する
 
 | Relationship | Target | Target Type |
 |---|---|---|
@@ -238,9 +232,9 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 ### AC-ISSUANCE-009 ジョブのキャンセル時のトークンの失効
 
-**条件**：Docker Action が Lambda の Invoke を始めた後、メインの処理を終える前にジョブがキャンセルされる
+**条件**：利用者接点が GATES の呼び出しを始めた後、トークンを後続ステップへ渡す処理を終える前にジョブがキャンセルされる
 
-**期待する結果**：Docker Action はトークンを受け取った場合、後続ステップへ渡す前ならその時点で、渡した後ならジョブの終了時に、トークンの失効を試み、トークンをログに出さない。Runner が Docker Action を強制終了した場合は失効の試行を保証しない
+**期待する結果**：利用者接点はトークンを受け取った場合、後続ステップへ渡す前ならその時点で、渡した後ならジョブの終了時に、トークンの失効を試み、トークンをログに出さない。Runner が利用者接点を強制終了した場合は失効の試行を保証しない
 
 | Relationship | Target | Target Type |
 |---|---|---|
@@ -249,25 +243,25 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 ## 5. Usability and Operations
 
-### AC-OPS-001 対象、権限、接続情報だけを Docker Action に渡したときのトークンの取得
+### AC-OPS-001 対象、権限、接続情報だけを利用者接点に渡したときのトークンの取得
 
-**条件**：GitHub がホストする Runner で、利用者が `id-token: write` を宣言し、Docker Action に対象と権限、および運用者が提供する接続情報だけを渡す
+**条件**：GitHub がホストする Runner で、利用者が `id-token: write` を宣言し、利用者接点に対象と権限、および運用者が提供する接続情報だけを渡す
 
 **期待する結果**：他の手順や設定なしでトークンを取得できる
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-OPS-001` | Functional Requirement |
+| `alignment` | `FR-OPS-009` | Functional Requirement |
 
-### AC-OPS-002 Docker Action が発行処理のエラーを受け取ったときの終了
+### AC-OPS-002 利用者接点が発行処理のエラーを受け取ったときの終了
 
-**条件**：Docker Action が発行処理のエラーを受け取る
+**条件**：利用者接点が発行処理のエラーを受け取る
 
 **期待する結果**：エラー終了し、JWT・トークンをログへ出さない
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-OPS-001` | Functional Requirement |
+| `alignment` | `FR-OPS-009` | Functional Requirement |
 | `alignment` | `QR-004` | Quality Requirement |
 
 ### AC-OPS-003 失敗の種別ごとに区別したエラー
@@ -291,31 +285,27 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 | `alignment` | `FR-ISSUANCE-004` | Functional Requirement |
 | `alignment` | `FR-OPS-003` | Functional Requirement |
 
-### AC-OPS-005 Terraform で構築した AWS リソースでの Lambda の実行 Role の権限の限定、認証なしの呼び出し口の不在、KMS Key の意図しない置換と削除の防止
+### AC-OPS-005 構築した AWS リソースでの Lambda の実行 Role の権限の限定、Invoke を許可する主体の限定、認証なしの呼び出し口の不在
 
-**条件**：Terraform で AWS リソースを構築・変更
+**条件**：GATES の AWS リソースを構築・変更
 
-**期待する結果**：Lambda の実行 Role が KMS の署名操作と必要なログ出力だけを許可され、鍵のインポート・置換・削除・管理設定の変更は許可されない。認証なしの呼び出し口が存在しない。意図しない KMS Key 置換・削除がない
+**期待する結果**：Lambda の実行 Role が KMS の署名操作と必要なログ出力だけを許可され、鍵のインポート・置換・削除・管理設定の変更は許可されない。GATES の構成が Lambda の Invoke を許可するのは、GATES の呼び出しに使う IAM Role だけで、その許可は GATES の関数の Invoke に限られる。認証なしの呼び出し口が存在しない
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-OPS-004` | Functional Requirement |
-| `alignment` | `FR-OPS-005` | Functional Requirement |
 | `alignment` | `FR-OPS-007` | Functional Requirement |
-| `alignment` | `QR-006` | Quality Requirement |
+| `alignment` | `QR-008` | Quality Requirement |
 
 ### AC-OPS-006 秘密鍵のインポートとインポート前のコピーの削除
 
 **条件**：秘密鍵を独立した運用で KMS にインポートし、インポート前のコピーを削除する
 
-**期待する結果**：Terraform の State / Plan / リポジトリに鍵素材を残さず、KMS 署名が成立する。インポート前のコピーが運用者の手元に残っていない
+**期待する結果**：インフラの構成管理の状態と計画、リポジトリ、CI の成果物に鍵素材を残さず、KMS 署名が成立する。インポート前のコピーが運用者の手元に残っていない
 
 | Relationship | Target | Target Type |
 |---|---|---|
 | `alignment` | `FR-ISSUANCE-001` | Functional Requirement |
-| `alignment` | `FR-OPS-004` | Functional Requirement |
-| `alignment` | `FR-OPS-005` | Functional Requirement |
-| `alignment` | `QR-006` | Quality Requirement |
+| `alignment` | `QR-008` | Quality Requirement |
 
 ### AC-OPS-007 Invoke を許可されていない主体による Lambda の呼び出しの拒否
 
@@ -349,6 +339,16 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 | `alignment` | `FR-OPS-003` | Functional Requirement |
 | `alignment` | `QR-004` | Quality Requirement |
 
+### AC-OPS-010 内部実装の変更に対する利用者のワークフローの維持
+
+**条件**：GATES の認証・発行方式の内部実装を変更
+
+**期待する結果**：利用者のワークフロー定義を変更せずに、AC-OPS-001 の条件でトークンを取得できる
+
+| Relationship | Target | Target Type |
+|---|---|---|
+| `alignment` | `FR-OPS-009` | Functional Requirement |
+
 ## 6. Quality and Security
 
 ### AC-QUALITY-001 OIDC 公開鍵、KMS、GitHub API の障害での Fail Closed
@@ -365,7 +365,7 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 **条件**：正常系と異常系を実行する
 
-**期待する結果**：発行処理のログとエラー本文に、秘密鍵・OIDC JWT・GitHub App JWT・トークンが含まれない
+**期待する結果**：発行処理と利用者接点のログとエラー本文に、秘密鍵・OIDC JWT・GitHub App JWT・トークン・AWS 一時認証情報が含まれない
 
 | Relationship | Target | Target Type |
 |---|---|---|
@@ -379,14 +379,4 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `QR-001` | Quality Requirement |
-
-### AC-QUALITY-004 内部実装の変更に対する利用者のワークフローの維持
-
-**条件**：GATES の認証・発行方式の内部実装を変更
-
-**期待する結果**：利用者のワークフロー定義を変更せずに、AC-OPS-001 の条件でトークンを取得できる
-
-| Relationship | Target | Target Type |
-|---|---|---|
-| `alignment` | `QR-005` | Quality Requirement |
+| `alignment` | `QR-008` | Quality Requirement |

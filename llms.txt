@@ -47,11 +47,11 @@ Identify and read task-related sections below when the "Use when" trigger matche
 
 ## Specification
 
-- [Requirements](docs/spec/requirements.md): Purpose, scope, technical constraints, responsibilities, functional requirements grouped by category, and quality requirements - Use when deciding whether a behavior is required or out of scope, or looking up an ID such as FR-AUTHZ-001 or QR-003
+- [Requirements](docs/spec/requirements.md): Purpose, responsibilities, functional requirements grouped by category, and quality requirements - Use when deciding whether a behavior is required, or looking up an ID such as FR-AUTHZ-001 or QR-003
 - [Acceptance Criteria](docs/spec/acceptance-criteria.md): Acceptance criteria grouped by category, each with its condition, expected result, and a Relationship table listing the requirements it checks - Use when looking up an ID such as AC-ISSUANCE-006, checking a change against acceptance criteria, or choosing the criteria a test declares with `trace:checks`
 - [GitHub Constraints](docs/spec/github-constraints.md): GitHub specifications for owners and repositories, Actions OIDC, GitHub App JWTs, Installations, installation access tokens, and Actions integration, with differences from the standards and items still unverified - Use when a design or implementation depends on GitHub behavior, such as interpreting a claim, calling the issuance API, or interpreting its response, or when checking whether that behavior has been verified
 - [JWT Constraints](docs/spec/jwt-constraints.md): What the JWT, JWS, JWK, and OpenID Connect standards prescribe for signatures, keys, claims, and Discovery - Use when you need the standard's rule rather than GitHub's behavior or GATES's own acceptance rules, such as when judging whether an acceptance rule differs from the standard
-- [Future Scope](docs/spec/future-scope.md): Why the current scope is limited, and capabilities planned for later - Use when a request exceeds the current scope, such as finer-grained authorization or more permissions, or when judging whether a current limit is permanent before relying on it
+- [Scope](docs/spec/scope.md): The current scope and why it is limited, capabilities planned for later, such as detecting OIDC JWT reuse and rate limiting, and what is out of scope with no plan to add it, such as multiple owners and GitHub Enterprise Server - Use when a request exceeds the current scope, such as finer-grained authorization or more permissions, when judging whether a current limit is permanent before relying on it, or when deciding whether a behavior is out of scope
 
 ## Tooling
 
