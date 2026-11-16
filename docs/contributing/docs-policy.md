@@ -48,6 +48,7 @@ flowchart TD
     guide --> constitution
     guide --> research
     guide --> action["Docker Action の README.md"]
+    guide --> formal["formal/ の README.md"]
 ```
 
 ### 2.1 docs/research/
@@ -143,7 +144,7 @@ GATES の開発に固有でない運用者の手順は、`docs/user-guide/`（[�
 
 導入を判断する人、GATES 運用者、ワークフロー利用者に向けて、判断の材料と作業の手順を記述します。
 
-- `CONSTITUTION.md`、`docs/spec/`、`docs/design/`、`docs/research/`、Docker Action の `README.md`（[§2.7](#27-docker-action-readme)）、調査対象の外部ドキュメントに依存してよい
+- `CONSTITUTION.md`、`docs/spec/`、`docs/design/`、`docs/research/`、Docker Action の `README.md`（[§2.7](#27-docker-action-readme)）、`formal/` の `README.md`、調査対象の外部ドキュメントに依存してよい。`formal/` の `README.md` への依存は、形式検証で確かめたことと確かめていないことの案内に限る
 - `docs/contributing/` に依存しない。開発の都合で変わる手順や規約の変更が、利用者向けの文書に波及しないようにするためである
 - `docs/spec/`、`docs/design/`、`docs/research/` は `docs/user-guide/` に依存しない
 - リンク先を読まなくても作業と判断が完了するように書く。仕様や設計へのリンクは、根拠を確かめたい読者のために添えるものとする。ただし、Action のリファレンスは Docker Action の `README.md`（[§2.7](#27-docker-action-readme)）を参照させてよい

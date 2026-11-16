@@ -42,7 +42,7 @@ sequenceDiagram
     K-->>L: 署名
     L->>G: 署名した GitHub App JWT で、トークンの発行を要求する
     G-->>L: Installation Access Token
-    L->>L: 発行されたトークンが要求の範囲に収まるかを照合する
+    L->>L: 発行されたトークンの対象と権限が要求と合うかを照合する
     L-->>W: Installation Access Token
     Note over W,G: ジョブの終了時に、Action がトークンの失効を GitHub に要求する
 ```
@@ -52,7 +52,7 @@ OIDC JWT は実行のたびに GitHub から受け取るため、ワークフロ
 OIDC JWT は渡す相手ごとに別に受け取り、Action は AWS 用と GATES 用を使い分けます。
 AWS STS は、AWS 用の OIDC JWT を確かめて、GATES の呼び出しだけを許された IAM Role の一時認証情報を返します。
 この IAM Role を引き受けられるのは、**許可オーナー**（GATES がトークンを発行してよいと運用者が設定した GitHub の Organization かユーザーアカウント）のワークフローだけです。
-GATES の Lambda はインターネットに公開した URL を持たず、この一時認証情報による呼び出しだけを受け付けます。
+GATES の Lambda は認証なしでインターネットに公開された呼び出し口を持たず、この一時認証情報による呼び出しだけを受け付けます。
 
 Lambda は、GATES 用の OIDC JWT の署名と内容を確かめて呼び出し元を特定し、要求を認可します。
 GitHub のオーナー名とリポジトリ名は変更でき、手放された名前は別の人が取得できます。
@@ -61,9 +61,9 @@ GATES は呼び出し元を名前ではなく変わらない ID（**不変 Owner
 GitHub にトークンを発行させるには、GitHub App Private Key で署名した GitHub App JWT が要ります。
 秘密鍵は運用者の AWS アカウントの KMS にインポートしてあり、署名は KMS の中で行われます。
 Lambda は KMS に署名を依頼できるだけで、秘密鍵そのものを読めません。
-GitHub が発行したトークンの対象と権限が要求の範囲に収まらなければ、Lambda はトークンをワークフローに返さず、失効を試みます。
+GitHub が発行したトークンの対象と権限が要求と合わなければ、Lambda はトークンをワークフローに返さず、失効を試みます。
 
-Lambda は要求ごとに、読み取れた範囲で呼び出し元、要求したリポジトリ、結果を、トークンを含めずに監査記録として CloudWatch Logs に残します。
+Lambda は要求ごとに、呼び出し元（確かめられた場合）、要求したリポジトリ、結果を、トークンを含めずに監査記録として CloudWatch Logs に残します。
 GATES が返す成功と失敗の応答には、監査記録と突き合わせるための `request_id` が付きます。
 
 構成要素と処理の流れの詳細は [System Architecture](../design/architecture.md) にあります。
@@ -81,18 +81,19 @@ Action がトークンを受け取った後、後続のステップに渡す前�
 失効は確実ではなく、失効に失敗してもジョブは失敗しません。
 失効できなかったトークンも、有効期限を過ぎれば使えなくなります。
 
-要求したリポジトリのうち一つでも許可されないものがあれば、GATES はどのリポジトリにもトークンを発行しません。
+要求したリポジトリのうち一つでも許可されないものがあれば、GATES はどのリポジトリのトークンも返しません。
 
-要求と発行の規則は [Requirements](../spec/requirements.md) の FR-AUTHZ-003、FR-AUTHZ-006、FR-ISSUANCE-007 に、有効期限を含む GitHub の仕様は [GitHub Constraints](../spec/github-constraints.md) の §6 に、Action の入出力は [Issue Token](../../.github/actions/issue-token/README.md) にあります。
+要求と発行の規則は [Requirements](../spec/requirements.md) の FR-AUTHZ-003、FR-AUTHZ-006、FR-AUTHZ-007、FR-ISSUANCE-002、FR-ISSUANCE-003、FR-ISSUANCE-007 に、有効期限を含む GitHub の仕様は [GitHub Constraints](../spec/github-constraints.md) の §6 に、Action の入出力は [Issue Token](../../.github/actions/issue-token/README.md) にあります。
 
 ## 4. 現在の範囲と制約
 
 導入を判断するうえで最も重い制約は、認可の単位です。
 GATES は、呼び出し元を許可オーナー単位でしか区別しません。
-許可オーナーのワークフローであれば、どのワークフローも、GitHub App のインストール対象に含まれるどのリポジトリでも読めます。
+許可オーナーのワークフローであれば、どのワークフローも、GitHub App の **インストール対象**（GitHub App をオーナーにインストールするときに選ぶ、GitHub App がアクセスできるリポジトリ）に含まれるどのリポジトリでも読めます。
 このため、読める範囲を決めるのは GitHub App のインストール対象であり、機密性の高いリポジトリをインストール対象に含めると、許可オーナーのすべてのワークフローから読めるようになります。
 呼び出し元ごとの細粒度の認可は将来取り込む候補ですが、時期は決まっていません。
 現在の制約のままで使えるかを基準に、導入を判断する必要があります。
+この制約のもとで残るリスクと、利用者の側で守る必要があるものは [Security Considerations](security-considerations.md) にあります。
 
 そのほかの制約は次のとおりです。
 
@@ -119,7 +120,7 @@ GATES は、次の 3 つの役割がそれぞれの責任を果たすことを�
 ユーザーアカウントを許可オーナーにする構成では、同じ人が 3 つの役割を兼ねることが多くなります。
 GitHub 側の設定（GitHub App のインストール対象と権限、古い Private Key の削除）は、表の各役割が GitHub で行い、GATES は代行しません。
 
-役割ごとの責任は [Requirements](../spec/requirements.md) の §2 にあります。
+役割ごとの責任は [Requirements](../spec/requirements.md) の §2 に、Organization の許可オーナーに求める設定は [Security Design](../design/security.md) の §3.2 に、許可オーナーの名前が変わったときの扱いは [AWS Infrastructure Design](../design/aws-infrastructure.md) の §3.1 にあります。
 
 ## 6. 運用者が用意するもの
 
