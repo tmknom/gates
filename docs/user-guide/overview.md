@@ -51,7 +51,7 @@ sequenceDiagram
 OIDC JWT は実行のたびに GitHub から受け取るため、ワークフローの側に長期の資格情報を置く必要はありません。
 OIDC JWT は渡す相手ごとに別に受け取り、Action は AWS 用と GATES 用を使い分けます。
 AWS STS は、AWS 用の OIDC JWT を確かめて、GATES の呼び出しだけを許された IAM Role の一時認証情報を返します。
-この IAM Role を引き受けられるのは、**許可オーナー**（GATES がトークンを発行してよいと運用者が設定した GitHub の Organization かユーザーアカウント）のワークフローだけです。
+この IAM Role を引き受けられるのは、**許可オーナー**（GATES がトークンを発行してよいと運用者が設定した GitHub のユーザーアカウントか Organization）のワークフローだけです。
 GATES の Lambda は認証なしでインターネットに公開された呼び出し口を持たず、この一時認証情報による呼び出しだけを受け付けます。
 
 Lambda は、GATES 用の OIDC JWT の署名と内容を確かめて呼び出し元を特定し、要求を認可します。

@@ -185,7 +185,7 @@ GitHub の API の応答は、GATES の検証環境で確かめたものです�
 要求したリポジトリのうち一つでも許可されなければ、要求全体が失敗し、許可されたリポジトリだけのトークンも発行されません（[Requirements](../spec/requirements.md) の FR-AUTHZ-006）。
 許可オーナーでないオーナーのリポジトリや、`contents:read` 以外の権限を要求すると、GATES は要求を拒否します。
 インストール対象にないリポジトリや存在しないリポジトリを要求すると、GitHub が発行を拒否します。
-どちらの場合も、Action は §6 の注釈で失敗します。
+どちらの場合も、Action は §6 の注釈で失敗し、直し方は [Troubleshooting](troubleshooting.md) の §1 にあります。
 
 リストの書式（区切り、空白、大文字小文字の扱い）と、Action が GATES に送る前に止める誤りは、[Issue Token](../../.github/actions/issue-token/README.md) の「入力」にあります。
 
@@ -262,11 +262,10 @@ Action が失敗したときは、`::error::` の注釈の先頭の文言で、�
 文言ごとの段階と見直す箇所は、[Issue Token](../../.github/actions/issue-token/README.md) の「失敗の読み方」にあります。
 
 GATES が要求を拒否したか発行に失敗したときは、注釈が `GATES returned a failure response` で始まり、`error.code`、`error.message`、`request_id` を含みます。
-`error.code` が `authorization_denied` か `github_issuance_rejected` なら、まず §4 の要求の書き方と、読みたいリポジトリがインストール対象に入っていることを見直します。
-`error.message` が `Retry later.` で終わるときは、一時的な障害のため、ワークフローを再実行すると解消することがあります。
-それでも原因が分からないときは、`request_id` を運用者に伝えます。
 運用者は `request_id` で GATES の **監査記録**（GATES が要求ごとに、呼び出し元、要求、結果を残す記録）を探し、拒否の理由を確かめられます。
-注釈が `the Lambda function returned FunctionError` で始まるときは `request_id` がないため、ワークフローの実行の URL を伝えます。
+
+注釈から原因と直し方を引く表は、[Troubleshooting](troubleshooting.md) にあります。
+ワークフロー利用者が自分で直せる失敗は Troubleshooting の §1 に、直せない失敗を運用者に伝えるときに添える情報（注釈の全文、`request_id`、ワークフロー実行の URL、時刻）は Troubleshooting の §2 にあります。
 
 ## 7. References
 
