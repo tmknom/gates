@@ -160,11 +160,12 @@ flowchart TD
     deployment --> verify["verify-release.md"]
     deployment --> import["import-key-material.md"]
     deployment --> usage["workflow-usage.md"]
+    deployment --> trouble["troubleshooting.md"]
     rotate["rotate-key.md"] --> import
     rotate --> deployment
     usage --> security
     usage --> overview
-    usage --> trouble["troubleshooting.md"]
+    usage --> trouble
     operations["operations.md"] --> deployment
     operations --> verify
     operations --> rotate

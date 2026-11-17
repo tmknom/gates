@@ -600,10 +600,12 @@ gh workflow run "<ワークフローの名前>" --repo <オーナー名>/<リポ
 
 | 注釈の先頭 | 確かめること |
 |---|---|
-| `ACTIONS_ID_TOKEN_REQUEST_TOKEN is not set` | ワークフローの `permissions` に `id-token: write` がある |
+| `ACTIONS_ID_TOKEN_REQUEST_TOKEN is not set` | Action を置いたジョブの `permissions` に `id-token: write` がある。ジョブに `permissions` がなければ、ワークフローの `permissions` にある |
 | `AssumeRoleWithWebIdentity failed` | IAM OIDC Provider がある（§2.3）。リポジトリの `sub` が ID を含む形式である（§2.5）。`GATES_AWS_ACCOUNT_ID`、`GATES_ROLE_NAME`、`GATES_AWS_REGION` が §8 の値である。`allowed_owner_id` と `allowed_owner_name` が許可オーナーの値である |
 | `the Lambda Invoke failed` | `GATES_FUNCTION_NAME` と `GATES_AWS_REGION` が §8 の値である |
 | `GATES returned a failure response` | 注釈の `error.code` によって次を確かめる。`invalid_id_token` なら、`GATES_AUDIENCE` が `gates_audience` と一致する。`authorization_denied` なら、読むリポジトリが許可オーナーのものである。`installation_unavailable` なら、GitHub App が許可オーナーにインストールされていて、`github_app_client_id` がその GitHub App の Client ID である。`github_issuance_rejected` なら、読むリポジトリがインストール対象に含まれる。`internal_error` なら、使用中の鍵に鍵素材をインポートしてある（§7） |
+
+ほかの失敗と、エラーコードごとの原因と直し方は、[Troubleshooting](troubleshooting.md) にあります。
 
 ### 9.2 Checking the Audit Record
 
@@ -612,7 +614,7 @@ gh workflow run "<ワークフローの名前>" --repo <オーナー名>/<リポ
 
 ```bash
 aws logs filter-log-events --log-group-name /aws/lambda/gates \
-  --filter-pattern '"<request_id>"' \
+  --filter-pattern '{ $.request_id = "<request_id>" }' \
   --query 'events[].message' --output json \
   | jq -c '.[] | fromjson | select(.msg == "audit record")
       | {request_id, result, owner_id: .caller.owner_id, run_id: .caller.run_id, repositories: .request.repositories}'
