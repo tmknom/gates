@@ -108,13 +108,23 @@ Docker Action は応答を処理し、発行されたトークン、有効期限
 | 文書 | 主題 |
 |---|---|
 | [Requirements](../spec/requirements.md) | 目的、対象範囲、要求 |
-| [GitHub Constraints](../spec/github-constraints.md) | GATES が依存する GitHub の仕様、適用範囲、出典、未確認事項 |
-| [JWT Constraints](../spec/jwt-constraints.md) | JWT / JWS / JWK / OpenID Connect の標準仕様の規定と適用範囲 |
+| [GitHub Actions OIDC Constraints](../external/github/oidc.md) | GATES が依存する GitHub Actions OIDC の仕様、出典、未確認事項 |
+| [GitHub Owner and Repository Constraints](../external/github/account.md) | GitHub のオーナーとリポジトリの識別子と名前の仕様、出典、未確認事項 |
+| [GitHub App Constraints](../external/github/app.md) | GATES が依存する GitHub App、Installation、Installation Access Token の仕様、出典、未確認事項 |
+| [GitHub Actions Integration Constraints](../external/github/actions.md) | GATES が依存する GitHub Actions の実行環境の仕様、出典、未確認事項 |
+| [JOSE Standards](../external/standards/jose.md) | JWS / JWK / JWA の標準仕様の規定と適用範囲 |
+| [JWT Standards](../external/standards/jwt.md) | JWT の標準仕様の規定と適用範囲 |
+| [OpenID Connect Standards](../external/standards/oidc.md) | OpenID Connect の標準仕様の規定と適用範囲 |
 
 ## 7. References
 
-- [GitHub Constraints](../spec/github-constraints.md)
-- [JWT Constraints](../spec/jwt-constraints.md)
+- [GitHub Actions OIDC Constraints](../external/github/oidc.md)
+- [GitHub Owner and Repository Constraints](../external/github/account.md)
+- [GitHub App Constraints](../external/github/app.md)
+- [GitHub Actions Integration Constraints](../external/github/actions.md)
+- [JOSE Standards](../external/standards/jose.md)
+- [JWT Standards](../external/standards/jwt.md)
+- [OpenID Connect Standards](../external/standards/oidc.md)
 - [AWS — AssumeRoleWithWebIdentity](https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRoleWithWebIdentity.html)
 - [AWS — Lambda Invoke API](https://docs.aws.amazon.com/lambda/latest/api/API_Invoke.html)
 - [AWS — KMS Sign API](https://docs.aws.amazon.com/kms/latest/APIReference/API_Sign.html)

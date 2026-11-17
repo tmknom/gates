@@ -44,8 +44,8 @@ Action が失敗すると、ステップが失敗で終わり、ワークフロ�
 
 - `AccessDenied` は、存在しない Role 名と、`sub` が名前だけの形式のリポジトリ（[AWS STS Legacy Subject](../research/aws/sts-legacy-subject.md)）で確かめた。AWS STS は、IAM Role の引き受けの条件（**Trust Policy**）のどれを満たさなかったかを示さないため、注釈からは原因を一つに絞れない
 - `AccessDeniedException` は、存在しない関数名で確かめた。存在しない関数でも `ResourceNotFoundException` にはならない（[AWS Lambda Invoke Rejection](../research/aws/lambda-invoke-rejection.md)）。リージョンの誤りは、同じ注釈になる見込みだが確かめていない
-- `invalid_id_token` は Audience の食い違いで、`authorization_denied` は許可オーナー以外のリポジトリと `contents:write` などの権限で、`github_issuance_rejected` はインストール対象にないリポジトリで確かめた。存在しないリポジトリは、GitHub の発行 API が `422` で拒否することを確かめた（[GitHub Constraints](../spec/github-constraints.md) の §6.2）。`422` は `github_issuance_rejected` に分類されるが、GATES を通した結果は確かめていない
-- Dependabot の行は、GitHub の公式資料からの推論である。注釈に入る AWS のエラーコードは確かめていない（[GitHub Constraints](../spec/github-constraints.md) の §7）
+- `invalid_id_token` は Audience の食い違いで、`authorization_denied` は許可オーナー以外のリポジトリと `contents:write` などの権限で、`github_issuance_rejected` はインストール対象にないリポジトリで確かめた。存在しないリポジトリは、GitHub の発行 API が `422` で拒否することを確かめた（[GitHub App Constraints](../external/github/app.md)）。`422` は `github_issuance_rejected` に分類されるが、GATES を通した結果は確かめていない
+- Dependabot の行は、GitHub の公式資料からの推論である。注釈に入る AWS のエラーコードは確かめていない（[GitHub Actions Integration Constraints](../external/github/actions.md)）
 - ジョブの `outputs` とトークンの `403` と `404` は確かめた
 
 ワークフローを置くリポジトリの `sub` の形式は、次のコマンドで確かめます。
@@ -56,7 +56,7 @@ gh api repos/<オーナー名>/<リポジトリ名>/actions/oidc/customization/s
 ```
 
 出力の `use_immutable_subject` が `false` で、`sub_claim_prefix` に `@` がなければ、名前だけの形式です。
-切り替えはリポジトリか Organization の設定で行うため、GitHub App とオーナーの管理者に頼みます（[GitHub Constraints](../spec/github-constraints.md) の §3.2）。
+切り替えはリポジトリか Organization の設定で行うため、GitHub App とオーナーの管理者に頼みます（[GitHub Actions OIDC Constraints](../external/github/oidc.md)）。
 
 fork からの Pull Request で起動した `pull_request` のジョブは、GitHub の公式資料によれば既定では `id-token: write` を持たないため、`ACTIONS_ID_TOKEN_REQUEST_TOKEN is not set` の注釈で失敗する見込みです（検証環境では確かめていない）。
 そのジョブには Pull Request のコードがあるため、トークンを受け取らせません。
@@ -283,7 +283,9 @@ GitHub がホストする Runner で警告が繰り返し出るときは、注�
 - [Issue Token](../../.github/actions/issue-token/README.md)
 - [Key Material Import](import-key-material.md)
 - [Lambda Design](../design/lambda.md)
-- [GitHub Constraints](../spec/github-constraints.md)
+- [GitHub Actions OIDC Constraints](../external/github/oidc.md)
+- [GitHub App Constraints](../external/github/app.md)
+- [GitHub Actions Integration Constraints](../external/github/actions.md)
 - [GitHub App Installation Changes](../research/github/installation-changes.md)
 - [AWS Fault Injection](../research/aws/fault-injection.md)
 - [AWS STS Legacy Subject](../research/aws/sts-legacy-subject.md)

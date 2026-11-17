@@ -35,7 +35,7 @@ Lambda Invoke には HTTP の `Authorization` ヘッダーに相当するアプ�
 |---|---|
 | `version` | 必須、整数 `1` |
 | `id_token` | 必須、GATES 用 Audience の JWT。Bearer 資格情報として慎重に扱う |
-| `repositories` | 必須、重複のない 1 件以上 500 件以下の `owner/repo` の配列。上限は GitHub のトークン発行 API が一度に受け付ける件数に合わせる（[GitHub Constraints](../spec/github-constraints.md#61-発行-api-の呼び出しと有効期限)）。GATES が設ける 16 KiB の Payload には最短の要素で 2,000 件以上が入るため、Payload サイズより先にこの上限に達する |
+| `repositories` | 必須、重複のない 1 件以上 500 件以下の `owner/repo` の配列。上限は GitHub のトークン発行 API が一度に受け付ける件数に合わせる（[GitHub App Constraints](../external/github/app.md)）。GATES が設ける 16 KiB の Payload には最短の要素で 2,000 件以上が入るため、Payload サイズより先にこの上限に達する |
 | `permissions` | 必須、値は **`{"contents":"read"}`**。形式が不正なら入力不正、形式が正しく値が許可条件と異なれば認可拒否 |
 
 形式検証を通った Invoke Payload から、未検証の GATES 用 OIDC JWT と発行要求を分けて取り出します。
@@ -89,7 +89,7 @@ GATES はそれでもこの形を入力不正として判定し、Invoke API の
 #### 権限名と水準の文字種
 
 `permissions` のキー（権限名）と値（水準）は、1 文字以上 64 文字以下の ASCII 小文字とアンダースコア（`_`）の文字列に限ります。
-GitHub の Permissions の表現は [GitHub Constraints](../spec/github-constraints.md#61-発行-api-の呼び出しと有効期限) を参照します。
+GitHub の Permissions の表現は [GitHub App Constraints](../external/github/app.md) を参照します。
 この文字種は、その表現に合わせて GATES が決めた形式の制限です。
 GitHub が公式に定めた規則ではありません。
 この文字種に合わない文字列は、GitHub の権限名や水準として読み取れないため、入力不正にします。
@@ -117,7 +117,7 @@ GitHub が公式に定めた規則ではありません。
 | オーナー名 | 1 文字以上の ASCII 英数字とハイフン | GATES が決めた形式の制限。GitHub の規則としては確定していない（下記） |
 | リポジトリ名 | 1 文字以上 100 文字以下の ASCII 英数字、ハイフン、アンダースコア、ピリオド | GitHub の新規リポジトリ名の制約に合わせる。`.` と `..` は緩い側に寄せた（下記） |
 
-GitHub 側の名前の文字種と長さ、その根拠と未確認事項は [GitHub Constraints](../spec/github-constraints.md#2-owner-and-repository) を参照します。
+GitHub 側の名前の文字種と長さ、その根拠と未確認事項は [GitHub Owner and Repository Constraints](../external/github/account.md) を参照します。
 
 GitHub の規則として確認できなかった条件は、GitHub が受け付ける名前を拒否しない側に寄せ、形式検証で課しません。
 GATES が GitHub より厳しい規則を持つと、正当な要求が入力不正になり、利用者には原因が分からないためです。
@@ -258,8 +258,8 @@ Client ID の誤り、KMS Key と GitHub に登録した Private Key の不一�
 Installation の応答の形式が想定と異なる場合は `installation_unavailable` に、発行応答の形式が想定と異なる場合は `issuance_verification_failed` にします。
 
 この分類は GATES のエラー分類であり、GitHub の HTTP ステータスの定義ではありません。
-発行 API の `422` は、GitHub の公開仕様では検証失敗またはスパム判定を指し、Installation の範囲外の要求だけを意味しません（[GitHub Constraints](../spec/github-constraints.md#61-発行-api-の呼び出しと有効期限)）。
-Installation の取得に使う Organization と User の API が公開している応答コードは `200` だけです（[GitHub Constraints](../spec/github-constraints.md#5-installation)）。
+発行 API の `422` は、GitHub の公開仕様では検証失敗またはスパム判定を指し、Installation の範囲外の要求だけを意味しません（[GitHub App Constraints](../external/github/app.md)）。
+Installation の取得に使う Organization と User の API が公開している応答コードは `200` だけです（[GitHub App Constraints](../external/github/app.md)）。
 上の 404 は、User の API でアンインストールの後に観測した応答で、Organization の API では確かめていません。
 分類は `200` 以外の応答をレート制限と一時的な障害を除いて `installation_unavailable` にすることで成り立ち、特定のステータスには依存しません。
 発行 API の `422` を `authorization_denied` と分けるのは、`422` だけでは権限不足や悪意の有無を確定できないためです。
@@ -268,7 +268,7 @@ Installation の取得に使う Organization と User の API が公開してい
 429 は常にレート制限とします。
 403 は、`x-ratelimit-remaining` が `0` か、`retry-after` のヘッダーがあるときだけレート制限とし、ほかの 403 はレート制限としません。
 本文のメッセージは判定に使いません。
-GitHub はセカンダリのレート制限を本文のメッセージだけで示す場合があり（[GitHub Constraints](../spec/github-constraints.md#61-発行-api-の呼び出しと有効期限)）、文言に頼ると、GitHub が文言を変えたときに分類が変わるためです。
+GitHub はセカンダリのレート制限を本文のメッセージだけで示す場合があり（[GitHub App Constraints](../external/github/app.md)）、文言に頼ると、GitHub が文言を変えたときに分類が変わるためです。
 この判定は、ヘッダーのないレート制限の 403 を `installation_unavailable` として、レート制限でないのにこれらのヘッダーが付いた 403 を `github_api_unavailable` として伝え得ます。
 GitHub App JWT で認証した要求の応答は、レート制限に達していない記録では `x-ratelimit-*` を含まず（同節）、制限に達したときに付くかは確かめていません。
 どちらの誤りでもトークンは返さず、誤りが変えるのは、利用者に再実行を促すかどうかです。
@@ -422,7 +422,7 @@ GitHub App JWT の生成条件は [GitHub App JWT](github-app-jwt.md) を正本�
 
 ### 6.3 GitHub Client
 
-GitHub API の仕様は、Installation の取得を [GitHub Constraints](../spec/github-constraints.md#5-installation)、トークンの発行と失効を [GitHub Constraints](../spec/github-constraints.md#6-installation-access-token) で参照します。
+Installation の取得、トークンの発行と失効の GitHub API の仕様は、[GitHub App Constraints](../external/github/app.md) を参照します。
 本節は、GATES がどのエンドポイントをどう使うかを定めます。
 GitHub API は SDK を使わず、Go 標準ライブラリの HTTP クライアントで呼び出します。
 使うエンドポイントが次の 3 つに限られるためです。
@@ -431,8 +431,8 @@ GitHub API は SDK を使わず、Go 標準ライブラリの HTTP クライア�
 - **トークンの発行**：`POST /app/installations/{installation_id}/access_tokens` に、発行許可の対象と Permissions を必ず指定する。発行 API の `repositories` はリポジトリ名だけを受け取るため、発行許可の各完全名を一度だけ `/` で分割し、リポジトリ名の部分を渡す。分割前の完全名は、発行応答の `full_name` との照合に使う。
 - **トークンの失効**：照合に失敗したトークンの失効には `DELETE /installation/token` を使う。このエンドポイントは App JWT ではなく、失効させる Installation Access Token 自体で認証する。`204` だけを失効の成功とし、失敗しても再試行せずに監査記録へ残す。
 - **リダイレクト**：従わず、`3xx` は [Failure](#32-failure) の分類で成功以外の応答として扱う。リダイレクト先は GATES が選んだエンドポイントではなく、その応答を Installation や発行応答として読む根拠がないためである。また、従うと、固定した API Host の外へ GitHub App JWT を送り得る。
-- **API バージョン**：すべての要求に `X-GitHub-Api-Version: 2026-03-10` を付ける。GitHub Constraints が REST API を確認した版であり、[調査記録](../research/github/installation-access-token.md)もこの版で取得している。ヘッダーを省略すると既定の版が使われ、その版のサポートが終わると既定の版が変わる（[GitHub Constraints](../spec/github-constraints.md#1-scope-and-evidence)）。省略すると、GATES のコードを変えずに応答の形が変わり得るため、省略しない。この版のサポートが終わると、GitHub はこの版を指定した要求に `410 Gone` を返し、[Failure](#32-failure) の分類で `installation_unavailable` になる。再試行では解消せず、運用者が版を更新するまで発行が止まる。版を更新するときは、GitHub Constraints と調査記録を新しい版で確かめ直す。
-- **`User-Agent`**：すべての要求に、GATES を示す固定の値 `gates` を付ける。GitHub は `User-Agent` のない要求を拒否し、値にアプリケーションの名前を推奨する（[GitHub Constraints](../spec/github-constraints.md#1-scope-and-evidence)）。
+- **API バージョン**：すべての要求に `X-GitHub-Api-Version: 2026-03-10` を付ける。GitHub App Constraints が REST API を確認した版であり、[調査記録](../research/github/installation-access-token.md)もこの版で取得している。ヘッダーを省略すると既定の版が使われ、その版のサポートが終わると既定の版が変わる（[GitHub App Constraints](../external/github/app.md)）。省略すると、GATES のコードを変えずに応答の形が変わり得るため、省略しない。この版のサポートが終わると、GitHub はこの版を指定した要求に `410 Gone` を返し、[Failure](#32-failure) の分類で `installation_unavailable` になる。再試行では解消せず、運用者が版を更新するまで発行が止まる。版を更新するときは、GitHub App Constraints と調査記録を新しい版で確かめ直す。
+- **`User-Agent`**：すべての要求に、GATES を示す固定の値 `gates` を付ける。GitHub は `User-Agent` のない要求を拒否し、値にアプリケーションの名前を推奨する（[GitHub App Constraints](../external/github/app.md)）。
 - **応答サイズの上限**：Installation の取得の応答は 64 KiB、発行応答は 16 MiB とする。失効の応答は、成否をステータスだけで判定するため本文を読まず、上限を設けない。Installation の応答は[調査記録](../research/github/app-installation.md)で約 1.6 KB であり、64 KiB は Discovery と JWKS の上限（[§6.1](#61-oidc-validation)）と同じく、増えても収まり、想定外に大きい応答を読み込み続けない大きさとする。発行応答は対象 1 件ごとにリポジトリの完全な表現を持ち、[調査記録](../research/github/installation-access-token.md)では 12 文字のリポジトリ名で 1 件あたり約 6 KB だった。この表現はリポジトリ名を約 40 回、オーナー名を約 50 回繰り返すため、100 文字のリポジトリ名と 39 文字のオーナー名では 1 件あたり約 12 KB になる。説明文やトピックのような自由記述のフィールドの最大長は確かめていない。16 MiB は、対象 500 件で 1 件あたり約 33 KB まで収まる大きさとする。
 - **上限を超えた応答**：Installation の応答は、形式が想定と異なる応答として `installation_unavailable` にする。発行応答は、形式が想定と異なる発行応答として `issuance_verification_failed` にし、失効を試みない。トークン文字列は、完全に受信して解釈できた発行応答からだけ取り出す。途中までの本文からトークン文字列を探すと、壊れた JSON の解釈という別の規則が要るためである。この場合、GitHub 側で発行されたトークンは有効期限まで残り得る。
 - **発行応答の読み取り**：`201` の本文は、`token` とほかのフィールドを独立に読む。`token` を読み取れれば、ほかのフィールドが欠落しているか読み取れなくても発行結果にし、読み取れなかったことを発行結果に残す。本文を JSON のオブジェクトとして解釈できない場合（JSON でない、読まないフィールドの中を含めて本文のどこかに同じ名前の重複がある、UTF-8 として正しくない文字列がある）は、`token` を含めてどのフィールドも読み取らない。読み取れなかったフィールドは `issuance_verification_failed` になり、どの読み取りも失敗の種別を変えないため、GitHub Client は `201` をエラーにしない。
@@ -560,11 +560,13 @@ Lambda の Go Runtime では標準出力が CloudWatch Logs に送られ、JSON 
 - [AWS — AWS SDK for Go v2](https://docs.aws.amazon.com/sdk-for-go/v2/developer-guide/)
 - [AWS — KMS Sign](https://docs.aws.amazon.com/kms/latest/APIReference/API_Sign.html)
 - [AWS — KMS Common Error Types](https://docs.aws.amazon.com/kms/latest/APIReference/CommonErrors.html)
-- [GitHub Constraints](../spec/github-constraints.md)
+- [GitHub App Constraints](../external/github/app.md)
+- [GitHub Owner and Repository Constraints](../external/github/account.md)
 - [GATES OIDC JWT Claims](gates-oidc-jwt-claims.md)
 - [GATES OIDC JWT Signature](gates-oidc-jwt-signature.md)
 - [GitHub App JWT](github-app-jwt.md)
-- [JWT Constraints](../spec/jwt-constraints.md)
+- [JOSE Standards](../external/standards/jose.md)
+- [JWT Standards](../external/standards/jwt.md)
 - [OpenID Foundation — OpenID Connect Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html)
 - [IETF — RFC 7519 JSON Web Token](https://www.rfc-editor.org/rfc/rfc7519)
 

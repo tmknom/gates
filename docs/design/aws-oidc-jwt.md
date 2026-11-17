@@ -56,7 +56,7 @@ GATES は IAM Role の Trust Policy と許可する操作を設計します。
 
 ## References
 
-- [GitHub Constraints](../spec/github-constraints.md) — GitHub 公式資料、旧形式と不変形式の `sub`、相違・未確認事項
+- [GitHub Actions OIDC Constraints](../external/github/oidc.md) — GitHub 公式資料、旧形式と不変形式の `sub`、未確認事項
 - [AWS STS Legacy Subject](../research/aws/sts-legacy-subject.md) — 旧形式の `sub` で IAM Role の引き受けを試みた結果
 - [GitHub Workflow Event Contexts](../research/github/workflow-event-contexts.md) — 起動イベントと Environment の異なるジョブの引き受けと `sub`
 - [GitHub — OpenID Connect reference](https://docs.github.com/en/actions/reference/security/oidc)

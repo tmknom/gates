@@ -34,7 +34,7 @@ Claim ごとでない規則の ID は、規則の内容を表す名前です（`
 
 GATES は、適用対象の標準仕様が要求する検証を省略しません。追加で受理対象を狭くする場合は、どの標準要求に違反しないか、互換性にどのような影響があるかを明記します。「理解しない Claim / Header は無視する」という標準規定も尊重し、無関係な新規 Claim の追加だけを拒否の理由にしません。Claims Set の JSON の名前重複、不正な UTF-8、既知 Claim の解釈の曖昧さは、未知 Claim と区別して [GOJ-CLAIM-NAME](#goj-claim-name-json-と-claim-名の一貫した解釈) で扱います。
 
-標準仕様の整理は [JWT Constraints](../spec/jwt-constraints.md)、GitHub の仕様と観測は [GitHub Constraints](../spec/github-constraints.md) を正本とします。外部仕様の引用は正確な要約と節へのリンクを用い、全文転記しません。`claims_supported` はサポートする Claim の一覧であり、すべての JWT に全 Claim が存在する保証ではありません。
+標準仕様の整理は [JOSE Standards](../external/standards/jose.md)、[JWT Standards](../external/standards/jwt.md)、[OpenID Connect Standards](../external/standards/oidc.md)、GitHub の仕様と観測は [GitHub Actions OIDC Constraints](../external/github/oidc.md) を正本とします。外部仕様の引用は正確な要約と節へのリンクを用い、全文転記しません。`claims_supported` はサポートする Claim の一覧であり、すべての JWT に全 Claim が存在する保証ではありません。
 
 ### 受理の分類
 
@@ -97,7 +97,7 @@ GATES は、適用対象の標準仕様が要求する検証を省略しませ�
 
 **標準仕様**：RFC 7519 §4.1.2 の Subject は Issuer 内で局所的に一意、または全体で一意である必要があります。OpenID Connect Core §2 は ID Token の `sub` を必須、Issuer 内で一意かつ再割当て不可、最大255 ASCII文字、大小文字を区別する文字列と定めます（[RFC 7519 §4.1.2](https://www.rfc-editor.org/rfc/rfc7519.html#section-4.1.2)、[OIDC Core §2](https://openid.net/specs/openid-connect-core-1_0.html#IDToken)）。
 
-**GitHub 公式仕様**：旧形式 `repo:OWNER/REPO:...` は名前の再利用によって Subject が再割当てされ得ます。一定の時期より後に作成されたリポジトリ等では `repo:OWNER@OWNER-ID/REPO@REPO-ID:...` の不変形式が導入されています。古いリポジトリでは設定変更まで旧形式が残り、`include_claim_keys` によるカスタマイズで `sub` 全体が変わり得ます。不変形式の `repo` 部分では ID を取り除けないとされていますが、`repo` を含めないカスタムテンプレートの結果は未確認です（[GitHub OIDC reference — Immutable subject claims](https://docs.github.com/en/actions/reference/security/oidc#immutable-subject-claims)、[同 — Customizing the token claims](https://docs.github.com/en/actions/reference/security/oidc#customizing-the-token-claims)、[GitHub Constraints §3.2](../spec/github-constraints.md#32-immutable-subject-とカスタマイズ)）。
+**GitHub 公式仕様**：旧形式 `repo:OWNER/REPO:...` は名前の再利用によって Subject が再割当てされ得ます。一定の時期より後に作成されたリポジトリ等では `repo:OWNER@OWNER-ID/REPO@REPO-ID:...` の不変形式が導入されています。古いリポジトリでは設定変更まで旧形式が残り、`include_claim_keys` によるカスタマイズで `sub` 全体が変わり得ます。不変形式の `repo` 部分では ID を取り除けないとされていますが、`repo` を含めないカスタムテンプレートの結果は未確認です（[GitHub OIDC reference — Immutable subject claims](https://docs.github.com/en/actions/reference/security/oidc#immutable-subject-claims)、[同 — Customizing the token claims](https://docs.github.com/en/actions/reference/security/oidc#customizing-the-token-claims)、[GitHub Actions OIDC Constraints](../external/github/oidc.md)）。
 
 **実測値**：6件すべてが不変形式であり、末尾は `ref`、`pull_request`、`environment` に応じて異なりました。リポジトリの作成日と不変形式への設定変更履歴は未取得です（[GitHub OIDC JWT](../research/github/oidc-jwt.md)）。
 
@@ -118,7 +118,7 @@ GATES は、適用対象の標準仕様が要求する検証を省略しませ�
 
 **GitHub 公式仕様**：既定の Audience はリポジトリ所有者の URL ですが、JWT 取得時にカスタム Audience を指定できます（[GitHub OIDC reference](https://docs.github.com/en/actions/reference/security/oidc)）。
 
-**実測値**：Audience を指定せずに取得した6件はリポジトリ所有者の URL、URL でない文字列を Audience に指定して取得した2件は指定した値の JSON 文字列でした（[GitHub Constraints](../spec/github-constraints.md#31-issueraudienceclaim)）。
+**実測値**：Audience を指定せずに取得した6件はリポジトリ所有者の URL、URL でない文字列を Audience に指定して取得した2件は指定した値の JSON 文字列でした（[GitHub Actions OIDC Constraints](../external/github/oidc.md)）。
 
 **GATES の受理条件**：必須。固定設定の GATES 用 Audience と大文字小文字を含め完全一致する文字列1個、またはそれだけを含む要素数1の文字列配列を許容し、要素が複数なら GATES 用 Audience を含んでも拒否します。空文字列、空配列、別の Audience は拒否します。受信者を増やした JWT を資格情報として再利用しないための追加制約です。AWS 用 JWT の `aud=sts.amazonaws.com` とは区別します。
 
@@ -160,7 +160,7 @@ JWT の `iss` の値は照合だけに使い、Discovery / JWKS の取得先に�
 
 **標準仕様**：RFC 7519 §4.1.5 は NumericDate とし、現在時刻が `nbf` 以降であること（等号は許容）を要求します。小さな時計差の猶予は MAY です。OIDC Core §2 の ID Token 必須 Claim にはありません（[RFC 7519 §4.1.5](https://www.rfc-editor.org/rfc/rfc7519.html#section-4.1.5)）。
 
-**GitHub 公式例と実測**：公式の JWT 例では `iat` の10分前ですが、6件の実測では5分前でした。時刻間隔の違いだけで標準違反とはなりません（[GitHub Constraints §3.1](../spec/github-constraints.md#31-issueraudienceclaim)）。
+**GitHub 公式例と実測**：公式の JWT 例では `iat` の10分前ですが、6件の実測では5分前でした。時刻間隔の違いだけで標準違反とはなりません（[GitHub Actions OIDC Constraints](../external/github/oidc.md)）。
 
 **GATES の受理条件**：任意・検証。欠落を許し、存在時は `exp` / `iat` と同じ JSON 整数・範囲および [GOJ-TIME](#goj-time-時刻の判定) の時刻条件を適用します。型違いを「欠落」として扱いません。
 
@@ -172,7 +172,7 @@ JWT の `iss` の値は照合だけに使い、Discovery / JWKS の取得先に�
 
 ### GOJ-SHA `sha`
 
-**GitHub の根拠**：Discovery に掲載され、実測ではコミット SHA 形の文字列を確認しています。GitHub 公式の Token claims 表は `workflow_sha` を別に説明していますが、`sha` 自体は同表にありません。正確な意味を公式の同表の説明として引用しません（[GitHub Constraints §3.1](../spec/github-constraints.md#31-issueraudienceclaim)）。
+**GitHub の根拠**：Discovery に掲載され、実測ではコミット SHA 形の文字列を確認しています。GitHub 公式の Token claims 表は `workflow_sha` を別に説明していますが、`sha` 自体は同表にありません。正確な意味を公式の同表の説明として引用しません（[GitHub Actions OIDC Constraints](../external/github/oidc.md)）。
 
 **GATES の設計**：任意・監査。JSON 文字列ならワークフロー起動属性として記録し、欠落・型違いは拒否しません。40文字の16進数字であることを必須にせず、`workflow_sha` と同じであることも要求しません。
 
@@ -184,19 +184,19 @@ JWT の `iss` の値は照合だけに使い、Discovery / JWKS の取得先に�
 
 ### GOJ-REPOSITORY-ID `repository_id`
 
-**GitHub 公式仕様**：ワークフロー実行元のリポジトリの ID です。公式の JWT の例と実測6件では、JSON 数値でなく数字の文字列です。GitHub はすべての条件での型を明示していません（[GitHub Constraints §3.1](../spec/github-constraints.md#31-issueraudienceclaim)）。
+**GitHub 公式仕様**：ワークフロー実行元のリポジトリの ID です。公式の JWT の例と実測6件では、JSON 数値でなく数字の文字列です。GitHub はすべての条件での型を明示していません（[GitHub Actions OIDC Constraints](../external/github/oidc.md)）。
 
 **GATES の受理条件**：必須。[GOJ-ID-FORMAT](#goj-id-format-id-の表記) の形式を満たす正の整数の **JSON 文字列**。`sub` 内の Repository ID と一致すること。Caller の識別・監査に用いますが、現在のオーナー単位の発行認可には使いません（[Requirements](../spec/requirements.md) の FR-AUTHN-002）。
 
 ### GOJ-REPOSITORY-OWNER `repository_owner`
 
-**GitHub 公式仕様**：公式の Claim 表は、`repository` を格納する Organization 名と説明しています。しかし User オーナーへの同じ説明の適用は明記されていません。実測では User オーナー名と一致しました（[GitHub Constraints §3.1](../spec/github-constraints.md#31-issueraudienceclaim)）。
+**GitHub 公式仕様**：公式の Claim 表は、`repository` を格納する Organization 名と説明しています。しかし User オーナーへの同じ説明の適用は明記されていません。実測では User オーナー名と一致しました（[GitHub Actions OIDC Constraints](../external/github/oidc.md)）。
 
 **GATES の設計**：未使用。認証・認可で使用する Owner ID を名前で代用しません。オーナーの名前変更で失敗する箇所（要求対象の完全名のオーナー部分と許可オーナー名の照合、オーナー名を含む IAM の `sub` 条件）は、この Claim を使わず、それぞれ別の設計の責務です（[Domain Model §4.4](domain.md#44-events-outside-gates-that-change-the-outcome)）。
 
 ### GOJ-REPOSITORY-OWNER-ID `repository_owner_id`
 
-**GitHub 公式仕様**：公式の Claim 表では Organization ID と説明されています。User が所有するリポジトリでも実測6件でこの Claim が存在し、所有者の ID と一致しました。ただし、User 所有の場合の一般保証は公式資料から確定していません（[GitHub Constraints §3.1](../spec/github-constraints.md#31-issueraudienceclaim)）。
+**GitHub 公式仕様**：公式の Claim 表では Organization ID と説明されています。User が所有するリポジトリでも実測6件でこの Claim が存在し、所有者の ID と一致しました。ただし、User 所有の場合の一般保証は公式資料から確定していません（[GitHub Actions OIDC Constraints](../external/github/oidc.md)）。
 
 **GATES の受理条件**：必須。[GOJ-ID-FORMAT](#goj-id-format-id-の表記) の正の整数を示す JSON 文字列。`sub` 内の Owner ID と一致すること。Caller の Owner ID として認証し、固定した許可オーナーの Owner ID との照合に使用します（認可の条件は [Requirements](../spec/requirements.md) の FR-AUTHZ-001）。User 所有で取得できない場合は自動的に名前へフォールバックせず拒否します。
 
@@ -434,8 +434,10 @@ ID の `JV-C-` は、本書の未確認事項を表します。
 
 ## References
 
-- [JWT Constraints](../spec/jwt-constraints.md) — 規範と適用範囲の整理
-- [GitHub Constraints](../spec/github-constraints.md) — GitHub 公式資料、公開値・実測、相違・未確認事項
+- [JOSE Standards](../external/standards/jose.md) — 規範と適用範囲の整理
+- [JWT Standards](../external/standards/jwt.md) — 規範と適用範囲の整理
+- [OpenID Connect Standards](../external/standards/oidc.md) — 規範と適用範囲の整理
+- [GitHub Actions OIDC Constraints](../external/github/oidc.md) — GitHub 公式資料、公開値・実測、未確認事項
 - [GitHub OIDC Discovery](../research/github/oidc-discovery.md) — `claims_supported`
 - [GitHub OIDC JWT](../research/github/oidc-jwt.md) — 6件の JWT 観測
 - [GitHub OIDC Custom Audience](../research/github/custom-audience.md) — Audience を指定した JWT の観測と、GitHub が発行を拒否した Audience

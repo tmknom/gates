@@ -17,6 +17,7 @@
 |---|---|
 | [user-guide/](user-guide/README.md) | 利用者向けの文書。GATES の導入を判断し、デプロイして運用し、ワークフローから使う人のための説明と手順 |
 | [contributing/](contributing/README.md) | GATES の開発で従う規約と手順。検証環境の構築、E2E テスト、リリースの手順を含む |
-| [design/](design/README.md) | `spec/` の要求と制約を満たすための設計文書 |
+| [design/](design/README.md) | `spec/` の要求と `external/` の外部仕様を満たすための設計文書 |
+| [external/](external/README.md) | GATES が従う標準仕様と GitHub の仕様を、規定として整理した文書 |
 | [research/](research/README.md) | GitHub などの外部仕様を調査し、取得した値を記録した文書 |
-| [spec/](spec/README.md) | GATES が満たす要求と将来取り込む想定の機能、GATES が従う外部仕様の制約 |
+| [spec/](spec/README.md) | GATES が満たす要求と将来取り込む想定の機能 |

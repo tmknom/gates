@@ -83,7 +83,7 @@ Action がトークンを受け取った後、後続のステップに渡す前�
 
 要求したリポジトリのうち一つでも許可されないものがあれば、GATES はどのリポジトリのトークンも返しません。
 
-要求と発行の規則は [Requirements](../spec/requirements.md) の FR-AUTHZ-003、FR-AUTHZ-006、FR-AUTHZ-007、FR-ISSUANCE-002、FR-ISSUANCE-003、FR-ISSUANCE-007 に、有効期限を含む GitHub の仕様は [GitHub Constraints](../spec/github-constraints.md) の §6 に、Action の入出力は [Issue Token](../../.github/actions/issue-token/README.md) にあります。
+要求と発行の規則は [Requirements](../spec/requirements.md) の FR-AUTHZ-003、FR-AUTHZ-006、FR-AUTHZ-007、FR-ISSUANCE-002、FR-ISSUANCE-003、FR-ISSUANCE-007 に、有効期限を含む GitHub の仕様は [GitHub App Constraints](../external/github/app.md) に、Action の入出力は [Issue Token](../../.github/actions/issue-token/README.md) にあります。
 
 ## 4. 現在の範囲と制約
 
@@ -105,7 +105,7 @@ GATES は、呼び出し元を許可オーナー単位でしか区別しませ�
 - **Runner**：Linux で Docker を使える Runner が要る。GitHub がホストする `ubuntu-latest` はこれを満たす。セルフホストの Runner では、Docker Hub、`proxy.golang.org`、OIDC JWT の取得先、AWS STS と Lambda の API、`api.github.com` への通信を許可し、Docker Hub の取得回数の制限に備えて認証かミラーを用意する（[GitHub Actions Design](../design/github-actions.md) の Runner Requirements）
 - **検証環境で確かめた構成**：GATES の検証環境で動作を確かめたのは、ユーザーアカウントを許可オーナーにした構成だけで、Organization を許可オーナーにした構成は確かめていない
 
-現在の範囲と対象外とする範囲は [Scope](../spec/scope.md) に、`sub` の形式は [GitHub Constraints](../spec/github-constraints.md) の §3 に、目的の境界は [Constitution](../CONSTITUTION.md) の Non-Goals にあります。
+現在の範囲と対象外とする範囲は [Scope](../spec/scope.md) に、`sub` の形式は [GitHub Actions OIDC Constraints](../external/github/oidc.md) に、目的の境界は [Constitution](../CONSTITUTION.md) の Non-Goals にあります。
 
 ## 5. 役割と責任
 

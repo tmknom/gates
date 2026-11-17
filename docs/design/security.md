@@ -76,7 +76,7 @@ Caller の `repository_id` とワークフロー起動属性は監査のため�
 
 ### 3.2 Installation Scope as Authorization Boundary
 
-Installation の GitHub 側の仕様は [GitHub Constraints](../spec/github-constraints.md#5-installation) を参照します。
+Installation の GitHub 側の仕様は [GitHub App Constraints](../external/github/app.md) を参照します。
 
 許可オーナーの有効なワークフローは、呼び出し元リポジトリ／チーム別の認可を経ず、GATES が許可する権限の範囲で GitHub App の Installation 対象リポジトリに横断的なトークン発行を要求できます。この権限は GitHub App / Installation 自体の権限上限にも拘束されます。GATES が許可するのは `contents:read` のみです。
 
@@ -91,7 +91,7 @@ GATES はこの設定を実行時に確認しません。
 
 ここでの上限は、Installation Access Token の対象に指定できる範囲を指します。
 「インストール対象の外にある公開リポジトリは読めない」を意味しません。
-選択対象外の公開リポジトリは、発行の要求に含めると拒否されますが、発行したトークンでは公開の内容として読めます（[GitHub Constraints](../spec/github-constraints.md#5-installation)）。
+選択対象外の公開リポジトリは、発行の要求に含めると拒否されますが、発行したトークンでは公開の内容として読めます（[GitHub App Constraints](../external/github/app.md)）。
 公開の内容は誰でも読めるため、この振る舞いは読み取り可能範囲を広げません。
 
 GATES は、デプロイ時に固定した GitHub App と許可オーナーの組から Installation が一意に決まるものとして扱います。
@@ -107,7 +107,7 @@ Lambda が許可する権限は `contents:read` に固定します。要求さ�
 - GitHub API に発行を要求するときは、発行許可の対象と Permissions を必ず指定する。
 - 発行応答の対象リポジトリと実効権限を発行許可に照合する。Owner ID、Repository ID の有効性・一意性、対象の全件一致を確認し、必要な情報の欠落、対象外のリポジトリ、過大な権限があればトークンを返却しない。この拒否は GitHub API の通信障害とは別のエラーとして返し、監査記録に Caller とともに残す。
 - GitHub の発行応答からトークン文字列を取得でき、照合に失敗した場合は、利用者へ返却せず失効 API の呼び出しを試みる。失効はベストエフォートとし、試行の成否を監査記録に残す。API 応答が失われた場合はトークンの発行有無が不明となり得る。
-- 要求にかかわらず GitHub が付与する `metadata:read` だけは、応答に含まれていても許容する。付与の条件は未確認であり（[GitHub Constraints](../spec/github-constraints.md#62-発行応答permission)）、含まれなくても拒否しない。
+- 要求にかかわらず GitHub が付与する `metadata:read` だけは、応答に含まれていても許容する。付与の条件は未確認であり（[GitHub App Constraints](../external/github/app.md)）、含まれなくても拒否しない。
 - 発行応答の `repository_selection` が `selected` であることを確認する。`all` は Installation の全リポジトリを対象にしたことを意味し、要求外の対象を含むため返却しない。
 - 応答の Repository ID は発行結果の確認・監査に利用し、要求時に事前検証した ID と同一であることを証明するものではない。
 
@@ -144,7 +144,7 @@ KMS Key の構成・IAM 権限は Terraform で管理します。GitHub App Priv
 - Docker Action のコンテナは root で動き、Runner はそこに Docker ソケット（`/var/run/docker.sock`）をマウントするため、次のリスクを受容する。コンテナの中のコードは、ソケットを通じて Runner のホストの root に相当する権限を得られる。調査用のコンテナは、ソケットを通じてホストの `/` をマウントしたコンテナを起動し、ホストのファイルを読めた（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#docker-socket)）。この権限は Docker Action のコンテナに固有のものではない。GitHub がホストする Linux の Runner では、同じジョブの `run` のステップもパスワードなしの `sudo` を使え、観測した Runner ではソケットの所有グループ（`docker`）にも属していた。コンテナの中で動くのは Docker Action のプログラムだけで、そのプログラムはソケットを使わない。このリスクが現れるのは、Docker Action のプログラム、その依存、ビルド用のイメージが改ざんされた場合である。マウントは Runner が決め、Docker Action からは外せない。依存とビルド用のイメージをバージョンと digest で固定し、利用者が Docker Action を commit SHA で参照することで、改ざんされたものが取り込まれる機会を抑える
 - Docker Action のコンテナには、`RUNNER_TEMP` と `HOME` が、同じジョブのほかのステップと共有されるディレクトリとしてマウントされる。Docker Action がこれらに書く資格情報は、`RUNNER_TEMP` の下にある Output と `GITHUB_STATE` のファイルの中のトークンだけである。Docker Action の実行の前後で `RUNNER_TEMP` と `HOME` に増えたファイルのうち、トークンを含むのはこの 2 つだけだった（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#files-left-by-the-gates-action)）。Runner はステップごとのファイルコマンドのファイルをステップの後も消さず、後続のステップはそれを読めた。前のステップが起動したバックグラウンドのプロセスはステップをまたいで動き続け、Docker Action のステップの最中にもそのファイルを読めた（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#file-commands-across-steps)）。このため、トークンを同じジョブのほかのステップから隠すことはできない。Docker Action のコンテナは同じジョブのほかのステップに対する隔離の境界ではなく、資格情報を守る境界はジョブである。資格情報を取得するジョブで信頼できないコードを実行しない前提（前述）で、このリスクを受容する
 - Runner は、`id-token: write` の有無によらず、GitHub Actions のランタイムの操作に使う `ACTIONS_RUNTIME_TOKEN` を Docker Action のコンテナに渡す。`id-token: write` を宣言したジョブでは要求用トークン（`ACTIONS_ID_TOKEN_REQUEST_TOKEN`）も渡り、その値は `ACTIONS_RUNTIME_TOKEN` と同じだった。同じジョブの `run` のステップには、`ACTIONS_RUNTIME_TOKEN` は渡らないが、同じ値の要求用トークンが渡る（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#request-token-in-run-steps)）。Docker Action は `ACTIONS_RUNTIME_TOKEN` を読まず、要求用トークンを OIDC JWT の取得にだけ使うが、どちらも渡されることは止められない。改ざんされた Docker Action のプログラムは、このアクセストークンでジョブのランタイムの操作を行い得る。ランタイムの操作は試していないが、`id-token: write` のジョブでは `run` のステップも同じ値を持つため、受容の判断は操作の範囲によらない。上記の Docker ソケットと同じく、改ざんの機会を抑えることで対処する
-- ジョブの終了時の失効と失敗時の失効はベストエフォートであり、次の場合に、Runner へ返したトークンが GitHub 側の有効期限まで有効なまま残るリスクを受容する。失効の要求が失敗した場合と、Runner がコンテナを強制終了するか Runner が停止して、失効を試みる前に Docker Action が終わった場合である。ジョブのキャンセルでは、Docker Action はシグナルを受けてから失効を試みて終えるため、このリスクは Runner がそれより先にコンテナを止めた場合に限られる。残ったトークンの範囲は、要求した対象と `contents:read` に限られる。失効の要求が `204` を返した後も、短い間はトークンが使えることがある。GitHub は失効が効くまでの時間を公開していない（[GitHub Constraints](../spec/github-constraints.md#63-失効)）。その間にトークンを使えるのは同じジョブのステップとプロセスで、それらは失効の前からトークンを読めるため、このリスクを受容する
+- ジョブの終了時の失効と失敗時の失効はベストエフォートであり、次の場合に、Runner へ返したトークンが GitHub 側の有効期限まで有効なまま残るリスクを受容する。失効の要求が失敗した場合と、Runner がコンテナを強制終了するか Runner が停止して、失効を試みる前に Docker Action が終わった場合である。ジョブのキャンセルでは、Docker Action はシグナルを受けてから失効を試みて終えるため、このリスクは Runner がそれより先にコンテナを止めた場合に限られる。残ったトークンの範囲は、要求した対象と `contents:read` に限られる。失効の要求が `204` を返した後も、短い間はトークンが使えることがある。GitHub は失効が効くまでの時間を公開していない（[GitHub App Constraints](../external/github/app.md)）。その間にトークンを使えるのは同じジョブのステップとプロセスで、それらは失効の前からトークンを読めるため、このリスクを受容する
 - 保持した Issuer の公開鍵に有効期限を設けず、次のリスクを受容する。Issuer が JWKS から鍵を取り下げても、保持した鍵で検証できない `kid` のある JWT が届いて JWKS の取得に成功するか、実行環境が入れ替わるまで、取り下げた鍵で検証できる JWT を受理し続ける。Lambda は呼び出しが続く関数でも実行環境を数時間ごとに終了するため、受理し続ける期間はその程度に収まる見込みだが、AWS は正確な間隔を公開しておらず、GATES はこの期間の上限を保証しない。取り下げた鍵で新しい JWT を偽造するには、対応する秘密鍵が必要である。一方、取り下げ前に発行された JWT の再提示には秘密鍵が要らず、その JWT の `exp` までは受理され得る。どちらの悪用にも、Lambda の Invoke を許可された IAM 認証情報が別に必要である。期限を設けると、期限切れのたびに取得が発生し、Issuer の障害で正当な JWT まで拒否し得る。この可用性の低下を避ける。Issuer の鍵の漏えいが判明したときは、運用者が関数のコードか設定を更新する。AWS は更新の完了まで呼び出しが更新前のコードと設定を使うと定めており、完了後の呼び出しが保持した鍵を持たない実行環境で動くことは、この定めからの推論である（公式文書に明記はない）。検証環境では、関数の環境変数とタイムアウトを変えた後の最初の呼び出しが、初期化から始まる新しい実行環境で動いた（[AWS Fault Injection](../research/aws/fault-injection.md)）。
 - Discovery と JWKS の再取得の上限は実行環境ごとであり、関数全体の上限を設けず、次のリスクを受容する。IAM の認可を得た呼び出し元は、手元の鍵で検証できない JWT を送ることで、実行環境ごとに、再取得の上限が許す頻度まで取得を起こせる。署名の検証には鍵が要るため、取得の前に不正な JWT を見分けることはできない。Issuer がレート制限を返すと、鍵を持たない実行環境とローテーション後の鍵を要する JWT は、再試行できる失敗で拒否され続け得る（Issuer のレート制限の有無は未確認）。影響は可用性にとどまり、この場合も GATES はトークンを返さない。実行環境をまたいで上限を共有すると、そのためだけに外部の状態、権限、障害の経路が増えるため採らない。同時に動く実行環境の数は Reserved Concurrency で抑えられるが、実行環境が入れ替わると新しい環境は取得の履歴を持たないため、厳密な上限にはならない。
 
@@ -209,11 +209,13 @@ GATES は不正な変更や署名を通知する仕組みを持たないため�
 
 ## 7. References
 
-- [GitHub Constraints](../spec/github-constraints.md)
+- [GitHub App Constraints](../external/github/app.md)
 - [AWS OIDC JWT](aws-oidc-jwt.md)
 - [GATES OIDC JWT Claims](gates-oidc-jwt-claims.md)
 - [GATES OIDC JWT Signature](gates-oidc-jwt-signature.md)
-- [JWT Constraints](../spec/jwt-constraints.md)
+- [JOSE Standards](../external/standards/jose.md)
+- [JWT Standards](../external/standards/jwt.md)
+- [OpenID Connect Standards](../external/standards/oidc.md)
 - [GitHub — Securely using pull_request_target](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target)
 - [GitHub — GitHub-hosted runners reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
 - [AWS — IAM and AWS STS condition context keys](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_iam-condition-keys.html)

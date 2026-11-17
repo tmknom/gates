@@ -24,7 +24,7 @@ GATES は、**GATES 運用者**（GATES を AWS にデプロイして運用す�
 Action は、**OIDC JWT**（ワークフローがどのオーナーのどのリポジトリで動いているかを GitHub が署名して示すトークン）で、ワークフローの身元を GATES に示します。
 ワークフローを置くリポジトリの OIDC JWT の形式は、**GitHub App とオーナーの管理者**（GitHub App のインストール先と、オーナーの GitHub の設定を管理する人）が設定します。
 GATES は、その中の呼び出し元を示す値（`sub`）が、名前に加えて変わらない ID を含む形式のときだけ受け付けます。
-新しく作ったリポジトリは既定でこの形式ですが、古いリポジトリは、Organization かリポジトリの設定（REST API では `use_immutable_subject`）で切り替える必要があります（[GitHub Constraints](../spec/github-constraints.md) の §3.2）。
+新しく作ったリポジトリは既定でこの形式ですが、古いリポジトリは、Organization かリポジトリの設定（REST API では `use_immutable_subject`）で切り替える必要があります（[GitHub Actions OIDC Constraints](../external/github/oidc.md)）。
 この形式でないリポジトリと、`sub` の形式をカスタマイズして先頭がこの形式でなくなったリポジトリでは、Action は `AssumeRoleWithWebIdentity failed` の注釈で失敗します。
 
 ジョブを動かす Runner は、Linux で Docker を使えるものにします。
