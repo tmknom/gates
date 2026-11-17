@@ -103,7 +103,7 @@ GATES は、呼び出し元を許可オーナー単位でしか区別しませ�
 - **GitHub Actions だけ**：GitHub Actions 以外の実行環境やクライアントには発行しない
 - **OIDC JWT の `sub` の形式**：呼び出し元のリポジトリの OIDC JWT は、呼び出し元を示す値 `sub` が、`repo:<オーナー名>@<Owner ID>/<リポジトリ名>@<Repository ID>:...` のように不変の ID を含む形式でなければならない。新しく作るリポジトリは既定でこの形式になるが、古いリポジトリは、Organization かリポジトリの設定（REST API では `use_immutable_subject`）で切り替える必要がある。`sub` の形式をカスタマイズして先頭がこの形式でなくなったリポジトリも受け付けない
 - **Runner**：Linux で Docker を使える Runner が要る。GitHub がホストする `ubuntu-latest` はこれを満たす。セルフホストの Runner では、Docker Hub、`proxy.golang.org`、OIDC JWT の取得先、AWS STS と Lambda の API、`api.github.com` への通信を許可し、Docker Hub の取得回数の制限に備えて認証かミラーを用意する（[GitHub Actions Design](../design/github-actions.md) の Runner Requirements）
-- **実環境で確かめた構成**：GATES の検証環境で動作を確かめたのは、ユーザーアカウントを許可オーナーにした構成だけで、Organization を許可オーナーにした構成は確かめていない
+- **検証環境で確かめた構成**：GATES の検証環境で動作を確かめたのは、ユーザーアカウントを許可オーナーにした構成だけで、Organization を許可オーナーにした構成は確かめていない
 
 現在の範囲と対象外とする範囲は [Scope](../spec/scope.md) に、`sub` の形式は [GitHub Constraints](../spec/github-constraints.md) の §3 に、目的の境界は [Constitution](../CONSTITUTION.md) の Non-Goals にあります。
 
@@ -113,9 +113,9 @@ GATES は、次の 3 つの役割がそれぞれの責任を果たすことを�
 
 | 役割 | 担うこと |
 |---|---|
-| **GATES 運用者** | GATES を AWS にデプロイし、許可オーナー、GitHub App、署名に使う KMS Key を設定する。GitHub App Private Key を KMS にインポートし、更新する。IAM Role を引き受けられるワークフローの条件を管理する。ワークフロー利用者が使う Action を提供し、**接続情報**（Action が GATES を呼び出すのに使う値）を GitHub の Secrets と Variables に登録する。許可オーナーの名前が変わったら、IAM Role の条件と GATES の設定を更新する（更新するまで発行は止まる） |
+| **GATES 運用者** | GATES を AWS にデプロイし、許可オーナー、GitHub App、署名に使う KMS Key を設定する。GitHub App Private Key を KMS にインポートし、更新する。IAM Role を引き受けられるワークフローの条件を管理する。ワークフロー利用者が使う Action を提供し、**接続情報**（Action が GATES を呼び出すのに使う値）を GitHub の Secrets と Variables に登録する。許可オーナーの名前が変わったら、IAM Role の条件と GATES の設定を更新する（更新するまで IAM Role の引き受けが拒否され、発行は止まる。GATES の設計から導いたもので、検証環境では確かめていない） |
 | **ワークフロー利用者** | Action を呼び出すジョブで `permissions` に `id-token: write` を宣言し、Action に読みたいリポジトリ、権限、接続情報を渡す。トークンを受け取るジョブで、Pull Request のコードのような信頼できないコードを実行しない。受け取ったトークンを、ほかのジョブ、成果物、ログに渡さない。セルフホストの Runner を使うなら、Action が必要とする実行環境と通信先を用意する |
-| **GitHub App とオーナーの管理者** | GitHub App のインストール対象に、許可オーナーのどのワークフローから読まれてもよいリポジトリだけを含める。許可オーナーが Organization なら、リポジトリ管理者が自分のリポジトリをインストール対象に加えられる既定の設定を制限し、`installation_repositories:write` を与える相手を管理する。オーナーのリポジトリの OIDC JWT が不変の ID を含むように設定する。鍵の更新の後に、古い Private Key を GitHub App から削除して失効させる |
+| **GitHub App とオーナーの管理者** | GitHub App のインストール対象に、許可オーナーのどのワークフローから読まれてもよいリポジトリだけを含める。許可オーナーが Organization なら、リポジトリ管理者が自分のリポジトリをインストール対象に加えられる既定の設定を制限し、`installation_repositories:write` を与える相手を管理する。オーナーのリポジトリの OIDC JWT が不変の ID を含むように設定する。鍵の更新の後に、古い Private Key を GitHub App から削除する |
 
 ユーザーアカウントを許可オーナーにする構成では、同じ人が 3 つの役割を兼ねることが多くなります。
 GitHub 側の設定（GitHub App のインストール対象と権限、古い Private Key の削除）は、表の各役割が GitHub で行い、GATES は代行しません。

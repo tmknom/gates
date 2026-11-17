@@ -21,7 +21,7 @@ GATES は、**GATES 運用者**（GATES を AWS にデプロイして運用す�
 | 読みたいリポジトリが、GitHub App の **インストール対象**（GitHub App をオーナーにインストールするときに選ぶ、GitHub App がアクセスできるリポジトリ）に入っている | インストール対象にないリポジトリのトークンは発行されない |
 | 参照する Action のコミットの SHA | §2 の `uses` に入れる |
 
-Action は、**OIDC JWT**（ワークフローがどのオーナーのどのリポジトリで動いているかを GitHub が署名して示すトークン）で、自分の身元を GATES に示します。
+Action は、**OIDC JWT**（ワークフローがどのオーナーのどのリポジトリで動いているかを GitHub が署名して示すトークン）で、ワークフローの身元を GATES に示します。
 ワークフローを置くリポジトリの OIDC JWT の形式は、**GitHub App とオーナーの管理者**（GitHub App のインストール先と、オーナーの GitHub の設定を管理する人）が設定します。
 GATES は、その中の呼び出し元を示す値（`sub`）が、名前に加えて変わらない ID を含む形式のときだけ受け付けます。
 新しく作ったリポジトリは既定でこの形式ですが、古いリポジトリは、Organization かリポジトリの設定（REST API では `use_immutable_subject`）で切り替える必要があります（[GitHub Constraints](../spec/github-constraints.md) の §3.2）。
@@ -96,7 +96,7 @@ Issued the token: request_id=<request_id> expires_at=<有効期限> repositories
 Action は、タグやブランチではなく、コミットの SHA で参照します。
 タグやブランチは、参照した後に別のコミットを指すように変えられるため、改ざんされた Action を知らないうちに取り込むおそれがあるからです（[Security Considerations](security-considerations.md) の §3）。
 参照するのは、運用者がデプロイした GATES と同じリリースのコミットです。
-異なるリリースの Action と GATES の組み合わせで動くかは、確かめていないためです。
+Action と、デプロイした GATES のリリースが異なる組み合わせで動くかは、確かめていないためです。
 運用者が GATES を新しいリリースに更新したら、参照するコミットも運用者が示すものに更新します。
 
 ## 3. Using the Token

@@ -21,7 +21,7 @@ GATES の仕組みと、用意するもの、費用が発生するリソース�
 | §9 | 最初の発行を確かめる | GitHub、AWS |
 
 GitHub App Private Key（以下、秘密鍵）は、§6 で AWS リソースを適用した後の §7 で生成します。
-秘密鍵を取り込む先の KMS Key は §6 で作られるため、先に秘密鍵を生成すると、取り込むまでのあいだ秘密鍵が手元に残り続けるからです。
+秘密鍵をインポートする先の KMS Key は §6 で作られるため、先に秘密鍵を生成すると、インポートするまでのあいだ秘密鍵が手元に残り続けるからです。
 
 §4 以降のコマンドは、§4 で取得した GATES のリポジトリのルートで、同じシェルから実行します。
 
@@ -39,7 +39,7 @@ GitHub App Private Key（以下、秘密鍵）は、§6 で AWS リソースを�
 | Go | Lambda のデプロイパッケージを手元でビルドする |
 | `zip`、`shasum` | デプロイパッケージを作り、Plan と適用のあいだでパッケージが変わっていないことを確かめる |
 | AWS CLI、`jq`、`xxd`、OpenSSL 3 以降 | 鍵素材を KMS にインポートし、デプロイの結果を確かめる。macOS に標準で入っている LibreSSL ではインポートが動かない |
-| GitHub CLI | 配布物を検証し、接続情報（Action が GATES を呼び出すのに使う値。§8）を登録する。`gh auth login` でログインしておく |
+| GitHub CLI | 配布物を検証し、§8 で GitHub の Secrets と Variables を登録する。`gh auth login` でログインしておく |
 
 ### 2.2 AWS Credentials
 
@@ -115,6 +115,7 @@ gh api repos/<オーナー名>/<リポジトリ名>/actions/oidc/customization/s
 ```
 
 切り替えるときは、リポジトリごとに次のコマンドを実行します。
+この設定を変えられるのはリポジトリかオーナーの管理者で、ユーザーアカウントを許可オーナーにする構成では運用者が兼ねることが多くなります。
 
 ```bash
 gh api --method PUT repos/<オーナー名>/<リポジトリ名>/actions/oidc/customization/sub \
@@ -187,7 +188,7 @@ GATES の Terraform が Lambda に上げるのは配布物ではなく、手元�
 
 最初に、Terraform を初期化します。
 初期化は Terraform のコンテナの中で、イメージに入れた Provider を使って行い、AWS の認証情報は使いません。
-初期化は、`terraform.tfvars` や State を置く `terraform/local/` も作ります。
+初期化は、`terraform/local/`（`terraform.tfvars`、Terraform の State と Plan を置くディレクトリ）も作ります。
 
 ```bash
 make -C terraform init
@@ -199,8 +200,6 @@ make -C terraform init
 ```bash
 cp terraform/terraform.tfvars.example terraform/local/terraform.tfvars
 ```
-
-`terraform/local/` には、`terraform.tfvars` のほかに、Terraform の State と Plan が置かれます。
 
 ### 5.1 Variables
 
@@ -392,7 +391,7 @@ State には秘密鍵は入りませんが、IAM と Lambda の構成が入る�
 ### 7.1 Running the Import
 
 [Key Material Import](import-key-material.md) の手順で、GitHub App で秘密鍵を生成し、その鍵素材を `key-1` の KMS Key にインポートします。
-鍵素材を取り込むと、GATES の Lambda は KMS Key で GitHub App JWT に署名できるようになります。
+鍵素材をインポートすると、GATES の Lambda は KMS Key で GitHub App JWT に署名できるようになります。
 秘密鍵が手元にある時間を短くするため、秘密鍵をダウンロードしたら、すぐに次のコマンドを実行します。
 
 ```bash
@@ -485,8 +484,9 @@ kms_keys = {
 active_kms_key = "key-2"
 ```
 
-KMS Key には Terraform による削除を止める設定（`prevent_destroy`）を付けてあり、`kms_keys` から除いた KMS Key の削除も拒否されるため、Terraform には削除させません。
-`key-1` を、削除せずに State から外します。
+KMS Key には Terraform による削除を止める設定（`prevent_destroy`）を付けてあり、`kms_keys` から除いた KMS Key の削除も拒否されます。
+この設定はすべての KMS Key に掛かり、外すと使用中の鍵も守られなくなります。
+そのため、Terraform には `key-1` を削除させず、State から外します。
 外す前の State は `terraform/local/terraform.tfstate.key-1.backup` に残ります。
 
 ```bash
@@ -568,7 +568,7 @@ gh variable set GATES_AUDIENCE --org <オーナー名> --body <gates_audience>
 
 Dependabot が起動したワークフローは、GitHub Actions の Secrets を参照できません。
 Dependabot のワークフローで GATES を使うときは、`GATES_AWS_ACCOUNT_ID` を Dependabot の Secrets にも登録します。
-Variables は Dependabot のワークフローからも参照できるため、登録し直す必要はありません。
+Variables は Dependabot のワークフローからも参照できる見込みのため、登録し直す必要はありません（GitHub の公式資料からの推論で、Dependabot のワークフローでの GATES の呼び出しは検証環境では確かめていません）。
 
 ```bash
 gh secret set GATES_AWS_ACCOUNT_ID --app dependabot --repo <オーナー名>/<リポジトリ名>
@@ -581,7 +581,7 @@ gh secret set GATES_AWS_ACCOUNT_ID --app dependabot --repo <オーナー名>/<�
 §8 で接続情報を登録した許可オーナーのリポジトリに、[Using GATES in Workflows](workflow-usage.md) の §2 の最小のワークフローを置きます。
 `repositories` と `Read repository` のステップの `example-owner/repo-a` は、§3.2 でインストール対象に加えたリポジトリの完全名（`<オーナー名>/<リポジトリ名>`）に置き換えます。
 `<コミット>` には、§4 でチェックアウトしたタグのコミットの SHA（`git rev-parse HEAD` の出力）を入れます。
-このコミットは、ワークフロー利用者に Action の参照先として伝えるものでもあります。
+このコミットは、**ワークフロー利用者**（GATES からトークンを受け取るワークフローを書く人）に Action の参照先として伝えるものでもあります。
 
 ワークフローを既定のブランチに置いて、実行します。
 `<ワークフローの名前>` は、ワークフローの `name` の値です。
@@ -631,6 +631,7 @@ aws logs filter-log-events --log-group-name /aws/lambda/gates \
 ここまでで、デプロイは完了です。
 許可オーナーのほかのリポジトリで GATES を使うときは、§8 の接続情報をそのリポジトリから参照できるようにし、ワークフロー利用者に、接続情報の名前、インストール対象、参照する Action のコミットを伝えます。
 ワークフロー利用者がワークフローを書く手順は、[Using GATES in Workflows](workflow-usage.md) にあります。
+デプロイの後に行う作業（インストール対象の変更、監査記録の確認、設定の変更、新しいリリースへの更新、鍵の更新を行う時期、悪用が疑われるときの停止）は、[Operations](operations.md) にあります。
 
 ## 10. References
 

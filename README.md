@@ -10,7 +10,7 @@ The `GITHUB_TOKEN` that GitHub Actions provides can only reach the repository th
 To read another repository, such as a shared configuration repository or a private dependency, teams usually reach for one of two workarounds:
 
 - a personal access token stored as a secret, tied to one person's account and often broader and longer-lived than needed
-- a GitHub App private key stored as a secret, which lets anyone who obtains it act with every permission of the GitHub App until someone rotates the key
+- a GitHub App private key stored as a secret, which lets anyone who obtains it act with every permission of the GitHub App until someone deletes the key from the GitHub App
 
 GATES replaces both.
 A workflow asks GATES for the repositories it needs and receives a GitHub App installation access token for only those repositories, with read-only access.
@@ -22,7 +22,7 @@ A workflow asks GATES for the repositories it needs and receives a GitHub App in
 - **Least-privilege tokens**: Each token covers only the repositories you list, with `contents:read`. GATES never widens a request on its own, and it rejects the whole request if any listed repository is not allowed.
 - **Short-lived tokens, revoked when the job ends**: Tokens expire on GitHub's schedule (one hour), and the action also tries to revoke them when the job ends, even after a failed or canceled step.
 - **Fail closed**: If GATES cannot verify the caller, authorize the request, or confirm that the token GitHub issued matches the request, the workflow gets no token.
-- **Auditable**: Every request is recorded with the calling repository, workflow run, requested repositories, and result, never the token itself. Every response carries a request ID that points to its record.
+- **Auditable**: Every request that GATES answers leaves an audit record of its result, with the requested repositories and the calling repository and workflow run once GATES has checked them, never the token itself. Every response carries a request ID that points to its record.
 - **One step to use**: Workflow authors add one action and read one output. Authentication, signing, and issuance stay inside GATES.
 
 ## How it works
@@ -42,7 +42,7 @@ sequenceDiagram
     L->>G: Request an installation access token
     L->>L: Check that the token matches the request
     L-->>W: Return the token
-    Note over W,G: At the end of the job, the action revokes the token
+    Note over W,G: At the end of the job, the action tries to revoke the token
 ```
 
 GATES trusts a caller by its immutable GitHub owner ID, not by its name, so renaming or re-creating an account cannot impersonate an allowed owner.
@@ -55,7 +55,7 @@ GATES trusts a caller by its immutable GitHub owner ID, not by its name, so rena
 - The repositories you request belong to the same owner as the calling repository, and the GATES GitHub App is installed on them.
 - The calling repository uses GitHub's immutable OIDC subject claims. Repositories created after 2026-07-15 use them by default; older repositories need `use_immutable_subject` enabled on the organization or repository.
 - The job declares `id-token: write`.
-- The job runs on a Linux runner with Docker, such as `ubuntu-latest`. Self-hosted runners also need the network access listed in [Runner Requirements](docs/design/github-actions.md#54-runner-requirements).
+- The job runs on a Linux runner with Docker, such as `ubuntu-latest`. Self-hosted runners also need the network access listed in [Using GATES in Workflows](docs/user-guide/workflow-usage.md#1-what-to-prepare-before-writing-a-workflow).
 
 ### Example
 
@@ -87,6 +87,7 @@ jobs:
 ```
 
 Pin the action to a full commit SHA rather than a tag or branch, because a tag or branch can later point to a different commit.
+Use the commit of the release your GATES operator deployed, because combinations of different releases of the action and the deployed GATES are not verified.
 
 ### Inputs
 
@@ -133,11 +134,12 @@ It does not serve clients outside GitHub Actions, manage other kinds of secrets,
 
 Authorization is currently per owner: any workflow of the allowed owner can request read access to any repository the GitHub App is installed on.
 Keep this in mind before installing the GitHub App on highly sensitive repositories.
-Finer-grained authorization per caller or team, and permissions beyond `contents:read`, are planned for the future.
+Finer-grained authorization per caller or team, and permissions beyond `contents:read`, are candidates for the future, with no timeline yet.
 
 ## Documentation
 
-- [Docs](docs/README.md): For people who deploy, operate, or develop GATES. Purpose and design principles, requirements, design, deployment and key import procedures, and research on GitHub and AWS behavior
+- [User Guide](docs/user-guide/README.md) (in Japanese): For people who evaluate, deploy, operate, or use GATES from workflows. Overview, security considerations, a deployment tutorial, key material import and rotation, release verification, writing workflows, operations, and troubleshooting
+- [Docs](docs/README.md): For people who develop GATES. Purpose and design principles, requirements, design, research on GitHub and AWS behavior, and development procedures such as testing and releases
 - [Issue Token action](.github/actions/issue-token/README.md): Detailed reference for the action, including input validation and every failure annotation
 - [Formal models](formal/README.md): Models that check the authorization and token issuance rules
 - [llms.txt](llms.txt): Index of the repository for coding agents

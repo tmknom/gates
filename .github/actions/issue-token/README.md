@@ -92,6 +92,8 @@ jobs:
 
 Action はタグやブランチではなく commit SHA で参照します。
 タグやブランチの参照先は、参照した後に別のコミットへ変わり得るためです。
+参照するのは、運用者がデプロイした GATES と同じリリースのコミットです。
+異なるリリースの Action と GATES の組み合わせで動くかは、確かめていないためです。
 
 ## 失敗の読み方
 
@@ -106,7 +108,7 @@ Action は失敗すると、ステップを失敗で終え、失敗した段階�
 | `could not get the OIDC JWT for AWS STS`、`could not get the OIDC JWT for GATES` | OIDC JWT の取得 |
 | `AssumeRoleWithWebIdentity failed` | IAM Role の引き受け。`role-arn` と `aws-region` を見直す |
 | `the Lambda Invoke failed`、`the Lambda Invoke returned StatusCode` | Lambda の呼び出し。`function-name` と `aws-region` を見直す |
-| `the Lambda function returned FunctionError` | GATES の想定外の失敗。`request_id` がないため、運用者にはワークフローの実行を伝える |
+| `the Lambda function returned FunctionError` | GATES の想定外の失敗。`request_id` がないため、運用者にはワークフロー実行の URL と時刻を伝える |
 | `GATES returned a failure response` | GATES が要求を拒否したか、発行に失敗した |
 | `the Lambda response ...`、`the success response has no usable ...` | GATES の応答を読めなかった |
 | `could not write to GITHUB_STATE`、`could not write to GITHUB_OUTPUT` | Output の書き込み |
@@ -132,5 +134,5 @@ Action がトークンを受け取った後、後続ステップに渡す前に�
 - トークンを受け取るジョブで、信頼できないコード（Pull Request のコード、ほかのワークフローの成果物など）を実行しない。そのジョブは `id-token: write` を持つため、信頼できないコードが GATES からトークンを受け取れ、同じジョブのほかのステップに渡したトークンも読める。GATES は起動イベントの種別で要求を拒否しない（[Security Design](../../../docs/design/security.md#5-failure-audit-and-security-risks)）
 - `pull_request_target` と `workflow_run` で起動するジョブは、base のリポジトリの既定のブランチのワークフローで動き、Secrets を参照でき、宣言した `id-token: write` を持つ。GitHub の公式資料によれば、fork からの Pull Request が起点でも Secrets と書き込みの権限を持つため、`id-token: write` も持つ見込みである（fork からの起動は GATES の検証環境では確かめていない）。Pull Request のコードをビルドやテストするジョブは `pull_request` で起動し、トークンを受け取るジョブとは分ける。ジョブを分けても、トークンを受け取るジョブが前のジョブの成果物を実行すれば同じことになる
 - GitHub の公式資料によれば、プライベートリポジトリで「Send write tokens to workflows from pull requests」を有効にすると、fork からの Pull Request の `pull_request` のジョブも write の権限を持つ。このため `id-token: write` も持ち、OIDC JWT を要求できる見込みである。「Send secrets to workflows from pull requests」も有効にするか、`role-arn` を Secret なしで組み立てていれば、トークンも受け取れる見込みである（どちらも GATES の検証環境では確かめていない）
-- Dependabot が起動したワークフローは、GitHub Actions の Secrets を参照できない。`GATES_AWS_ACCOUNT_ID` が空になって `role-arn` が組み立てられないため、トークンの取得は失敗する。同じ名前で Dependabot の Secrets に登録すると、取得できる（[GitHub Constraints](../../../docs/spec/github-constraints.md#7-github-actions-integration)）
+- Dependabot が起動したワークフローは、GitHub Actions の Secrets を参照できない。`GATES_AWS_ACCOUNT_ID` が空になって `role-arn` が組み立てられないため、トークンの取得は失敗する。同じ名前で Dependabot の Secrets に登録すると、取得できる見込みである（Variables を Dependabot から参照できることを含めて GitHub の公式資料からの推論で、GATES の検証環境では確かめていない。[GitHub Constraints](../../../docs/spec/github-constraints.md#7-github-actions-integration)）
 - Action がトークンをマスクするため、呼び出し元がもう一度マスクする必要はない。ただし、トークンの一部を切り出してログに出すと、その部分はマスクされない

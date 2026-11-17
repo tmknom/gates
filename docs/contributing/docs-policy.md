@@ -107,7 +107,7 @@ flowchart TD
 
 ### 2.4 docs/contributing/
 
-開発と運用の手順を記述します。
+GATES の開発で従う規約と手順を記述します。
 `docs/contributing/` は他のドキュメントに依存してよく、`docs/spec/` と `docs/design/` は `docs/contributing/` に依存しません。
 手順の変更が仕様や設計の変更を求めないようにするためです。
 
@@ -161,11 +161,13 @@ flowchart TD
     deployment --> import["import-key-material.md"]
     deployment --> usage["workflow-usage.md"]
     deployment --> trouble["troubleshooting.md"]
+    deployment -->|後の作業の案内に限る| operations
     rotate["rotate-key.md"] --> import
     rotate --> deployment
     usage --> security
     usage --> overview
     usage --> trouble
+    trouble --> import
     operations["operations.md"] --> deployment
     operations --> verify
     operations --> rotate
@@ -174,6 +176,13 @@ flowchart TD
 ```
 
 図にないドキュメントを加えるときや、図と逆向きの依存を足すときは、先にこの図を変更します。
+
+`deployment.md` と `operations.md` は、図で唯一の相互依存です。
+`deployment.md` から `operations.md` への依存は、デプロイを終えた運用者に後の作業の在りかを示す、主題だけを添えたファイル単位のリンク一つに限ります。
+節へのリンクや手順の内容を書かなければ、`operations.md` の節や手順を変えても `deployment.md` を直す必要がないためです。
+`troubleshooting.md` と `security-considerations.md` は `operations.md` に依存しません。
+`operations.md` がこれらに依存するため、依存すると相互依存が増えるためです。
+`operations.md` の手順で止めた発行を、Troubleshooting の読者が障害と取り違えないよう、`troubleshooting.md` には意図した停止かを確かめる但し書きを書きます。
 
 ## 3. Dependencies within docs/design
 

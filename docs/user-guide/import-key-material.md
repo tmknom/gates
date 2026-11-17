@@ -83,7 +83,7 @@ GitHub App の鍵がその 1 つだけのとき（初回のインポートなど
 `kms_keys` に置ける KMS Key は 2 つまでのため、すでに 2 つあるとき（鍵の更新の途中など）は、先に使えなくなった KMS Key を外してから加えます。
 
 インポートの後に止まったとき（鍵の状態やフィンガープリントが違うとき）は、鍵素材は取り込まれています。
-その KMS Key を使用中の鍵（`terraform/local/terraform.tfvars` の `active_kms_key` で指定する、Lambda が署名に使う鍵）にせず、原因を調べます。
+その KMS Key を **使用中の鍵**（`terraform/local/terraform.tfvars` の `active_kms_key` で指定する、Lambda が署名に使う鍵）にせず、原因を調べます。
 
 ## 5. References
 

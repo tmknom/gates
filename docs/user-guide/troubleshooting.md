@@ -9,7 +9,7 @@ Action が失敗すると、ステップが失敗で終わり、ワークフロ�
 失敗を調べる手がかりは次のとおりです。
 
 - **注釈の先頭の文言**：失敗した段階を示す。文言と段階の対応は [Issue Token](../../.github/actions/issue-token/README.md) の「失敗の読み方」にある
-- **`request_id`**：Lambda が応答に付ける ID。注釈が `GATES returned a failure response` か `the success response has no usable` で始まるときに入る。運用者はこれで、Lambda が要求ごとに CloudWatch Logs に残す **監査記録**（呼び出し元、要求、結果を書いた 1 行の JSON）を探せる
+- **`request_id`**：Lambda が応答に付ける ID。注釈が `GATES returned a failure response` か `the success response has no usable` で始まるときに入る。運用者はこれで、Lambda が要求ごとに CloudWatch Logs に残す **監査記録**（呼び出し元、要求、結果を、トークンを含めずに書いた 1 行の JSON）を探せる
 - **ワークフロー実行の ID と時刻**：`request_id` がない失敗で、運用者が AWS の記録と突き合わせる手がかり。ID はワークフロー実行のページの URL（`.../actions/runs/<ワークフロー実行の ID>`）にある。時刻は、Action が GATES を呼び出す直前にログに出す `Invoking the Lambda function at <時刻>` の行の時刻（UTC）を使う
 
 ワークフロー利用者は、§1 で自分で直せる失敗かを確かめ、直せなければ §2 に従って運用者に伝えます。
@@ -116,7 +116,7 @@ aws logs filter-log-events --log-group-name /aws/lambda/gates \
 ```
 
 注釈が `GATES returned a failure response` で始まる失敗で、ワークフロー利用者から URL だけを受け取ったときは、ワークフロー実行の ID で引きます。
-`caller` は呼び出し元の認証に成功した後にだけ記録されるため、認証の前や途中で失敗した要求（`invalid_request`、`invalid_id_token`、`identity_verification_unavailable` など）はこの方法では見つかりません。
+`caller` は Lambda が呼び出し元を確かめた後にだけ記録されるため、確かめる前や途中で失敗した要求（`invalid_request`、`invalid_id_token`、`identity_verification_unavailable` など）はこの方法では見つかりません。
 
 ```bash
 aws logs filter-log-events --log-group-name /aws/lambda/gates \
@@ -140,10 +140,12 @@ aws logs filter-log-events --log-group-name /aws/lambda/gates \
 エラーコードの定義は [Lambda Design](../design/lambda.md) の §3.2 にあります。
 表の原因には、検証環境で確かめたかどうかを添えます。
 **使用中の鍵** は、Lambda が署名に使う KMS Key で、`terraform.tfvars` の `active_kms_key` で選びます。
+**鍵素材** は、KMS Key にインポートする GitHub App Private Key の中身です。
+**鍵の更新** は、新しい KMS Key に新しい GitHub App Private Key をインポートし、使用中の鍵をその KMS Key に切り替える作業です。
 
 | エラーコード | 原因 | 確かめることと直し方 |
 |---|---|---|
-| `invalid_request` | 要求が GATES の形式検証に合わない。名前の文字種、500 を超える要求の数、権限名の文字種など、Action が検証しない形の誤りを確かめた。Action と GATES のリリースが違い、GATES の知らない形の要求を Action が送ることも考えられる（確かめていない） | `reason` の、不正なフィールドの名前と形を見る。ワークフロー利用者に、要求の直し方（§1）を伝える。リリースが違うなら、Action の参照先を、デプロイした GATES と同じリリースのコミットにしてもらう |
+| `invalid_request` | 要求が GATES の形式検証に合わない。名前の文字種、500 を超える `repositories` の要素、権限名の文字種など、Action が検証しない形の誤りを確かめた。Action と、デプロイした GATES のリリースが違い、GATES の知らない形の要求を Action が送ることも考えられる（確かめていない） | `reason` の、不正なフィールドの名前と形を見る。ワークフロー利用者に、要求の直し方（§1）を伝える。リリースが違うなら、Action の参照先を、デプロイした GATES と同じリリースのコミットにしてもらう |
 | `invalid_id_token` | GATES 用の OIDC JWT が受理条件を満たさない。Audience の食い違い、期限切れ、署名の改ざんを確かめた | `reason` からは、満たさなかった受理条件（Audience、期限、署名など）を区別できない。Audience の食い違いなら、ワークフローが参照する Variable の `GATES_AUDIENCE` を、`terraform.tfvars` の `gates_audience` と同じ値に直す |
 | `authorization_denied` | 許可オーナー以外のオーナーのリポジトリか、`contents:read` 以外の権限を要求した。どちらも確かめた | `reason` の `owner name does not match allowed owner name` か `permissions are not equal to allowed permissions` と、`request` の値を見て、ワークフロー利用者に要求の直し方（§1）を伝える |
 | `identity_verification_unavailable` | GitHub の OIDC の公開鍵の取得（OIDC Discovery と JWKS）が一時的に失敗した。関数のタイムアウトで取得が打ち切られた場合にも、このコードの監査記録が残ることを確かめた（§5.3） | 再実行で解消し得る。繰り返すなら、`reason` と [GitHub Status](https://www.githubstatus.com/) を見て、GitHub の障害か、Lambda から `token.actions.githubusercontent.com` への通信を確かめる |
@@ -152,7 +154,7 @@ aws logs filter-log-events --log-group-name /aws/lambda/gates \
 | `github_api_unavailable` | GitHub API が、通信の失敗、タイムアウト、5xx、レート制限で一時的に失敗した（確かめていない） | 再実行で解消し得る。繰り返すなら、`reason` のステータスと GitHub Status を見る |
 | `github_issuance_rejected` | GitHub の発行 API が `422` で拒否した。インストール対象にないリポジトリの要求を確かめた。`422` は GitHub の検証の失敗やスパムの判定も含むため、ステータスからは原因を特定できない | `request.repositories` を、GitHub App の Installation の画面のリポジトリと比べる。足りなければインストール対象に加える。変更は、保存から約 1 分後の要求で反映されていた。インストール対象に入っているのに拒否されるなら、`reason` の GitHub の request ID を控え、GitHub に問い合わせる |
 | `issuance_verification_failed` | GitHub が発行したトークンの対象、権限、応答の形が、GATES の照合に合わない（確かめていない） | `reason` の満たさなかった条件と GitHub の request ID を控え、GATES の開発者に報告する。`revocation` が `failed` なら、そのトークンは有効期限（発行から 1 時間）まで残り得る |
-| `internal_error` | どの種別にも当たらない失敗。使用中の KMS Key の無効化（`reason` に `kms sign failed: code "DisabledException"`）を確かめた。鍵素材のインポート前、鍵の削除の予約、Lambda の権限の不足、Lambda の panic も、このコードになる（確かめていない） | `reason` を見る。KMS の失敗なら、下記のコマンドで使用中の鍵の状態を確かめる。`Disabled` なら、悪用への対処や鍵の更新のために意図して無効にしたものでないことを確かめてから有効にする。`PendingDeletion` なら、削除の予約を取り消してから有効にする。`PendingImport` なら、鍵素材をインポートする。panic なら、同じ `request_id` の、`msg` が `panic recovered` の行にスタックトレースが残る |
+| `internal_error` | どの種別にも当たらない失敗。使用中の KMS Key の無効化（`reason` に `kms sign failed: code "DisabledException"`）を確かめた。鍵素材のインポート前、鍵の削除の予約、Lambda の権限の不足、Lambda の panic も、このコードになる（確かめていない） | `reason` を見る。KMS の失敗なら、下記のコマンドで使用中の鍵の状態を確かめる。`Disabled` なら、悪用への対処や鍵の更新のために意図して無効にしたものでないことを確かめてから有効にする。`PendingDeletion` なら、削除の予約を取り消してから有効にする。`PendingImport` なら、[Key Material Import](import-key-material.md) の手順で鍵素材をインポートする。panic なら、同じ `request_id` の、`msg` が `panic recovered` の行にスタックトレースが残る |
 
 検証環境での観測は、[GitHub App Installation Changes](../research/github/installation-changes.md)、[AWS Fault Injection](../research/aws/fault-injection.md)、E2E テストの失敗の事例によります。
 
@@ -174,7 +176,7 @@ aws kms get-public-key --key-id <KMS Key の ARN> --query PublicKey --output tex
 ```
 
 KMS Key にインポートした鍵素材は、別の鍵素材に入れ替えられません。
-GitHub App の鍵と一致しないときは、GitHub App で新しい Private Key を生成し、新しい KMS Key にインポートして、使用中の鍵をその KMS Key に切り替えます（GitHub App Private Key の鍵の更新と同じ作業）。
+GitHub App の鍵と一致しないときは、GitHub App で新しい Private Key を生成し、新しい KMS Key にインポートして、使用中の鍵をその KMS Key に切り替えます（鍵の更新と同じ作業）。
 
 ## 5. Failures without a request_id
 
@@ -184,7 +186,7 @@ GitHub App の鍵と一致しないときは、GitHub App で新しい Private K
 
 ほかに `request_id` がない注釈には、Runner の環境（`ACTIONS_ID_TOKEN_REQUEST_URL is not set`、`invalid ACTIONS_ID_TOKEN_REQUEST_URL`、`could not write to GITHUB_OUTPUT` など）と、Action の想定外の失敗（`the child process`、`an unexpected failure occurred`）があります。
 これらは AWS の記録に手がかりがないため、注釈の全文とワークフロー実行の URL を添えて、Runner の管理者か GATES の開発者に伝えます。
-`the Lambda response` で始まる注釈は、Action が GATES の応答を読めなかったことを示し、Action と GATES のリリースの食い違いが考えられます（確かめていない）。
+`the Lambda response` で始まる注釈は、Action が GATES の応答を読めなかったことを示し、Action と、デプロイした GATES のリリースの食い違いが考えられます（確かめていない）。
 `the success response has no usable` で始まる注釈も同じで、こちらは `request_id` を含み、§3 で引いた監査記録の `result` は `success` になります。
 Action の参照先が、デプロイした GATES と同じリリースのコミットかを確かめます。
 
@@ -279,6 +281,7 @@ GitHub がホストする Runner で警告が繰り返し出るときは、注�
 ## 7. References
 
 - [Issue Token](../../.github/actions/issue-token/README.md)
+- [Key Material Import](import-key-material.md)
 - [Lambda Design](../design/lambda.md)
 - [GitHub Constraints](../spec/github-constraints.md)
 - [GitHub App Installation Changes](../research/github/installation-changes.md)
