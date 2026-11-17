@@ -113,7 +113,7 @@ GATES は、次の 3 つの役割がそれぞれの責任を果たすことを�
 
 | 役割 | 担うこと |
 |---|---|
-| **GATES 運用者** | GATES を AWS にデプロイし、許可オーナー、GitHub App、署名に使う KMS Key を設定する。GitHub App Private Key を KMS にインポートし、更新する。IAM Role を引き受けられるワークフローの条件を管理する。ワークフロー利用者が使う Action を提供し、Action が GATES を呼び出すための接続情報を GitHub の Secrets と Variables に登録する。許可オーナーの名前が変わったら、IAM Role の条件と GATES の設定を更新する（更新するまで発行は止まる） |
+| **GATES 運用者** | GATES を AWS にデプロイし、許可オーナー、GitHub App、署名に使う KMS Key を設定する。GitHub App Private Key を KMS にインポートし、更新する。IAM Role を引き受けられるワークフローの条件を管理する。ワークフロー利用者が使う Action を提供し、**接続情報**（Action が GATES を呼び出すのに使う値）を GitHub の Secrets と Variables に登録する。許可オーナーの名前が変わったら、IAM Role の条件と GATES の設定を更新する（更新するまで発行は止まる） |
 | **ワークフロー利用者** | Action を呼び出すジョブで `permissions` に `id-token: write` を宣言し、Action に読みたいリポジトリ、権限、接続情報を渡す。トークンを受け取るジョブで、Pull Request のコードのような信頼できないコードを実行しない。受け取ったトークンを、ほかのジョブ、成果物、ログに渡さない。セルフホストの Runner を使うなら、Action が必要とする実行環境と通信先を用意する |
 | **GitHub App とオーナーの管理者** | GitHub App のインストール対象に、許可オーナーのどのワークフローから読まれてもよいリポジトリだけを含める。許可オーナーが Organization なら、リポジトリ管理者が自分のリポジトリをインストール対象に加えられる既定の設定を制限し、`installation_repositories:write` を与える相手を管理する。オーナーのリポジトリの OIDC JWT が不変の ID を含むように設定する。鍵の更新の後に、古い Private Key を GitHub App から削除して失効させる |
 

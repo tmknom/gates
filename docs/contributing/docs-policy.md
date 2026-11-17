@@ -45,6 +45,7 @@ flowchart TD
     guide --> architecture
     guide --> requirements
     guide --> scope
+    guide --> github
     guide --> constitution
     guide --> research
     guide --> action["Docker Action の README.md"]
@@ -162,6 +163,7 @@ flowchart TD
     rotate["rotate-key.md"] --> import
     rotate --> deployment
     usage --> security
+    usage --> overview
     usage --> trouble["troubleshooting.md"]
     operations["operations.md"] --> deployment
     operations --> verify

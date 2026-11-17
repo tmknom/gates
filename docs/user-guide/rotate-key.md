@@ -41,7 +41,7 @@ GitHub App は Private Key を 25 個まで同時に持て、GitHub の公式資
 
 - `terraform/local/terraform.tfvars` の `kms_keys` に旧鍵だけがあり、`active_kms_key` が旧鍵を指している
 - `make tf-plan` が `No changes` を示す
-- 許可オーナーのリポジトリで、[Deployment](deployment.md) の §9.1 のワークフローのように GATES の Docker Action でトークンを受け取るワークフローが成功する
+- 許可オーナーのリポジトリで、[Deployment](deployment.md) の §9.1 で実行したワークフローのように GATES の Docker Action でトークンを受け取るワークフローが成功する
 - [Deployment](deployment.md) の §2.1 から §2.3 の前提（手元のツール、AWS の一時認証情報とその権限、AWS CLI のリージョン、IAM OIDC Provider）を満たしている
 - 一時認証情報に、Deployment の §2.2 の権限に加えて、KMS Key の無効化（`kms:DisableKey`）と削除の予約（`kms:ScheduleKeyDeletion`）、CloudTrail の参照（`cloudtrail:LookupEvents`）の権限がある
 

@@ -578,58 +578,21 @@ gh secret set GATES_AWS_ACCOUNT_ID --app dependabot --repo <オーナー名>/<�
 
 ### 9.1 Running a Workflow
 
-§8 で接続情報を登録した許可オーナーのリポジトリに、次のワークフローを置きます。
-`<読むリポジトリ>` には、§3.2 でインストール対象に加えたリポジトリの完全名（`<オーナー名>/<リポジトリ名>`）を、`<コミット>` には §4 でチェックアウトしたタグのコミットの SHA（`git rev-parse HEAD` の出力）を入れます。
-Action は、デプロイした Lambda と同じリリースのものを、タグではなくコミットの SHA で参照します。
-異なるリリースの Action と Lambda を組み合わせて動くかは、確かめていないためです。
-
-```yaml
-name: GATES First Issuance
-on: workflow_dispatch
-
-permissions: {}
-
-jobs:
-  read-repository:
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-    steps:
-      - name: Issue token
-        id: gates
-        uses: tmknom/gates/.github/actions/issue-token@<コミット>
-        with:
-          repositories: <読むリポジトリ>
-          permissions: contents:read
-          role-arn: arn:aws:iam::${{ secrets.GATES_AWS_ACCOUNT_ID }}:role/${{ vars.GATES_ROLE_NAME }}
-          function-name: ${{ vars.GATES_FUNCTION_NAME }}
-          aws-region: ${{ vars.GATES_AWS_REGION }}
-          audience: ${{ vars.GATES_AUDIENCE }}
-
-      - name: Read repository
-        env:
-          GH_TOKEN: ${{ steps.gates.outputs.token }}
-        run: gh api repos/<読むリポジトリ> --jq .full_name
-```
-
-`permissions` の `id-token: write` は、Action が GitHub に OIDC JWT を要求するために要ります。
-Action の入力と出力の意味は [Issue Token](../../.github/actions/issue-token/README.md) にあります。
+§8 で接続情報を登録した許可オーナーのリポジトリに、[Using GATES in Workflows](workflow-usage.md) の §2 の最小のワークフローを置きます。
+`repositories` と `Read repository` のステップの `example-owner/repo-a` は、§3.2 でインストール対象に加えたリポジトリの完全名（`<オーナー名>/<リポジトリ名>`）に置き換えます。
+`<コミット>` には、§4 でチェックアウトしたタグのコミットの SHA（`git rev-parse HEAD` の出力）を入れます。
+このコミットは、ワークフロー利用者に Action の参照先として伝えるものでもあります。
 
 ワークフローを既定のブランチに置いて、実行します。
+`<ワークフローの名前>` は、ワークフローの `name` の値です。
 
 ```bash
-gh workflow run "GATES First Issuance" --repo <オーナー名>/<リポジトリ名>
+gh workflow run "<ワークフローの名前>" --repo <オーナー名>/<リポジトリ名>
 ```
 
 ワークフローの実行が成功し、`Read repository` のステップが読むリポジトリの完全名を出力すれば、トークンでそのリポジトリを読めています。
-`Issue token` のステップのログには、次の行が出ます。
-`request_id` は、§9.2 で監査記録を探すのに使います。
-
-```text
-Issued the token: request_id=<request_id> expires_at=<有効期限> repositories=<読むリポジトリ> permissions=contents:read,metadata:read
-```
-
-ジョブの最後の `Post Issue token` のステップで、Action はトークンの失効を試みます。
+`Issue token` のステップのログに出る `Issued the token:` の行の `request_id` を控えます。
+§9.2 で監査記録を探すのに使います。
 
 失敗したときは、`Issue token` のステップの `::error::` の注釈の先頭の文言で、失敗した段階を見分けられます。
 段階ごとの見直す箇所は、[Issue Token](../../.github/actions/issue-token/README.md) の「失敗の読み方」にあります。
@@ -664,7 +627,8 @@ aws logs filter-log-events --log-group-name /aws/lambda/gates \
 監査記録のほかの項目は [Lambda Design](../design/lambda.md) の §7 にあります。
 
 ここまでで、デプロイは完了です。
-許可オーナーのほかのリポジトリで GATES を使うときは、§8 の接続情報をそのリポジトリから参照できるようにし、§9.1 と同じ形のステップを置きます。
+許可オーナーのほかのリポジトリで GATES を使うときは、§8 の接続情報をそのリポジトリから参照できるようにし、ワークフロー利用者に、接続情報の名前、インストール対象、参照する Action のコミットを伝えます。
+ワークフロー利用者がワークフローを書く手順は、[Using GATES in Workflows](workflow-usage.md) にあります。
 
 ## 10. References
 
