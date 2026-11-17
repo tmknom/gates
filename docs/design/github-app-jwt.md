@@ -3,7 +3,9 @@
 本ドキュメントは、GATES が GitHub App JWT を生成するときの条件を定めます。
 GitHub App JWT は、GitHub API に GitHub App として認証するために Lambda が構築し、KMS が署名する JWS です。
 GATES はこの JWT で、Installation の取得と Installation Access Token の発行を要求します。
-OpenID Connect ID Token ではないため、OIDC の `sub`、`aud`、`nonce` に関する Claim 要求を機械的に追加しません（[GitHub Constraints §4.2](../spec/github-constraints.md#42-github-app-jwt)、[GitHub App JWT 公式資料](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-json-web-token-jwt-for-a-github-app)）。
+OpenID Connect ID Token ではないため、OpenID Connect Core が ID Token に求める `sub` と `aud` の必須条件、`nonce` の照合、`iss` を HTTPS URL とする条件を適用せず、これらに関する Claim 要求を機械的に追加しません（[GitHub App Constraints](../external/github/app.md)、[OpenID Connect Standards](../external/standards/oidc.md)、[GitHub App JWT 公式資料](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-json-web-token-jwt-for-a-github-app)）。
+App ID または Client ID を `iss` にすることは、`iss` を文字列とする JWT 一般の規定と矛盾しません。
+`RS256` の指定と `exp` の上限10分は、JWT の標準仕様ではなく GitHub が追加する条件です（[JWT Standards](../external/standards/jwt.md)）。
 
 各条件には、GitHub App JWT を表す `GAJ-` で始まる ID を付けます。
 
@@ -59,7 +61,9 @@ JOSE Header は `alg` と `typ` の2つだけとし、`alg` は `RS256`、`typ` 
 
 ## References
 
-- [GitHub Constraints](../spec/github-constraints.md) — GitHub App JWT の GitHub 公式仕様
+- [GitHub App Constraints](../external/github/app.md) — GitHub App JWT の GitHub 公式仕様
+- [JWT Standards](../external/standards/jwt.md) — `iss`、`iat`、`exp` の標準仕様
+- [OpenID Connect Standards](../external/standards/oidc.md) — ID Token に限られる規定
 - [GitHub App Installation](../research/github/app-installation.md) — GitHub が受け付けた GitHub App JWT の Header
 - [RFC 7519 — JSON Web Token](https://www.rfc-editor.org/rfc/rfc7519.html)
 - [GitHub — Generating a JWT for a GitHub App](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-json-web-token-jwt-for-a-github-app)

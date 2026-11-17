@@ -18,7 +18,7 @@ OIDC JWT の値は記録していません。
 {"use_default":true,"use_immutable_subject":false,"sub_claim_prefix":"repo:octocat/example-legacy-repo"}
 ```
 
-2026-07-15 以降に作られたリポジトリは immutable `sub` を自動で使い、`include_claim_keys` でカスタマイズしても ID を外せないと、GitHub の公式資料が記述しています（[GitHub Constraints](../../spec/github-constraints.md#32-immutable-subject-とカスタマイズ)）。
+2026-07-15 以降に作られたリポジトリは immutable `sub` を自動で使い、`include_claim_keys` でカスタマイズしても ID を外せないと、GitHub の公式資料が記述しています（[GitHub — OIDC reference: Immutable subject claims](https://docs.github.com/en/actions/reference/security/oidc#immutable-subject-claims)、[GitHub — OIDC reference: Customizing the token claims](https://docs.github.com/en/actions/reference/security/oidc#customizing-the-token-claims)）。
 このため、旧形式の `sub` の JWT は、同日より前に作られたリポジトリでだけ取得できます。
 
 ## Trust Policy

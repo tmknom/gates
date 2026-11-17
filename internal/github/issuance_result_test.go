@@ -18,7 +18,7 @@ func TestIssuanceResult_EffectiveRepositoriesCannotBeModifiedByCaller(t *testing
 }
 
 func TestInstallationAccessToken_ExposeReturnsTokenAsIs(t *testing.T) {
-	// GitHub Constraints が新形式のトークンの長さとして挙げる約 520 文字
+	// GitHub App Constraints が新形式のトークンの長さとして挙げる約 520 文字
 	token := "ghs_" + strings.Repeat("A1b2_", 103) + "x"
 	issuance := recordedIssuance()
 	issuance["token"] = token

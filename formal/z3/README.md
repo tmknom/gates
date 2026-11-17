@@ -2,7 +2,7 @@
 
 このディレクトリには、GATES が受け取る GitHub OIDC JWT の、デコード済みの Claims Set に対する受理条件を SMT-LIB 2 で記述しています。
 ソルバーは [Z3](https://github.com/Z3Prover/z3) です。
-受理条件の正本は [GATES OIDC JWT Claims](../../docs/design/gates-oidc-jwt-claims.md) で、規範性の根拠は [JWT Constraints](../../docs/spec/jwt-constraints.md)、[GitHub Constraints](../../docs/spec/github-constraints.md) と一次資料です。
+受理条件の正本は [GATES OIDC JWT Claims](../../docs/design/gates-oidc-jwt-claims.md) で、規範性の根拠は [JWT Standards](../../docs/external/standards/jwt.md)、[OpenID Connect Standards](../../docs/external/standards/oidc.md)、[GitHub Actions OIDC Constraints](../../docs/external/github/oidc.md) と一次資料です。
 
 検査は、確かめる対象で次の 2 つに分かれます。
 実装が仕様どおりかは、このモデルではなく Go のテストが確かめます。
@@ -66,8 +66,8 @@ SMT-LIB にはファイルを読み込む仕組みがないため、`verify.sh` 
 | RFC-AUD-RECEIVER | `standard-aud-selected` | JWT の受信者、Audience の包含 | RFC 7519 §4.1.3 | 受信者が含まれることは MUST。単一の Audience は追加の制約 |
 | RFC-ISS/SUB-TYPE | `standard-selected` | `iss`、`sub` | RFC 7519 §4.1.1, §4.1.2 | 選択した型と一致の条件だけ |
 | OIDC-SUB-255 | `oidc-sub-conditional` | OIDC Core の ID Token | OIDC Core §2、GOJ-SUB | ID Token の標準の要求。GATES の受理条件がこれを満たすことを `PSUBOIDC` で確かめる |
-| GH-ISS | `github-issuer` | GitHub の発行者 | `github-constraints.md` §3.1 | 公式の仕様（固定の Issuer） |
-| GH-SUB-IMMUTABLE | `gates-sub` の採用形式 | GitHub の発行条件と GATES の受理条件は別 | `github-constraints.md` §3.2、GOJ-SUB | GitHub の発行形式は条件付き。GATES が不変の形式を要求する |
+| GH-ISS | `github-issuer` | GitHub の発行者 | `docs/external/github/oidc.md` | 公式の仕様（固定の Issuer） |
+| GH-SUB-IMMUTABLE | `gates-sub` の採用形式 | GitHub の発行条件と GATES の受理条件は別 | `docs/external/github/oidc.md`、GOJ-SUB | GitHub の発行形式は条件付き。GATES が不変の形式を要求する |
 | G-EXP | `gates-exp` | GATES の Verifier、`exp` | GOJ-EXP, GOJ-TIME | 採用済み。整数の字句、0..253402300799、`now < exp`。受理される時刻に上限があることを `PTIMEBOUNDED` で確かめる |
 | G-IAT | `gates-iat` | GATES の Verifier、`iat` | GOJ-IAT, GOJ-TIME | 採用済み。未来の上限は 300 秒。時刻の 3 つの規則を合わせて、受理される時刻が区間をなすことを `PTIMEINTERVAL` で確かめる |
 | G-NBF | `gates-nbf` | GATES の Verifier、`nbf` | GOJ-NBF, GOJ-TIME | 採用済み。欠落は許し、型の違いは拒否する |

@@ -38,7 +38,7 @@ Runner はコンテナを起動する `docker run` の行に環境変数の名�
 
 接続情報は GATES 運用者が GitHub の Secrets と Variables に用意し、ワークフローはそれを参照します。AWS アカウント ID は Secrets に置き、その他の値は Variables に置きます。ワークフローに値を直接書かず参照だけにするのは、Role 名や関数名を変えたときに、Secrets と Variables の更新だけで済ませ、利用者のワークフロー定義を変えずに済ませるためです（[Acceptance Criteria](../spec/acceptance-criteria.md) AC-OPS-010）。
 
-Secrets と Variables を置く単位は、許可オーナーの種別で決まります（GitHub 側の仕様は [GitHub Constraints](../spec/github-constraints.md#7-github-actions-integration)）。
+Secrets と Variables を置く単位は、許可オーナーの種別で決まります（GitHub 側の仕様は [GitHub Actions Integration Constraints](../external/github/actions.md)）。
 オーナーが Organization なら Organization 単位に一度だけ登録します。
 ただし、GitHub Free の private リポジトリと、ポリシーで利用を制限したリポジトリからは Organization 単位の値を参照できないため、それらのリポジトリには個別に登録します。
 ユーザーアカウントには Organization 単位に相当する Secrets と Variables がないため、Docker Action を使う各リポジトリに登録します。
@@ -88,7 +88,7 @@ Output と `GITHUB_STATE` は、応答をすべて判定して成功が決まっ
 どちらへの書き込みの失敗もエラー終了にします。
 書き込みに失敗してもステップが成功で終わると、後続ステップは空のトークンで動き、失敗の原因を追えないためです。
 
-Docker Action の中でマスクしたトークンは、呼び出し元の後続ステップのログでもマスクされます（[GitHub Constraints](../spec/github-constraints.md#7-github-actions-integration)）。
+Docker Action の中でマスクしたトークンは、呼び出し元の後続ステップのログでもマスクされます（[GitHub Actions Integration Constraints](../external/github/actions.md)）。
 そのため呼び出し元はトークンをもう一度マスクする必要はありません。
 ただし、マスクは登録した文字列の全体に一致する箇所に効くため、後続ステップがトークンの一部を切り出してログに出すと、その部分はマスクされません（[GitHub Composite Action Outputs](../research/github/composite-action-outputs.md#mask)）。
 
@@ -153,7 +153,7 @@ Docker Action は入力値を [Lambda Request](lambda.md#2-request) に従って
 資格情報をプロセスのメモリの中だけで扱うことは、ランナーで動作する信頼できないコードから資格情報を保護するものではありません。
 同じジョブで信頼できないコードを動かさないことは利用者の責任です（[Security Design](security.md#5-failure-audit-and-security-risks)）。
 
-OIDC JWT の取得、`GITHUB_OUTPUT`、`GITHUB_STATE`、マスク登録、Docker Action の実行環境の GitHub 側の仕様は [GitHub Constraints](../spec/github-constraints.md#7-github-actions-integration) を参照します。
+OIDC JWT の取得、`GITHUB_OUTPUT`、`GITHUB_STATE`、マスク登録、Docker Action の実行環境の GitHub 側の仕様は [GitHub Actions Integration Constraints](../external/github/actions.md) を参照します。
 
 OIDC JWT の取得では、`ACTIONS_ID_TOKEN_REQUEST_URL` に URI エンコードした Audience を `audience` のパラメーターで付けて GET し、要求用トークンを `Authorization: Bearer` のヘッダーで送ります。
 リダイレクトには従わず、`3xx` は失敗にします。
@@ -326,7 +326,7 @@ Lambda Invoke の上限は、関数のタイムアウト（[AWS Infrastructure D
 | GATES 用 OIDC JWT | 応答から取り出した直後 |
 | Installation Access Token | 応答から取り出した直後。応答のほかの項目を判定する前。post-entrypoint では `STATE_token` から読んだ直後 |
 
-マスクはジョブごとに効くため、メインで登録したトークンのマスクは、別のコンテナで動く post-entrypoint のログにも効きます（[GitHub Constraints](../spec/github-constraints.md#7-github-actions-integration)）。
+マスクはジョブごとに効くため、メインで登録したトークンのマスクは、別のコンテナで動く post-entrypoint のログにも効きます（[GitHub Actions Integration Constraints](../external/github/actions.md)）。
 post-entrypoint でもトークンを読んだ直後にもう一度マスクするのは、マスクがメインの登録の成否に依存しないようにするためです。
 
 ### 3.5 Revocation
@@ -460,14 +460,14 @@ Docker Action の Go のコードは、Go コーディングルールが既定�
 - `ENTRYPOINT` は exec 形式と絶対パスで書き、`WORKDIR` を使わない
 - `.dockerignore` は `*` ですべて除外してから、ビルドに使うファイル（`go.mod`、`go.sum`、`main.go`、`internal/` の試験以外のファイル）だけを許可する
 - `USER` を置かず、root で動かす
-- Dependabot の `docker` で `FROM` のイメージを、`gomod` で Go の依存を更新する。`docker` が `FROM` の digest も更新するかは、GitHub の資料に明記がない（[GitHub Constraints](../spec/github-constraints.md#7-github-actions-integration)）
+- Dependabot の `docker` で `FROM` のイメージを、`gomod` で Go の依存を更新する。`docker` が `FROM` の digest も更新するかは、GitHub の資料に明記がない（[GitHub Actions Integration Constraints](../external/github/actions.md)）
 
 ビルド用のイメージを Alpine 版ではなく Debian 版にするのは、Alpine 版が Go プロジェクトの公式サポートの対象外だからです（[Docker Hub — golang](https://hub.docker.com/_/golang)）。
 `CGO_ENABLED=0` でビルドするため、C ライブラリの違いは実行ファイルに影響しません。
 イメージのビルドの時間は、Alpine 版と Debian 版でほぼ同じでした（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#build-time)）。
 
 実行ユーザーを root にするのは、root 以外では `GITHUB_OUTPUT` と `GITHUB_STATE` に書けないためです。
-GitHub の資料は Docker Action を既定の Docker ユーザー（root）で動かすよう求めています（[GitHub Constraints](../spec/github-constraints.md#7-github-actions-integration)）。
+GitHub の資料は Docker Action を既定の Docker ユーザー（root）で動かすよう求めています（[GitHub Actions Integration Constraints](../external/github/actions.md)）。
 ファイルコマンドのファイルの所有者は Runner を動かすユーザーで、ほかのユーザーに書き込みの権限がなく、その uid は Runner の環境ごとに決まるため、イメージに固定の uid を置いても書き込める保証がありません。
 コンテナに入るのはこのリポジトリでビルドした実行ファイルと CA 証明書だけであり、root で動くことの影響は Security Design が受容するリスクの範囲にとどめます（[Security Design](security.md#5-failure-audit-and-security-risks)）。
 
@@ -479,7 +479,7 @@ Docker Action のイメージは、利用者の Runner がジョブのたびに�
 
 ### 5.4 Runner Requirements
 
-Docker Action は、Linux の Runner と Docker を要します（[GitHub Constraints](../spec/github-constraints.md#7-github-actions-integration)）。
+Docker Action は、Linux の Runner と Docker を要します（[GitHub Actions Integration Constraints](../external/github/actions.md)）。
 加えて、Runner から次の宛先へ通信できる必要があります。
 
 - イメージのビルド：Docker Hub（ビルド用のイメージの取得）と Go module proxy（`proxy.golang.org`、Go の依存の取得）
@@ -547,12 +547,13 @@ post-entrypoint はジョブの最後に動くため、利用者のステップ�
 この確かめ方は、試験用の Action の post が Docker Action の post-entrypoint より後に動くことを前提とします。
 GitHub の資料に post の順序の明記はありませんが、Runner はメインの処理を始めるときに post をスタックに積み、ジョブの最後に積んだ逆の順で取り出します（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#runner-source)）。
 試験では、2 つの post の順序もステップの番号とログで確かめます。
-GitHub は失効が効くまでの時間を公開しておらず、失効の `204` の直後の読み取りが通ってこの試験が失敗した事例があります（[GitHub Constraints](../spec/github-constraints.md#63-失効)）。
+GitHub は失効が効くまでの時間を公開しておらず、失効の `204` の直後の読み取りが通ってこの試験が失敗した事例があります（[GitHub App Constraints](../external/github/app.md)）。
 このため、この試験の失敗は、post-entrypoint の失効の結果と合わせて読みます。
 
 ## 7. References
 
-- [GitHub Constraints](../spec/github-constraints.md)
+- [GitHub Actions Integration Constraints](../external/github/actions.md)
+- [GitHub App Constraints](../external/github/app.md)
 - [GitHub Docker Action Runtime](../research/github/docker-action-runtime.md)
 - [GitHub — Creating a Docker container action](https://docs.github.com/en/actions/tutorials/use-containerized-services/create-a-docker-container-action)
 - [GitHub — Dockerfile support for GitHub Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/dockerfile-support)

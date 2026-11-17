@@ -26,8 +26,8 @@ package 名が概念名の前半を表すときは、型名からその部分を
 本ドキュメントは、GATES に必要な値を概念として定義し、GitHub や AWS がその値をどのフィールドや Claim で提供するかは書きません。
 提供のされ方は手段であり、概念の意味を変えないためです。
 GitHub が定めた値そのものを書くのは、ルールがその値に依存する許可権限と付随権限に限ります。
-GitHub が定める仕様の内容、出典、未確認事項は [GitHub Constraints](../spec/github-constraints.md) を正本とし、本ドキュメントはそれが GATES のルールに及ぼす影響だけを書きます。
-JWT / JWS / JWK / OpenID Connect の標準仕様の規定の整理は [JWT Constraints](../spec/jwt-constraints.md) に置きます。
+GitHub が定める仕様の内容、出典、未確認事項は [GitHub Actions OIDC Constraints](../external/github/oidc.md)、[GitHub Owner and Repository Constraints](../external/github/account.md)、[GitHub App Constraints](../external/github/app.md) を正本とし、本ドキュメントはそれが GATES のルールに及ぼす影響だけを書きます。
+JWT / JWS / JWK / OpenID Connect の標準仕様の規定の整理は [JOSE Standards](../external/standards/jose.md)、[JWT Standards](../external/standards/jwt.md)、[OpenID Connect Standards](../external/standards/oidc.md) に置きます。
 
 本ドキュメントの記述は、根拠の種類を次の表記で区別します。
 
@@ -63,11 +63,11 @@ GATES は、発行の判定を Invoke ごとの **発行処理**（Issuance Proc
 
 | 概念 | 英語名 | 同一性 | 主な性質 | 根拠 |
 |---|---|---|---|---|
-| **オーナー** | Owner | 不変 Owner ID | 名前（変更され得る）、種別（Organization またはユーザーアカウント）。リポジトリを所有する | 事実：Requirements §1、GitHub Constraints §2.1 |
-| **リポジトリ** | Repository | 不変 Repository ID | 完全名 `owner/repo`（名前変更・移管で変わり得る）、所有オーナー | 事実：GitHub Constraints §2.1、§3.2、Lambda Design §2.2 |
-| **GitHub App** | GitHub App | Client ID | 権限の上限（GitHub 側で設定）、Private Key（複数持てる。上限は GitHub Constraints §4.1） | 事実：Lambda Design §4、GitHub Constraints §4.1 |
-| **Installation** | Installation | Installation ID | インストール先 Owner ID、対象の選び方、付与された権限、停止状態 | 事実：GitHub Constraints §5 |
-| **ワークフロー実行** | Workflow Run | ワークフロー実行 ID と試行番号 | 実行元のリポジトリとオーナー、起動のイベントと ref など。GATES 用 OIDC JWT の主体は実行元とワークフロー起動属性の一部を表し、実行そのものは識別しない | 事実：GitHub Constraints §3.1 |
+| **オーナー** | Owner | 不変 Owner ID | 名前（変更され得る）、種別（Organization またはユーザーアカウント）。リポジトリを所有する | 事実：Requirements §1、GitHub Owner and Repository Constraints |
+| **リポジトリ** | Repository | 不変 Repository ID | 完全名 `owner/repo`（名前変更・移管で変わり得る）、所有オーナー | 事実：GitHub Owner and Repository Constraints、GitHub Actions OIDC Constraints、Lambda Design §2.2 |
+| **GitHub App** | GitHub App | Client ID | 権限の上限（GitHub 側で設定）、Private Key（複数持てる。上限は GitHub App Constraints） | 事実：Lambda Design §4、GitHub App Constraints |
+| **Installation** | Installation | Installation ID | インストール先 Owner ID、対象の選び方、付与された権限、停止状態 | 事実：GitHub App Constraints |
+| **ワークフロー実行** | Workflow Run | ワークフロー実行 ID と試行番号 | 実行元のリポジトリとオーナー、起動のイベントと ref など。GATES 用 OIDC JWT の主体は実行元とワークフロー起動属性の一部を表し、実行そのものは識別しない | 事実：GitHub Actions OIDC Constraints |
 | **Issuer の公開鍵集合** | JWK Set（JWKS） | 固定 Issuer に対応する公開鍵集合（取得先は Discovery の `jwks_uri`） | 署名検証用の個々の JWK の集合。ローテーションによって内容が変わり得る。GATES は Discovery で取得先を確認し、使用可能な鍵だけを実行環境内で保持する。個々の鍵の選択には JWK の `kid` を使う。秘密鍵か対称鍵の値を含む集合は、全体を受け入れない | 事実：Lambda Design §6.1、RFC 7517 §4.5・§5。日本語の概念名は本ドキュメントの表現 |
 | **Discovery** | Discovery | Issuer | Issuer が公開する設定。GATES はそこから Issuer の値と公開鍵の取得先だけを読む。成功した内容は実行環境の中で再利用し、失敗した内容は保持しない | 事実：Lambda Design §6.1、OpenID Connect Discovery |
 
@@ -91,7 +91,7 @@ Installation には、GATES が参照する次の属性があります。
 Installation の対象の選び方と付与された権限は、GATES の判定に使いません。
 対象の選び方は、発行結果の属性としてだけ照合します（[3.4](#34-issuance-result)）。
 
-Installation は、GitHub App とオーナーの組に対して高々一つ存在します（推論：GitHub Constraints §5 の、オーナーを指定して単一の Installation を返すエンドポイントが Organization とユーザーアカウントのそれぞれにあることから。GitHub が一意性を明示的に保証したものとは扱わない）。
+Installation は、GitHub App とオーナーの組に対して高々一つ存在します（推論：GitHub App Constraints の、オーナーを指定して単一の Installation を返すエンドポイントが Organization とユーザーアカウントのそれぞれにあることから。GitHub が一意性を明示的に保証したものとは扱わない）。
 この性質があるため、GATES は Installation ID を設定に持たず、固定した GitHub App と許可オーナーから実行時に導出します（事実：Requirements FR-OPS-006）。
 
 Issuer の公開鍵集合の JWK は、GATES の受理条件で次の二つに分かれます。
@@ -100,7 +100,7 @@ Issuer の公開鍵集合の JWK は、GATES の受理条件で次の二つに�
 - **除外した JWK**（Excluded JWK）：受理条件を満たさず保持しない JWK。`kid` も保持しないため、JWT の判定では存在しない鍵と同じに扱う。運用者が Issuer の鍵情報の不整合に気付けるよう記録するが、監査記録の項目ではない（事実：GATES OIDC JWT Signature の GOJ-JWKS。英語名は候補。監査記録は発行処理 1 回の単位で、除外は取得 1 回の単位のため）
 
 ワークフロー実行は、**ワークフロー実行 ID**（Run ID）と **試行番号**（Run Attempt）の組で特定します。
-再実行は同じワークフロー実行 ID のもとで試行番号を増やすため、両方を持って初めて一回の実行を指せます（事実：GitHub Constraints §3.1）。
+再実行は同じワークフロー実行 ID のもとで試行番号を増やすため、両方を持って初めて一回の実行を指せます（事実：GitHub Actions OIDC Constraints）。
 
 ### 3.2 Fixed Configuration
 
@@ -128,11 +128,11 @@ Client ID、KMS Key ARN、Audience、Issuer、API Host は、認証、署名、I
 |---|---|---|---|---|
 | **発行要求** | Token Request | 値 | 対象（重複のない完全名の列）と Permissions。利用者が明示する。対象は明示した完全名だけで、全リポジトリを対象にする手段を持たない | 事実：Requirements FR-AUTHZ-007、Lambda Design §2.1 |
 | **Permission Entry** | Permission Entry | 値 | 権限名と水準の組（`contents:read` など） | 事実：Requirements FR-AUTHZ-003 |
-| **Permissions** | Permissions | 値 | Permission Entry の集合。権限名ごとに水準を一つ持つ（GitHub の権限の表現が権限名をキーに持つため）。要求では `{contents:read}` だけが許可される。GitHub REST API のスキーマ「App Permissions」に対応する | 事実：Requirements FR-AUTHZ-003、Security Design §3.1、GitHub Constraints §6.1、REST API endpoints for GitHub Apps のスキーマ「App Permissions」 |
+| **Permissions** | Permissions | 値 | Permission Entry の集合。権限名ごとに水準を一つ持つ（GitHub の権限の表現が権限名をキーに持つため）。要求では `{contents:read}` だけが許可される。GitHub REST API のスキーマ「App Permissions」に対応する | 事実：Requirements FR-AUTHZ-003、Security Design §3.1、GitHub App Constraints、REST API endpoints for GitHub Apps のスキーマ「App Permissions」 |
 | **許可権限** | Allowed Permissions | 値 | GATES が発行を許可する Permissions。`{contents:read}` に固定 | 事実：Requirements FR-AUTHZ-003 |
-| **付随権限** | Implied Permissions | 値 | 要求にかかわらず GitHub が付与する Permission Entry。`metadata:read` だけを許容する | 事実：Requirements FR-ISSUANCE-006 が除外の枠を定める。`metadata:read` だけを許容するのは GATES の判断。未確認：`metadata:read` が実際に付与されるか（GitHub Constraints §6.2）。語は候補 |
+| **付随権限** | Implied Permissions | 値 | 要求にかかわらず GitHub が付与する Permission Entry。`metadata:read` だけを許容する | 事実：Requirements FR-ISSUANCE-006 が除外の枠を定める。`metadata:read` だけを許容するのは GATES の判断。未確認：`metadata:read` が実際に付与されるか（GitHub App Constraints）。語は候補 |
 | **Caller** | Caller | 値 | 検証済み GATES 用 OIDC JWT から確定した呼び出し元。不変 Owner ID と Repository ID で識別し、ワークフロー実行 ID と試行番号、およびワークフロー起動属性を監査のためだけに添える | 事実：Requirements FR-AUTHN-002 |
-| **ワークフロー起動属性** | Workflow Trigger Attributes | 値 | ワークフロー実行の起動と、GATES 用 OIDC JWT を取得したジョブを示す属性の組。誰が起動したか（行為者の名前と ID）、どのイベントか、どの ref とコミットか、どのワークフロー定義か、どの environment か。どれも欠落し得る | 事実：GitHub Constraints §3.1、GATES OIDC JWT Claims の Claim Summary |
+| **ワークフロー起動属性** | Workflow Trigger Attributes | 値 | ワークフロー実行の起動と、GATES 用 OIDC JWT を取得したジョブを示す属性の組。誰が起動したか（行為者の名前と ID）、どのイベントか、どの ref とコミットか、どのワークフロー定義か、どの environment か。どれも欠落し得る | 事実：GitHub Actions OIDC Constraints、GATES OIDC JWT Claims の Claim Summary |
 | **署名検証済みの Claims Set** | Signature-Verified Claims Set | 値 | 署名検証を通った GATES 用 OIDC JWT の Claims Set の JSON オブジェクト全体。Claim の分類によらずすべての Claim を含み、署名を含まない。監査記録で調査に使うだけで、Caller にもワークフロー起動属性にも含めない | 事実：Requirements FR-OPS-003 |
 | **発行許可** | Token Grant | 値 | Installation ID、対象の完全名の列、許可権限。認可が成立した結果であり、発行 API の呼び出しの内容を定める | 事実：Security Design §3.1 |
 
@@ -160,7 +160,7 @@ GATES は署名検証済みの Claims Set を監査記録に書き写すだけ�
 
 | 概念 | 英語名 | 種別 | 内容 | 根拠 |
 |---|---|---|---|---|
-| **発行結果** | Issuance Result | 値 | GitHub API が返した Installation Access Token、有効期限、実効対象の集合、実効権限、対象の選び方。GitHub REST API のスキーマ「Installation Token」に対応する | 事実：GitHub Constraints §6.2、REST API endpoints for GitHub Apps のスキーマ「Installation Token」 |
+| **発行結果** | Issuance Result | 値 | GitHub API が返した Installation Access Token、有効期限、実効対象の集合、実効権限、対象の選び方。GitHub REST API のスキーマ「Installation Token」に対応する | 事実：GitHub App Constraints、REST API endpoints for GitHub Apps のスキーマ「Installation Token」 |
 | **実効権限** | Effective Permissions | 値 | 発行結果に含まれる Permissions。許可権限と付随権限の範囲内であることを照合する | 事実：Requirements FR-ISSUANCE-004、FR-ISSUANCE-006 |
 | **実効対象** | Effective Repository | 値 | 発行結果に含まれる各リポジトリ。Repository ID、所有オーナーの Owner ID、完全名を持つ | 事実：Lambda Design §6.3 |
 | **返却可能な発行結果** | Returnable Issuance Result | 値 | 発行許可との照合を通った発行結果。利用者に返せるのはこれだけ。トークン、有効期限、実効権限、実効対象の集合を持つ | 事実：Security Design §3.4 |
@@ -471,7 +471,7 @@ Handler が応答を書けない Invoke には、発行処理を始めないも�
 
 **内容**：Caller の Owner ID と Repository ID は、GATES 用 OIDC JWT の中で主体を表す属性と個別の属性の両方に現れる。両方がそろい、互いに一致するときに限り Caller を確定する
 
-**根拠**：事実：GitHub Constraints §3.2、GATES OIDC JWT Claims の Cross-Claim Invariants
+**根拠**：事実：GitHub Actions OIDC Constraints、GATES OIDC JWT Claims の Cross-Claim Invariants
 
 #### RULE-005 名前の比較規則
 
@@ -558,7 +558,7 @@ Installation に対象リポジトリが含まれることを、GATES は発行�
 
 **例外**：なし
 
-**根拠**：事実：Lambda Design §2.1、GitHub Constraints §6.1
+**根拠**：事実：Lambda Design §2.1、GitHub App Constraints
 
 #### RULE-013 入力不正と認可拒否の区別
 
@@ -622,7 +622,7 @@ Installation に対象リポジトリが含まれることを、GATES は発行�
 
 **常に成り立つこと**：Issuer が `https` のホストと、あれば空でないポートだけからなり、解析しても文字列が変わらない URL で、Audience が空でなく、AWS 用 OIDC JWT の Audience `sts.amazonaws.com` と異なり、ASCII の範囲で大文字小文字を区別せずに比べて、`https://github.com` と異なり、`https://github.com/` で始まらない
 
-**根拠**：推論：空の Audience はすべての JWT を拒否し、空の Issuer は Issuer の値のない署名済み JWT を通す。`sts.amazonaws.com` を拒否するのは、同じジョブで取得する AWS 用 OIDC JWT で認証を通せるようにしないため。github.com の URL を拒否するのは、GitHub が GitHub 全体を指す `https://github.com` と、呼び出し元のオーナーとリポジトリの URL でも発行し（事実：GitHub Constraints §3.1）、オーナーの URL は Audience を指定しない OIDC JWT にも入るため（事実：GATES OIDC JWT Claims の GOJ-AUD）、同じ値を Audience に使うほかのサービス向けの OIDC JWT や、Audience を指定せずに取得した OIDC JWT で認証を通せるようにしないため。前方一致で拒否するのは、発行される URL が呼び出し元ごとに異なり、値を列挙できないため。大文字小文字を区別しないのは、ホスト名、オーナー名、リポジトリ名が大文字小文字を区別しないため。RFC 3986 §6.2.3 が同じ URL とする、空のポートや既定のポートを付けた形は、Audience に選ばれる表記と考えにくいため扱わない。`https` に限るのは、平文の通信を設定から有効にできる形にしないため。ポートを許すのは、`httptest` の Issuer で取得と失敗の分類を確かめるため
+**根拠**：推論：空の Audience はすべての JWT を拒否し、空の Issuer は Issuer の値のない署名済み JWT を通す。`sts.amazonaws.com` を拒否するのは、同じジョブで取得する AWS 用 OIDC JWT で認証を通せるようにしないため。github.com の URL を拒否するのは、GitHub が GitHub 全体を指す `https://github.com` と、呼び出し元のオーナーとリポジトリの URL でも発行し（事実：GitHub Actions OIDC Constraints）、オーナーの URL は Audience を指定しない OIDC JWT にも入るため（事実：GATES OIDC JWT Claims の GOJ-AUD）、同じ値を Audience に使うほかのサービス向けの OIDC JWT や、Audience を指定せずに取得した OIDC JWT で認証を通せるようにしないため。前方一致で拒否するのは、発行される URL が呼び出し元ごとに異なり、値を列挙できないため。大文字小文字を区別しないのは、ホスト名、オーナー名、リポジトリ名が大文字小文字を区別しないため。RFC 3986 §6.2.3 が同じ URL とする、空のポートや既定のポートを付けた形は、Audience に選ばれる表記と考えにくいため扱わない。`https` に限るのは、平文の通信を設定から有効にできる形にしないため。ポートを許すのは、`httptest` の Issuer で取得と失敗の分類を確かめるため
 
 #### INV-006 署名の固定設定
 
@@ -806,7 +806,7 @@ Lambda の Invoke API が JSON として読めずに拒否した Payload も、�
 
 公式文書で確認できない GitHub の振る舞いのうち、GATES のルールに影響するのは次の 2 つです。
 どちらもトークンを返すかどうかは変えないため、裏取りを前提にしません。
-確定できていない事項の一覧は [GitHub Constraints](../spec/github-constraints.md#9-outstanding-verification) にあります。
+確定できていない事項の一覧は、[GitHub Actions OIDC Constraints](../external/github/oidc.md)、[GitHub Owner and Repository Constraints](../external/github/account.md)、[GitHub App Constraints](../external/github/app.md)、[GitHub Actions Integration Constraints](../external/github/actions.md) の Outstanding Verification にあります。
 
 - 範囲外の対象を含む発行 API の呼び出しへの応答。失敗の種別の分類だけが変わる（[RULE-011 Installation の有効性](#rule-011-installation-の有効性)）
 - 要求にかかわらず `metadata:read` が付与されるかどうか。付与されなくても照合は通る（[3.3 Request and Decision](#33-request-and-decision)）
@@ -821,8 +821,13 @@ Lambda の Invoke API が JSON として読めずに拒否した Payload も、�
 - [System Architecture](architecture.md)
 - [GitHub Actions Design](github-actions.md)
 - [AWS Infrastructure Design](aws-infrastructure.md)
-- [GitHub Constraints](../spec/github-constraints.md)
-- [JWT Constraints](../spec/jwt-constraints.md)
+- [GitHub Actions OIDC Constraints](../external/github/oidc.md)
+- [GitHub Owner and Repository Constraints](../external/github/account.md)
+- [GitHub App Constraints](../external/github/app.md)
+- [GitHub Actions Integration Constraints](../external/github/actions.md)
+- [JOSE Standards](../external/standards/jose.md)
+- [JWT Standards](../external/standards/jwt.md)
+- [OpenID Connect Standards](../external/standards/oidc.md)
 - [GATES OIDC JWT Claims](gates-oidc-jwt-claims.md)
 - [GATES OIDC JWT Signature](gates-oidc-jwt-signature.md)
 - [GitHub — REST API endpoints for GitHub Apps](https://docs.github.com/en/rest/apps/apps)

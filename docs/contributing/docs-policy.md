@@ -29,16 +29,17 @@ flowchart TD
     design --> acceptance["docs/spec/acceptance-criteria.md"]
     acceptance --> requirements
     architecture --> requirements["docs/spec/requirements.md"]
-    architecture --> github["docs/spec/github-constraints.md"]
-    architecture --> jwt["docs/spec/jwt-constraints.md"]
+    design --> github["docs/external/github/"]
+    design --> standards["docs/external/standards/"]
+    architecture --> github
+    architecture --> standards
     scope --> requirements
     requirements --> constitution["docs/CONSTITUTION.md"]
     scope --> constitution
     requirements --> research["docs/research/"]
     github --> research
-    github -->|標準仕様との差分の説明に限る| jwt
     architecture --> research
-    jwt --> standards["標準仕様"]
+    standards --> standardDocs["標準仕様"]
     research --> external["調査対象の外部ドキュメント"]
     github --> external
     guide["docs/user-guide/"] --> design
@@ -69,8 +70,6 @@ flowchart TD
 | `requirements.md` | 目的、関係者の責任、要求 | `CONSTITUTION.md`、`docs/research/` |
 | `acceptance-criteria.md` | 受け入れ条件と、各受け入れ条件が適合を判定する要求 | `requirements.md` |
 | `scope.md` | 現在のスコープ、将来取り込む想定の機能、対象外とする範囲 | `CONSTITUTION.md`、`requirements.md` |
-| `jwt-constraints.md` | JWT / JWS / JWK / OpenID Connect の標準仕様の規定 | 標準仕様のドキュメント |
-| `github-constraints.md` | GitHub の仕様 | `docs/research/github/`、GitHub の公式ドキュメント。標準仕様との差分を説明する箇所に限り `jwt-constraints.md` |
 
 `requirements.md` が、GATES の前提とする AWS（Lambda、KMS、IAM）と GitHub（Actions、App）のサービス名を書くことは、`docs/design/` への依存に当たりません。
 これらは GATES が動く前提であり、設計の変更では変わらないためです。
@@ -81,7 +80,7 @@ flowchart TD
 
 ### 2.3 docs/design/
 
-`CONSTITUTION.md`、`docs/spec/`、`docs/research/`、調査対象の外部ドキュメントに依存してよいものとします。
+`CONSTITUTION.md`、`docs/spec/`、`docs/external/`、`docs/research/`、調査対象の外部ドキュメントに依存してよいものとします。
 
 | ドキュメント | 責務 |
 |---|---|
@@ -145,9 +144,9 @@ GATES の開発に固有でない運用者の手順は、`docs/user-guide/`（[�
 
 導入を判断する人、GATES 運用者、ワークフロー利用者に向けて、判断の材料と作業の手順を記述します。
 
-- `CONSTITUTION.md`、`docs/spec/`、`docs/design/`、`docs/research/`、Docker Action の `README.md`（[§2.7](#27-docker-action-readme)）、`formal/` の `README.md`、調査対象の外部ドキュメントに依存してよい。`formal/` の `README.md` への依存は、形式検証で確かめたことと確かめていないことの案内に限る
+- `CONSTITUTION.md`、`docs/spec/`、`docs/design/`、`docs/external/`、`docs/research/`、Docker Action の `README.md`（[§2.7](#27-docker-action-readme)）、`formal/` の `README.md`、調査対象の外部ドキュメントに依存してよい。`formal/` の `README.md` への依存は、形式検証で確かめたことと確かめていないことの案内に限る
 - `docs/contributing/` に依存しない。開発の都合で変わる手順や規約の変更が、利用者向けの文書に波及しないようにするためである
-- `docs/spec/`、`docs/design/`、`docs/research/` は `docs/user-guide/` に依存しない
+- `docs/spec/`、`docs/design/`、`docs/external/`、`docs/research/` は `docs/user-guide/` に依存しない
 - リンク先を読まなくても作業と判断が完了するように書く。仕様や設計へのリンクは、根拠を確かめたい読者のために添えるものとする。ただし、Action のリファレンスは Docker Action の `README.md`（[§2.7](#27-docker-action-readme)）を参照させてよい
 
 `docs/user-guide/` の中の依存は、次の向きを基準にします。
@@ -183,6 +182,33 @@ flowchart TD
 `troubleshooting.md` と `security-considerations.md` は `operations.md` に依存しません。
 `operations.md` がこれらに依存するため、依存すると相互依存が増えるためです。
 `operations.md` の手順で止めた発行を、Troubleshooting の読者が障害と取り違えないよう、`troubleshooting.md` には意図した停止かを確かめる但し書きを書きます。
+
+### 2.9 docs/external/
+
+GATES が従う外部仕様を、規定として整理して保持します。
+`docs/research/` が外部仕様を調査して取得した値の記録であるのに対し、`docs/external/` はそれらと公式資料を根拠に、外部仕様を規定として整理したものです。
+`docs/spec/` は GATES の判断が変わると変わりますが、`docs/external/` は外部仕様が変わったときか、読み違いを直すときにだけ変わります。
+変更のきっかけが異なるため、`docs/spec/` とディレクトリを分けます。
+
+| ディレクトリ | 責務 | 依存してよい範囲 |
+|---|---|---|
+| `standards/` | JWT / JWS / JWK / OpenID Connect の標準仕様の規定 | 標準仕様のドキュメント |
+| `github/` | GitHub の仕様 | `docs/research/github/`、GitHub の公式ドキュメント |
+
+- `docs/external/` は、GATES の他のドキュメントに依存しない。`docs/spec/` や `docs/design/` に依存すると、規定を GATES の都合で選んだり読んだりできるようになるためである
+- `github/` は、標準仕様との差分を説明するためにも `standards/` に依存しない。GitHub の仕様と標準仕様を比べた結論は、`docs/design/` の側に書く
+- `docs/external/` に依存してよいのは、`docs/design/`、`docs/user-guide/`、`formal/` と、他のドキュメントへの依存を一般に認めた `docs/contributing/`（[§2.4](#24-docscontributing)）、`README.md`（[§2.5](#25-readmemd)）、Docker Action の `README.md`（[§2.7](#27-docker-action-readme)）に限る。`docs/spec/` からの依存は、必要が生じるまで許可しない
+
+`github/` の記述は、先頭の太字で根拠の区分を示します。
+区分は次のとおりです。
+
+| 区分 | 意味 |
+|---|---|
+| 公式仕様 | リンクした GitHub の公式資料に記述された内容。資料の条件・適用範囲を含めて読む |
+| 公開値 | GitHub が公開するエンドポイントから取得し、調査記録に残した値。取得時点の値であり、将来も同じ値であることの保証ではない |
+| 実測値 | GitHub Actions の実環境で発行された JWT、GitHub API の実際の応答、GitHub Actions の実行ログから取得し、調査記録に残した値。記録した条件での観測であり、ほかの条件や将来も同じ値であることの保証ではない |
+| 推論 | 公式仕様、公開値、実測値から導いた解釈。GitHub が明示的に保証した事実とは区別する |
+| 未確認 | 公式資料で確定できない動作。公開値や実測値があっても、それだけでは保証とみなさない |
 
 ## 3. Dependencies within docs/design
 
@@ -226,7 +252,7 @@ flowchart TD
 
 `domain.md` の依存は、次のように扱います。
 
-- `docs/spec/` と `docs/research/` には `docs/design/` の他のドキュメントと同じ範囲で依存してよい
+- `docs/spec/`、`docs/external/`、`docs/research/` には `docs/design/` の他のドキュメントと同じ範囲で依存してよい
 - `docs/design/` の他のドキュメントへの依存は、抽出元を示す根拠の表記と References に限る
 - 本文の定義やルールは `docs/design/` の他のドキュメントを読まずに理解できるようにする。概念と実装の対応のような、他のドキュメントの責務に当たる記述は、そのドキュメントに書き、そのドキュメントが `domain.md` に依存する
 
@@ -236,7 +262,7 @@ flowchart TD
 |---|---|
 | `architecture.md` 以外の `docs/design/`、コード、`formal/` | `domain.md` の概念名を使う |
 | `CONSTITUTION.md`、`architecture.md`、`requirements.md`、`acceptance-criteria.md`、`scope.md` | `domain.md` の概念名を使う。ただし `domain.md` を参照しない |
-| `jwt-constraints.md`、`github-constraints.md`、`docs/research/` | 外部仕様の用語を使う。`domain.md` の概念名を持ち込まない |
+| `docs/external/`、`docs/research/` | 外部仕様の用語を使う。`domain.md` の概念名を持ち込まない |
 | `docs/user-guide/` | `domain.md` の概念名を使い、初出で平易な説明を添える（例：「許可オーナー（GATES がトークンを発行してよいと設定した GitHub のアカウント）」）。`domain.md` へのリンクは求めない |
 
 外部仕様の用語と概念名の対応は、`docs/design/` の側に書きます。

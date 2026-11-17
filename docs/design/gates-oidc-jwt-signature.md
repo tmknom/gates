@@ -33,7 +33,7 @@ JWT の生の文字列に CR / LF を含む場合も拒否します。JWS Compac
 
 GitHub の Discovery 公開値は `issuer`、`jwks_uri`、`subject_types_supported`、`response_types_supported`、`claims_supported`、`id_token_signing_alg_values_supported`、`scopes_supported` で、`authorization_endpoint` と `token_endpoint` を持ちません（[調査記録](../research/github/oidc-discovery.md)）。
 
-**標準仕様との境界**：OpenID Connect Discovery §3 は `authorization_endpoint` を REQUIRED とし、`token_endpoint` は Implicit Flow だけを使用する場合を除いて REQUIRED とします。この GitHub 公開値は完全な OpenID Provider Metadata の要求を満たしません。ただし、Metadata の不足だけで個々の JWT の署名・Claim が不正だと断定することはできません（[OpenID Connect Discovery §3](https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata)、[JWT Constraints §5](../spec/jwt-constraints.md#5-openid-connect-and-discovery)）。
+**標準仕様との境界**：OpenID Connect Discovery §3 は `authorization_endpoint` を REQUIRED とし、`token_endpoint` は Implicit Flow だけを使用する場合を除いて REQUIRED とします。この GitHub 公開値は完全な OpenID Provider Metadata の要求を満たしません。ただし、Metadata の不足だけで個々の JWT の署名・Claim が不正だと断定することはできません（[OpenID Connect Discovery §3](https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata)、[OpenID Connect Standards](../external/standards/oidc.md)）。
 
 **GATES の設計**：署名検証鍵は、[GATES OIDC JWT Claims](gates-oidc-jwt-claims.md) の GOJ-ISS の固定 Issuer の検証済み Discovery / JWKS だけから得ます。
 固定 Issuer の Discovery を HTTPS で取得し、**一致を確認した `issuer` と JWKS の取得先 `jwks_uri`** だけを使用します。
@@ -91,7 +91,7 @@ JWT の Header やリクエストが任意の鍵取得 URL を指定すること
 | GATES の受理条件 | 要求・設計上の根拠 |
 |---|---|
 | 署名と検証鍵 | [Requirements](../spec/requirements.md) の FR-AUTHN-002、FR-AUTHN-003 |
-| 署名鍵の固定 Issuer からの取得 | [JWT Constraints §6](../spec/jwt-constraints.md#6-jwt-security-considerations)、[Requirements](../spec/requirements.md) の FR-AUTHN-002 |
+| 署名鍵の固定 Issuer からの取得 | [JWT Standards](../external/standards/jwt.md)、[Requirements](../spec/requirements.md) の FR-AUTHN-002 |
 | `crit`、`b64` の拒否と、JWK の用途、署名方式、強度の条件 | [Requirements](../spec/requirements.md) の FR-AUTHN-007 |
 | JWKS の取得の障害と使用可能な鍵がない JWKS を、認証失敗と区別すること | [Requirements](../spec/requirements.md) の FR-OPS-002 |
 
@@ -113,7 +113,9 @@ ID の `JV-S-` は、本書の未確認事項を表します。
 
 ## References
 
-- [JWT Constraints](../spec/jwt-constraints.md) — 規範と適用範囲の整理
+- [JOSE Standards](../external/standards/jose.md) — 規範と適用範囲の整理
+- [JWT Standards](../external/standards/jwt.md) — 規範と適用範囲の整理
+- [OpenID Connect Standards](../external/standards/oidc.md) — 規範と適用範囲の整理
 - [GitHub OIDC Discovery](../research/github/oidc-discovery.md) — Discovery の公開値
 - [GitHub OIDC JWKS](../research/github/oidc-jwks.md) — 鍵情報
 - [RFC 7515 — JSON Web Signature](https://www.rfc-editor.org/rfc/rfc7515.html)
