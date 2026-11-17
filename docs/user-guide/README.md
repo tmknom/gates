@@ -17,6 +17,7 @@
 | [Release Verification](verify-release.md) | GitHub Releases の配布物の来歴をチェックサムと Attestation で検証する手順と、デプロイした Lambda の関数のコードを照合する手順、照合で確かめられる範囲 |
 | [Key Material Import](import-key-material.md) | GitHub App Private Key を生成して鍵素材として KMS Key にインポートし、GitHub App の鍵と一致することを確かめる手順と、インポートが確かめることと止まったときの扱い |
 | [Key Rotation](rotate-key.md) | GitHub App Private Key を更新する手順。新しい KMS Key を加えて鍵素材をインポートし、使用中の鍵を切り替えて発行を確かめ、旧 KMS Key の無効化、GitHub からの旧 Private Key の削除、旧 KMS Key の State からの除外と削除の予約までを、切り戻しの方法と切り戻せなくなる時点とともに示す |
+| [Operations](operations.md) | デプロイの後に運用者が行う作業の手順。インストール対象の変更、監査記録の確認とよく使うクエリ、`terraform.tfvars` の値の変更、新しいリリースへの更新と前のリリースへの戻し方、鍵の更新を行う契機、悪用が疑われるときの停止の手段の選び方と、停止と再開の手順 |
 
 ## ワークフローから使う
 

@@ -240,7 +240,7 @@ gh api users/<オーナー名> --jq '[.id, .login, .type] | @tsv'
 ```
 
 許可オーナーの名前は、IAM Role の Trust Policy と Lambda の設定の両方に入ります。
-許可オーナーの名前が変わったら、`allowed_owner_name` を新しい名前にして適用し直すまで、発行は止まります。
+許可オーナーの名前が変わったら、`allowed_owner_name` を新しい名前にして適用し直すまで、発行は止まります（GATES の設計から導いたもので、検証環境では確かめていません）。
 
 ### 5.3 Audience
 
@@ -519,7 +519,7 @@ aws kms describe-key --key-id "$OLD_KMS_KEY_ARN" --query 'KeyMetadata.KeyState' 
 
 ## 8. Registering the Connection Information
 
-GATES を呼び出すワークフローのために、**接続情報**（Action が GATES を呼び出すのに使う、IAM Role、関数名、リージョン、Audience の値）を GitHub の Secrets と Variables に登録します。
+GATES を呼び出すワークフローのために、**接続情報**（Action が GATES を呼び出すのに使う、AWS アカウント ID、IAM Role、関数名、リージョン、Audience の値）を GitHub の Secrets と Variables に登録します。
 ワークフローは値を直接書かずにこれらを参照するため、関数名などを変えたときも、登録した値の更新だけで済みます。
 
 | 名前 | 種類 | 値 |

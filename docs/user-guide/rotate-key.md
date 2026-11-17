@@ -43,7 +43,7 @@ GitHub App は Private Key を 25 個まで同時に持て、GitHub の公式資
 - `make tf-plan` が `No changes` を示す
 - 許可オーナーのリポジトリで、[Deployment](deployment.md) の §9.1 で実行したワークフローのように GATES の Docker Action でトークンを受け取るワークフローが成功する
 - [Deployment](deployment.md) の §2.1 から §2.3 の前提（手元のツール、AWS の一時認証情報とその権限、AWS CLI のリージョン、IAM OIDC Provider）を満たしている
-- 一時認証情報に、Deployment の §2.2 の権限に加えて、KMS Key の無効化（`kms:DisableKey`）と削除の予約（`kms:ScheduleKeyDeletion`）、CloudTrail の参照（`cloudtrail:LookupEvents`）の権限がある
+- 一時認証情報に、Deployment の §2.2 の権限に加えて、KMS Key の公開鍵の取得（`kms:GetPublicKey`）、無効化と有効化（`kms:DisableKey`、`kms:EnableKey`）、削除の予約と取り消し（`kms:ScheduleKeyDeletion`、`kms:CancelKeyDeletion`）、CloudTrail の参照（`cloudtrail:LookupEvents`）の権限がある
 
 コマンドはリポジトリのルートで実行します。
 手順の中で設定する環境変数（`OLD_KMS_KEY_ARN`、`NEW_KMS_KEY_ARN`）を後の段階で使うため、同じシェルから実行します。
