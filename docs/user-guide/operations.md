@@ -2,7 +2,7 @@
 
 GATES（GitHub App Token Exchange System）は、GitHub Actions のワークフローに、指定したリポジトリだけを読める短命なトークンを発行する仕組みです。
 ワークフローは GATES の Docker Action（以下、Action）のステップを置き、Action が、運用者の AWS アカウントで動く GATES の AWS Lambda の関数（以下、Lambda）を呼び出してトークンを受け取ります。
-Lambda は、GitHub App の秘密鍵をインポートした AWS KMS の鍵（KMS Key）で署名して、GitHub にトークンを発行させます。
+Lambda は、GitHub App Private Key（以下、秘密鍵）をインポートした AWS KMS の鍵（KMS Key）で署名して、GitHub にトークンを発行させます。
 本文書は、**GATES 運用者**（GATES を AWS にデプロイして運用する人。以下、運用者）が、デプロイの後に繰り返し行う作業と、必要になったときに行う作業の手順を示します。
 
 | 節 | 作業 | 行う時期 |
@@ -14,7 +14,7 @@ Lambda は、GitHub App の秘密鍵をインポートした AWS KMS の鍵（KM
 | §5 | 鍵の更新を始めるかを決める | 定期の更新の時期、秘密鍵のコピーが残った疑い、鍵を扱う権限を持つ人の交代 |
 | §6 | 悪用が疑われるときに発行や署名を止める | 悪用が疑われるとき |
 
-GitHub App Private Key を新しい鍵に替える作業（**鍵の更新**）の手順は、[Key Rotation](rotate-key.md) にあります。
+秘密鍵を新しい鍵に替える作業（**鍵の更新**）の手順は、[Key Rotation](rotate-key.md) にあります。
 Action の失敗を、注釈やエラーコードから調べる手順は [Troubleshooting](troubleshooting.md) にあります。
 
 ## Prerequisites
@@ -33,7 +33,8 @@ AWS CLI のリージョン（`AWS_REGION`）は、GATES を適用したリージ
 ### 1.1 What the Installation Scope Decides
 
 GATES は、運用者が作った GitHub App としてトークンを発行します。
-GitHub App を **許可オーナー**（GATES がトークンを発行してよいと運用者が設定した GitHub のユーザーアカウントか Organization）にインストールするときに選ぶリポジトリを、**インストール対象** と呼びます。
+GATES がトークンを発行するのは、**許可オーナー**（GATES がトークンを発行してよいと運用者が設定した GitHub のユーザーアカウントか Organization）のワークフローだけです。
+GitHub App の **インストール対象**（GitHub App をオーナーにインストールするときに選ぶ、GitHub App がアクセスできるリポジトリ）は、許可オーナーへのインストールで選びます。
 許可オーナーのワークフローは、どのリポジトリで動いていても、インストール対象のどのリポジトリのトークンも受け取れます。
 GATES は呼び出し元を許可オーナー単位でしか区別しないためです。
 このため、インストール対象が、許可オーナーのワークフローから読まれてよい範囲になります。
@@ -106,12 +107,12 @@ Lambda が応答を返した要求は、成功でも失敗でも監査記録を 
 | `caller.workflow_ref`、`caller.job_workflow_ref` | 呼び出し元のワークフローのファイル（`<オーナー名>/<リポジトリ名>/.github/workflows/<ファイル>@<ref>`）と、ジョブが使ったワークフローのファイル。呼び出し元のリポジトリの名前は `caller.workflow_ref` で読む |
 | `caller.actor`、`caller.environment` | ワークフローを起動したアカウントと、ジョブの Environment |
 | `request.repositories`、`request.permissions` | 要求したリポジトリと権限。要求の表記と並びのまま記録される |
-| `installation.id`、`installation.owner_id` | 発行に使った Installation の ID と、そのインストール先の Owner ID |
+| `installation.id`、`installation.owner_id` | 取得した Installation の ID と、そのインストール先の Owner ID |
 | `revocation` | GitHub が返したトークンを GATES の照合で拒否したときの、そのトークンの失効の結果 |
 | `claims_set` | GitHub が署名した OIDC JWT（ワークフローがどのオーナーのどのリポジトリで動いているかを示すトークン）の中身を、署名を確かめた後に写したもの。`caller` にない値（Pull Request の元のブランチ名の `head_ref` など）を含む |
 
 `caller` は、Lambda が呼び出し元を確かめた後にだけ記録されます。
-呼び出し元を確かめる前に失敗した要求（`invalid_request`、`invalid_id_token` など）には `caller` がないため、§2.3 のクエリのうち `caller` で絞るものには現れません。
+呼び出し元を確かめる前や途中で失敗した要求（`invalid_request`、`invalid_id_token`、`identity_verification_unavailable` など）には `caller` がないため、§2.3 のクエリのうち `caller` で絞るものには現れません。
 
 ### 2.3 Common Queries
 
@@ -161,7 +162,7 @@ aws logs filter-log-events --log-group-name /aws/lambda/gates \
 起点は、`caller.run_id` から GitHub のワークフロー実行をたどって調べます（Security Considerations の §6）。
 
 一つの `request_id` か、一つのワークフロー実行の記録を引くクエリは、Troubleshooting の §3 にあります。
-本節の 3 つのクエリは、GATES の検証環境の監査記録で実行し、`request` のない失敗の記録が混ざっても途中で止まらないことを含めて、出力の形を確かめました。
+本節のクエリは、GATES の検証環境の監査記録で実行し、`request` のない失敗の記録が混ざっても途中で止まらないことを含めて、出力の形を確かめました。
 
 ### 2.4 Records Outside GATES
 
@@ -256,7 +257,6 @@ Lambda を更新してから、すべてのワークフローの参照先が更�
 この期間を短くするため、更新の前にワークフロー利用者に更新の時期を伝えておきます。
 
 本節の手順は、検証環境で新しいリリースへの更新として通しては確かめていません。
-GATES の検証環境には、まだ次のリリースがないためです。
 手順の各操作（配布物の検証、`make tf-plan` と `make tf-apply`、関数のコードの照合）は、Deployment で確かめた操作と同じです。
 
 ### 4.2 Before the Update
@@ -333,7 +333,7 @@ Action はタグではなくコミットの SHA で参照するため、ワー�
 
 ## 5. When to Rotate the Key
 
-GATES は、GitHub App の秘密鍵（GitHub App Private Key）を KMS Key にインポートして使います。
+GATES は、秘密鍵を KMS Key にインポートして使います。
 KMS Key にインポートした秘密鍵の中身（**鍵素材**）は、別の鍵素材に入れ替えられません。
 このため、秘密鍵を替えるときは、新しい KMS Key を加えて新しい秘密鍵をインポートし、Lambda が署名に使う鍵（**使用中の鍵**）を切り替える鍵の更新を行います。
 手順は [Key Rotation](rotate-key.md) にあり、発行を止めずに進められます。
@@ -354,7 +354,7 @@ KMS Key で署名する能力の悪用がすでに疑われるときは、鍵の
 悪用が疑われるときに止めたいものは、次に分かれます。
 
 - **GATES の発行**：許可オーナーのワークフローが、GATES を通して不正にトークンを受け取っている疑い。たとえば、`pull_request_target` のジョブが Pull Request のコードを実行している（§2.3）
-- **GitHub App としての署名**：KMS Key で署名する能力が、GATES を経ずに使われている疑い。AWS アカウントで Key Policy、Lambda、実行 Role（Lambda が KMS での署名とログの書き込みに使う IAM Role）を書き換えられる主体は、GATES の認可を経ずに GitHub App としてトークンを作れる（Security Considerations の §4）
+- **GitHub App としての署名**：KMS Key で署名する能力が、GATES を経ずに使われている疑い。AWS アカウントで Key Policy、Lambda、Lambda の **実行 Role**（Lambda が KMS での署名とログの書き込みに使う IAM Role）を書き換えられる主体は、GATES の認可を経ずに GitHub App としてトークンを作れる（Security Considerations の §4）
 
 止める手段を、止められる範囲と、戻し方で比べると次のとおりです。
 
@@ -363,13 +363,13 @@ KMS Key で署名する能力の悪用がすでに疑われるときは、鍵の
 | Reserved Concurrency を 0 にする（§6.2） | GATES の発行だけ。KMS Key での署名は止まらない | 戻せる | Lambda の関数の設定を変えられる主体 |
 | KMS Key を無効にする（§6.3） | 使用中の鍵での署名。GATES の発行も止まる | 戻せる | `kms:EnableKey` を持つ主体 |
 | Installation を停止する（§6.4） | GitHub App による許可オーナーのリソースへのアクセス。GATES の発行も止まる | 戻せる | 停止した側だけ |
-| GitHub で Private Key を削除する（§6.5） | 削除した鍵での署名による認証。GATES の発行も止まる | 戻せない。新しい鍵で鍵の更新を行う | なし |
+| GitHub で秘密鍵を削除する（§6.5） | 削除した鍵での署名による認証。GATES の発行も止まる | 戻せない。新しい鍵で鍵の更新を行う | なし |
 
-署名の能力の悪用を、AWS の側の権限に左右されずに止められる見込みがあるのは、GitHub での Private Key の削除だけです（§6.5）。
+署名の能力の悪用を、AWS の側の権限に左右されずに止められる見込みがあるのは、GitHub での秘密鍵の削除だけです（§6.5）。
 KMS Key の無効化は、`kms:EnableKey` を持つ主体が戻せるためです。
-Installation の停止も AWS の権限では解けませんが、GATES を経ずに作った GitHub App JWT でのトークンの発行を止められるかは確かめていません（§6.4）。
-これらの比較の根拠は、[Security Design](../design/security.md) の §5.1 にあります。
-署名の悪用を疑うときは、まず §6.3 で署名を止め、§6.5 で Private Key を削除します。
+Installation の停止は、AWS の権限では解けない点で秘密鍵の削除に近いものの、GATES を経ずに作った GitHub App JWT でのトークンの発行を止められるかは確かめていません（§6.4）。
+KMS Key の無効化と秘密鍵の削除を比べた根拠は、[Security Design](../design/security.md) の §5.1 にあります。
+署名の悪用を疑うときは、まず §6.3 で署名を止め、§6.5 で秘密鍵を削除します。
 
 どの手段でも、止める前に発行されたトークンは、有効期限（発行から 1 時間）まで使えるまま残り得ます。
 GATES が発行したトークンの対象と権限は、要求したリポジトリと `contents:read` に限られます。
@@ -452,11 +452,11 @@ GitHub App を作った側（運用者）が GitHub API で停止した場合は
 
 ### 6.5 Deleting the Private Key from GitHub
 
-GitHub App の設定ページの `Credentials` → `Key pairs` で、使用中の鍵に対応する Private Key を削除すると、その鍵で署名した GitHub App JWT は、GitHub App としての認証に使えなくなる見込みです。
-これは GitHub の公式資料（Private Key は削除するまで有効で、漏えいした鍵は削除して取り除く）からの推論で、削除した鍵で署名した JWT を GitHub が拒否することは、GATES を通しては確かめていません。
-削除した Private Key は戻せないため、GATES の発行を再開するには、新しい Private Key で鍵の更新を行います。
+GitHub App の設定ページの `Credentials` → `Key pairs` で、使用中の鍵に対応する秘密鍵を削除すると、その鍵で署名した GitHub App JWT は、GitHub App としての認証に使えなくなる見込みです。
+これは GitHub の公式資料（秘密鍵は削除するまで有効で、漏えいした鍵は削除して取り除く）からの推論で、削除した鍵で署名した JWT を GitHub が拒否することは、GATES を通しては確かめられません。
+削除した秘密鍵は戻せないため、GATES の発行を再開するには、新しい秘密鍵で鍵の更新を行います。
 
-使用中の鍵に対応する Private Key は、公開鍵のフィンガープリントで見分けます。
+使用中の鍵に対応する秘密鍵は、公開鍵のフィンガープリントで見分けます。
 次のコマンドの出力と、`Key pairs` に表示される鍵の `SHA256:` の後の値を比べます。
 
 ```bash
@@ -464,7 +464,7 @@ aws kms get-public-key --key-id <KMS Key の ARN> --query PublicKey --output tex
   | openssl base64 -d -A | openssl sha256 -binary | openssl base64
 ```
 
-GitHub は GitHub App の最後の Private Key を削除させないため、`Key pairs` に鍵が一つしかなければ、先に `Key pairs` の `New key` で新しい鍵を生成します。
+GitHub は GitHub App の最後の秘密鍵を削除させないため、`Key pairs` に鍵が一つしかなければ、先に `Key pairs` の `New key` で新しい鍵を生成します。
 生成した鍵は、ブラウザーがファイルとしてダウンロードします。
 すぐに鍵の更新でインポートしないなら、ダウンロードしたファイルを削除します。
 後で鍵の更新を行うときは、Key Rotation の §4 で改めて鍵を生成し、ここで生成して使わなかった鍵も `Key pairs` から削除します。
@@ -478,9 +478,9 @@ Action の注釈には `error code "installation_unavailable"` が出る見込�
 §6.3 か §6.5 で止めた後に Key Rotation の手順で発行を再開するときは、次のように読み替えます。
 止めた後の状態から鍵を更新する手順は、検証環境で確かめていません。
 
-- Key Rotation の §2 の前提のうち、ワークフローが成功することは満たせない。§5 で使用中の鍵を新しい鍵に切り替えるまで、発行は失敗したままになる
+- Key Rotation の §2 の前提のうち、ワークフローが成功することは満たせない。Key Rotation の §5 で使用中の鍵を新しい鍵に切り替えるまで、発行は失敗したままになる
 - 旧鍵に切り戻す手順（Key Rotation の §6 と §7 の切り戻し）は使わない
-- 旧 KMS Key の無効化（Key Rotation の §7）と、GitHub からの旧 Private Key の削除（Key Rotation の §8）は、済んでいれば省く
+- 旧 KMS Key の無効化（Key Rotation の §7）と、GitHub からの旧秘密鍵の削除（Key Rotation の §8）は、済んでいれば省く
 
 ## 7. References
 
