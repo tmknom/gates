@@ -1,6 +1,6 @@
 ; expect: sat
-; trace:checks GOJ-TIME RFC7519-NBF-LEEWAY
-; MNBFLEEWAY: the safety check of GOJ-TIME against RFC7519-NBF-REJECT finds a
+; trace:checks GOJ-TIME-NBF RFC7519-NBF-LEEWAY
+; MNBFLEEWAY: the safety check of GOJ-TIME-NBF against RFC7519-NBF-REJECT finds a
 ; counterexample with a leeway of 299 seconds, so GATES relies on the leeway
 ; that RFC7519-NBF-LEEWAY allows and the check is not vacuous.
 ; The fixed sub and ID values only guide the search for the counterexample.

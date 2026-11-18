@@ -1,5 +1,5 @@
 ; expect: unsat unsat unsat unsat unsat sat sat sat sat sat sat sat
-; EXAMPLES-NAMES (GOJ-CLAIM-NAME, GOJ-DYNAMIC-CLAIM, Verification Cases Claim name
+; EXAMPLES-NAMES (GOJ-CLAIM-NAME-MATCH, GOJ-CLAIM-NAME-ALIAS, GOJ-TRIGGER-ATTRIBUTES, GOJ-DYNAMIC-CLAIM, Verification Cases Claim name
 ; comparison, audit and dynamic Claims): aliases are rejected even with the correct name
 ; present; other names, audit Claims of any type and dynamic Claims are not.
 (push 1) (assert (accepts-with "ISS" (Present (JString "https://token.actions.githubusercontent.com")))) (check-sat) (pop 1) ; ISS: unsat

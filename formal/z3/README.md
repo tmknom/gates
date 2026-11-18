@@ -65,19 +65,19 @@ SMT-LIB にはファイルを読み込む仕組みがないため、`verify.sh` 
 
 | 規則 ID | 述語 | 対象と適用主体 | 出典 | 状態 |
 |---|---|---|---|---|
-| V-JSON-VALUE | `JsonValue` / `MaybeClaim` | デコード後の Claims Set の形 | GOJ-CLAIM-NAME | モデル上の前提で、デコード処理は証明しない |
+| V-JSON-VALUE | `JsonValue` / `MaybeClaim` | デコード後の Claims Set の形 | GOJ-CLAIMS-JSON | モデル上の前提で、デコード処理は証明しない |
 | RFC-ISS/SUB-TYPE | `standard-selected` | `iss`、`sub` | RFC 7519 §4.1.1, §4.1.2 | 選択した型と一致の条件だけ |
-| OIDC-SUB-255 | `oidc-sub-conditional` | OIDC Core の ID Token | OIDC Core §2、GOJ-SUB | ID Token の標準の要求。GATES の受理条件がこれを満たすことを `PSUBOIDC` で確かめる |
+| OIDC-SUB-255 | `oidc-sub-conditional` | OIDC Core の ID Token | OIDC Core §2、GOJ-SUB-LENGTH | ID Token の標準の要求。GATES の受理条件がこれを満たすことを `PSUBOIDC` で確かめる |
 | GH-ISS | `github-issuer` | GitHub の発行者 | `docs/external/github/oidc.md` | 公式の仕様（固定の Issuer） |
-| GH-SUB-IMMUTABLE | `gates-sub` の採用形式 | GitHub の発行条件と GATES の受理条件は別 | `docs/external/github/oidc.md`、GOJ-SUB | GitHub の発行形式は条件付き。GATES が不変の形式を要求する |
+| GH-SUB-IMMUTABLE | `gates-sub` の採用形式 | GitHub の発行条件と GATES の受理条件は別 | `docs/external/github/oidc.md`、GOJ-SUB-FORMAT | GitHub の発行形式は条件付き。GATES が不変の形式を要求する |
 | G-ISS | `github-issuer` | GATES の Verifier、`iss` | GOJ-ISS | 採用済み。固定の文字列と完全に一致する |
-| G-SUB | `gates-sub` | GATES の Verifier、`sub` の構文 | GOJ-SUB の条件 1–5, GOJ-ID-MATCH | 採用済みの構文と ID の一致の条件だけ |
-| G-SUB-ASCII | `gates-sub` | GATES の Verifier、`sub` の文字種と長さ | GOJ-SUB の条件 6 | 採用済み。ASCII だけで 255 文字以内 |
+| G-SUB | `gates-sub` | GATES の Verifier、`sub` の構文 | GOJ-SUB-FORMAT, GOJ-ID-MATCH | 採用済みの構文と ID の一致の条件だけ |
+| G-SUB-ASCII | `gates-sub` | GATES の Verifier、`sub` の文字種と長さ | GOJ-SUB-LENGTH | 採用済み。ASCII だけで 255 文字以内 |
 | G-ID-DECIMAL | `positive-int64-text` | 不変の ID と Run ID の文字列 | GOJ-ID-FORMAT | 採用済み。正の canonical な int64 の文字列 |
 | G-ID-MATCH | `gates-sub` | `sub` 内の 2 つの ID と個別の Claim | GOJ-ID-MATCH | 採用済み。文字列の一致 |
 | G-RUN | `gates-common-except-exp` | `run_id`、`run_attempt` | GOJ-RUN-ID, GOJ-RUN-ATTEMPT | 採用済み。どちらも必須の canonical な int64 |
-| G-UNKNOWN | `consulted-name` | 既知で使わない Claim、監査用の Claim、未知の Claim | 受理の分類と未使用・任意・監査の各 Claim の規則, GOJ-CLAIM-NAME, GOJ-DYNAMIC-CLAIM | 採用済み。妥当な JSON なら受理に影響しない（別名を除く）ことを `PCONGRUENCE` と `PAUDITINV` で確かめる |
-| G-CASE-ALIAS | `claim-alias` / `aliases-absent` | `iss`、`aud`、`exp`、`iat`、`nbf` の 45 個の別名 | GOJ-CLAIM-NAME | 採用済み。Unicode の単純な Case Folding に限る。どの別名を加えても受理されないことを `PALIAS` で確かめる |
+| G-UNKNOWN | `consulted-name` | 既知で使わない Claim、監査用の Claim、未知の Claim | 受理の分類と未使用・任意・監査の各 Claim の規則, GOJ-TRIGGER-ATTRIBUTES, GOJ-DYNAMIC-CLAIM | 採用済み。妥当な JSON なら受理に影響しない（別名を除く）ことを `PCONGRUENCE` と `PAUDITINV` で確かめる |
+| G-CASE-ALIAS | `claim-alias` / `aliases-absent` | `iss`、`aud`、`exp`、`iat`、`nbf` の 45 個の別名 | GOJ-CLAIM-NAME-ALIAS | 採用済み。Unicode の単純な Case Folding に限る。どの別名を加えても受理されないことを `PALIAS` で確かめる |
 | C-EXACT-ALIAS | `gates-exact-name-candidate` | 厳密な名前の比較だけ | なし | 候補で未採用 |
 | OBS-01–06 | `checks/examples/observed.smt2` | 実測した JWT の 10 個の Claim | [GitHub OIDC JWT](../../docs/research/github/oidc-jwt.md) | 観測だけ。発行の保証や GATES 用の Audience の実測ではない |
 

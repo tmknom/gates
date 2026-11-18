@@ -1,5 +1,5 @@
 ; expect: unsat
-; trace:checks GOJ-TIME RFC7519-NBF-REJECT
+; trace:checks GOJ-TIME-NBF RFC7519-NBF-REJECT RFC7519-NBF-LEEWAY
 ; GATES accepts no JWT before its nbf, beyond the leeway of 300 seconds that
 ; GATES takes under RFC7519-NBF-LEEWAY. A leeway that clause does not allow
 ; is a counterexample too, so tightening std-nbf-leeway cannot pass vacuously.

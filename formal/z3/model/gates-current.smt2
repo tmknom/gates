@@ -13,16 +13,24 @@
 ; Defined only for a Claim that gates-exp, gates-iat or gates-nbf admits.
 (define-fun claim-integer ((c Claims) (name String)) Int
   (integer-value (claim-value (get-claim c name))))
-; The iat and nbf conditions of GOJ-TIME, apart so that mutations can vary exp.
+; The time predicates are meaningful only together with gates-exp, gates-iat
+; and gates-nbf, which admit the integers they read.
+; trace:formalizes GOJ-TIME-EXP
+(define-fun gates-time-exp ((c Claims) (now Int)) Bool
+  (< now (claim-integer c "exp")))
+; trace:formalizes GOJ-TIME-IAT
+(define-fun gates-time-iat ((c Claims) (now Int)) Bool
+  (<= (claim-integer c "iat") (+ now 300)))
+; trace:formalizes GOJ-TIME-NBF
+(define-fun gates-time-nbf ((c Claims) (now Int)) Bool
+  (or (= (get-claim c "nbf") Absent)
+      (<= (claim-integer c "nbf") (+ now 300))))
+; The iat and nbf conditions, apart so that mutations can vary exp.
 (define-fun gates-time-not-ahead ((c Claims) (now Int)) Bool
-  (and (<= (claim-integer c "iat") (+ now 300))
-       (or (= (get-claim c "nbf") Absent)
-           (<= (claim-integer c "nbf") (+ now 300)))))
-; Meaningful only together with gates-exp, gates-iat and gates-nbf, which
-; admit the integers it reads.
-; trace:formalizes GOJ-TIME
+  (and (gates-time-iat c now)
+       (gates-time-nbf c now)))
 (define-fun gates-time ((c Claims) (now Int)) Bool
-  (and (< now (claim-integer c "exp"))
+  (and (gates-time-exp c now)
        (gates-time-not-ahead c now)))
 ; trace:formalizes GOJ-AUD
 (define-fun gates-aud ((c Claims) (expected String)) Bool
@@ -38,7 +46,8 @@
 ; 'repo:' and first ':' after it. In each NAME@ID: exactly one @, nonempty
 ; NAME and positive decimal ID. Name is not used for identity/authorization.
 ; Repo name may contain '/', owner name may contain ':' (per current rules).
-; The whole sub is ASCII only and at most 255 characters (GOJ-SUB condition 6).
+; The whole sub is ASCII only and at most 255 characters (GOJ-SUB-LENGTH).
+; The rest is GOJ-SUB-FORMAT and GOJ-ID-MATCH.
 (define-fun gates-sub ((c Claims)) Bool
   (and (string-claim c "sub")
        (let ((s (string-claim-value c "sub")))

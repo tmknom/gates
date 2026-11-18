@@ -5,7 +5,7 @@
   (and (string-is c "iss" "https://token.actions.githubusercontent.com")
        (string-claim c "sub")))
 ; OIDC Core §2 sub ASCII <=255, for the ID Token profile.
-; GATES adopts the same limit in GOJ-SUB condition 6; PSUBOIDC checks the implication.
+; GATES adopts the same limit in GOJ-SUB-LENGTH; PSUBOIDC checks the implication.
 (define-fun oidc-sub-conditional ((c Claims)) Bool
   (and (string-claim c "sub")
        (ascii-text (string-claim-value c "sub"))
