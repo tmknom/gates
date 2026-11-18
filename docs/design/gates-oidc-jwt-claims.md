@@ -151,6 +151,7 @@ Condition を持たない OpenID Connect の条項（文字列の比較など）
 | Possibly Rejects | GH-OIDC-SUB-CUSTOM-REPO-ONLY | リポジトリ部の後に `:` がない形式を拒否する。`repo` だけを指定するカスタマイズに対応しないのは、現在の GATES の対象範囲による |
 | Possibly Rejects | GH-OIDC-SUB-CUSTOM-WITHOUT-REPO | `repo` の部分を含まない形式を拒否する。カスタマイズ形式に対応しないのは、現在の GATES の対象範囲による |
 | Possibly Rejects | GH-OIDC-SUB-LEGACY-RETAINED | 旧形式を拒否する。名前の再利用で別のオーナーが同じ値を作れるため（GH-OIDC-SUB-IMMUTABLE-REASON）。許可オーナーのリポジトリには、不変形式の利用を選択させる |
+| Possibly Rejects | GH-OIDC-SUB-LENGTH | オーナーの名前が `/` を含む `sub` と、リポジトリの名前が `:` を含む `sub` を拒否する。オーナー部を最初の `/` で、リポジトリ部をその後の最初の `:` で区切り、名前と ID の位置を一つに決めるため。新しく作るリポジトリの名前は、公式資料の名前の規則により `:` を含まない（[GitHub Owner and Repository Constraints](../external/github/account.md)）。オーナーの名前（個人アカウントと Organization）の文字と、既存のリポジトリの例外的な名前は定まっていない |
 
 **GATES の受理条件**：
 
@@ -551,6 +552,7 @@ JWT の `iss` の値は照合だけに使い、Discovery / JWKS の取得先に�
 |---|---|---|
 | Accepts | GH-OIDC-CLAIM-TYPE-EXAMPLE | `repository_id`、`repository_owner_id`、`run_attempt` の数字だけの文字列を受理する。例の `run_id` は置き換えの値で、形式を示さない |
 | Accepts | GH-OIDC-CLAIM-TYPE-OBSERVED | `run_id` を数字だけの文字列に限る根拠は、この Observed の条項だけである |
+| Possibly Rejects | GH-OIDC-CLAIM-ID-FORMAT | 数字以外の文字を含む ID、先頭に `0` を持つ ID、64 bit 符号付き整数の正の範囲を超える ID を拒否する。ID を正の 64 bit 符号付き整数の 10 進表記に限って、同じ ID を一つの文字列だけで表し、Claim を読み取る処理によって異なる値に読めないようにするため |
 | Possibly Rejects | GH-OIDC-CLAIM-TYPE | JSON の文字列でない ID の Claim を拒否する。GitHub が型を変えたときに、暗黙に受理を広げないため |
 
 `repository_owner_id`、`repository_id`、`run_id`、`run_attempt` と `sub` のオーナー ID・リポジトリ ID はすべて、次の条件を満たす必要があります。

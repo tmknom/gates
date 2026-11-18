@@ -14,13 +14,21 @@ if ! command -v timeout >/dev/null 2>&1; then
 fi
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT HUP INT TERM
+# 3 つの層は values.smt2 だけを共有し、互いの定義を使わない。層の中では、使う定義より後に置く
 cat \
     model/values.smt2 \
-    model/standards/jwt.smt2 \
-    model/standard.smt2 \
-    model/github.smt2 \
-    model/gates-current.smt2 \
-    model/gates-proposals.smt2 \
+    model/standards/rfc7159.smt2 \
+    model/standards/rfc7515.smt2 \
+    model/standards/rfc7518.smt2 \
+    model/standards/rfc7519.smt2 \
+    model/standards/rfc7797.smt2 \
+    model/standards/rfc8725.smt2 \
+    model/standards/oidc-core.smt2 \
+    model/github/documented.smt2 \
+    model/github/observed.smt2 \
+    model/gates/claims.smt2 \
+    model/gates/header.smt2 \
+    model/proposals.smt2 \
     checks/fixtures.smt2 > "$scratch/model.smt2"
 find checks -name '*.smt2' ! -name fixtures.smt2 | sort > "$scratch/checks"
 # check-sat ごとのソルバーのタイムアウト（ミリ秒）をモデルから読み、プロセスの上限をこれに合わせる

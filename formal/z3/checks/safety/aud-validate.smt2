@@ -5,7 +5,7 @@
 (declare-const anyClaims Claims)
 (declare-const arbitraryClock Int)
 (declare-const arbitraryAudience String)
+(assert (gates-claims-accepted anyClaims arbitraryClock arbitraryAudience))
 (declare-const multiRecipientIssuer Bool)
-(assert (gates-current anyClaims arbitraryClock arbitraryAudience))
 (assert (not (std-aud-validate anyClaims arbitraryAudience multiRecipientIssuer)))
 (check-sat)
