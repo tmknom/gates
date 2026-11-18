@@ -10,7 +10,7 @@
 | ファイル | 内容 |
 |---|---|
 | [JOSE Standards](standards/jose.md) | JWS / JWK / JWA と JWS の非エンコード Payload オプションの標準仕様から、署名と鍵の検証に関係する規定を整理したもの |
-| [JWT Standards](standards/jwt.md) | JWT、JSON、JWT の Best Current Practices の標準仕様から、Claims の検証と JWT の発行・検証の考慮事項に関係する規定を整理したもの |
+| [JWT Standards](standards/jwt.md) | JSON、JWT、JWT の Best Current Practices の標準仕様から、Claims の検証と JWT の発行・検証の考慮事項に関係する規定を、ID の付いた条項に分けて整理したもの |
 | [OpenID Connect Standards](standards/oidc.md) | OpenID Connect Core と Discovery の標準仕様から、ID Token、署名鍵、Discovery の検証に関係する規定を整理したもの |
 | [GitHub Actions OIDC Constraints](github/oidc.md) | GitHub Actions OIDC の Issuer、Discovery、JWKS、Claim、`sub`、Audience の仕様と未確認事項 |
 | [GitHub Owner and Repository Constraints](github/account.md) | GitHub のオーナーとリポジトリの識別子と名前の仕様と未確認事項 |
