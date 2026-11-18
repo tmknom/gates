@@ -21,7 +21,7 @@ ID を付ける種類は次のとおりです。
 | `RFC7515-`、`RFC7517-`、`RFC7518-`、`RFC7797-`、`RFC9964-` | JWS、JWK、JWA、JWS Unencoded Payload Option、ML-DSA の条項 | `docs/external/standards/jose.md` | 条項の内容を表す名前 |
 | `RFC7159-`、`RFC7519-`、`RFC8725-` | JSON、JWT、JWT Best Current Practices の条項 | `docs/external/standards/jwt.md` | 条項の内容を表す名前（`RFC7519-AUD-REJECT`） |
 | `OIDCC-`、`OIDCD-` | OpenID Connect Core、OpenID Connect Discovery の条項 | `docs/external/standards/oidc.md` | 条項の内容を表す名前 |
-| `GH-OIDC-` | GitHub Actions OIDC の条項 | `docs/external/github/oidc.md` | 条項の内容を表す名前（`GH-OIDC-AUD-DEFAULT`） |
+| `GH-OIDC-` | GitHub Actions OIDC の条項 | `docs/external/github/oidc.md` | 条項の内容を表す名前 |
 | `GH-ACCOUNT-` | GitHub のオーナーとリポジトリの条項 | `docs/external/github/account.md` | 条項の内容を表す名前 |
 | `GH-APP-` | GitHub App の条項 | `docs/external/github/app.md` | 条項の内容を表す名前 |
 | `GH-ACTIONS-` | GitHub Actions の連携の条項 | `docs/external/github/actions.md` | 条項の内容を表す名前 |
@@ -70,6 +70,7 @@ ID は定義の意味を指し、定義の書き方や置き場所を指しま�
 
 - ほかのファイルの定義を参照するときは、本文に ID を書き、リンクはファイル単位にする（例：`[Requirements](../spec/requirements.md) の FR-AUTHZ-001`）。見出しのアンカーは見出しの文字列から作られ、タイトルを変えると切れるためである
 - 同じファイルの中では、見出しのアンカーでリンクしてよい。タイトルを変えた差分の中で、切れたリンクを確かめられるためである
+- 地の文、表、インラインコードに書く ID は、定義された ID に限る。まだ定義されていない ID を書式の例に使うときは、フェンスで囲んだコードブロックの中に書く。追跡の検査は、コードブロックの外に現れる ID がすべて定義されていることを確かめ、コードブロックの中は例として扱うためである
 - コード、テスト、`formal/` からは、文書名を添えず ID だけで定義を参照する。ID の接頭辞から定めるドキュメントが決まり（[§1](#1-id-kinds)）、grep で定義を探せるためである
 - 定義の一部を、番号付きの条件（「GOJ-SUB の条件 6」）のように定義の中の位置で参照しない。条件を足したり並べ替えたりすると、同じ番号が別の条件を指すようになるためである。一部だけを参照する必要があるなら、その部分を別の ID の定義に分ける（[§2](#2-assigning-and-changing-ids)）
 

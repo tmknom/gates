@@ -16,6 +16,7 @@ scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT HUP INT TERM
 cat \
     model/values.smt2 \
+    model/standards/jwt.smt2 \
     model/standard.smt2 \
     model/github.smt2 \
     model/gates-current.smt2 \

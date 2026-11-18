@@ -50,7 +50,8 @@ linters:
         linters:
           - unparam
         text: always receives
-      - path: ^main\.go$
+      # formal/trace は、リポジトリの文書とモデルを読む検査のコマンドで、ルートの main.go と同じく起動と終了を担う
+      - path: ^(formal/trace/)?main\.go$
         linters:
           - forbidigo
       - path: _test\.go

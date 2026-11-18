@@ -34,14 +34,6 @@
     (and ((_ is Present) m) ((_ is JString) (claim-value m)))))
 (define-fun string-claim-value ((c Claims) (name String)) String
   (string-value (claim-value (get-claim c name))))
-(define-fun numeric-date-typed ((m MaybeClaim)) Bool
-  (and ((_ is Present) m)
-       (let ((v (claim-value m)))
-         (or ((_ is JInteger) v) ((_ is JFraction) v) ((_ is JExponent) v)))))
-(define-fun numeric-date-value ((m MaybeClaim)) Real
-  (let ((v (claim-value m)))
-    (ite ((_ is JInteger) v) (to_real (integer-value v))
-         (ite ((_ is JFraction) v) (fraction-value v) (exponent-value v)))))
 ; Accepted nonzero decimal digits spelling, max signed int64.
 (define-fun positive-int64-text ((s String)) Bool
   (and (str.in_re s
