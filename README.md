@@ -55,7 +55,7 @@ GATES trusts a caller by its immutable GitHub owner ID, not by its name, so rena
 - The repositories you request belong to the same owner as the calling repository, and the GATES GitHub App is installed on them.
 - The calling repository uses GitHub's immutable OIDC subject claims. Repositories created after 2026-07-15 use them by default; older repositories need `use_immutable_subject` enabled on the organization or repository.
 - The job declares `id-token: write`.
-- The job runs on a Linux runner with Docker, such as `ubuntu-latest`. Self-hosted runners also need the network access listed in [Using GATES in Workflows](docs/user-guide/workflow-usage.md#1-what-to-prepare-before-writing-a-workflow).
+- The job runs on a Linux runner with Docker, such as `ubuntu-latest`. Self-hosted runners also need the network access listed in [Using GATES in Workflows](docs/user-guide/workflow-usage.md#6-self-hosted-runners).
 
 ### Example
 
