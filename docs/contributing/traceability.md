@@ -18,9 +18,16 @@ ID を付ける種類は次のとおりです。
 | `GAJ-` | GitHub App JWT の生成条件 | `github-app-jwt.md` | Claim 名か、条件の内容を表す名前 |
 | `RULE-` | ドメインの規則 | `domain.md` | 3 桁の連番（`RULE-001`） |
 | `INV-` | ドメインの不変条件 | `domain.md` | 3 桁の連番（`INV-001`） |
-| `RFC7515-`、`RFC7517-`、`RFC7518-`、`RFC7797-`、`RFC9964-` | JWS、JWK、JWA、JWS Unencoded Payload Option、ML-DSA の条項 | `docs/external/standards/jose.md` | 条項の内容を表す名前 |
-| `RFC7159-`、`RFC7519-`、`RFC8725-` | JSON、JWT、JWT Best Current Practices の条項 | `docs/external/standards/jwt.md` | 条項の内容を表す名前（`RFC7519-AUD-REJECT`） |
-| `OIDCC-`、`OIDCD-` | OpenID Connect Core、OpenID Connect Discovery の条項 | `docs/external/standards/oidc.md` | 条項の内容を表す名前 |
+| `RFC7159-` | JSON の条項 | `docs/external/standards/rfc7159.md` | 条項の内容を表す名前 |
+| `RFC7515-` | JWS の条項 | `docs/external/standards/rfc7515.md` | 条項の内容を表す名前 |
+| `RFC7517-` | JWK の条項 | `docs/external/standards/rfc7517.md` | 条項の内容を表す名前 |
+| `RFC7518-` | JWA の条項 | `docs/external/standards/rfc7518.md` | 条項の内容を表す名前 |
+| `RFC7519-` | JWT の条項 | `docs/external/standards/rfc7519.md` | 条項の内容を表す名前（`RFC7519-AUD-REJECT`） |
+| `RFC7797-` | JWS Unencoded Payload Option の条項 | `docs/external/standards/rfc7797.md` | 条項の内容を表す名前 |
+| `RFC8725-` | JWT Best Current Practices の条項 | `docs/external/standards/rfc8725.md` | 条項の内容を表す名前 |
+| `RFC9964-` | ML-DSA for JOSE and COSE の条項 | `docs/external/standards/rfc9964.md` | 条項の内容を表す名前 |
+| `OIDCC-` | OpenID Connect Core の条項 | `docs/external/standards/oidc-core.md` | 条項の内容を表す名前 |
+| `OIDCD-` | OpenID Connect Discovery の条項 | `docs/external/standards/oidc-discovery.md` | 条項の内容を表す名前 |
 | `GH-OIDC-` | GitHub Actions OIDC の条項 | `docs/external/github/oidc.md` | 条項の内容を表す名前 |
 | `GH-ACCOUNT-` | GitHub のオーナーとリポジトリの条項 | `docs/external/github/account.md` | 条項の内容を表す名前 |
 | `GH-APP-` | GitHub App の条項 | `docs/external/github/app.md` | 条項の内容を表す名前 |
@@ -83,7 +90,7 @@ GOJ と `formal/` のモデルが、外部仕様の規定を一つずつ ID で�
 - 「A は MUST、B は SHOULD」という一文は、2 つの条項に分ける
 - 複数の主体を並べて義務を課す文（RFC 8725 §3.7 の「Implementations and applications MUST」）は、主体ごとの条項に分ける。一つの主体を複数の呼び方で示す文（RFC 8725 §3.9 の「the relying party or application」）は分けず、一つの呼び方を Actor に書き、根拠を本文に書く
 - 一つの文の中でも、主体の異なる義務（RFC 8725 §3.1 の、鍵を一つのアルゴリズムだけで使う義務と、それを暗号操作の時点で確かめる義務）は、条項を分ける
-- 同じ規範を言い換えた複数の文（RFC 7519 §4.1.4 の、`exp` の時刻以後の受理を MUST NOT とする文と、現在時刻が `exp` より前であることを MUST とする文）は、一つの条項にまとめる。言い換えた文の RFC 2119 の語が異なるときは、最初の文の語を Level に書く
+- 同じ規範を言い換えた複数の文（RFC 7519 §4.1.4 の、`exp` の時刻以後の受理を MUST NOT とする文と、現在時刻が `exp` より前であることを MUST とする文）は、一つの条項にまとめる。言い換えた文の RFC 2119 の語が異なるときは、最初の文の語を Level に書く。言い換えた文が離れていて（間に別の規範の文がある、別の節にあるなど）一続きに引用できないときは、最初の文を Quote に書き、後の文を言い換えとして本文に引用する
 - 同じ主体に、値の検証と、検証に失敗したときの拒否を求める文（RFC 8725 §3.8 の、鍵が Issuer に属することを検証する MUST と、属さなければ拒否する MUST）は、一つの受理の判定を表すため、一つの条項にまとめる。検証の義務は、拒否と切り離して確かめられる効果を持たないためである
 - RFC 2119 の語を含まず、Definition（後述）にも当たらない説明の文は、条項にしない。関係する条項の本文か、ファイルの冒頭の対象の説明に書く
 
@@ -113,7 +120,7 @@ GATES がその規定をどう扱うかは、条項には書かず、GOJ の側�
 ```
 
 - **Source**：資料、節、節へのリンク
-- **Quote**：条項の根拠となる一文から数文の逐語の引用。文の単位で、一続きの範囲を引用し、途中を省略しない。一つの文が複数の条項に分かれるときは、それぞれの条項に同じ文を引用する。RFC のテキスト版の改行、ページの区切り、行頭の字下げは除いて一行につなぎ、それ以外の文字は変えない。要約や訳を原文の代わりにしない。条項を出典と照合するレビューで、写した Level、Actor、Condition を原文と突き合わせられるようにするためである
+- **Quote**：条項の根拠となる一文から数文の逐語の引用。文の単位で、一続きの範囲を引用し、途中を省略しない。一つの文が複数の条項に分かれるときは、それぞれの条項に同じ文を引用する。RFC のテキスト版の改行、ページの区切り、行頭の字下げは除いて一行につなぎ、それ以外の文字は変えない。HTML 版だけの資料（OpenID Connect の仕様など）では、タグと、参考文献へのリンクに付くポップアップの注記を除き、改行と字下げを半角スペース一つにつなぎ、改行しない空白（`&nbsp;`）を半角スペースにする。要約や訳を原文の代わりにしない。条項を出典と照合するレビューで、写した Level、Actor、Condition を原文と突き合わせられるようにするためである
 - **Level**：[RFC 2119](https://www.rfc-editor.org/rfc/rfc2119.html) の語（MUST、MUST NOT、REQUIRED、SHALL、SHALL NOT、SHOULD、SHOULD NOT、RECOMMENDED、NOT RECOMMENDED、MAY、OPTIONAL）のうち原文が使う語か、Definition。Definition は、NumericDate の形式や `aud` の値の形のように、RFC 2119 の語を使わず義務も課さないが、`formal/` のモデルが前提とする規定に使う
 - **Actor**：規範に従う主体。出典の資料が主体に使う英語の名前を、訳さずに、単数形で先頭を大文字にして書く（Issuer、Recipient、Implementer、Library、Application、OpenID Provider、Relying Party など）。OP や RP のような略語は使わず、資料が定める正式な名前で書く。訳語や略語は、読み手によって指す主体の解釈が揺れるためである。原文が主体を書かない規範（受動態の文など）では、その規範に従って処理する主体を、同じ資料が使う名前で書き、主体を決めた根拠を本文に書く。Level が Definition の条項では省く
 - **Condition**：原文が書く、規範が適用される条件（ID Token に限る、Authorization Code Flow に限る、`aud` が存在する場合に限る、など）。原文に条件がなければ省く。原文が書かず、ほかの条項から導かれる適用範囲（Claim の使用が OPTIONAL なので、Claim がない JWT には適用されない、など）は、Condition に書かず本文に書く。Condition を原文と突き合わせられるようにするためである

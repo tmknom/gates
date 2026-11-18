@@ -27,7 +27,7 @@ package 名が概念名の前半を表すときは、型名からその部分を
 提供のされ方は手段であり、概念の意味を変えないためです。
 GitHub が定めた値そのものを書くのは、ルールがその値に依存する許可権限と付随権限に限ります。
 GitHub が定める仕様の内容、出典、未確認事項は [GitHub Actions OIDC Constraints](../external/github/oidc.md)、[GitHub Owner and Repository Constraints](../external/github/account.md)、[GitHub App Constraints](../external/github/app.md) を正本とし、本ドキュメントはそれが GATES のルールに及ぼす影響だけを書きます。
-JWT / JWS / JWK / OpenID Connect の標準仕様の規定の整理は [JOSE Standards](../external/standards/jose.md)、[JWT Standards](../external/standards/jwt.md)、[OpenID Connect Standards](../external/standards/oidc.md) に置きます。
+JWT / JWS / JWK / OpenID Connect の標準仕様の規定の整理は、[External](../external/README.md) に挙げた標準仕様の文書に置きます。
 
 本ドキュメントの記述は、根拠の種類を次の表記で区別します。
 
@@ -825,9 +825,7 @@ Lambda の Invoke API が JSON として読めずに拒否した Payload も、�
 - [GitHub Owner and Repository Constraints](../external/github/account.md)
 - [GitHub App Constraints](../external/github/app.md)
 - [GitHub Actions Integration Constraints](../external/github/actions.md)
-- [JOSE Standards](../external/standards/jose.md)
-- [JWT Standards](../external/standards/jwt.md)
-- [OpenID Connect Standards](../external/standards/oidc.md)
+- [External](../external/README.md)
 - [GATES OIDC JWT Claims](gates-oidc-jwt-claims.md)
 - [GATES OIDC JWT Signature](gates-oidc-jwt-signature.md)
 - [GitHub — REST API endpoints for GitHub Apps](https://docs.github.com/en/rest/apps/apps)
