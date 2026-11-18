@@ -1,5 +1,5 @@
 ; expect: unsat
-; PTIMEBOUNDED (GOJ-EXP, GOJ-TIME): no Claims Set is accepted at or after
+; PTIMEBOUNDED (GOJ-EXP, GOJ-TIME-EXP): no Claims Set is accepted at or after
 ; 253402300799, the upper limit of exp, so every accepted JWT expires.
 (declare-const anyClaims Claims)
 (declare-const arbitraryClock Int)

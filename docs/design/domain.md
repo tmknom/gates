@@ -96,8 +96,8 @@ Installation は、GitHub App とオーナーの組に対して高々一つ存�
 
 Issuer の公開鍵集合の JWK は、GATES の受理条件で次の二つに分かれます。
 
-- **使用可能な鍵**（Usable Key）：JWK の受理条件を満たし、RSA 公開鍵として署名の検証に使える JWK。署名の一致は意味しない（事実：GATES OIDC JWT Signature の GOJ-JWK）
-- **除外した JWK**（Excluded JWK）：受理条件を満たさず保持しない JWK。`kid` も保持しないため、JWT の判定では存在しない鍵と同じに扱う。運用者が Issuer の鍵情報の不整合に気付けるよう記録するが、監査記録の項目ではない（事実：GATES OIDC JWT Signature の GOJ-JWKS。英語名は候補。監査記録は発行処理 1 回の単位で、除外は取得 1 回の単位のため）
+- **使用可能な鍵**（Usable Key）：JWK の受理条件を満たし、RSA 公開鍵として署名の検証に使える JWK。署名の一致は意味しない（事実：GATES OIDC JWT Signature の GOJ-JWKS-USABLE）
+- **除外した JWK**（Excluded JWK）：受理条件を満たさず保持しない JWK。`kid` も保持しないため、JWT の判定では存在しない鍵と同じに扱う。運用者が Issuer の鍵情報の不整合に気付けるよう記録するが、監査記録の項目ではない（事実：GATES OIDC JWT Signature の GOJ-JWKS-USABLE。英語名は候補。監査記録は発行処理 1 回の単位で、除外は取得 1 回の単位のため）
 
 ワークフロー実行は、**ワークフロー実行 ID**（Run ID）と **試行番号**（Run Attempt）の組で特定します。
 再実行は同じワークフロー実行 ID のもとで試行番号を増やすため、両方を持って初めて一回の実行を指せます（事実：GitHub Actions OIDC Constraints）。
@@ -116,7 +116,7 @@ Issuer と API Host は GATES 自身が固定し、残りの値は GATES 運用�
 | GitHub App の Client ID | Client ID | GitHub App JWT の発行者 | 事実：Lambda Design §4 |
 | 署名鍵の KMS Key ARN | KMS Key ARN | GitHub App JWT の署名 | 事実：Lambda Design §4 |
 | GATES 用 Audience | Audience | GATES 用 OIDC JWT の Audience の照合 | 事実：GATES OIDC JWT Claims の GOJ-AUD |
-| Issuer | Issuer | GATES 用 OIDC JWT の Issuer の照合と Discovery / JWKS の取得先。GitHub Actions の OIDC Provider に固定。JWKS は Issuer の Discovery から得るため、独立した値を持たない | 事実：GATES OIDC JWT Claims の GOJ-ISS、GATES OIDC JWT Signature の GOJ-DISCOVERY、Lambda Design §6.1 |
+| Issuer | Issuer | GATES 用 OIDC JWT の Issuer の照合と Discovery / JWKS の取得先。GitHub Actions の OIDC Provider に固定。JWKS は Issuer の Discovery から得るため、独立した値を持たない | 事実：GATES OIDC JWT Claims の GOJ-ISS、GATES OIDC JWT Signature の GOJ-DISCOVERY-ISSUER、GOJ-DISCOVERY-JWKS-URI、Lambda Design §6.1 |
 | GitHub API Host | API Host | Installation の取得、トークンの発行と失効の呼び出し先。GitHub.com の API に固定 | 事実：Requirements FR-AUTHZ-004、Scope §4、Lambda Design §6.3 |
 
 Authorization が読むのは、固定設定のうち許可オーナー（ID と名前）だけです。
@@ -441,7 +441,7 @@ Handler が応答を書けない Invoke には、発行処理を始めないも�
 | GitHub App の再インストール | Installation ID が変わるが、設定変更なしに新しい Installation を導出する | 事実：Security Design §3.2 |
 | Installation の停止 | 取得した Installation が停止状態のため、発行許可を作らず Installation 利用不可で閉じる。GitHub の発行 API を呼ばない | 事実：Security Design §3.1、Lambda Design §5 手順 5 |
 | GitHub 側での旧 Private Key の失効 | 新しい KMS Key に切り替え済みなら影響しない | 事実：Acceptance Criteria AC-ISSUANCE-005 |
-| OIDC JWT の主体のカスタマイズ | GATES が受け付ける主体の形式から外れると、入口制御の拒否か認証失敗で発行が止まる | 推論：GATES OIDC JWT Claims の GOJ-SUB、AWS Infrastructure Design §3.1 の主体の条件から。実環境では未確認 |
+| OIDC JWT の主体のカスタマイズ | GATES が受け付ける主体の形式から外れると、入口制御の拒否か認証失敗で発行が止まる | 推論：GATES OIDC JWT Claims の GOJ-SUB-FORMAT、AWS Infrastructure Design §3.1 の主体の条件から。実環境では未確認 |
 | Issuer の公開鍵のローテーション | 手元の鍵で検証できない JWT で JWKS の再取得が許され、取得に成功すれば新しい鍵に追従できる。再取得の上限の間や取得失敗時は、正当な JWT でも一時的に拒否され得る | 推論：Lambda Design §6.1 の再取得の上限と検証条件から |
 | 公開鍵の取得先の変更 | 保持した Discovery は取り直さないため、古い取得先が使えなくなると、実行環境が入れ替わるまで一時的な障害か内部障害で止まる | 推論：Lambda Design §6.1 の Discovery の再利用から |
 
@@ -512,7 +512,7 @@ Handler が応答を書けない Invoke には、発行処理を始めないも�
 
 **例外**：上限の間は取り直さず、前回の取得が失敗していれば前回の失敗の種別を返す
 
-**根拠**：事実：Lambda Design §6.1、GATES OIDC JWT Signature の GOJ-JWKS
+**根拠**：事実：Lambda Design §6.1、GATES OIDC JWT Signature の GOJ-JWKS-KID、GOJ-SIGNATURE
 
 #### RULE-009 JWK の除外
 
@@ -522,7 +522,7 @@ Handler が応答を書けない Invoke には、発行処理を始めないも�
 
 **例外**：なし
 
-**根拠**：事実：GATES OIDC JWT Signature の GOJ-JWKS
+**根拠**：事実：GATES OIDC JWT Signature の GOJ-JWKS-USABLE、GOJ-JWKS-SECRET
 
 #### RULE-010 認可条件
 
@@ -638,7 +638,7 @@ Installation に対象リポジトリが含まれることを、GATES は発行�
 
 **常に成り立つこと**：Issuer が固定設定の Issuer と一致し、公開鍵の取得先が Issuer と同じ `https` のホストとポートを指す
 
-**根拠**：事実：OpenID Connect Discovery、GATES OIDC JWT Signature の GOJ-DISCOVERY。ホストとポートの限定は推論：固定した Issuer の外から鍵を読まないため
+**根拠**：事実：OpenID Connect Discovery、GATES OIDC JWT Signature の GOJ-DISCOVERY-ISSUER、GOJ-DISCOVERY-JWKS-URI。ホストとポートの限定は推論：固定した Issuer の外から鍵を読まないため
 
 #### INV-008 保持した公開鍵
 
@@ -646,7 +646,7 @@ Installation に対象リポジトリが含まれることを、GATES は発行�
 
 **常に成り立つこと**：完全に受信して解釈でき、秘密鍵か対称鍵の値を含まない固定 Issuer の応答の、使用可能な鍵だけからなり、1 つ以上ある。除外した JWK は `kid` を含めて保持しない。同じ `kid` の使用可能な鍵が複数あっても保持し、一意に選べるかは JWT ごとに判定する。取得に失敗しても前回の鍵が残り、未知の鍵で検証に成功したとは扱わない
 
-**根拠**：事実：GATES OIDC JWT Signature の GOJ-JWK の鍵受理条件。保持・更新の方式は Lambda Design §6.1
+**根拠**：事実：GATES OIDC JWT Signature の GOJ-JWKS-SECRET、GOJ-JWKS-USABLE、GOJ-JWKS-KID。保持・更新の方式は Lambda Design §6.1
 
 #### INV-009 Caller
 

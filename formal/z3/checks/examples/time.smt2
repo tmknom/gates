@@ -1,5 +1,5 @@
 ; expect: unsat sat sat unsat unsat unsat unsat unsat unsat sat unsat sat sat unsat sat unsat unsat unsat
-; EXAMPLES-TIME (GOJ-EXP, GOJ-IAT, GOJ-NBF, GOJ-TIME, Verification Cases NumericDate): the model
+; EXAMPLES-TIME (GOJ-EXP, GOJ-IAT, GOJ-NBF, GOJ-TIME-EXP, GOJ-TIME-IAT, GOJ-TIME-NBF, Verification Cases NumericDate): the model
 ; accepts and rejects the representative times as gates-oidc-jwt-claims.md states. now=1000.
 (push 1) (assert (accepts-with "exp" (Present (JInteger 1000)))) (check-sat) (pop 1) ; exp=now: unsat
 (push 1) (assert (accepts-with "exp" (Present (JInteger 1001)))) (check-sat) (pop 1) ; exp=now+1: sat

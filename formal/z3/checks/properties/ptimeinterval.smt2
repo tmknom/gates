@@ -1,5 +1,5 @@
 ; expect: unsat
-; PTIMEINTERVAL (GOJ-TIME): the clocks at which a Claims Set is accepted
+; PTIMEINTERVAL (GOJ-TIME-EXP, GOJ-TIME-IAT, GOJ-TIME-NBF): the clocks at which a Claims Set is accepted
 ; form an interval. A set accepted at two clocks is accepted at every clock
 ; between them, so the time rules leave no gap in a validity period.
 (declare-const anyClaims Claims)

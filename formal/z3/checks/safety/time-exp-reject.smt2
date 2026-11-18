@@ -1,5 +1,5 @@
 ; expect: unsat
-; trace:checks GOJ-TIME RFC7519-EXP-REJECT
+; trace:checks GOJ-TIME-EXP RFC7519-EXP-REJECT
 ; GATES accepts no JWT on or after its exp, even without the leeway that
 ; RFC7519-EXP-LEEWAY allows, so the leeway is 0 here.
 (declare-const anyClaims Claims)

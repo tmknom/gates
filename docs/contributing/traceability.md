@@ -79,7 +79,7 @@ ID は定義の意味を指し、定義の書き方や置き場所を指しま�
 - 同じファイルの中では、見出しのアンカーでリンクしてよい。タイトルを変えた差分の中で、切れたリンクを確かめられるためである
 - 地の文、表、インラインコードに書く ID は、定義された ID に限る。まだ定義されていない ID を書式の例に使うときは、フェンスで囲んだコードブロックの中に書く。追跡の検査は、コードブロックの外に現れる ID がすべて定義されていることを確かめ、コードブロックの中は例として扱うためである
 - コード、テスト、`formal/` からは、文書名を添えず ID だけで定義を参照する。ID の接頭辞から定めるドキュメントが決まり（[§1](#1-id-kinds)）、grep で定義を探せるためである
-- 定義の一部を、番号付きの条件（「GOJ-SUB の条件 6」）のように定義の中の位置で参照しない。条件を足したり並べ替えたりすると、同じ番号が別の条件を指すようになるためである。一部だけを参照する必要があるなら、その部分を別の ID の定義に分ける（[§2](#2-assigning-and-changing-ids)）
+- 定義の一部を、番号付きの条件（「ある GOJ の条件 6」）のように定義の中の位置で参照しない。条件を足したり並べ替えたりすると、同じ番号が別の条件を指すようになるためである。一部だけを参照する必要があるなら、その部分を別の ID の定義に分ける（[§2](#2-assigning-and-changing-ids)）
 
 ## 5. External Specification Clauses
 
@@ -184,18 +184,18 @@ GOJ の定義には、外部仕様の条項との **関係** を、見出しの�
 Relation の値は次の 5 つに限ります。
 Satisfies と Narrows は標準仕様の条項に、Accepts と Possibly Rejects は GitHub の条項に使います。
 
-- **Satisfies**：GOJ に従って受理と拒否を決めれば、標準仕様の条項に従ったことになる。Actor が Recipient のように受信の側の条項なら、GOJ が受理する JWT は条項の下で受理してよい JWT に限られ、Actor が Issuer のように発行の側の条項や、Level が Definition の条項なら、GOJ が受理する JWT は条項を満たす。`formal/` の安全性の検査の対象になる
+- **Satisfies**：GOJ に従って受理と拒否を決めれば、標準仕様の条項に従ったことになる。Actor が Recipient のように受信の側の条項なら、GOJ が受理する JWT は条項の下で受理してよい JWT に限られ、Actor が Issuer のように発行の側の条項や、Level が Definition の条項なら、GOJ が受理する JWT は条項を満たす。Level が MAY の条項が許す選択を GOJ が使うとき（`nbf` の判定の猶予を設けるなど）も、選択が条項の許す範囲にあることを表して Satisfies に挙げる。選択を使わないときは Narrows に挙げる。`formal/` の安全性の検査の対象になる
 - **Narrows**：標準仕様の条項が許す入力の一部を、GOJ が拒否する。Level が MAY や OPTIONAL の条項が許す選択（Claim を省くことなど）や、Level が Definition の条項が表す値の形の一部を拒否する場合も含む。互換性に影響するため、狭める理由を Note に書く
 - **Accepts**：GitHub の条項が表す発行を、GOJ が受理する。`formal/` の互換性の検査の対象になる
-- **Possibly Rejects**：GitHub の条項（多くは Evidence が Unconfirmed の条項）が許す発行の一部を、GOJ が拒否する。GitHub がその発行を実際に行うかは確定していないため、拒否は起こり得るものにとどまる。GATES が受け入れた既知の非互換を表し、互換性の検査の反例に対応する。拒否し得る発行と、それを受け入れた理由を Note に書く
+- **Possibly Rejects**：GitHub の条項（多くは Evidence が Unconfirmed の条項）が許す発行の一部を、GOJ が拒否する。Evidence が Unconfirmed の条項では、GitHub がその発行を実際に行うかは確定していないため、拒否は起こり得るものにとどまる。GATES が受け入れた既知の非互換を表し、互換性の検査の反例に対応する。拒否し得る発行と、それを受け入れた理由を Note に書く
 - **None**：関係する条項がない
 
 GATES の役割に当たる強い規範の条項は、いずれかの GOJ の Satisfies か Narrows の行で参照するか、「適用しない標準の条項」の表に挙げます。
 強い規範とは、Level が MUST、MUST NOT、REQUIRED、SHALL、SHALL NOT の条項です。
 それ以外の Level の条項は、標準仕様が従わない選択を許すか、義務を課さないため、網羅を求めません（関係を書くことは妨げません）。
 
-- **GATES の役割に当たる Actor の一覧**：Recipient、Relying Party のように、GATES が当たる条項の Actor を挙げる。`gates-oidc-jwt-claims.md` に置き、`gates-oidc-jwt-signature.md` も同じ一覧に従う
-- **適用しない標準の条項**：GATES の役割に当たる強い規範のうち、GATES に適用しない条項の ID と、適用しない理由（`nonce` の照合は認証要求を前提とする、など）を並べた表。`gates-oidc-jwt-claims.md` と `gates-oidc-jwt-signature.md` のそれぞれに置き、条項が扱う対象が Claims Set か、直列化、JOSE Header、Discovery、JWK かによって、[Documentation Policy](docs-policy.md) の §2.3 に定める責務に合う側に挙げる
+- **GATES の役割に当たる Actor の一覧**：Recipient、Relying Party のように、GATES が当たる条項の Actor を、「**Actor**：説明」の箇条書きで挙げる。`gates-oidc-jwt-claims.md` に置き、`gates-oidc-jwt-signature.md` も同じ一覧に従う
+- **適用しない標準の条項**：GATES の役割に当たる強い規範のうち、GATES に適用しない条項の ID と、適用しない理由（`nonce` の照合は認証要求を前提とする、など）を並べた表。列は Clause と Reason の 2 つで、1 行に一つの条項を、Clause の ID の順に書く。`gates-oidc-jwt-claims.md` と `gates-oidc-jwt-signature.md` のそれぞれの `## Standard Clauses Not Applied` の節に置き、条項が扱う対象が Claims Set か、直列化、JOSE Header、Discovery、JWK かによって、[Documentation Policy](docs-policy.md) の §2.3 に定める責務に合う側に挙げる。同じ条項を、関係の表の Satisfies か Narrows の行と、この表の両方には挙げない
 
 ## 7. Trace Annotations
 

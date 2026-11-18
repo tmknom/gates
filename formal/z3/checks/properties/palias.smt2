@@ -1,5 +1,5 @@
 ; expect: unsat
-; PALIAS (GOJ-CLAIM-NAME): adding any alias of iss/aud/exp/iat/nbf, with any
+; PALIAS (GOJ-CLAIM-NAME-ALIAS): adding any alias of iss/aud/exp/iat/nbf, with any
 ; value, to any Claims Set yields a set that is not accepted.
 (declare-const anyClaims Claims)
 (declare-const arbitraryClock Int)

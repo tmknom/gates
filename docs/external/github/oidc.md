@@ -80,6 +80,12 @@ Observed の条項が根拠にする JWT は、どれも個人アカウントの
 - **Source**：[GitHub OIDC JWKS](../../research/github/oidc-jwks.md)
 - **Statement**：JWKS の 4 個の鍵のうち 3 個にだけ `x5c` と `x5t` があり、それらの `x5c` はどれも証明書を 1 個だけ含む
 
+### GH-OIDC-JWKS-X5C-KEY 鍵の証明書の公開鍵
+
+- **Evidence**：Published
+- **Source**：[GitHub OIDC JWKS](../../research/github/oidc-jwks.md)
+- **Statement**：JWKS の `x5c` を持つ 3 個の鍵では、`x5c` の証明書の公開鍵は、どれも RSA 公開鍵で、その鍵の `n` と `e` に一致する。どの鍵の `x5t` も、その証明書の SHA-1 の指紋に一致する。2 個の証明書は Key Usage に `digitalSignature` と `keyEncipherment` を持ち、1 個の証明書は Key Usage を持たない
+
 ### GH-OIDC-JWKS-KID-FORMAT `kid` の形式
 
 - **Evidence**：Published
