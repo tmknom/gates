@@ -2,7 +2,7 @@
 
 このディレクトリには、GATES が受け取る GitHub OIDC JWT の、デコード済みの Claims Set に対する受理条件を SMT-LIB 2 で記述しています。
 ソルバーは [Z3](https://github.com/Z3Prover/z3) です。
-受理条件の正本は [GATES OIDC JWT Claims](../../docs/design/gates-oidc-jwt-claims.md) で、規範性の根拠は [JWT Standards](../../docs/external/standards/jwt.md)、[OpenID Connect Standards](../../docs/external/standards/oidc.md)、[GitHub Actions OIDC Constraints](../../docs/external/github/oidc.md) と一次資料です。
+受理条件の正本は [GATES OIDC JWT Claims](../../docs/design/gates-oidc-jwt-claims.md) で、規範性の根拠は [RFC 7519 JSON Web Token](../../docs/external/standards/rfc7519.md)、[RFC 8725 JWT Best Current Practices](../../docs/external/standards/rfc8725.md)、[OpenID Connect Core 1.0](../../docs/external/standards/oidc-core.md)、[GitHub Actions OIDC Constraints](../../docs/external/github/oidc.md) と一次資料です。
 
 検査は、確かめる対象で次の 2 つに分かれます。
 実装が仕様どおりかは、このモデルではなく Go のテストが確かめます。
@@ -17,7 +17,7 @@
 | ファイル | 内容 |
 |---|---|
 | `model/values.smt2` | 型付きの JsonValue、MaybeClaim、Claims Set、ID の表記、Claim 名の分類、別名の述語 |
-| `model/standards/jwt.smt2` | JWT Standards の時刻と Audience の条項。GATES の値（Issuer、Audience、猶予の秒数）を含まず、MAY と OPTIONAL の条項は許す選択の述語、標準が値を決めない猶予は引数で表す |
+| `model/standards/jwt.smt2` | RFC 7519 と RFC 8725 の時刻と Audience の条項。GATES の値（Issuer、Audience、猶予の秒数）を含まず、MAY と OPTIONAL の条項は許す選択の述語、標準が値を決めない猶予は引数で表す |
 | `model/standard.smt2` | 選択した RFC の受信者側の `iss` と `sub` の条件と、OIDC Core の ID Token の `sub` の ASCII と 255 文字の条件 |
 | `model/github.smt2` | GitHub 公式の固定の Issuer |
 | `model/gates-current.smt2` | 現行の GATES の受理条件 |

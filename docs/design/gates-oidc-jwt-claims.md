@@ -34,7 +34,7 @@ Claim ごとでない規則の ID は、規則の内容を表す名前です（`
 
 GATES は、適用対象の標準仕様が要求する検証を省略しません。追加で受理対象を狭くする場合は、どの標準要求に違反しないか、互換性にどのような影響があるかを明記します。「理解しない Claim / Header は無視する」という標準規定も尊重し、無関係な新規 Claim の追加だけを拒否の理由にしません。Claims Set の JSON の名前重複、不正な UTF-8、既知 Claim の解釈の曖昧さは、未知 Claim と区別して [GOJ-CLAIM-NAME](#goj-claim-name-json-と-claim-名の一貫した解釈) で扱います。
 
-標準仕様の整理は [JOSE Standards](../external/standards/jose.md)、[JWT Standards](../external/standards/jwt.md)、[OpenID Connect Standards](../external/standards/oidc.md)、GitHub の仕様と観測は [GitHub Actions OIDC Constraints](../external/github/oidc.md) を正本とします。外部仕様の引用は正確な要約と節へのリンクを用い、全文転記しません。`claims_supported` はサポートする Claim の一覧であり、すべての JWT に全 Claim が存在する保証ではありません。
+標準仕様の整理は [External](../external/README.md) に挙げた標準仕様の文書、GitHub の仕様と観測は [GitHub Actions OIDC Constraints](../external/github/oidc.md) を正本とします。外部仕様の引用は正確な要約と節へのリンクを用い、全文転記しません。`claims_supported` はサポートする Claim の一覧であり、すべての JWT に全 Claim が存在する保証ではありません。
 
 ### 受理の分類
 
@@ -466,9 +466,10 @@ ID の `JV-C-` は、本書の未確認事項を表します。
 
 ## References
 
-- [JOSE Standards](../external/standards/jose.md) — 規範と適用範囲の整理
-- [JWT Standards](../external/standards/jwt.md) — 規範と適用範囲の整理
-- [OpenID Connect Standards](../external/standards/oidc.md) — 規範と適用範囲の整理
+- [RFC 7159 JSON](../external/standards/rfc7159.md) — 規範と適用範囲の整理
+- [RFC 7519 JSON Web Token](../external/standards/rfc7519.md) — 規範と適用範囲の整理
+- [RFC 8725 JWT Best Current Practices](../external/standards/rfc8725.md) — 規範と適用範囲の整理
+- [OpenID Connect Core 1.0](../external/standards/oidc-core.md) — 規範と適用範囲の整理
 - [GitHub Actions OIDC Constraints](../external/github/oidc.md) — GitHub 公式資料、公開値・実測、未確認事項
 - [GitHub OIDC Discovery](../research/github/oidc-discovery.md) — `claims_supported`
 - [GitHub OIDC JWT](../research/github/oidc-jwt.md) — 6件の JWT 観測

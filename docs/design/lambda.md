@@ -565,8 +565,8 @@ Lambda の Go Runtime では標準出力が CloudWatch Logs に送られ、JSON 
 - [GATES OIDC JWT Claims](gates-oidc-jwt-claims.md)
 - [GATES OIDC JWT Signature](gates-oidc-jwt-signature.md)
 - [GitHub App JWT](github-app-jwt.md)
-- [JOSE Standards](../external/standards/jose.md)
-- [JWT Standards](../external/standards/jwt.md)
+- [RFC 7515 JSON Web Signature](../external/standards/rfc7515.md)
+- [RFC 7519 JSON Web Token](../external/standards/rfc7519.md)
 - [OpenID Foundation — OpenID Connect Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html)
 - [IETF — RFC 7519 JSON Web Token](https://www.rfc-editor.org/rfc/rfc7519)
 
