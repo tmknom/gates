@@ -806,7 +806,7 @@ Lambda の Invoke API が JSON として読めずに拒否した Payload も、�
 
 公式文書で確認できない GitHub の振る舞いのうち、GATES のルールに影響するのは次の 2 つです。
 どちらもトークンを返すかどうかは変えないため、裏取りを前提にしません。
-確定できていない事項の一覧は、[GitHub Actions OIDC Constraints](../external/github/oidc.md)、[GitHub Owner and Repository Constraints](../external/github/account.md)、[GitHub App Constraints](../external/github/app.md)、[GitHub Actions Integration Constraints](../external/github/actions.md) の Outstanding Verification にあります。
+確定できていない事項は、[GitHub Actions OIDC Constraints](../external/github/oidc.md) では Evidence が Unconfirmed の条項に、[GitHub Owner and Repository Constraints](../external/github/account.md)、[GitHub App Constraints](../external/github/app.md)、[GitHub Actions Integration Constraints](../external/github/actions.md) では Outstanding Verification にあります。
 
 - 範囲外の対象を含む発行 API の呼び出しへの応答。失敗の種別の分類だけが変わる（[RULE-011 Installation の有効性](#rule-011-installation-の有効性)）
 - 要求にかかわらず `metadata:read` が付与されるかどうか。付与されなくても照合は通る（[3.3 Request and Decision](#33-request-and-decision)）

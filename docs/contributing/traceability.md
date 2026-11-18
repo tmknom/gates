@@ -28,7 +28,7 @@ ID を付ける種類は次のとおりです。
 | `RFC9964-` | ML-DSA for JOSE and COSE の条項 | `docs/external/standards/rfc9964.md` | 条項の内容を表す名前 |
 | `OIDCC-` | OpenID Connect Core の条項 | `docs/external/standards/oidc-core.md` | 条項の内容を表す名前 |
 | `OIDCD-` | OpenID Connect Discovery の条項 | `docs/external/standards/oidc-discovery.md` | 条項の内容を表す名前 |
-| `GH-OIDC-` | GitHub Actions OIDC の条項 | `docs/external/github/oidc.md` | 条項の内容を表す名前 |
+| `GH-OIDC-` | GitHub Actions OIDC の条項 | `docs/external/github/oidc.md` | 条項の内容を表す名前（`GH-OIDC-AUD-DEFAULT`） |
 | `GH-ACCOUNT-` | GitHub のオーナーとリポジトリの条項 | `docs/external/github/account.md` | 条項の内容を表す名前 |
 | `GH-APP-` | GitHub App の条項 | `docs/external/github/app.md` | 条項の内容を表す名前 |
 | `GH-ACTIONS-` | GitHub Actions の連携の条項 | `docs/external/github/actions.md` | 条項の内容を表す名前 |
