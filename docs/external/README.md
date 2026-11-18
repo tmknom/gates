@@ -19,7 +19,7 @@
 | [RFC 9964 ML-DSA for JOSE and COSE](standards/rfc9964.md) | JWK で表す AKP 鍵の条項 |
 | [OpenID Connect Core 1.0](standards/oidc-core.md) | ID Token の Claim、認証フローごとの ID Token の検証、署名、文字列の操作の条項。ID Token と認証フローに限る範囲を Condition に書く |
 | [OpenID Connect Discovery 1.0](standards/oidc-discovery.md) | OpenID Provider Metadata、設定の取得と検証、文字列の操作、TLS と成りすましへの対策の条項 |
-| [GitHub Actions OIDC Constraints](github/oidc.md) | GitHub Actions OIDC の Issuer、Discovery、JWKS、Claim、`sub`、Audience の仕様と未確認事項 |
+| [GitHub Actions OIDC Constraints](github/oidc.md) | GitHub Actions OIDC の Issuer、Discovery、JWKS、JOSE Header、Claim、時刻、Audience、`sub` とそのカスタマイズの条項。未確認事項は Evidence が Unconfirmed の条項に書く |
 | [GitHub Owner and Repository Constraints](github/account.md) | GitHub のオーナーとリポジトリの識別子と名前の仕様と未確認事項 |
 | [GitHub App Constraints](github/app.md) | GitHub App、GitHub App JWT、Installation、Installation Access Token、REST API の共通事項の仕様と未確認事項 |
 | [GitHub Actions Integration Constraints](github/actions.md) | GitHub Actions の OIDC JWT の取得、Output とマスク、Secrets と Variables、Dependabot、Docker Action、Runner の仕様と未確認事項 |
