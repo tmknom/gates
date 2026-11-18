@@ -34,7 +34,7 @@ ID を付ける種類は次のとおりです。
 - 接頭辞は出典の資料を表す。ID を見ただけで、条項を確かめるときに開く資料が決まるようにするためである
 - 名前は英大文字、数字、`-` で書き、規範が扱う要素（Claim 名、Header Parameter 名など）を先に、規範の内容を後に置く（`RFC7519-AUD-REJECT`）。同じ要素の条項が ID の順に並び、grep で集められるようにするためである
 - 名前に節番号を使わない。一つの節が複数の規範を定めることがあり（RFC 7519 §4.1.3 は `aud` の形式と拒否を定める）、GitHub の資料には節番号がないためである
-- GitHub の条項の ID に根拠区分を含めない。未確認だった事柄が公式資料で確かめられても、条項が指す事柄は変わらないためである
+- GitHub の条項の ID に Evidence を含めない。Unconfirmed だった事柄が公式資料で確かめられて Documented になっても、条項が指す事柄は変わらないためである
 
 ## 2. Assigning and Changing IDs
 
@@ -77,11 +77,16 @@ ID は定義の意味を指し、定義の書き方や置き場所を指しま�
 
 `docs/external/` は、外部仕様の規定を、ID を付けた **条項** に分けて書きます。
 GOJ と `formal/` のモデルが、外部仕様の規定を一つずつ ID で指せるようにするためです。
-一つの条項は、一つの規範、一つの強度（GitHub の条項では一つの根拠区分）、一つの対象だけを持ちます。
+一つの条項は、一つの規範だけを持ち、標準仕様の条項では一つの Level と一つの Actor、GitHub の条項では一つの Evidence だけを持ちます。
 
 - 「A は MUST、B は SHOULD」という一文は、2 つの条項に分ける
-- 同じ規範を言い換えた複数の文（RFC 7519 §4.1.4 の、`exp` の時刻以後の受理を MUST NOT とする文と、現在時刻が `exp` より前であることを MUST とする文）は、一つの条項にまとめる。言い換えた文の強度の語が異なるときは、最初の文の語を強度に書く
-- 強度の語を含まず、「定義」（後述）にも当たらない説明の文は、条項にしない。関係する条項の本文か、ファイルの冒頭の対象の説明に書く
+- 同じ規範を言い換えた複数の文（RFC 7519 §4.1.4 の、`exp` の時刻以後の受理を MUST NOT とする文と、現在時刻が `exp` より前であることを MUST とする文）は、一つの条項にまとめる。言い換えた文の RFC 2119 の語が異なるときは、最初の文の語を Level に書く
+- RFC 2119 の語を含まず、Definition（後述）にも当たらない説明の文は、条項にしない。関係する条項の本文か、ファイルの冒頭の対象の説明に書く
+
+条項の項目名、Level と Evidence の値、関係の表の列名と Relation の値（[§6](#6-relations-between-goj-and-clauses)）は英語で書きます。
+これらの語は、本ドキュメントが定める意味だけを持ちます。
+英語で書くのは、日本語の文書の中で、同じ意味の普通の語（「定義」「推論」「満たす」など）と見分けられるようにするためです。
+地の文でこれらの意味を指すときも、訳さず、バッククォートで囲まずに英語のまま書きます。
 
 条項の見出しは [§3](#3-writing-definitions) のとおり ID とタイトルで書き、見出しの直下に、次に定める項目の箇条書きを置きます。
 箇条書きの後の本文には、原文で読み取りにくい点の説明だけを書きます。
@@ -96,18 +101,18 @@ GATES がその規定をどう扱うかは、条項には書かず、GOJ の側�
 ```markdown
 #### RFC7519-AUD-REJECT 受信者を含まない aud の拒否
 
-- **出典**：[RFC 7519 §4.1.3](https://www.rfc-editor.org/rfc/rfc7519.html#section-4.1.3)
-- **原文**：`If the principal processing the claim does not identify itself with a value in the "aud" claim when this claim is present, then the JWT MUST be rejected.`
-- **強度**：MUST
-- **対象**：受信者
-- **条件**：`aud` が存在する
+- **Source**：[RFC 7519 §4.1.3](https://www.rfc-editor.org/rfc/rfc7519.html#section-4.1.3)
+- **Quote**：`If the principal processing the claim does not identify itself with a value in the "aud" claim when this claim is present, then the JWT MUST be rejected.`
+- **Level**：MUST
+- **Actor**：Recipient
+- **Condition**：`aud` が存在する
 ```
 
-- **出典**：資料、節、節へのリンク
-- **原文**：条項の根拠となる一文から数文の逐語の引用。文の単位で、一続きの範囲を引用し、途中を省略しない。一つの文が複数の条項に分かれるときは、それぞれの条項に同じ文を引用する。RFC のテキスト版の改行、ページの区切り、行頭の字下げは除いて一行につなぎ、それ以外の文字は変えない。要約や訳を原文の代わりにしない。条項を出典と照合するレビューで、写した強度、対象、条件を原文と突き合わせられるようにするためである
-- **強度**：[RFC 2119](https://www.rfc-editor.org/rfc/rfc2119.html) の語（MUST、MUST NOT、REQUIRED、SHALL、SHALL NOT、SHOULD、SHOULD NOT、RECOMMENDED、NOT RECOMMENDED、MAY、OPTIONAL）のうち原文が使う語か、「定義」。「定義」は、NumericDate の形式や `aud` の値の形のように、強度の語を使わず義務も課さないが、`formal/` のモデルが前提とする規定に使う
-- **対象**：規範に従う主体。発行者、受信者、ライブラリ、アプリケーション、OP、RP のように、出典の資料の語の訳語で書き、同じ資料の同じ語には同じ訳語を使う。原文が主体を書かない規範（受動態の文など）では、その規範に従って処理する主体を、同じ資料が使う語で書き、主体を決めた根拠を本文に書く。強度が「定義」の条項では省く
-- **条件**：原文が書く、規範が適用される条件（ID Token に限る、Authorization Code Flow に限る、`aud` が存在する場合に限る、など）。原文に条件がなければ省く。原文が書かず、ほかの条項から導かれる適用範囲（Claim の使用が OPTIONAL なので、Claim がない JWT には適用されない、など）は、条件に書かず本文に書く。条件を原文と突き合わせられるようにするためである
+- **Source**：資料、節、節へのリンク
+- **Quote**：条項の根拠となる一文から数文の逐語の引用。文の単位で、一続きの範囲を引用し、途中を省略しない。一つの文が複数の条項に分かれるときは、それぞれの条項に同じ文を引用する。RFC のテキスト版の改行、ページの区切り、行頭の字下げは除いて一行につなぎ、それ以外の文字は変えない。要約や訳を原文の代わりにしない。条項を出典と照合するレビューで、写した Level、Actor、Condition を原文と突き合わせられるようにするためである
+- **Level**：[RFC 2119](https://www.rfc-editor.org/rfc/rfc2119.html) の語（MUST、MUST NOT、REQUIRED、SHALL、SHALL NOT、SHOULD、SHOULD NOT、RECOMMENDED、NOT RECOMMENDED、MAY、OPTIONAL）のうち原文が使う語か、Definition。Definition は、NumericDate の形式や `aud` の値の形のように、RFC 2119 の語を使わず義務も課さないが、`formal/` のモデルが前提とする規定に使う
+- **Actor**：規範に従う主体。出典の資料が主体に使う英語の名前を、訳さずに、単数形で先頭を大文字にして書く（Issuer、Recipient、Implementer、Library、Application、OpenID Provider、Relying Party など）。OP や RP のような略語は使わず、資料が定める正式な名前で書く。訳語や略語は、読み手によって指す主体の解釈が揺れるためである。原文が主体を書かない規範（受動態の文など）では、その規範に従って処理する主体を、同じ資料が使う名前で書き、主体を決めた根拠を本文に書く。Level が Definition の条項では省く
+- **Condition**：原文が書く、規範が適用される条件（ID Token に限る、Authorization Code Flow に限る、`aud` が存在する場合に限る、など）。原文に条件がなければ省く。原文が書かず、ほかの条項から導かれる適用範囲（Claim の使用が OPTIONAL なので、Claim がない JWT には適用されない、など）は、Condition に書かず本文に書く。Condition を原文と突き合わせられるようにするためである
 
 ### GitHub Clauses
 
@@ -116,57 +121,69 @@ GitHub の仕様の条項は、次の形で書きます。
 ```markdown
 #### GH-OIDC-AUD-DEFAULT Audience の既定値
 
-- **根拠区分**：公式仕様
-- **出典**：[OIDC reference](https://docs.github.com/en/actions/reference/security/oidc)
-- **内容**：Audience を指定しない場合、`aud` はリポジトリのオーナーの URL である
+- **Evidence**：Documented
+- **Source**：[OIDC reference](https://docs.github.com/en/actions/reference/security/oidc)
+- **Statement**：Audience を指定しない場合、`aud` はリポジトリのオーナーの URL である
 ```
 
-- **根拠区分**：次の表のいずれか
-- **出典**：GitHub の公式資料へのリンク、または `docs/research/github/` の調査記録へのリンク
-- **内容**：GitHub の振る舞い。実測値の条項では、記録した条件（Audience の指定の有無、リポジトリのオーナーの種別など）を含める。推論の条項では、根拠にした条項の ID を含める
-- **確認方法**：未確認の条項だけに書く。何を確かめれば確定するか（公式資料の記述、実測する条件など）
+- **Evidence**：次の表のいずれか
+- **Source**：GitHub の公式資料へのリンク、または `docs/research/github/` の調査記録へのリンク
+- **Statement**：GitHub の振る舞い。Observed の条項では、記録した条件（Audience の指定の有無、リポジトリのオーナーの種別など）を含める。Inferred の条項では、根拠にした条項の ID を含める
+- **Confirmation**：Unconfirmed の条項だけに書く。何を確かめれば確定するか（公式資料の記述、実測する条件など）
 
-| 根拠区分 | 意味 |
+Evidence の値は、Statement がどのように知られたかを表すため、すべて過去分詞にそろえます。
+
+| Evidence | 意味 |
 |---|---|
-| 公式仕様 | リンクした GitHub の公式資料に記述された内容。資料の条件・適用範囲を含めて読む |
-| 公開値 | GitHub が公開するエンドポイントから取得し、調査記録に残した値。取得時点の値であり、将来も同じ値であることの保証ではない |
-| 実測値 | GitHub Actions の実環境で発行された JWT、GitHub API の実際の応答、GitHub Actions の実行ログから取得し、調査記録に残した値。記録した条件での観測であり、ほかの条件や将来も同じ値であることの保証ではない |
-| 推論 | 公式仕様、公開値、実測値から導いた解釈。GitHub が明示的に保証した事実とは区別する |
-| 未確認 | 公式資料で確定できない動作。公開値や実測値があっても、それだけでは保証とみなさない |
+| Documented | リンクした GitHub の公式資料に記述された内容。資料の条件・適用範囲を含めて読む |
+| Published | GitHub が公開するエンドポイントから取得し、調査記録に残した値。取得時点の値であり、将来も同じ値であることの保証ではない |
+| Observed | GitHub Actions の実環境で発行された JWT、GitHub API の実際の応答、GitHub Actions の実行ログから取得し、調査記録に残した値。記録した条件での観測であり、ほかの条件や将来も同じ値であることの保証ではない |
+| Inferred | Documented、Published、Observed の条項から導いた解釈。GitHub が明示的に保証した事実とは区別する |
+| Unconfirmed | 公式資料で確定できない動作。Published や Observed の値があっても、それだけでは保証とみなさない |
 
-未確認の条項は、「GitHub は X を定めていない」「X の条件は資料から確定できない」の形で、確定していない事柄を書きます。
+Unconfirmed の条項は、「GitHub は X を定めていない」「X の条件は資料から確定できない」の形で、確定していない事柄を書きます。
 確定していない振る舞いを断定の形で書くと、GOJ や `formal/` のモデルが、それを GitHub の保証として扱うおそれがあるためです。
 
 ## 6. Relations between GOJ and Clauses
 
-GOJ の定義には、外部仕様の条項との **関係** を、見出しの直下の箇条書きに 1 行で書きます。
+GOJ の定義には、外部仕様の条項との **関係** を、見出しの直下に表で書きます。
 関係は GOJ の側にだけ書き、条項の側にはどの GOJ と関係するかを書きません。
 `docs/external/` は `docs/design/` に依存しないためです（[Documentation Policy](docs-policy.md) の §2.9）。
 
 ```markdown
 ### GOJ-AUD `aud`
 
-- **関係**：満たす RFC7519-AUD-REJECT、狭める RFC7519-AUD-FORMAT、受理する GH-OIDC-AUD-CUSTOM
+| Relation | Clause | Note |
+|---|---|---|
+| Satisfies | RFC7519-AUD-REJECT | なし |
+| Narrows | RFC7519-AUD-FORMAT | 要素が複数の配列を拒否する。受信者を増やした JWT を資格情報として再利用させないため |
+| Accepts | GH-OIDC-AUD-CUSTOM | なし |
 ```
 
-関係の種類の後に条項の ID を半角スペース区切りで並べ、種類ごとの組を「、」で区切ります。
-一つの条項を複数の種類に挙げてもよいものとします（`exp` を JSON の整数に限る GOJ は、NumericDate の形式の条項を、受理した値が満たす点で「満たす」に、整数でない値を拒否する点で「狭める」に挙げる）。
-関係する条項がない GOJ には「なし」と書きます。
-行を省かないのは、関係を書き忘れた GOJ を機械的に見つけられるようにするためです。
+- **Relation**：関係の種類。後に定める 5 つのいずれか
+- **Clause**：条項の ID。1 行に一つだけ書く
+- **Note**：関係の補足。補足がなければ「なし」と書く。空欄にしないのは、書き忘れと、補足がないことを区別するためである
 
-関係の種類は次の 4 つに限ります。
-「満たす」と「狭める」は標準仕様の条項に、「受理する」と「拒否し得る」は GitHub の条項に使います。
+1 行には、一つの関係の種類と一つの条項の組だけを書きます。
+一つの条項を複数の種類に挙げるときも、行を分けます（`exp` を JSON の整数に限る GOJ は、NumericDate の形式の条項を、受理した値が満たす点で Satisfies の行に、整数でない値を拒否する点で Narrows の行に挙げる）。
+行は、Relation を Satisfies、Narrows、Accepts、Possibly Rejects の順に並べ、同じ Relation の中では Clause の ID の順に並べます。
+関係する条項がない GOJ には、Relation が None、Clause が「なし」の 1 行だけを書きます。
+表を省かないのは、関係を書き忘れた GOJ を機械的に見つけられるようにするためです。
 
-- **満たす**：GOJ に従って受理と拒否を決めれば、標準仕様の条項に従ったことになる。受信者に課す条項なら、GOJ が受理する JWT は条項の下で受理してよい JWT に限られ、発行者に課す条項や「定義」の条項なら、GOJ が受理する JWT は条項を満たす。`formal/` の安全性の検査の対象になる
-- **狭める**：標準仕様の条項が許す入力の一部を、GOJ が拒否する。強度が MAY や OPTIONAL の条項が許す選択（Claim を省くことなど）や、「定義」の条項が表す値の形の一部を拒否する場合も含む。互換性に影響するため、狭める理由を GOJ の本文に書く
-- **受理する**：GitHub の条項が表す発行を、GOJ が受理する。`formal/` の互換性の検査の対象になる
-- **拒否し得る**：GitHub の条項（多くは未確認の条項）が許す発行を、GOJ が拒否し得る。GATES が受け入れた既知の非互換を表し、互換性の検査の反例に対応する
+Relation の値は次の 5 つに限ります。
+Satisfies と Narrows は標準仕様の条項に、Accepts と Possibly Rejects は GitHub の条項に使います。
 
-GATES の役割に当たる強い規範の条項は、いずれかの GOJ の「満たす」か「狭める」で参照するか、「適用しない標準の条項」の表に挙げます。
-強い規範とは、強度が MUST、MUST NOT、REQUIRED、SHALL、SHALL NOT の条項です。
-それ以外の強度の条項は、標準仕様が従わない選択を許すか、義務を課さないため、網羅を求めません（関係を書くことは妨げません）。
+- **Satisfies**：GOJ に従って受理と拒否を決めれば、標準仕様の条項に従ったことになる。Actor が Recipient のように受信の側の条項なら、GOJ が受理する JWT は条項の下で受理してよい JWT に限られ、Actor が Issuer のように発行の側の条項や、Level が Definition の条項なら、GOJ が受理する JWT は条項を満たす。`formal/` の安全性の検査の対象になる
+- **Narrows**：標準仕様の条項が許す入力の一部を、GOJ が拒否する。Level が MAY や OPTIONAL の条項が許す選択（Claim を省くことなど）や、Level が Definition の条項が表す値の形の一部を拒否する場合も含む。互換性に影響するため、狭める理由を Note に書く
+- **Accepts**：GitHub の条項が表す発行を、GOJ が受理する。`formal/` の互換性の検査の対象になる
+- **Possibly Rejects**：GitHub の条項（多くは Evidence が Unconfirmed の条項）が許す発行の一部を、GOJ が拒否する。GitHub がその発行を実際に行うかは確定していないため、拒否は起こり得るものにとどまる。GATES が受け入れた既知の非互換を表し、互換性の検査の反例に対応する。拒否し得る発行と、それを受け入れた理由を Note に書く
+- **None**：関係する条項がない
 
-- **GATES の役割に当たる対象の一覧**：受信者、RP のように、GATES が当たる条項の対象を挙げる。`gates-oidc-jwt-claims.md` に置き、`gates-oidc-jwt-signature.md` も同じ一覧に従う
+GATES の役割に当たる強い規範の条項は、いずれかの GOJ の Satisfies か Narrows の行で参照するか、「適用しない標準の条項」の表に挙げます。
+強い規範とは、Level が MUST、MUST NOT、REQUIRED、SHALL、SHALL NOT の条項です。
+それ以外の Level の条項は、標準仕様が従わない選択を許すか、義務を課さないため、網羅を求めません（関係を書くことは妨げません）。
+
+- **GATES の役割に当たる Actor の一覧**：Recipient、Relying Party のように、GATES が当たる条項の Actor を挙げる。`gates-oidc-jwt-claims.md` に置き、`gates-oidc-jwt-signature.md` も同じ一覧に従う
 - **適用しない標準の条項**：GATES の役割に当たる強い規範のうち、GATES に適用しない条項の ID と、適用しない理由（`nonce` の照合は認証要求を前提とする、など）を並べた表。`gates-oidc-jwt-claims.md` と `gates-oidc-jwt-signature.md` のそれぞれに置き、条項が扱う対象が Claims Set か、直列化、JOSE Header、Discovery、JWK かによって、[Documentation Policy](docs-policy.md) の §2.3 に定める責務に合う側に挙げる
 
 ## 7. Trace Annotations
@@ -212,10 +229,10 @@ AC の意味を変えたときに確かめ直すテスト（[§2](#2-assigning-a
 条項と GOJ は、`trace:formalizes` で形式化するか、`trace:unformalized` で形式化しない理由を書きます。
 どちらもない定義を、形式化を忘れたものとして機械的に見つけられるようにするためです。
 形式化しない理由を条項や GOJ の定義に書かないのは、`docs/external/` と `docs/design/` が `formal/` に依存しないようにするためです。
-根拠区分が未確認の条項は、モデルが制約しないことで表すため、どちらも書きません。
+Evidence が Unconfirmed の条項は、モデルが制約しないことで表すため、どちらも書きません。
 
 関係（[§6](#6-relations-between-goj-and-clauses)）は、次の検査で確かめます。
 
-- 「満たす」と「受理する」の関係ごとに、GOJ と条項の両方の ID を挙げた `trace:checks` を持つ検査を置く
-- 「拒否し得る」の関係ごとに、互換性の反例を期待し、GOJ と条項の両方の ID を挙げた `trace:checks` を持つ検査を置く
-- 互換性の検査の期待する判定を変えるのは、「拒否し得る」の関係を加えるか除く変更と同じ変更に限る。判定だけを変えると、反例として現れる非互換と、GOJ に記録した既知の非互換が食い違うためである
+- Relation が Satisfies と Accepts の行ごとに、GOJ と条項の両方の ID を挙げた `trace:checks` を持つ検査を置く
+- Relation が Possibly Rejects の行ごとに、互換性の反例を期待し、GOJ と条項の両方の ID を挙げた `trace:checks` を持つ検査を置く
+- 互換性の検査の期待する判定を変えるのは、Possibly Rejects の行を加えるか除く変更と同じ変更に限る。判定だけを変えると、反例として現れる非互換と、GOJ に記録した既知の非互換が食い違うためである
