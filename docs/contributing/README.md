@@ -9,7 +9,8 @@
 
 | ファイル | 内容 |
 |---|---|
-| [Documentation Policy](docs-policy.md) | `docs/` 配下の各ドキュメントの責務、依存してよい範囲、記述が食い違ったときに正とするドキュメント、定義に付ける ID の扱い、定義と参照の書き方、外部仕様の条項の書式、GOJ と条項の関係の書き方、テストと `formal/` から定義を参照する注釈を定める |
+| [Documentation Policy](docs-policy.md) | `docs/` 配下の各ドキュメントの責務、依存してよい範囲、概念名の扱い、記述が食い違ったときに正とするドキュメントを定める |
+| [Traceability Policy](traceability.md) | ID を付ける定義の種類、ID の振り方と変え方、定義と参照の書き方、外部仕様の条項の書式、GOJ と条項の関係の書き方、テストと `formal/` から定義を参照する注釈を定める |
 | [Testing Environment Setup](setup-environment.md) | 検証環境を構築するときの、運用者向けのデプロイの手順との差分。検証用 GitHub App の名前と説明、インストール対象に選ぶリポジトリ、最初の発行の確認と鍵の更新の中の発行の確認に E2E テストを使うこと |
 | [E2E Tests](e2e-tests.md) | デプロイした GATES を Docker Action から呼ぶ E2E テストのワークフローを試験用のリポジトリに写し、発行、失効、失敗時の挙動、キャンセル、資格情報の非出力を確かめる手順 |
 | [Release](release.md) | Lambda の配布物を GitHub Releases で公開するワークフローの設計と実行の手順、失敗したときの扱い |
