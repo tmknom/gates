@@ -2,7 +2,7 @@
 ; Strict exact-key proposal: ignore aliases (after raw JSON validation), but
 ; still require exactly spelled keys such as "iss".
 (define-fun gates-exact-name-candidate ((c Claims) (now Int) (expected String)) Bool
-  (and (gates-common-except-exp c now expected) (gates-exp c now)))
+  (and (gates-common-except-exp c expected) (gates-exp c) (gates-time c now)))
 
 ; Mutations: deliberately wrong acceptance predicates. Each check under
 ; checks/mutations/ shows that a universal property finds a counterexample
@@ -13,33 +13,37 @@
        (= (get-claim c "extra") Absent)))
 ; Accepts exp == now (<= instead of <).
 (define-fun bad-exp-inclusive ((c Claims) (now Int) (expected String)) Bool
-  (and (gates-common-except-exp c now expected)
-       (integer-in-range c "exp")
-       (<= now (integer-value (claim-value (get-claim c "exp"))))
+  (and (gates-common-except-exp c expected)
+       (gates-exp c)
+       (<= now (claim-integer c "exp"))
+       (gates-time-not-ahead c now)
        (aliases-absent c)))
 ; Accepts any aud that contains the expected Audience, as RFC 7519 allows.
 (define-fun bad-aud-contains ((c Claims) (now Int) (expected String)) Bool
   (and (github-issuer c)
-       (standard-aud-selected c expected)
-       (gates-iat c now)
-       (gates-nbf c now)
+       ((_ is Present) (get-claim c "aud"))
+       (std-aud-identifies c expected)
+       (gates-iat c)
+       (gates-nbf c)
        (gates-sub c)
        (canonical-id-claim c "run_id")
        (canonical-id-claim c "run_attempt")
-       (gates-exp c now)
+       (gates-exp c)
+       (gates-time c now)
        (aliases-absent c)))
 ; Drops the upper limit of exp.
 (define-fun bad-exp-unbounded ((c Claims) (now Int) (expected String)) Bool
-  (and (gates-common-except-exp c now expected)
+  (and (gates-common-except-exp c expected)
        (let ((m (get-claim c "exp")))
          (and ((_ is Present) m)
-              ((_ is JInteger) (claim-value m))
-              (< now (integer-value (claim-value m)))))
+              ((_ is JInteger) (claim-value m))))
+       (gates-time c now)
        (aliases-absent c)))
 ; Rejects only ASCII aliases, missing the ten with U+017F.
 (define-fun bad-ascii-aliases-only ((c Claims) (now Int) (expected String)) Bool
-  (and (gates-common-except-exp c now expected)
-       (gates-exp c now)
+  (and (gates-common-except-exp c expected)
+       (gates-exp c)
+       (gates-time c now)
        (aliases-absent
          (store (store (store (store (store (store (store (store (store (store c
            "is\u{17f}" Absent) "iS\u{17f}" Absent) "i\u{17f}s" Absent)

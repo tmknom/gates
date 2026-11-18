@@ -1,16 +1,30 @@
 ; Adopted GATES acceptance for decoded Claims Set.
 ; Source of truth: docs/design/gates-oidc-jwt-claims.md.
-(define-fun gates-exp ((c Claims) (now Int)) Bool
-  (and (integer-in-range c "exp")
-       (< now (integer-value (claim-value (get-claim c "exp"))))))
-(define-fun gates-iat ((c Claims) (now Int)) Bool
-  (and (integer-in-range c "iat")
-       (<= (integer-value (claim-value (get-claim c "iat"))) (+ now 300))))
-(define-fun gates-nbf ((c Claims) (now Int)) Bool
+; trace:formalizes GOJ-EXP
+(define-fun gates-exp ((c Claims)) Bool
+  (integer-in-range c "exp"))
+; trace:formalizes GOJ-IAT
+(define-fun gates-iat ((c Claims)) Bool
+  (integer-in-range c "iat"))
+; trace:formalizes GOJ-NBF
+(define-fun gates-nbf ((c Claims)) Bool
   (or (= (get-claim c "nbf") Absent)
-      (and (integer-in-range c "nbf")
-           (<= (integer-value (claim-value (get-claim c "nbf")))
-               (+ now 300)))))
+      (integer-in-range c "nbf")))
+; Defined only for a Claim that gates-exp, gates-iat or gates-nbf admits.
+(define-fun claim-integer ((c Claims) (name String)) Int
+  (integer-value (claim-value (get-claim c name))))
+; The iat and nbf conditions of GOJ-TIME, apart so that mutations can vary exp.
+(define-fun gates-time-not-ahead ((c Claims) (now Int)) Bool
+  (and (<= (claim-integer c "iat") (+ now 300))
+       (or (= (get-claim c "nbf") Absent)
+           (<= (claim-integer c "nbf") (+ now 300)))))
+; Meaningful only together with gates-exp, gates-iat and gates-nbf, which
+; admit the integers it reads.
+; trace:formalizes GOJ-TIME
+(define-fun gates-time ((c Claims) (now Int)) Bool
+  (and (< now (claim-integer c "exp"))
+       (gates-time-not-ahead c now)))
+; trace:formalizes GOJ-AUD
 (define-fun gates-aud ((c Claims) (expected String)) Bool
   (and (> (str.len expected) 0)
        (let ((m (get-claim c "aud")))
@@ -81,15 +95,17 @@
     (= (get-claim c "nBF") Absent) (= (get-claim c "Nbf") Absent)
     (= (get-claim c "NbF") Absent) (= (get-claim c "NBf") Absent)
     (= (get-claim c "NBF") Absent)))
-(define-fun gates-common-except-exp ((c Claims) (now Int) (expected String)) Bool
+; Every condition but gates-exp, gates-time and aliases-absent, which mutations vary.
+(define-fun gates-common-except-exp ((c Claims) (expected String)) Bool
   (and (github-issuer c)
        (gates-aud c expected)
-       (gates-iat c now)
-       (gates-nbf c now)
+       (gates-iat c)
+       (gates-nbf c)
        (gates-sub c)
        (canonical-id-claim c "run_id")
        (canonical-id-claim c "run_attempt")))
 (define-fun gates-current ((c Claims) (now Int) (expected String)) Bool
-  (and (gates-common-except-exp c now expected)
-       (gates-exp c now)
+  (and (gates-common-except-exp c expected)
+       (gates-exp c)
+       (gates-time c now)
        (aliases-absent c)))

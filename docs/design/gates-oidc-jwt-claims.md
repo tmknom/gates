@@ -114,6 +114,15 @@ GATES は、適用対象の標準仕様が要求する検証を省略しませ�
 
 ### GOJ-AUD `aud`
 
+| Relation | Clause | Note |
+|---|---|---|
+| Satisfies | RFC7519-AUD-INTENDED | GATES 用 Audience を、GATES を識別する値とする |
+| Satisfies | RFC7519-AUD-REJECT | なし |
+| Satisfies | RFC8725-AUD-REQUIRED | なし |
+| Satisfies | RFC8725-AUD-VALIDATE | なし |
+| Narrows | RFC7519-AUD-FORMAT | 空配列と、要素が複数の配列を拒否する。受信者を増やした JWT を資格情報として再利用させないため |
+| Narrows | RFC7519-AUD-OPTIONAL | `aud` がない JWT を拒否する。GitHub Actions OIDC Provider は同じ Issuer で AWS 用 OIDC JWT も発行し、RFC8725-AUD-VALIDATE がその場合の拒否を求めるため |
+
 **標準仕様**：RFC 7519 §4.1.3 では受信対象を文字列または文字列配列で表します。受信者自身が含まれなければ拒否することが MUST です。OpenID Connect Core §2 の ID Token は RP の `client_id` を含むことを要求しますが、GitHub Actions のトークン取得はその認証フローと異なります（[RFC 7519 §4.1.3](https://www.rfc-editor.org/rfc/rfc7519.html#section-4.1.3)、[OIDC Core §2](https://openid.net/specs/openid-connect-core-1_0.html#IDToken)）。
 
 **GitHub 公式仕様**：既定の Audience はリポジトリ所有者の URL ですが、JWT 取得時にカスタム Audience を指定できます（[GitHub OIDC reference](https://docs.github.com/en/actions/reference/security/oidc)）。
@@ -124,6 +133,12 @@ GATES は、適用対象の標準仕様が要求する検証を省略しませ�
 
 ### GOJ-EXP `exp`
 
+| Relation | Clause | Note |
+|---|---|---|
+| Satisfies | RFC7519-EXP-NUMERICDATE | なし |
+| Narrows | RFC7519-EXP-OPTIONAL | `exp` がない JWT を拒否する。有効期限のない JWT を資格情報として受理しないため |
+| Narrows | RFC7519-NUMERICDATE-FORMAT | 整数でない値と、範囲 `0..253402300799` の外の値を拒否する。時刻の値を、Claim を読み取る処理によって異なる値に読めないようにするため（FR-AUTHN-006） |
+
 **標準仕様**：RFC 7519 §4.1.4 は NumericDate を定め、受信時刻が `exp` より前でなければ受理できません。時計差の小さな猶予は MAY ですが必須ではありません。OIDC Core §2 は ID Token で `exp` を必須とします（[RFC 7519 §4.1.4](https://www.rfc-editor.org/rfc/rfc7519.html#section-4.1.4)、[OIDC Core §2](https://openid.net/specs/openid-connect-core-1_0.html#IDToken)）。
 
 **実測値**：JSON 数値で、6件とも `iat` の300秒後です。RFC / GitHub 公式が一律に300秒の寿命を保証している意味ではありません。
@@ -131,6 +146,12 @@ GATES は、適用対象の標準仕様が要求する検証を省略しませ�
 **GATES の受理条件**：必須。JSON 数値の整数（小数点・指数表記も拒否）、範囲 `0..253402300799` のみ。時刻の判定は [GOJ-TIME](#goj-time-時刻の判定) を正本とし、有効期限の猶予は設けません。観測された5分寿命を GATES 固有の寿命上限にはしません。整数・範囲は GATES の追加制約です。
 
 ### GOJ-IAT `iat`
+
+| Relation | Clause | Note |
+|---|---|---|
+| Satisfies | RFC7519-IAT-NUMERICDATE | なし |
+| Narrows | RFC7519-IAT-OPTIONAL | `iat` がない JWT を拒否する。GOJ-TIME の発行時刻の判定に使うため |
+| Narrows | RFC7519-NUMERICDATE-FORMAT | 整数でない値と、範囲 `0..253402300799` の外の値を拒否する。時刻の値を、Claim を読み取る処理によって異なる値に読めないようにするため（FR-AUTHN-006） |
 
 **標準仕様**：RFC 7519 §4.1.6 は発行時刻を NumericDate とします。`iat` が未来であることだけを理由に拒否することは RFC 7519 の必須の受理規則ではありません。OIDC Core §2 は ID Token に `iat` を要求します（[RFC 7519 §4.1.6](https://www.rfc-editor.org/rfc/rfc7519.html#section-4.1.6)）。
 
@@ -157,6 +178,11 @@ JWT の `iss` の値は照合だけに使い、Discovery / JWKS の取得先に�
 **GATES の設計**：未使用。`jti` の存在、値、過去に使用したことの有無を認証・認可に用いません。JWT の有効期間内の再利用の検出は、[Scope §3](../spec/scope.md#3-deferred-capabilities) で現在のスコープに含めていない機能です。
 
 ### GOJ-NBF `nbf`
+
+| Relation | Clause | Note |
+|---|---|---|
+| Satisfies | RFC7519-NBF-NUMERICDATE | なし |
+| Narrows | RFC7519-NUMERICDATE-FORMAT | 整数でない値と、範囲 `0..253402300799` の外の値を拒否する。時刻の値を、Claim を読み取る処理によって異なる値に読めないようにするため（FR-AUTHN-006） |
 
 **標準仕様**：RFC 7519 §4.1.5 は NumericDate とし、現在時刻が `nbf` 以降であること（等号は許容）を要求します。小さな時計差の猶予は MAY です。OIDC Core §2 の ID Token 必須 Claim にはありません（[RFC 7519 §4.1.5](https://www.rfc-editor.org/rfc/rfc7519.html#section-4.1.5)）。
 
@@ -363,6 +389,12 @@ JWT の `iss` の値は照合だけに使い、Discovery / JWKS の取得先に�
 Caller の確定後、固定した Allowed Owner ID との一致は認可で確認します。
 
 ### GOJ-TIME 時刻の判定
+
+| Relation | Clause | Note |
+|---|---|---|
+| Satisfies | RFC7519-EXP-REJECT | なし |
+| Satisfies | RFC7519-NBF-REJECT | RFC7519-NBF-LEEWAY の猶予として 300 秒を設ける |
+| Narrows | RFC7519-EXP-LEEWAY | `exp` の判定に猶予を設けず、`exp` の時刻以後の JWT を拒否する。有効期限を過ぎた JWT を資格情報として受理しないため |
 
 `now` を検証時の現在時刻（Unix 秒の整数）、`L=300` 秒とします。[GOJ-EXP](#goj-exp-exp)、[GOJ-IAT](#goj-iat-iat)、[GOJ-NBF](#goj-nbf-nbf) の値を、同一の `now` で判定します。
 

@@ -17,18 +17,22 @@
 | ファイル | 内容 |
 |---|---|
 | `model/values.smt2` | 型付きの JsonValue、MaybeClaim、Claims Set、ID の表記、Claim 名の分類、別名の述語 |
-| `model/standard.smt2` | 選択した RFC の受信者側の条件と、OIDC Core の ID Token の `sub` の ASCII と 255 文字の条件 |
+| `model/standards/jwt.smt2` | JWT Standards の時刻と Audience の条項。GATES の値（Issuer、Audience、猶予の秒数）を含まず、MAY と OPTIONAL の条項は許す選択の述語、標準が値を決めない猶予は引数で表す |
+| `model/standard.smt2` | 選択した RFC の受信者側の `iss` と `sub` の条件と、OIDC Core の ID Token の `sub` の ASCII と 255 文字の条件 |
 | `model/github.smt2` | GitHub 公式の固定の Issuer |
 | `model/gates-current.smt2` | 現行の GATES の受理条件 |
 | `model/gates-proposals.smt2` | 別名を無視する候補と、意図的に誤らせた述語 |
 | `checks/fixtures.smt2` | 受理される Claims Set の例 `sample` と、その 1 つの Claim を差し替えた受理の判定 `accepts-with` |
-| `checks/properties/` | 仕様の検証。受理される例の存在（`P01`）と、任意の入力について成り立つ性質 |
+| `checks/consistency/` | 仕様の検証。標準の条項どうし、GATES の受理条件どうしが矛盾せず、満たす例が存在すること |
+| `checks/safety/` | 仕様の検証。GATES の受理条件が、関係 Satisfies を書いた標準の条項を満たすこと |
+| `checks/properties/` | 仕様の検証。任意の入力について成り立つ性質 |
 | `checks/candidates/` | 仕様の検証。現行の受理条件と候補の比較 |
 | `checks/mutations/` | 全称の性質が、誤らせた述語の誤りを反例として検出できること |
 | `checks/examples/` | モデルの写しの確認。GATES OIDC JWT Claims の Verification Cases の行ごとの例と、実測した JWT 6 件 |
 | `verify.sh` | 検査ごとにモデルと検査を連結して Z3 で解き、期待する判定と比べる |
 
-各検査のファイルは、1 行目に期待する判定（`; expect: sat` か `; expect: unsat`）を、続くコメントに検査の ID と確かめる内容を書いています。
+各検査のファイルは、1 行目に期待する判定（`; expect: sat` か `; expect: unsat`）を、続くコメントに確かめる内容を書いています。
+条項と GOJ を形式化した述語と、それらを確かめる検査は、[Traceability Policy](../../docs/contributing/traceability.md) の `trace:formalizes` と `trace:checks` の注釈で ID を挙げます。
 `checks/examples/` のように 1 つのファイルに `check-sat` が複数あるときは、1 行目に判定を空白で区切って同じ順に並べ（`; expect: unsat sat`）、各例は `push` と `pop` で囲みます。
 
 SMT-LIB にはファイルを読み込む仕組みがないため、`verify.sh` が `model/` を表の上から順に連結し、最後に `checks/fixtures.smt2` を連結します。
@@ -46,7 +50,8 @@ SMT-LIB にはファイルを読み込む仕組みがないため、`verify.sh` 
 
 ## 判定の読み方
 
-- **全称の性質が UNSAT**：モデル化した前提の中で、任意の入力について性質が成り立つ。受理される例が存在すること（`P01`）と組にして評価する
+- **一貫性の検査が SAT**：述語を同時に満たす例が存在し、書き起こした条項や受理条件が互いに矛盾しない
+- **全称の性質と安全性の検査が UNSAT**：モデル化した前提の中で、任意の入力について性質が成り立つ。GATES の受理条件の一貫性の検査（受理される例の存在）と組にして評価する。安全性の検査は、標準が値を決めない猶予を、GATES が使う値（`exp` は 0 秒、`nbf` は 300 秒）に置いて確かめる
 - **例が期待どおり**：モデルが、その例について GATES OIDC JWT Claims と同じ判定を返す。例のない入力について写しが正しいことまでは示さない
 - **候補との差分探索が SAT**：現行の判定と候補の判定が異なる例が存在する
 - **変異が SAT**：誤らせた述語のもとで全称の性質に反例があり、性質がその誤りを検出できる
@@ -54,25 +59,18 @@ SMT-LIB にはファイルを読み込む仕組みがないため、`verify.sh` 
 
 ## 規則と出典
 
-規則 ID はこのモデルの中の ID です。
+時刻と Audience の条項と GOJ は、述語と検査の `trace:` の注釈が ID で直接参照するため、この表に載せません。
+表の規則 ID は、それ以外の規則についての、このモデルの中の ID です。
 出典の `GOJ-` で始まる ID は、GATES OIDC JWT Claims の規則の ID です。
 
 | 規則 ID | 述語 | 対象と適用主体 | 出典 | 状態 |
 |---|---|---|---|---|
 | V-JSON-VALUE | `JsonValue` / `MaybeClaim` | デコード後の Claims Set の形 | GOJ-CLAIM-NAME | モデル上の前提で、デコード処理は証明しない |
-| RFC-EXP-TIME | `standard-time-selected` | JWT の受信者、`exp` | RFC 7519 §4.1.4 | MUST。猶予は MAY で、選択値は 0 秒 |
-| RFC-NBF-TIME | `standard-time-selected` | JWT の受信者、`nbf` | RFC 7519 §4.1.5 | MUST。猶予は MAY で、比較のモデルは 300 秒 |
-| RFC-IAT-TYPE | `standard-time-selected` | JWT の `iat` | RFC 7519 §4.1.6 | NumericDate。未来 300 秒の規則は RFC の MUST ではない |
-| RFC-AUD-RECEIVER | `standard-aud-selected` | JWT の受信者、Audience の包含 | RFC 7519 §4.1.3 | 受信者が含まれることは MUST。単一の Audience は追加の制約 |
 | RFC-ISS/SUB-TYPE | `standard-selected` | `iss`、`sub` | RFC 7519 §4.1.1, §4.1.2 | 選択した型と一致の条件だけ |
 | OIDC-SUB-255 | `oidc-sub-conditional` | OIDC Core の ID Token | OIDC Core §2、GOJ-SUB | ID Token の標準の要求。GATES の受理条件がこれを満たすことを `PSUBOIDC` で確かめる |
 | GH-ISS | `github-issuer` | GitHub の発行者 | `docs/external/github/oidc.md` | 公式の仕様（固定の Issuer） |
 | GH-SUB-IMMUTABLE | `gates-sub` の採用形式 | GitHub の発行条件と GATES の受理条件は別 | `docs/external/github/oidc.md`、GOJ-SUB | GitHub の発行形式は条件付き。GATES が不変の形式を要求する |
-| G-EXP | `gates-exp` | GATES の Verifier、`exp` | GOJ-EXP, GOJ-TIME | 採用済み。整数の字句、0..253402300799、`now < exp`。受理される時刻に上限があることを `PTIMEBOUNDED` で確かめる |
-| G-IAT | `gates-iat` | GATES の Verifier、`iat` | GOJ-IAT, GOJ-TIME | 採用済み。未来の上限は 300 秒。時刻の 3 つの規則を合わせて、受理される時刻が区間をなすことを `PTIMEINTERVAL` で確かめる |
-| G-NBF | `gates-nbf` | GATES の Verifier、`nbf` | GOJ-NBF, GOJ-TIME | 採用済み。欠落は許し、型の違いは拒否する |
 | G-ISS | `github-issuer` | GATES の Verifier、`iss` | GOJ-ISS | 採用済み。固定の文字列と完全に一致する |
-| G-AUD | `gates-aud` | GATES の Verifier、`aud` | GOJ-AUD | 採用済み。単一の文字列か、要素が一つの配列だけ。受理された Claims Set が 1 つの Audience でしか受理されないことを `PAUDUNIQUE` で確かめる |
 | G-SUB | `gates-sub` | GATES の Verifier、`sub` の構文 | GOJ-SUB の条件 1–5, GOJ-ID-MATCH | 採用済みの構文と ID の一致の条件だけ |
 | G-SUB-ASCII | `gates-sub` | GATES の Verifier、`sub` の文字種と長さ | GOJ-SUB の条件 6 | 採用済み。ASCII だけで 255 文字以内 |
 | G-ID-DECIMAL | `positive-int64-text` | 不変の ID と Run ID の文字列 | GOJ-ID-FORMAT | 採用済み。正の canonical な int64 の文字列 |
@@ -102,8 +100,9 @@ make z3
 
 ## 検査の追加
 
-1. `checks/` の該当するディレクトリに、1 行目に期待する判定を、続くコメントに ID と内容を書いた検査を追加する
+1. `checks/` の該当するディレクトリに、1 行目に期待する判定を、2 行目に確かめる条項と GOJ を挙げた `; trace:checks` を、続くコメントに内容を書いた検査を追加する
 2. `make z3` を実行する
+3. リポジトリのルートで `go run ./formal/trace` を実行し、注釈の ID が定義されていること、関係 Satisfies の行ごとに両方の ID を挙げた `trace:checks` があることを確かめる。欠落を見つけると、ファイルと行を出力して終了コード 1 で終わる
 
 GATES OIDC JWT Claims の受理条件を変えたら、`checks/examples/` の該当する例も同じ変更で直します。
 全称の性質は、述語の定義を言い直すのではなく、定義と独立に立てられる性質（標準の要求、規則どうしの関係、判定が時刻や Audience によってどう変わるか）にします。
