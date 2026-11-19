@@ -11,8 +11,10 @@ all: alloy z3 trace ## verify formal models by Alloy and Z3, and check the trace
 
 .PHONY: alloy
 alloy: ## verify formal models by Alloy in an isolated container
-	ALLOY_TARGET=$(CURDIR)/alloy docker compose -f ../scripts/alloy/compose.yaml run --build --rm -T --interactive=false alloy exec -c '*' -o /tmp/out -t none authorization.als
-	ALLOY_TARGET=$(CURDIR)/alloy docker compose -f ../scripts/alloy/compose.yaml run --rm -T --interactive=false alloy exec -c '*' -o /tmp/out -t none issuance-temporal.als
+	ALLOY_TARGET=$(CURDIR)/alloy docker compose -f ../scripts/alloy/compose.yaml run --build --rm -T --interactive=false alloy exec -c '*' -o /out -t none authorization.als
+	ALLOY_TARGET=$(CURDIR)/alloy docker compose -f ../scripts/alloy/compose.yaml run --rm -T --interactive=false alloy exec -c '*' -o /out -t none issuance-temporal.als
+	ALLOY_TARGET=$(CURDIR)/alloy docker compose -f ../scripts/alloy/compose.yaml run --rm -T --interactive=false alloy exec -c '*' -o /out -t none discovery.als
+	ALLOY_TARGET=$(CURDIR)/alloy docker compose -f ../scripts/alloy/compose.yaml run --rm -T --interactive=false alloy exec -c '*' -o /out -t none signature.als
 
 # 検査ごとに Z3 を起動し、期待する判定と比べるスクリプトを実行するため、entrypoint を sh に替える
 .PHONY: z3

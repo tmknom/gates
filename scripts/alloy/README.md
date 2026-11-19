@@ -20,7 +20,7 @@ Alloy のバージョンを変えるときは、URL とハッシュを一緒に�
 
 ```sh
 ALLOY_TARGET="$PWD/formal/alloy" docker compose -f scripts/alloy/compose.yaml run --build --rm -T --interactive=false \
-  alloy exec -c '*' -o /tmp/out -t none authorization.als
+  alloy exec -c '*' -o /out -t none authorization.als
 ```
 
 結果の読み方は [Alloy Models](../../formal/alloy/README.md) に記述しています。
@@ -38,7 +38,8 @@ ALLOY_TARGET="$PWD/formal/alloy" docker compose -f scripts/alloy/compose.yaml ru
 全コンテナに共通する方針は [コンテナのセキュリティ設計](../container-design.md) に定めています。
 
 **出力先**：`exec` の出力先は既定でモデルと同じディレクトリですが、`/src` は読み取り専用です。
-そのため `-o` で `/tmp` の tmpfs に向けます。
+そのため `-o` で出力専用の tmpfs `/out` に向けます。
+`HOME` を兼ねる `/tmp` と分け、解の出力が JVM や Alloy の設定ファイルと混ざらないようにしています。
 `-o -` を使わないのは、解を標準出力に出す代わりに、`run` や `check` ごとの判定の表を出さなくなるためです。
 
 **終了コード**：`check` で反例が見つかっても、終了コードは 0 です。

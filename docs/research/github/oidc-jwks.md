@@ -12,6 +12,15 @@ curl --silent --show-error --fail \
   https://token.actions.githubusercontent.com/.well-known/jwks | jq .
 ```
 
+`jq` は重複したメンバー名の最後の値だけを残すため、メンバー名の重複は次の加工しない応答で確かめました。
+
+```bash
+curl --silent --show-error --fail \
+  https://token.actions.githubusercontent.com/.well-known/jwks
+```
+
+加工しない応答は下の Response と同じ鍵とメンバーからなり、ルートと 4 個の鍵のどのオブジェクトにも、メンバー名の重複はありませんでした。
+
 ## Response
 
 ```json

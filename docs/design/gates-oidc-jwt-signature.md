@@ -51,7 +51,7 @@ JOSE Header で、エスケープ解除後に同一となる JSON 名の重複�
 | Satisfies | RFC7518-NONE-ACCEPT-DEFAULT | なし |
 | Satisfies | RFC7518-NONE-GLOBAL | なし |
 | Satisfies | RFC7519-ALG-ACCEPTABLE | なし |
-| Satisfies | RFC8725-ALG-AGILITY | 受理するアルゴリズムは GOJ-HEADER-ALG だけが定め、その改訂で入れ替える |
+| Satisfies | RFC8725-ALG-AGILITY | GOJ-HEADER-ALG、GOJ-JWK-ALG、GOJ-SIGNATURE は同じ一つのアルゴリズムを受理し、3 つの同時の改訂でそのアルゴリズムを入れ替える |
 | Satisfies | RFC8725-ALG-CURRENT | なし |
 | Satisfies | RFC8725-ALG-NONE-CONSUME | なし |
 | Satisfies | RFC8725-ALG-SET-RESTRICT | なし |
@@ -294,7 +294,7 @@ RFC 7517 §4.7 は、`x5c` を Base64（Base64URL ではない）で表した X.
 
 | Relation | Clause | Note |
 |---|---|---|
-| Satisfies | RFC7517-JWKS-KEYS-REQUIRED | なし |
+| Satisfies | RFC7517-JWKS-KEYS-REQUIRED | `keys` が配列であることを求め、配列の要素のうち JWK として読めないものは除外する（GOJ-JWKS-USABLE）。使う鍵は、配列の中の JWK に限られる |
 | Satisfies | RFC7517-JWKS-MEMBER-NAME-DUPLICATE | 重複したメンバー名を持つ JWK Set を受理しない側を選ぶ |
 | Satisfies | RFC7517-JWKS-MEMBER-NAME-UNIQUE | なし |
 | Satisfies | RFC7517-JWKS-MEMBER-UNKNOWN-IGNORE | なし |
@@ -320,8 +320,11 @@ JWKS 内のいずれかの JWK が `kty=oct`、または `kty` を問わず秘�
 | Relation | Clause | Note |
 |---|---|---|
 | Satisfies | RFC7517-JWKS-KEY-IGNORE | なし |
+| Accepts | GH-OIDC-JWKS-KID-FORMAT | なし |
 | Accepts | GH-OIDC-JWKS-MODULUS | なし |
 | Accepts | GH-OIDC-JWKS-RSA-MEMBERS | なし |
+| Accepts | GH-OIDC-JWKS-X5C | なし |
+| Accepts | GH-OIDC-JWKS-X5C-KEY | なし |
 
 JWK の受理条件（GOJ-JWK-JSON、GOJ-JWK-RSA、GOJ-JWK-KID、GOJ-JWK-USAGE、GOJ-JWK-ALG、GOJ-X5C-KEY、GOJ-X5C-CHAIN）をすべて満たし、RSA 公開鍵として検証処理に渡せる JWK を **使用可能な鍵** とします。これは署名の一致を意味しません。受理条件を満たさない JWK は **除外した JWK** とし、保持しません。
 
@@ -342,6 +345,8 @@ JWK の受理条件（GOJ-JWK-JSON、GOJ-JWK-RSA、GOJ-JWK-KID、GOJ-JWK-USAGE�
 | Satisfies | RFC7517-STRING-COMPARE | なし |
 | Narrows | RFC7517-KID-DISTINCT | JWT の `kid` が使用可能な鍵の複数に一致すれば拒否する。鍵を総当たりで試さないため |
 | Accepts | GH-OIDC-HEADER-KID-JWKS | なし |
+| Accepts | GH-OIDC-HEADER-OBSERVED | 鍵の選択に進む JWT は GOJ-HEADER-ALG、GOJ-HEADER-KID、GOJ-HEADER-CTY を満たす。記録した Header の `alg` は `RS256` で、`cty` を持たない |
+| Accepts | GH-OIDC-JWKS-KID-DISTINCT | JWT の `kid` に一致する使用可能な鍵が 1 個に限られることは、この条項に依存する |
 
 | 条件 | GATES の扱い・最終エラー |
 |---|---|

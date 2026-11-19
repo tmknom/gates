@@ -66,13 +66,13 @@ Observed の条項が根拠にする JWT は、どれも個人アカウントの
 
 - **Evidence**：Published
 - **Source**：[GitHub OIDC JWKS](../../research/github/oidc-jwks.md)
-- **Statement**：JWKS の鍵は 4 個で、すべての鍵に `kty`（`RSA`）、`alg`（`RS256`）、`use`（`sig`）、`kid`、`n`、`e`（`AQAB`）があり、`key_ops` はない
+- **Statement**：JWKS のメンバーは `keys` だけで、鍵は 4 個である。すべての鍵に `kty`（`RSA`）、`alg`（`RS256`）、`use`（`sig`）、`kid`、`n`、`e`（`AQAB`）があり、ほかのメンバーは一部の鍵の `x5c` と `x5t`（GH-OIDC-JWKS-X5C）だけで、`key_ops` はない。JWKS と鍵のどのオブジェクトにも、メンバー名の重複はない
 
-### GH-OIDC-JWKS-MODULUS 鍵の法の長さ
+### GH-OIDC-JWKS-MODULUS 鍵の法
 
 - **Evidence**：Published
 - **Source**：[GitHub OIDC JWKS](../../research/github/oidc-jwks.md)
-- **Statement**：JWKS の 4 個の鍵の `n` から求めた法の長さは、どれも 2048 bit である
+- **Statement**：JWKS の 4 個の鍵の `n` は、どれも最小のオクテット数で表した Base64urlUInt で、そこから求めた法は 2048 bit の奇数である
 
 ### GH-OIDC-JWKS-X5C 鍵の証明書
 
@@ -91,6 +91,12 @@ Observed の条項が根拠にする JWT は、どれも個人アカウントの
 - **Evidence**：Published
 - **Source**：[GitHub OIDC JWKS](../../research/github/oidc-jwks.md)
 - **Statement**：JWKS の 4 個の鍵の `kid` の形式は一様でなく、UUID 形式が 2 個、40 桁の 16 進数字が 2 個である
+
+### GH-OIDC-JWKS-KID-DISTINCT `kid` の一意性
+
+- **Evidence**：Published
+- **Source**：[GitHub OIDC JWKS](../../research/github/oidc-jwks.md)
+- **Statement**：JWKS の 4 個の鍵の `kid` は、どれも異なる
 
 ### GH-OIDC-JWKS-X5C-CHAIN `x5c` に含める証明書
 

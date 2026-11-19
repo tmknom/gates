@@ -129,6 +129,7 @@ Makefile からは `docker compose run --rm -T --interactive=false` で実行し
 | `lock` | `TMPDIR` が `terraform/local/` を指す | 全プラットフォームの Provider の展開が `/tmp` の tmpfs に収まらないため |
 | `fmt` | `terraform/` に書き込める | フォーマットの結果を書き戻すため。`terraform/local/` は覆う |
 | `proxy-aws`、`proxy-lock` | `ipc: private` を使う | squid が起動時に `/dev/shm` の共有メモリを作るため |
+| `alloy` | `/tmp` のほかに、`exec` の出力専用の tmpfs `/out` を持つ | 解の出力を、`HOME` を兼ねる `/tmp` と分けるため。`/out` にも `noexec,nosuid,nodev` とサイズの上限を付ける |
 
 ## この設計で防げない攻撃
 

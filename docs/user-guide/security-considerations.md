@@ -167,4 +167,4 @@ GitHub 側の記録の保持期間を過ぎるか記録が削除されると、�
 - [Security Design](../design/security.md)：信頼境界ごとに保証することとしないこと、認可の条件、資格情報の扱い、受容するリスクとその理由。Issuer の公開鍵の保持期間や JWKS の再取得の上限のような、GATES の内部の扱いに関わるリスクと、それに運用者が対応する方法も含む
 - [Requirements](../spec/requirements.md)：Fail Closed（QR-003）、秘密情報の保護（QR-004）、秘密鍵の保護（QR-008）などの要求と、Requirements の §2 にある役割ごとの責任
 - [Scope](../spec/scope.md)：細粒度の認可、OIDC JWT の再利用の検出、レート制限など、将来取り込む候補の機能と、対象外とする範囲
-- [Formal Models](../../formal/README.md)：認可と発行処理の規則を Alloy で、OIDC JWT の JOSE Header と Claim の受理条件を Z3 で、指定した範囲で検証したモデル。どちらのモデルも Go の実装との一致は確かめておらず、それはテストが担う。GitHub のふるまいは Alloy のモデルの対象外である。Z3 のモデルは、GitHub の公式資料と記録した値を条項として扱い、GATES が拒否し得る GitHub の発行を示すが、GitHub が実際に発行する JWT との一致は確かめない
+- [Formal Models](../../formal/README.md)：認可と発行処理の規則と、OIDC JWT の署名の検証鍵の受理条件を Alloy で、OIDC JWT の JOSE Header と Claim の受理条件を Z3 で、指定した範囲で検証したモデル。どちらのモデルも Go の実装との一致は確かめておらず、それはテストが担う。認可と発行処理の Alloy のモデルは、GitHub のふるまいを対象にしない。署名の検証鍵の Alloy のモデルと Z3 のモデルは、GitHub の公式資料と記録した値を条項として扱い、GATES が拒否し得る GitHub の発行を示すが、GitHub が実際に発行する JWT や公開する鍵との一致は確かめない
