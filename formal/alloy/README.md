@@ -1,6 +1,6 @@
 # Alloy Models
 
-このディレクトリには、GATES の認可と発行処理の抽象モデルを [Alloy](https://alloytools.org/) で記述しています。
+このディレクトリには、GATES の認可と発行処理と、署名の検証鍵の受理条件の抽象モデルを [Alloy](https://alloytools.org/) で記述しています。
 Alloy を読めなくても、何を確かめていて何を確かめていないかを、この文書で把握できます。
 仕様の正本とモデルの関係は [Formal Models](../README.md) に記述しています。
 
@@ -148,9 +148,53 @@ SAT は、モデル上でその事象が起こりうることを意味し、GitH
 | `ConcurrentRetryDuplicateIssueWitness` | 最初の呼び出しが発行 API を呼び出している途中で再試行が始まり、両方で発行される |
 | `RetryCallsBeforeOriginalWitness` | 最初の呼び出しが発行 API を呼び出す前に、再試行が発行 API を呼び出す |
 
+## 署名の検証鍵のモデル（discovery.als、signature.als）
+
+この 2 つのモデルは、GATES 用 OIDC JWT の署名の検証鍵の受理条件（GOJ-DISCOVERY-*、GOJ-JWK-*、GOJ-X5C-*、GOJ-JWKS-*、GOJ-SIGNATURE）を、標準仕様の条項と GitHub の条項に照らして確かめます。
+`discovery.als` は Discovery と鍵の取得先を、`signature.als` は JWK、JWK Set、`kid` による鍵の選択、署名の検証、失敗の分類を扱います。
+
+どちらのモデルも、[Z3 Models](../z3/README.md) と同じく 3 つの層を互いに見ずに書きます。
+
+- **標準の層**：RFC 7515、7517、7518、8725、9964、OpenID Connect Core と Discovery の条項。GATES の値を含まず、標準が実装に委ねる選択（受け入れるアルゴリズム、鍵が Issuer に属することの決め方など）は述語の引数にする
+- **GitHub の層**：Documented の条項（`iss` と Discovery の公開先）と、Published と Observed の条項（Discovery の値、JWKS の鍵、記録した Header の `kid`）。Unconfirmed の条項は制約しない
+- **GATES の層**：GOJ ごとの述語と、JWK Set と JWT から受理、認証失敗、内部障害を決める関数
+
+値はデコード後の JSON の値で、文字列は JSON のエスケープを除いた後の値を一つの原子で表します。
+2 つの文字列が等しいのは同じ原子のときだけで、正規化や大文字小文字の同一視はありません。
+文字列を Base64urlUInt、Base64 の DER の証明書、URL として読んだ結果は、文字列の属性として表します。
+署名は作った主体で表し、ある公開鍵とアルゴリズムで検証できるのは、そのアルゴリズムとその公開鍵の秘密鍵で作った署名に限ります。
+
+条項と GOJ のどれをどの述語が形式化し、どのコマンドが確かめるかは、`.als` の `trace:` の注釈にあり、`make trace-map` で一覧にできます。
+コマンドは次の種類に分かれます。
+
+| 種類 | コマンドの名前 | 期待 | 確かめること |
+|---|---|---|---|
+| 一貫性 | `*LayerConsistent`、`GatesLayerFailures` | SAT | 各層を満たす状態があり、GATES の層で受理、認証失敗、内部障害のどれも起こり得る。同じ範囲のほかの `check` が、満たす状態のないまま UNSAT になっていないことの裏付けにもなる |
+| 安全性 | `DiscoveryIssuerMatchesIssuerURL`、`AcceptedSignatureValidates` など | UNSAT | GATES の層が受理するなら、Satisfies の関係にある標準の条項を満たす |
+| アルゴリズムの入れ替え | `AlgorithmReplaceable`、`GatesWithAnotherAlgorithm` | UNSAT、SAT | GOJ-HEADER-ALG、GOJ-JWK-ALG、GOJ-SIGNATURE が受理するアルゴリズムを一つの値で表し、その値が RSASSA-PKCS1-v1_5 のどのアルゴリズムでも、暗号操作がその値を使い、署名と鍵の条項を満たす。安全性の検査も同じ値の下で判定し、互換性の検査だけが値を `RS256` とする |
+| 性質 | `KeysOnlyFromFixedIssuer`、`AmbiguousKidFails`、`SecretRejectsKeySet`、`NoUsableKeyIsInternalFailure`、`SelectedKeyIsUsableKeyOfKeySet` | UNSAT | 固定 Issuer の JWKS の外の鍵を使わない、`kid` が使用可能な鍵に複数一致すれば認証失敗、秘密鍵か対称鍵の値を含む JWKS は集合全体を拒否、使用可能な鍵がなければ内部障害 |
+| 変異 | `Mutant*` | SAT | GATES の層の規則を一つ誤らせると、標準の条項か性質に反例が出る |
+| 互換性 | `GitHub*Accepted`、`GitHubKidSelectsOneKey` | UNSAT | GitHub の条項が表す Discovery と JWKS を GATES の層が受理する（Accepts の関係） |
+| 拒否し得る発行 | `GitHubX5cChainMayBeRejected` | SAT | GitHub が定めていない `x5c` の証明書の関係で、GATES が鍵を除外し JWT を拒否する場合がある（Possibly Rejects の関係） |
+| 依存 | `*NeedsPublished` | SAT | Documented の条項だけでは GATES の受理が決まらず、Published の条項に依存する |
+| 例 | `GitHubDiscoveryMeetsStandardMetadata`、`GitHubKeySetMeetsStandard`、`GitHubDiscoveryHasEndpoints` | UNSAT、UNSAT、SAT | Published の Discovery と JWKS が標準の条項を満たし、Discovery の Metadata に `authorization_endpoint` と `token_endpoint` がない |
+
+範囲は、名前を持つ文字列の原子と、GitHub の JWKS（鍵 4 個、証明書 3 個）を表せる大きさにしています。
+範囲が小さすぎると、前提を満たす状態がなく `check` が UNSAT のまま素通りします。
+範囲を変えたら、一貫性の `run` が SAT のままであることを確かめます。
+
+この 2 つのモデルが表さないことは次のとおりです。
+
+- **通信**：HTTP の要求、TLS、リダイレクト、応答の大きさ、取得の失敗と再取得の規則。これらの条項は `trace:unformalized` とし、関係は Go のテストで確かめる
+- **バイト列**：JSON のテキスト、エスケープ、空白、Base64url と Base64 の符号化、X.509 の解析と RSA の計算
+- **`x5u` の取得と、証明書の信頼**：証明書は `x5c` の中の関係だけを表す
+- **JOSE Header の受理条件**：鍵の選択に進む JWT は GOJ-HEADER-ALG、GOJ-HEADER-KID、GOJ-HEADER-CTY を満たす前提で、これらは Z3 のモデルが確かめる
+- **重複したメンバー名の値**：重複したメンバー名を持つ JWK は、秘密の値を含むかと、除外されることだけを表す
+
 ## モデルが保証しないこと
 
 モデルが確かめるのは抽象化した規則で、次のことは対象外です。
+署名の検証鍵のモデルに固有の対象外は、前の節に書いています。
 「形式検証済みなので安全である」とは読めません。
 
 - **Go の実装との一致**：`internal/` のコードがモデルのとおりに動くかは確かめていない。実装の確認はテストが担う
@@ -158,8 +202,8 @@ SAT は、モデル上でその事象が起こりうることを意味し、GitH
 - **Installation の一意性**：固定した GitHub App のもとでオーナーごとに Installation が高々一つであることは、規則として仮定している。`NoOtherInstallationGrant` の「どれも同じ」はこの仮定に依存する
 - **AWS のふるまい**：呼び出し元の再試行は抽象的な可能性として扱っており、Lambda の呼び出し方を確かめた結果ではない
 - **処理の進行**：確かめるのは「起きたなら、その前に〜を経ている」という性質だけである。処理が必ず完了することは確かめていない。無効な応答でトークン文字列を得た呼び出しが、失効を試みる前に中断する場合もある
-- **認証と署名の段階**：JWT の署名検証は扱わず、Caller は検証済みの前提で表す。発行処理のモデルに JWT 検証、対象解決、KMS 署名の段階はなく、これらの失敗時に返却しないことは確かめていない
-- **監査とエラーの種別**：どちらのモデルも扱わない
+- **認証と署名の段階**：認可と発行処理のモデルは JWT の署名検証を扱わず、Caller は検証済みの前提で表す。発行処理のモデルに JWT 検証、対象解決、KMS 署名の段階はなく、これらの失敗時に返却しないことは確かめていない
+- **監査とエラーの種別**：監査はどのモデルも扱わない。エラーの種別は、署名の検証鍵のモデルの認証失敗と内部障害の区別だけを扱う
 - **文字列と件数の規則**：大文字小文字の扱いや要求の件数の上限は扱わない
 - **対象の並び**：発行要求と発行許可の対象を完全名の集合で表し、並びは扱わない。発行許可が要求の並びと表記を保つことは確かめていない
 - **権限名と水準の構造**：権限を名前と水準に分けず、1 つの要素で表す。権限名ごとに水準を一つとする制約がないため `contents:read` と `contents:write` を同時に持つ集合も表現できるが、このような集合は発行許可にも返却可能な発行結果にもならない
@@ -194,12 +238,12 @@ Linux ARM64 では `findPlatform unknown Linux aarch64` というエラーログ
 
 ## 仕様を変更したときのモデルの更新
 
-`docs/spec/` や `docs/design/` の変更が認可や発行処理の規則に関わるときは、次の順に更新します。
+`docs/spec/` や `docs/design/` の変更が認可や発行処理の規則、または署名の検証鍵の受理条件に関わるときは、次の順に更新します。
 
-1. この文書の表から、変更に関わるコマンドを探す
-2. `.als` の規則とコマンドを更新し、期待する判定を `expect` に書く
+1. この文書の表か `trace:` の注釈から、変更に関わるコマンドを探す
+2. `.als` の規則とコマンドを更新し、期待する判定を `expect` に書く。`expect` は `check` か `run` と同じ行に書く。追跡の検査は、注釈の次の行のコマンドの `expect` だけを読むためで、主張は `assert` か `pred` に分ける
 3. この文書の表を、モデルと同じ変更で更新する
-4. `make alloy` を実行する
+4. `make alloy` と `make trace` を実行する
 
 `make alloy` は、この文書とモデルの一致を確かめません。
 コマンドを追加、改名、削除したときは、この文書の表も手で直します。

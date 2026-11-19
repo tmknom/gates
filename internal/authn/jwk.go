@@ -3,7 +3,11 @@ package authn
 import (
 	"bytes"
 	"crypto/rsa"
+	"crypto/sha1" //nolint:gosec // G505: x5t は SHA-1 の指紋で、署名や検証には使わず長さだけを確かめる
+	"crypto/sha256"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/base64"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
@@ -112,7 +116,22 @@ func checkUsableKey(key jose.JSONWebKey, members map[string]jsontext.Value) erro
 	if _, hasAlgorithm := members["alg"]; hasAlgorithm && key.Algorithm != string(jose.RS256) {
 		return errors.New("jwk alg is not RS256")
 	}
+	// go-jose は空文字列を指紋のないものとして通し、16 進数字の指紋も復号して受理するため、長さを符号化した値で確かめる
+	if !isThumbprint(members, "x5t", sha1.Size) || !isThumbprint(members, "x5t#S256", sha256.Size) {
+		return errors.New("jwk x5t or x5t#S256 is not the Base64url encoding of a thumbprint")
+	}
 	return nil
+}
+
+// isThumbprint は、members に name がないか、name が size オクテットの Base64url であるかを判定する。
+// 証明書の指紋との一致は go-jose が確かめる。
+func isThumbprint(members map[string]jsontext.Value, name string, size int) bool {
+	raw, ok := members[name]
+	if !ok {
+		return true
+	}
+	digest, err := base64.RawURLEncoding.DecodeString(stringValue(raw))
+	return err == nil && len(digest) == size
 }
 
 // isMinimalBase64urlUInt は、RFC 7518 §2 の Base64urlUInt が求める最小のオクテット数で value を表した文字列かを判定する。
@@ -138,6 +157,13 @@ func hasDuplicate(values []string) bool {
 	return len(slices.Compact(slices.Sorted(slices.Values(values)))) != len(values)
 }
 
+// oidKeyUsage は Key Usage の拡張の OID（RFC 5280 §4.2.1.3）である。
+var oidKeyUsage = asn1.ObjectIdentifier{2, 5, 29, 15}
+
+func hasKeyUsageExtension(certificate *x509.Certificate) bool {
+	return slices.ContainsFunc(certificate.Extensions, func(extension pkix.Extension) bool { return extension.Id.Equal(oidKeyUsage) })
+}
+
 // checkCertificateChain は、GOJ-X5C-KEY のうち go-jose が確かめない条件と、GOJ-X5C-CHAIN を判定する。
 // 発行者の関係を CheckSignatureFrom で確かめないのは、設計が求める署名の関係に加えて、発行者に CA の Basic Constraints と keyCertSign を要求するため。
 // 証明書を信頼の起点にはしないため、有効期間と認証パスの信頼性は確かめない。
@@ -145,7 +171,8 @@ func checkCertificateChain(certificates []*x509.Certificate) error {
 	if len(certificates) == 0 {
 		return errors.New("jwk x5c has no certificate")
 	}
-	if leaf := certificates[0]; leaf.KeyUsage != 0 && leaf.KeyUsage&x509.KeyUsageDigitalSignature == 0 {
+	// ビットのない Key Usage の拡張も KeyUsage は 0 になり、拡張のない証明書と区別できないため、拡張の有無を別に見る
+	if leaf := certificates[0]; hasKeyUsageExtension(leaf) && leaf.KeyUsage&x509.KeyUsageDigitalSignature == 0 {
 		return errors.New("jwk x5c certificate does not allow digital signatures")
 	}
 	for i := 1; i < len(certificates); i++ {

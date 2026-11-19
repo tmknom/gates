@@ -6,9 +6,14 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha1" //nolint:gosec // G505: 証明書の指紋の x5t の形を確かめるために SHA-1 を使う
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -48,6 +53,8 @@ type issuerStub struct {
 	newConnections    atomic.Int32
 	discovery         atomic.Pointer[http.HandlerFunc]
 	jwks              atomic.Pointer[http.HandlerFunc]
+	// certificate は、サーバーが接続ごとに示す証明書で、差し替えると以後の接続に効く
+	certificate atomic.Pointer[tls.Certificate]
 	// logs は verifier が作る Verifier のログの出力先である。slog の Handler が書き込みを直列にする
 	logs bytes.Buffer
 }
@@ -65,6 +72,10 @@ func newIssuerStub(t *testing.T, key *rsa.PrivateKey, keyID string) *issuerStub 
 		(*stub.jwks.Load())(w, r)
 	})
 	stub.server = httptest.NewUnstartedServer(mux)
+	// 接続ごとに certificate の証明書を示す。StartTLS は自身の証明書を Certificates に加え、この設定を残す
+	stub.server.TLS = &tls.Config{GetConfigForClient: func(*tls.ClientHelloInfo) (*tls.Config, error) {
+		return &tls.Config{Certificates: []tls.Certificate{*stub.certificate.Load()}}, nil
+	}}
 	stub.server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
 		if state == http.StateNew {
 			stub.newConnections.Add(1)
@@ -73,6 +84,7 @@ func newIssuerStub(t *testing.T, key *rsa.PrivateKey, keyID string) *issuerStub 
 	// 証明書を信頼しないクライアントのテストで、サーバーのログがテストの出力に混ざらないようにする
 	stub.server.Config.ErrorLog = log.New(io.Discard, "", 0)
 	stub.server.StartTLS()
+	stub.certificate.Store(&stub.server.TLS.Certificates[0])
 	t.Cleanup(stub.server.Close)
 
 	stub.respondDiscovery(respondBody(stub.discoveryBody()))
@@ -435,6 +447,22 @@ func createCertificate(t *testing.T, template, parent *x509.Certificate, subject
 	return cert
 }
 
+// certificateWithEmptyKeyUsage は、ビットが一つもない Key Usage の拡張を持つ subject の自己署名の証明書を作る。
+// x509.CreateCertificate は KeyUsage が 0 だと拡張を作らないため、拡張の DER（長さ 1 の BIT STRING）を直接加える。
+func certificateWithEmptyKeyUsage(t *testing.T, subject *rsa.PrivateKey) *x509.Certificate {
+	t.Helper()
+	template := &x509.Certificate{
+		SerialNumber:    big.NewInt(1),
+		ExtraExtensions: []pkix.Extension{{Id: asn1.ObjectIdentifier{2, 5, 29, 15}, Critical: true, Value: []byte{0x03, 0x01, 0x00}}},
+	}
+	return createCertificate(t, template, template, subject, subject)
+}
+
+// hexThumbprint は指紋を 16 進数字の文字列にし、それを Base64url で符号化する。
+func hexThumbprint(digest []byte) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(hex.EncodeToString(digest)))
+}
+
 // x5cOf は証明書を JWK の x5c の値にする。
 func x5cOf(certs ...*x509.Certificate) []string {
 	var encoded []string
@@ -457,6 +485,8 @@ func TestAuthenticate_ExcludedJWK(t *testing.T) {
 	issuer := generateKey(t)
 	issuerCert := selfSignedCertificate(t, issuer, x509.KeyUsageCertSign)
 	unrelatedCert := selfSignedCertificate(t, generateKey(t), x509.KeyUsageCertSign)
+	leafCert := selfSignedCertificate(t, key, x509.KeyUsageDigitalSignature)
+	leafSHA1, leafSHA256 := sha1.Sum(leafCert.Raw), sha256.Sum256(leafCert.Raw) //nolint:gosec // G401: x5t は証明書の SHA-1 の指紋と定められている
 	jwk := func(members map[string]any) string { return jwkWith(t, key, keyID, members) }
 	tests := []struct {
 		name  string
@@ -492,6 +522,13 @@ func TestAuthenticate_ExcludedJWK(t *testing.T) {
 		{"x5c of another key", jwk(map[string]any{"x5c": x5cOf(issuerCert)}), keyID},
 		{"x5c whose key usage excludes digital signatures", jwk(map[string]any{"x5c": x5cOf(selfSignedCertificate(t, key, x509.KeyUsageKeyEncipherment))}), keyID},
 		{"x5c whose second certificate is not the issuer", jwk(map[string]any{"x5c": x5cOf(issuedCertificate(t, key, issuerCert, issuer), unrelatedCert)}), keyID},
+		// Key Usage の拡張があってビットが一つもなければ、digitalSignature を許していない
+		{"x5c whose key usage extension has no bits", jwk(map[string]any{"x5c": x5cOf(certificateWithEmptyKeyUsage(t, key))}), keyID},
+		{"empty x5t", jwk(map[string]any{"x5t": ""}), keyID},
+		{"empty x5t#S256", jwk(map[string]any{"x5t#S256": ""}), keyID},
+		// SHA-1 と SHA-256 の指紋を 16 進数字で書いた値は、20 と 32 オクテットの Base64url ではない
+		{"x5t of a hexadecimal thumbprint", jwk(map[string]any{"x5c": x5cOf(leafCert), "x5t": hexThumbprint(leafSHA1[:])}), keyID},
+		{"x5t#S256 of a hexadecimal thumbprint", jwk(map[string]any{"x5c": x5cOf(leafCert), "x5t#S256": hexThumbprint(leafSHA256[:])}), keyID},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name+" next to a usable key is excluded and recorded", func(t *testing.T) {
@@ -526,6 +563,8 @@ func TestAuthenticate_ExcludedJWK(t *testing.T) {
 func TestAuthenticate_UsableJWK(t *testing.T) {
 	issuer := generateKey(t)
 	issuerCert := selfSignedCertificate(t, issuer, x509.KeyUsageCertSign)
+	leafCert := selfSignedCertificate(t, testKey(t), x509.KeyUsageDigitalSignature)
+	leafSHA1, leafSHA256 := sha1.Sum(leafCert.Raw), sha256.Sum256(leafCert.Raw) //nolint:gosec // G401: x5t は証明書の SHA-1 の指紋と定められている
 	tests := []struct {
 		name    string
 		members map[string]any
@@ -536,6 +575,11 @@ func TestAuthenticate_UsableJWK(t *testing.T) {
 		{"x5c of a self-signed certificate without key usage", map[string]any{"x5c": x5cOf(selfSignedCertificate(t, testKey(t), 0))}},
 		{"x5c of a certificate for digital signatures", map[string]any{"x5c": x5cOf(selfSignedCertificate(t, testKey(t), x509.KeyUsageDigitalSignature))}},
 		{"x5c with its issuer", map[string]any{"x5c": x5cOf(issuedCertificate(t, testKey(t), issuerCert, issuer), issuerCert)}},
+		{"x5c with its x5t and x5t#S256", map[string]any{
+			"x5c":      x5cOf(leafCert),
+			"x5t":      base64.RawURLEncoding.EncodeToString(leafSHA1[:]),
+			"x5t#S256": base64.RawURLEncoding.EncodeToString(leafSHA256[:]),
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name+" returns Caller", func(t *testing.T) {
@@ -867,6 +911,103 @@ func TestAuthenticate_RequestsDocumentsWithoutCache(t *testing.T) {
 	}
 }
 
+// requestRecorder は、文書の要求のメソッドと TLS の接続の状態を記録してから、元の handler に渡す。
+type requestRecorder struct {
+	mu       sync.Mutex
+	method   string
+	tlsState *tls.ConnectionState
+}
+
+func (r *requestRecorder) wrap(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		r.mu.Lock()
+		r.method, r.tlsState = req.Method, req.TLS
+		r.mu.Unlock()
+		next(w, req)
+	}
+}
+
+// assertSecureGet は、文書を GET で、機密性と完全性を保護する暗号スイートの TLS 1.2 以上で要求したことを確かめる。
+// tls.CipherSuites は、既知の弱点のある暗号スイート（tls.InsecureCipherSuites）を含まない。
+func (r *requestRecorder) assertSecureGet(t *testing.T, document string) {
+	t.Helper()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.method != http.MethodGet {
+		t.Errorf("%s method = %q, want GET", document, r.method)
+	}
+	if r.tlsState == nil {
+		t.Fatalf("%s was requested without TLS", document)
+	}
+	if r.tlsState.Version < tls.VersionTLS12 {
+		t.Errorf("%s TLS version = %x, want TLS 1.2 or later", document, r.tlsState.Version)
+	}
+	if !slices.ContainsFunc(tls.CipherSuites(), func(suite *tls.CipherSuite) bool { return suite.ID == r.tlsState.CipherSuite }) {
+		t.Errorf("%s cipher suite = %s, want one of tls.CipherSuites", document, tls.CipherSuiteName(r.tlsState.CipherSuite))
+	}
+}
+
+//trace:checks GOJ-DISCOVERY-ISSUER OIDCD-CONFIG-GET OIDCD-TLS-SUPPORT OIDCD-TLS-CONFIDENTIALITY
+func TestAuthenticate_RequestsDiscoveryWithGetOverTLS(t *testing.T) {
+	stub := newIssuerStub(t, testKey(t), testKeyID)
+	var recorder requestRecorder
+	stub.respondDiscovery(recorder.wrap(*stub.discovery.Load()))
+
+	assertAuthenticated(t, stub.verifier(t), stub.token(t, testKey(t), testKeyID))
+
+	recorder.assertSecureGet(t, "discovery")
+}
+
+//trace:checks GOJ-DISCOVERY-JWKS-URI OIDCD-TLS-SUPPORT OIDCD-TLS-CONFIDENTIALITY
+func TestAuthenticate_RequestsJWKSOverTLS(t *testing.T) {
+	stub := newIssuerStub(t, testKey(t), testKeyID)
+	var recorder requestRecorder
+	stub.respondJWKS(recorder.wrap(*stub.jwks.Load()))
+
+	assertAuthenticated(t, stub.verifier(t), stub.token(t, testKey(t), testKeyID))
+
+	recorder.assertSecureGet(t, "jwks")
+}
+
+// JSON のエスケープを解いた issuer が固定の Issuer と一致すれば、Discovery を使う。
+//
+//trace:checks GOJ-DISCOVERY-ISSUER OIDCD-STRING-UNESCAPE
+func TestAuthenticate_EscapedDiscoveryIssuerIsAccepted(t *testing.T) {
+	stub := newIssuerStub(t, testKey(t), testKeyID)
+	escaped := `https:\/\/` + strings.TrimPrefix(stub.issuer(), "https://")
+	stub.respondDiscovery(respondBody(`{"issuer":"` + escaped + `","jwks_uri":"` + stub.issuer() + jwksPath + `"}`))
+
+	assertAuthenticated(t, stub.verifier(t), stub.token(t, testKey(t), testKeyID))
+}
+
+// Issuer と同じホストとポートの JWKS でも、サーバー証明書を検証し、信頼しない証明書なら JWKS を読まない。
+// Discovery の取得の後で証明書を差し替える。取得ごとに接続を張るため、JWKS の取得は新しい証明書で TLS を始める。
+//
+//trace:checks GOJ-DISCOVERY-JWKS-URI OIDCD-TLS-CERTIFICATE
+func TestAuthenticate_JWKSWithUntrustedCertificateIsNotRead(t *testing.T) {
+	// httptest のサーバーはどれも同じ証明書を使うため、信頼しない証明書は別に作る
+	untrustedKey := generateKey(t)
+	untrusted := tls.Certificate{
+		Certificate: [][]byte{selfSignedCertificate(t, untrustedKey, x509.KeyUsageDigitalSignature).Raw},
+		PrivateKey:  untrustedKey,
+	}
+	stub := newIssuerStub(t, testKey(t), testKeyID)
+	discovery := *stub.discovery.Load()
+	stub.respondDiscovery(func(w http.ResponseWriter, r *http.Request) {
+		discovery(w, r)
+		stub.certificate.Store(&untrusted)
+	})
+	token := stub.token(t, testKey(t), testKeyID)
+
+	got, _, err := stub.verifier(t).Authenticate(t.Context(), unverifiedIDToken(t, token))
+
+	assertRejected(t, got, err, ErrTransientFailure, token)
+	if requests := stub.jwksRequests.Load(); requests != 0 {
+		t.Errorf("JWKS requests = %d, want 0", requests)
+	}
+}
+
+//trace:checks GOJ-DISCOVERY-ISSUER OIDCD-TLS-CERTIFICATE OIDCD-CONFIG-TLS-CHECK
 func TestAuthenticate_DefaultClientRejectsUntrustedCertificate(t *testing.T) {
 	stub := newIssuerStub(t, testKey(t), testKeyID)
 	verifier, err := NewVerifier(stub.issuer(), testAudience, testClock, discardLog)
@@ -1100,6 +1241,7 @@ func TestAuthenticate_SuccessfulRetrievalClearsPreviousFailure(t *testing.T) {
 	assertRejected(t, got, err, ErrAuthenticationFailure, unknownKeyToken)
 }
 
+//trace:checks GOJ-SIGNATURE RFC7519-VALIDATE-REJECT
 func TestAuthenticate_RetrievedKeysRejectInvalidToken(t *testing.T) {
 	tests := []struct {
 		name  string

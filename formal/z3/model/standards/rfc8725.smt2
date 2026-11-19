@@ -14,7 +14,6 @@
 ; trace:formalizes RFC8725-ALG-CURRENT
 (define-fun std-alg-current ((h Header) (current (Array String Bool))) Bool
   (header-string-in h "alg" current))
-; trace:unformalized RFC8725-ALG-AGILITY アルゴリズムを入れ替えられる設計の定めで、一つの JWT の受理の判定ではない
 ; requested is the Condition negated: the caller explicitly requests none.
 ; trace:formalizes RFC8725-ALG-NONE-GENERATE
 (define-fun std-alg-none-generate ((h Header) (requested Bool)) Bool
