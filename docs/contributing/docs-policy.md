@@ -140,14 +140,34 @@ GATES の開発に固有でない運用者の手順は、`docs/user-guide/`（[�
 入力、出力、失敗の注釈のような Action のリファレンスをこの `README.md` の一か所に保ち、`docs/user-guide/` に転記しないためです。
 逆向きを禁じるのは、相互依存を作らないためです。
 
+この `README.md` も利用者が読むため、[§2.8](#28-docsuser-guide) の書き方の規則に従います。
+ただし、`docs/user-guide/` に依存しないため、概念名の説明は `overview.md` に任せず、この `README.md` の中で添えます。
+`docs/` 配下へのリンクも、利用者が作業と判断に使わない設計の詳細には張りません。
+
 ### 2.8 docs/user-guide/
 
 導入を判断する人、GATES 運用者、ワークフロー利用者に向けて、判断の材料と作業の手順を記述します。
+読者は GATES を初めて使う人で、実装を知りません。
+多くの読者に欠かせないことを、最小の労力で得られるように書きます。
+詳細を知りたい読者は、`docs/user-guide/` の外のドキュメントを読みます。
 
-- `CONSTITUTION.md`、`docs/spec/`、`docs/design/`、`docs/external/`、`docs/research/`、Docker Action の `README.md`（[§2.7](#27-docker-action-readme)）、`formal/` の `README.md`、調査対象の外部ドキュメントに依存してよい。`formal/` の `README.md` への依存は、形式検証で確かめたことと確かめていないことの案内に限る
+依存は次の範囲に限ります。
+
+- 依存してよいのは、`docs/user-guide/` の他のドキュメント、Docker Action の `README.md`（[§2.7](#27-docker-action-readme)）、GitHub や AWS などの公式ドキュメントである。Action のリファレンスは Docker Action の `README.md` を参照させ、転記しない
+- `CONSTITUTION.md`、`docs/spec/`、`docs/design/`、`docs/external/`、`docs/research/`、`formal/` の `README.md` への依存は、`overview.md` と `security-considerations.md` の末尾に置く、根拠や内部の設計を知りたい読者への案内に限る。本文から参照すると、読者が根拠をたどって本筋を見失い、設計の変更も利用者向けの文書に波及するためである
 - `docs/contributing/` に依存しない。開発の都合で変わる手順や規約の変更が、利用者向けの文書に波及しないようにするためである
 - `docs/spec/`、`docs/design/`、`docs/external/`、`docs/research/` は `docs/user-guide/` に依存しない
-- リンク先を読まなくても作業と判断が完了するように書く。仕様や設計へのリンクは、根拠を確かめたい読者のために添えるものとする。ただし、Action のリファレンスは Docker Action の `README.md`（[§2.7](#27-docker-action-readme)）を参照させてよい
+
+書き方は次の規則に従います。
+
+- **主題から始める**：各ドキュメントは、読者とそのドキュメントで得られることを一、二文で述べて始める。GATES とは何かは `overview.md` に一度だけ書き、他のドキュメントで繰り返さない
+- **用語の説明は一か所**：概念名の平易な説明は `overview.md` の用語の節に一度だけ置き、他のドキュメントは説明を繰り返さずに概念名を使う。概念名を使うことは、`overview.md` への依存に数えない。概念名が変わるときは、[§4](#4-concept-names-and-domainmd) のとおり `domain.md` に合わせてすべてのドキュメントを直すことになり、依存に数えても確かめる範囲は変わらないためである
+- **本筋と例外を分ける**：多くの読者が通る作業は、リンク先を読まずに完了できるように書く。一部の読者だけが通る作業（環境によって要る作業、途中で止まったときの扱い）は、ドキュメントの末尾の節か `troubleshooting.md` に置き、本筋には案内の一文だけを残す
+- **一つの話題は一つのドキュメント**：同じ話題を複数のドキュメントで説明しない。説明するドキュメントを一つに決め、他のドキュメントは案内だけを置く
+- **安全に関わる注意は目立たせる**：読める範囲を決めるもの、トークンを受け取るジョブの分け方、Action の参照の仕方のように、守らないと被害につながる注意は、但し書きに埋めず、見出しか箇条書きで示す
+- **理由は必要な箇所にだけ**：理由は、省くと誤りや危険を招く手順にだけ添える
+- **実装の詳細を書かない**：内部の処理、検証のアルゴリズム、読者が操作しない設定の値は書かない。読者が実行して確かめる出力に現れるもの（Plan に現れるリソースの名前など）は書いてよい
+- **検証の有無を書かない**：検証環境で確かめたかどうかの注記は書かない。根拠は `docs/research/` が持つ。公式ドキュメントか GATES の設計に基づく事柄は、注記を添えずに書き、どちらにも基づかない推測は書かない。確かめていないことが導入の判断を変えるとき（たとえば、Organization を許可オーナーにした構成）に限り、`overview.md` の制約として一度だけ書く
 
 `docs/user-guide/` の中の依存は、次の向きを基準にします。
 
@@ -172,6 +192,9 @@ flowchart TD
     operations --> rotate
     operations --> trouble
     operations --> security
+    operations --> stop["stop-issuance.md"]
+    stop --> deployment
+    stop --> rotate
 ```
 
 図にないドキュメントを加えるときや、図と逆向きの依存を足すときは、先にこの図を変更します。
@@ -179,9 +202,10 @@ flowchart TD
 `deployment.md` と `operations.md` は、図で唯一の相互依存です。
 `deployment.md` から `operations.md` への依存は、デプロイを終えた運用者に後の作業の在りかを示す、主題だけを添えたファイル単位のリンク一つに限ります。
 節へのリンクや手順の内容を書かなければ、`operations.md` の節や手順を変えても `deployment.md` を直す必要がないためです。
-`troubleshooting.md` と `security-considerations.md` は `operations.md` に依存しません。
-`operations.md` がこれらに依存するため、依存すると相互依存が増えるためです。
-`operations.md` の手順で止めた発行を、Troubleshooting の読者が障害と取り違えないよう、`troubleshooting.md` には意図した停止かを確かめる但し書きを書きます。
+`troubleshooting.md` と `security-considerations.md` は、`operations.md` と `stop-issuance.md` に依存しません。
+`operations.md` はこれらに依存するため、逆向きに依存すると相互依存になります。
+`stop-issuance.md` に依存すると、停止の手順を変えるたびにこれらも直すことになります。
+`stop-issuance.md` の手順で止めた発行を、Troubleshooting の読者が障害と取り違えないよう、`troubleshooting.md` には意図した停止かを確かめる但し書きを書きます。
 
 ### 2.9 docs/external/
 
@@ -252,7 +276,7 @@ flowchart TD
 | `architecture.md` 以外の `docs/design/`、コード、`formal/` | `domain.md` の概念名を使う |
 | `CONSTITUTION.md`、`architecture.md`、`requirements.md`、`acceptance-criteria.md`、`scope.md` | `domain.md` の概念名を使う。ただし `domain.md` を参照しない |
 | `docs/external/`、`docs/research/` | 外部仕様の用語を使う。`domain.md` の概念名を持ち込まない |
-| `docs/user-guide/` | `domain.md` の概念名を使い、初出で平易な説明を添える（例：「許可オーナー（GATES がトークンを発行してよいと設定した GitHub のアカウント）」）。`domain.md` へのリンクは求めない |
+| `docs/user-guide/` | `domain.md` の概念名を使い、`overview.md` の用語の節で一度だけ平易な説明を添える（例：「許可オーナー：GATES がトークンを発行してよいと設定した GitHub のアカウント」）。`domain.md` へのリンクは求めない |
 
 外部仕様の用語と概念名の対応は、`docs/design/` の側に書きます。
 

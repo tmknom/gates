@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # GitHub App Private Key を、Terraform が作った PendingImport の KMS Key に鍵素材としてインポートする
-# 手順と、ラップのアルゴリズムを選んだ理由は docs/user-guide/import-key-material.md にある
+# 手順は docs/user-guide/import-key-material.md にある
 # 秘密鍵を扱うため、運用者が手元のシェルで実行する。Coding Agent は実行しない
 set -euo pipefail
 # 作業ディレクトリと、その中の鍵素材を、ほかのユーザーから読めなくする
@@ -91,6 +91,9 @@ esac
 # macOS の mktemp はテンプレートがないと TMPDIR を使わないため、置き場所を明示する
 work_dir="$(mktemp -d "${TMPDIR:-/tmp}/gates-import-key-material.XXXXXXXX")"
 
+# RSA の秘密鍵をラップできるのは RSA_AES_KEY_WRAP_SHA_* だけで、そのうち SHA-256 のものを使う
+# ラッピング公開鍵は、AWS が推奨する最長の RSA_4096 にする
+# 使い捨ての AES 鍵で鍵素材を RFC 5649 の鍵ラップで包み、その AES 鍵をラッピング公開鍵で暗号化する
 aws kms get-parameters-for-import --region "${region}" --key-id "${kms_key_arn}" \
   --wrapping-algorithm RSA_AES_KEY_WRAP_SHA_256 --wrapping-key-spec RSA_4096 \
   --output json > "${work_dir}/import-parameters.json"
