@@ -1,6 +1,6 @@
 ; expect: sat sat unsat unsat unsat unsat unsat unsat
-; EXAMPLES-AUD (GOJ-AUD, Verification Cases aud): the model accepts only the GATES
-; Audience alone, as a string or a one-element array.
+; trace:checks GOJ-AUD
+; Verification Cases of aud: the model accepts only the GATES Audience alone, as a string or a one-element array.
 (push 1) (assert (accepts-with "aud" (Present (JString "gates-oidc")))) (check-sat) (pop 1) ; string: sat
 (push 1) (assert (accepts-with "aud" (Present (JStringArray (seq.unit "gates-oidc"))))) (check-sat) (pop 1) ; one-element array: sat
 (push 1) (assert (accepts-with "aud" (Present (JStringArray (as seq.empty (Seq String)))))) (check-sat) (pop 1) ; empty array: unsat

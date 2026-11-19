@@ -70,9 +70,11 @@ JOSE Header で、エスケープ解除後に同一となる JSON 名の重複�
 | Satisfies | RFC7515-KID-FORMAT | なし |
 | Narrows | RFC7515-KID-FORMAT | 空文字列の `kid` を拒否する。空の値では JWKS の鍵を選べないため |
 | Narrows | RFC7515-KID-OPTIONAL | `kid` がない JWT を拒否する。GitHub の JWKS は複数の鍵を持ち、鍵を総当たりで試さずに一つを選ぶため |
-| Accepts | GH-OIDC-HEADER-DOCUMENTED | なし |
+| Accepts | GH-OIDC-HEADER-DOCUMENTED | 公式資料は `kid` の値と型を書かないため、空でない文字列であることは GH-OIDC-HEADER-KID-JWKS と GH-OIDC-JWKS-KID-FORMAT に依存する |
 | Accepts | GH-OIDC-HEADER-EXAMPLE | なし |
+| Accepts | GH-OIDC-HEADER-KID-JWKS | Header の `kid` は JWKS の鍵の `kid` に一致する |
 | Accepts | GH-OIDC-HEADER-OBSERVED | なし |
+| Accepts | GH-OIDC-JWKS-KID-FORMAT | JWKS の鍵の `kid` は、どれも空でない文字列である |
 
 必須。空でない JSON 文字列とし、JWKS 内の使用可能な鍵を選択するために利用します（[GOJ-JWKS-KID](#goj-jwks-kid-kid-による鍵の選択)）。値は大文字小文字を区別します。`kid` は外部 URL やファイルパスとして解釈せず、固定した Issuer の JWKS 内で鍵を引くためだけに使います。`kid` を特定の UUID / 16進数字形式に限定しません（GH-OIDC-JWKS-KID-FORMAT）。
 

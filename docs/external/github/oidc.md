@@ -258,6 +258,17 @@ Audience を指定した 2 件は、ここに挙げた Claim と `aud` の型だ
 公式の例（GH-OIDC-CLAIM-TYPE-EXAMPLE）と記録した JWT（GH-OIDC-CLAIM-TYPE-OBSERVED）の型は、どちらもすべての JWT での型を表すものではありません。
 `repo_property_*` の値の型は GH-OIDC-REPO-PROPERTY-VALUE が定めます。
 
+### GH-OIDC-CLAIM-ID-FORMAT ID の Claim の値の表記
+
+- **Evidence**：Unconfirmed
+- **Source**：[OIDC reference — OIDC token claims](https://docs.github.com/en/actions/reference/security/oidc#oidc-token-claims)、[OIDC reference — Immutable subject claims](https://docs.github.com/en/actions/reference/security/oidc#immutable-subject-claims)
+- **Statement**：GitHub は、`repository_owner_id`、`repository_id`、`run_id`、`run_attempt` と、不変形式の `sub` の Owner ID と Repository ID の値の表記（数字だけからなるか、先頭に `0` を持つか、桁数の上限）を定めていない
+- **Confirmation**：公式資料に ID の値の表記の記述があるかを確かめる
+
+公式の例の `repository_owner_id`、`repository_id`、`run_attempt` と、記録した JWT の ID の値は、どれも先頭に `0` を持たない数字だけの文字列です（GH-OIDC-CLAIM-TYPE-EXAMPLE、GH-OIDC-CLAIM-TYPE-OBSERVED）。
+公式の例の `run_id` は置き換えの値で、`sub` は ID を含まない旧形式です。
+`run_attempt` の初回の値は GH-OIDC-RUN-ATTEMPT-VALUE が扱います。
+
 ### GH-OIDC-REPO-PROPERTY-VALUE `repo_property_*` の値の表し方
 
 - **Evidence**：Documented

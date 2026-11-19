@@ -5,7 +5,7 @@
 | ディレクトリ | ツール | 対象 | 実行 |
 |---|---|---|---|
 | [Alloy Models](alloy/README.md) | Alloy | 認可と発行処理の規則 | `make alloy` |
-| [Z3 Models](z3/README.md) | Z3 | GitHub OIDC JWT の Claims Set の受理条件 | `make z3` |
+| [Z3 Models](z3/README.md) | Z3 | GitHub OIDC JWT の JOSE Header と Claims Set の受理条件と、標準仕様と GitHub の条項との関係 | `make z3` |
 | `trace/` | Go | `docs/` が定義する ID と、文書、モデル、テストの参照と `trace:` の注釈との対応 | リポジトリのルートで `go run ./formal/trace` |
 
 仕様の正本は [Requirements](../docs/spec/requirements.md)、[Acceptance Criteria](../docs/spec/acceptance-criteria.md)、`docs/design/` の設計文書です。

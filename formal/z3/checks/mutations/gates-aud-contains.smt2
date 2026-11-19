@@ -1,0 +1,27 @@
+; expect: sat sat
+; checks/properties/aud-unique.smt2 and checks/safety/aud-kind.smt2 find a
+; counterexample against bad-aud-contains. The fixed aud, sub and ID values
+; only guide the search.
+(declare-const anyClaims Claims)
+(declare-const arbitraryClock Int)
+(declare-const arbitraryAudience String)
+(declare-const otherAudience String)
+(assert (= (select anyClaims "sub") (Present (JString "repo:o@1/r@2:c"))))
+(assert (= (select anyClaims "repository_owner_id") (Present (JString "1"))))
+(assert (= (select anyClaims "repository_id") (Present (JString "2"))))
+(push 1)
+(assert (= (select anyClaims "aud")
+           (Present (JStringArray (seq.++ (seq.unit "a") (seq.unit "b"))))))
+(assert (bad-aud-contains anyClaims arbitraryClock arbitraryAudience))
+(assert (bad-aud-contains anyClaims arbitraryClock otherAudience))
+(assert (not (= arbitraryAudience otherAudience)))
+(check-sat)
+(pop 1)
+(push 1)
+(assert (= (select anyClaims "aud")
+           (Present (JStringArray (seq.++ (seq.unit "gates") (seq.unit "sts.amazonaws.com"))))))
+(assert (= arbitraryAudience "gates"))
+(assert (bad-aud-contains anyClaims arbitraryClock arbitraryAudience))
+(assert (std-aud-identifies anyClaims "sts.amazonaws.com"))
+(check-sat)
+(pop 1)

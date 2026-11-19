@@ -5,6 +5,6 @@
 (declare-const anyClaims Claims)
 (declare-const arbitraryClock Int)
 (declare-const arbitraryAudience String)
-(assert (gates-current anyClaims arbitraryClock arbitraryAudience))
+(assert (gates-claims-accepted anyClaims arbitraryClock arbitraryAudience))
 (assert (not (std-exp-reject anyClaims arbitraryClock 0.0)))
 (check-sat)
