@@ -97,11 +97,11 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 |---|---|---|
 | `alignment` | `FR-AUTHZ-002` | Functional Requirement |
 
-### AC-AUTHZ-004 `contents:read` 以外の権限と全リポジトリの要求の拒否
+### AC-AUTHZ-004 許可権限にない権限と全リポジトリの要求の拒否
 
-**条件**：`contents:write` か別の権限を要求する、または全リポジトリ（`all`）を対象にする `repository_selection` を要求に含める
+**条件**：Organization permissions、Account permissions、Enterprise permissions のいずれかの権限、GATES が許可する権限名にない権限名、または許可する権限名にその権限では定められていない水準を組み合わせた権限を、単独で、あるいは許可される権限とともに要求する。または全リポジトリ（`all`）を対象にする `repository_selection` を要求に含める
 
-**期待する結果**：発行を拒否
+**期待する結果**：発行を拒否し、許可される権限だけに縮小して発行しない
 
 | Relationship | Target | Target Type |
 |---|---|---|
@@ -140,11 +140,22 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 | `alignment` | `FR-AUTHZ-004` | Functional Requirement |
 | `alignment` | `FR-OPS-006` | Functional Requirement |
 
+### AC-AUTHZ-008 GitHub App に付与されていない権限を含む要求の全件拒否
+
+**条件**：GATES が許可する権限のうち、GitHub App の Installation に付与されていない権限か、付与された水準より高い水準を、単独で、あるいは付与されている権限とともに要求する
+
+**期待する結果**：トークンを返さず、権限を除いたり水準を下げたりしたトークンを発行しない
+
+| Relationship | Target | Target Type |
+|---|---|---|
+| `alignment` | `FR-AUTHZ-008` | Functional Requirement |
+| `alignment` | `FR-ISSUANCE-006` | Functional Requirement |
+
 ## 4. Token Issuance
 
 ### AC-ISSUANCE-001 許可オーナーの正当な要求に対するトークンの発行
 
-**条件**：許可されたオーナーのワークフローが、正当な GATES 用 OIDC JWT で `contents:read` を要求
+**条件**：許可されたオーナーのワークフローが、正当な GATES 用 OIDC JWT で、GATES が許可する権限のうち GitHub App に付与された権限を一つ要求
 
 **期待する結果**：指定対象だけの短命トークンを取得できる。応答に有効期限、対象、実効権限が含まれ、秘密鍵と内部 GitHub App JWT を含まない
 
@@ -156,7 +167,7 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 ### AC-ISSUANCE-002 同一 Installation の複数対象への発行
 
-**条件**：同一 Installation の複数対象を `contents:read` で要求
+**条件**：同一 Installation の複数対象を、GATES が許可する権限のうち GitHub App に付与された権限で要求
 
 **期待する結果**：指定した複数対象だけへのトークンを発行
 
@@ -240,6 +251,18 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 |---|---|---|
 | `alignment` | `FR-ISSUANCE-007` | Functional Requirement |
 | `alignment` | `QR-004` | Quality Requirement |
+
+### AC-ISSUANCE-010 複数の権限と読み取り以外の水準の発行
+
+**条件**：GATES が許可する権限のうち GitHub App に付与された権限から、複数の権限を、読み取り以外の水準を含めて要求する
+
+**期待する結果**：要求した権限名と水準の組だけを持つトークンを取得できる（FR-ISSUANCE-006 の除外対象を除く）。そのトークンで、要求した権限が許す操作は成功し、GitHub App に付与されていても要求しなかった権限の操作は拒否される
+
+| Relationship | Target | Target Type |
+|---|---|---|
+| `alignment` | `FR-AUTHZ-003` | Functional Requirement |
+| `alignment` | `FR-ISSUANCE-003` | Functional Requirement |
+| `alignment` | `FR-ISSUANCE-006` | Functional Requirement |
 
 ## 5. Usability and Operations
 

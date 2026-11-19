@@ -2,7 +2,7 @@
 
 ## 1. Responsibility and Invocation
 
-Lambda は GitHub OIDC JWT の検証、Installation の解決、`contents:read` の発行認可、KMS 署名、GitHub App Installation Access Token の発行を実行します。
+Lambda は GitHub OIDC JWT の検証、Installation の解決、要求された対象と権限の発行認可、KMS 署名、GitHub App Installation Access Token の発行を実行します。
 
 Lambda は AWS IAM により認証・認可された同期 Invoke を受け付けます。Invoke の Payload に含まれる GATES 用 OIDC JWT の署名と Claim を検証し、要求を処理します。
 
@@ -27,7 +27,7 @@ Lambda Invoke には HTTP の `Authorization` ヘッダーに相当するアプ�
   "version": 1,
   "id_token": "<GATES_AUDIENCE_GITHUB_OIDC_JWT>",
   "repositories": ["example-org/repo-a", "example-org/repo-b"],
-  "permissions": {"contents": "read"}
+  "permissions": {"contents": "read", "pull_requests": "write"}
 }
 ```
 
@@ -36,7 +36,7 @@ Lambda Invoke には HTTP の `Authorization` ヘッダーに相当するアプ�
 | `version` | 必須、整数 `1` |
 | `id_token` | 必須、GATES 用 Audience の JWT。Bearer 資格情報として慎重に扱う |
 | `repositories` | 必須、重複のない 1 件以上 500 件以下の `owner/repo` の配列。上限は GitHub のトークン発行 API が一度に受け付ける件数に合わせる（[GitHub App Constraints](../external/github/app.md)）。GATES が設ける 16 KiB の Payload には最短の要素で 2,000 件以上が入るため、Payload サイズより先にこの上限に達する |
-| `permissions` | 必須、値は **`{"contents":"read"}`**。形式が不正なら入力不正、形式が正しく値が許可条件と異なれば認可拒否 |
+| `permissions` | 必須、権限名をキー、水準を値とする 1 組以上のオブジェクト。どの組も許可権限（[Security Design](security.md#33-permission-boundary)）に含まれる必要がある。形式が不正なら入力不正、形式が正しく許可権限に含まれない組が一つでもあれば認可拒否 |
 
 形式検証を通った Invoke Payload から、未検証の GATES 用 OIDC JWT と発行要求を分けて取り出します。
 
@@ -45,6 +45,7 @@ Lambda Invoke には HTTP の `Authorization` ヘッダーに相当するアプ�
 - 全リポジトリを対象にする項目（GitHub の `repository_selection`）を設けない。対象は `repositories` で明示したリポジトリだけである。`repository_selection` を含む Payload は、未知のフィールドとして入力不正になる。
 - 複数対象のうち一つでも許可条件を満たさなければ全件を拒否し、部分成功も自動分割もしない。
 - 各リポジトリに同じ Permissions を適用する。別の権限を必要とする場合は個別に要求する。
+- GitHub App に付与された権限のすべてを対象にする項目を設けない。権限は `permissions` で明示した組だけである。
 
 ### 2.2 Validation
 
@@ -62,7 +63,7 @@ Lambda Invoke には HTTP の `Authorization` ヘッダーに相当するアプ�
 | `version` | 欠落、`null`、整数 `1` 以外（`1.0`、`"1"`、`2` を含む） | なし |
 | `id_token` | 欠落、`null`、文字列以外、空文字列 | なし（JWT の検証失敗は `invalid_id_token`） |
 | `repositories` | 欠落、`null`、配列以外、空配列、文字列以外の要素、[完全名の形式](#名前の文字種と比較規則)に合わない要素、大文字小文字を区別しない重複、500 件超 | オーナー名が許可オーナー名と異なる要素を含む |
-| `permissions` | 欠落、`null`、オブジェクト以外、空オブジェクト、文字列以外の値、[権限名と水準の文字種](#権限名と水準の文字種)に合わないキーまたは値（空文字列を含む） | `{"contents":"read"}` 以外の組（`contents` 以外のキー、`read` 以外の値、`metadata` などのキーの追加） |
+| `permissions` | 欠落、`null`、オブジェクト以外、空オブジェクト、文字列以外の値、[権限名と水準の文字種](#権限名と水準の文字種)に合わないキーまたは値（空文字列を含む） | 許可権限に含まれない組を一つでも含む（`members` のような Repository permissions でない権限名、列挙にない権限名、`workflows` の `read` のようにその権限に定められていない水準） |
 | Payload 全体 | 16 KiB 超、JSON として不正、オブジェクト以外、未知のフィールド、重複したキー、不正な UTF-8、オブジェクトの後に続くデータ | なし |
 
 JSON として不正な Payload は、Lambda の Invoke API が関数に渡す前に拒否するため、GATES の応答も監査記録も残りません（[Runtime Entry](#41-runtime-entry)）。
@@ -70,11 +71,11 @@ GATES はそれでもこの形を入力不正として判定し、Invoke API の
 
 空の Permissions を入力不正にするのは、`permissions` が必須であり、[Requirements](../spec/requirements.md) FR-AUTHZ-007 が欠落・未知値を広い既定値に読み替えないと定めているためです。
 空の Map は、要求の欠落と同じく、要求した権限を読み取れない形として扱います。
-一方で、未知のキー（`issues` など）は認可拒否にします。
-`contents:write` と同じく、形式は読み取れて値が許可外の要求であり、監査記録に残す対象だからです。
+一方で、許可権限の列挙にないキー（`members` など）は認可拒否にします。
+列挙にない水準と同じく、形式は読み取れて値が許可外の要求であり、監査記録に残す対象だからです。
 
 重複したキーを入力不正にするのは、`{"contents":"write","contents":"read"}` のような Payload の解釈が JSON の実装ごとに分かれるためです。
-後の値を採る実装はこの Payload を `contents:read` として認可しますが、監査記録や別の処理が先の値を読むと、認可した内容と記録した内容が食い違います。
+後の値を採る実装はこの Payload を `contents:read` として発行しますが、監査記録や別の処理が先の値を読むと、発行した内容と記録した内容が食い違います。
 
 オーナー名の不一致を認可拒否にするのも、未知のキーと同じく、形式は読み取れて値が許可外の要求だからです。
 形式検証は、`owner/repo` をオーナー名とリポジトリ名に分割できるかまでを見ます。
@@ -100,11 +101,12 @@ GitHub が公式に定めた規則ではありません。
 値の数には上限を設けず、記録全体の大きさは Payload の 16 KiB の上限で抑えます。
 
 64 文字の上限は GitHub 公式の文字数制限ではなく、最長の権限名（46 文字）に余裕を持たせて GATES が決めた値です。
-許可されるのは `{"contents":"read"}` だけなので、将来 GitHub がこの規則に合わない権限名を加えても、正当な要求は拒否されません。
-その権限名を使う要求の結果が、認可拒否から入力不正に変わるだけです。
+許可権限の権限名と水準はどれもこの規則に合うため、正当な要求は拒否されません。
+将来 GitHub がこの規則に合わない権限名を加えても、その権限名は GATES が列挙に加えるまで許可権限に含まれず、要求の結果が認可拒否から入力不正に変わるだけです。
+その権限名を列挙に加えるときは、この規則も合わせて見直します。
 
 発行結果の実効権限も Permissions として同じ規則で読みます。
-照合は許可権限と付随権限の範囲外の Permission Entry をもともと拒否するため（[Success](#31-success)）、規則に合わない権限名が応答に現れても、トークンを返さないことは変わりません。
+照合は発行許可の Permissions と付随権限の範囲外の Permission Entry をもともと拒否するため（[Success](#31-success)）、規則に合わない権限名が応答に現れても、トークンを返さないことは変わりません。
 この場合も照合の失敗（`issuance_verification_failed`）として扱い、応答の `token` の取り出しと失効は、`permissions` を読み取れたかどうかに依存させません。
 
 #### 名前の文字種と比較規則
@@ -150,7 +152,7 @@ Unicode の大文字小文字の対応（Go の `strings.EqualFold` など）を
   "token": "<INSTALLATION_ACCESS_TOKEN>",
   "expires_at": "<RFC3339_EXPIRATION_TIME>",
   "repositories": ["example-org/repo-a", "example-org/repo-b"],
-  "permissions": {"contents": "read", "metadata": "read"},
+  "permissions": {"contents": "read", "metadata": "read", "pull_requests": "write"},
   "request_id": "<OPAQUE_ID>"
 }
 ```
@@ -216,7 +218,7 @@ Lambda Handler は Payload を読む前に相関 ID を確かめます。
 | `signing_unavailable` | 一時的な障害 | KMS 署名が一時的に失敗した。通信の失敗、タイムアウト、呼び出し元の ctx の期限切れと中断、5xx、スロットリングで、再試行で解消し得る |
 | `installation_unavailable` | Installation 利用不可 | 固定した GitHub App と許可オーナーから、発行に使える Installation を得られない。一時的な障害を除く GitHub API の失敗（App JWT が受け付けられない 401、GitHub App が許可オーナーにインストールされていないときの 404 など）、Installation の応答に必要な項目がない、停止状態を読み取れない、Installation が停止している（`suspended_at` が時刻である）、`account.id` が許可オーナーの Owner ID と一致しない |
 | `github_api_unavailable` | 一時的な障害 | GitHub API の一時的な障害。通信の失敗、タイムアウト、5xx、レート制限による 403 / 429 で、Installation の取得と発行 API の呼び出しの両方を含む。再試行で解消し得る |
-| `github_issuance_rejected` | GitHub 発行拒否 | GATES の認可が成立した後、GitHub の発行 API が `422` で要求を拒否した。検証失敗やスパム判定など、原因は応答コードから特定できない |
+| `github_issuance_rejected` | GitHub 発行拒否 | GATES の認可が成立した後、GitHub の発行 API が `422` で要求を拒否した。検証失敗やスパム判定など、原因は応答コードから特定できない。Installation の対象外のリポジトリの要求はこのコードになった。Installation に付与されていない権限の要求への応答は確かめていない（[GitHub App Constraints](../external/github/app.md)） |
 | `issuance_verification_failed` | 照合失敗 | GitHub API の発行応答が [Success](#31-success) の照合を通らない。空でないトークン文字列を取得できた場合は失効を試みる |
 | `internal_error` | 内部障害 | Handler の panic、部品が返したエラーがどの失敗の種別にも当たらないか複数の種別に当たる場合、Discovery / JWKS の非一時的な取得・構造異常、JWKS に使用可能な鍵がない場合、KMS が再試行では解消しない失敗を返した場合（鍵の無効化、鍵の状態、権限の不足など）、KMS の応答を署名として解釈できない場合、KMS に要求を送る前の AWS SDK の失敗を含む |
 
@@ -575,5 +577,5 @@ Lambda の Go Runtime では標準出力が CloudWatch Logs に送られ、JSON 
 [Scope](../spec/scope.md) が将来取り込むことを想定する機能を導入する場合、本ドキュメントには次の影響が及びます。
 
 - **細粒度の認可**：処理フロー（§5）の手順 3 の照合と Grant が判定する認可条件が変わる
-- **発行可能な権限の拡大**：`permissions` の値（§2.1）、入力不正と認可拒否の分け方（§2.2）、手順 3 の権限の確認（§5）が変わる。許可する権限名が増えると、権限名と水準の文字種の規則（§2.2）が GitHub の権限名に合うかも確かめ直す
+- **Organization permissions、Account permissions、Enterprise permissions の発行**：`permissions` の値（§2.1）、入力不正と認可拒否の分け方（§2.2）、手順 3 の権限の確認（§5）が変わる。対象を `repositories` で表せない権限を扱うなら、Payload の形も見直す
 - **OIDC JWT の再利用の検出とレート制限**：処理フロー（§5）に要求の履歴を照会して記録する手順が加わり、その拒否と履歴の照会の障害を表すエラーコード（§3.2）が加わる

@@ -4,7 +4,7 @@
 
 本ドキュメントはシステム構成を示します。
 
-GATES（GitHub App Token Exchange System）は、GitHub Actions から指定したリポジトリを読み取るために、短命な GitHub App Installation Access Token を発行するシステムです。利用者は Docker Action を通じてアクセス先リポジトリと `contents:read` 権限を指定します。Lambda は要求を処理し、対象を限定したトークンを GitHub Actions に返します。
+GATES（GitHub App Token Exchange System）は、GitHub Actions から指定したリポジトリを操作するために、短命な GitHub App Installation Access Token を発行するシステムです。利用者は Docker Action を通じてアクセス先リポジトリと、必要な Repository permissions の権限を指定します。Lambda は要求を処理し、対象を限定したトークンを GitHub Actions に返します。
 
 システムは GitHub.com の単一のオーナー（Organization またはユーザーアカウント）を対象とし、AWS Lambda 上の Go アプリケーション、AWS STS、AWS KMS、および GitHub API によって構成します。GitHub App Private Key を Lambda や Actions Runner に渡さず、署名操作を KMS に委譲します。
 
@@ -60,7 +60,7 @@ Docker Action は、AWS STS から AWS 一時認証情報を取得し、AWS Lamb
 | GATES 用 OIDC JWT | GitHub OIDC Provider | Lambda 内で Caller を確定し、ワークフロー起動属性を監査のために読み取る。GATES 用 Audience を使用 |
 | GitHub App JWT | Lambda が作成し、KMS が署名 | GitHub API の Installation 取得と Installation Access Token 発行 |
 | Installation 情報 | GitHub API | 発行対象となる GitHub App のインストール先の確認 |
-| Installation Access Token | GitHub API | 指定したリポジトリへの読み取りアクセス。Lambda から Docker Action に返却し、ジョブの終了時に Docker Action が失効を試みる |
+| Installation Access Token | GitHub API | 指定したリポジトリへの、要求した権限でのアクセス。Lambda から Docker Action に返却し、ジョブの終了時に Docker Action が失効を試みる |
 
 AWS 用と GATES 用の OIDC JWT は、同じ GitHub Actions ジョブから別々の Audience を指定して取得します。GitHub App JWT はこれらとは異なり、Lambda が GitHub App として GitHub API を呼び出すために生成します。
 

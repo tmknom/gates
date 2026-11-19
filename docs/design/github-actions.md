@@ -24,7 +24,7 @@ IAM Role と Lambda の AWS リソース設定は [AWS Infrastructure Design](aw
 | Input | 必須 | 意味 |
 |---|---|---|
 | `repositories` | はい | カンマ区切りの `owner/repo` リスト |
-| `permissions` | はい | カンマ区切りの `permission:level`。値は `contents:read` |
+| `permissions` | はい | カンマ区切りの `permission:level`。`contents:read,pull_requests:write` のように、ジョブの処理に必要な権限だけを書く。書けるのは許可権限（[Security Design](security.md#33-permission-boundary)）に含まれる組である |
 | `role-arn` | はい | 引き受ける IAM Role の ARN |
 | `function-name` | はい | 呼び出す Lambda の関数名 |
 | `aws-region` | はい | 呼び出す Lambda を置く AWS リージョン。AWS STS の呼び出しにも使う |
@@ -574,4 +574,4 @@ GitHub は失効が効くまでの時間を公開しておらず、失効の `20
 [Scope](../spec/scope.md) が将来取り込むことを想定する機能を導入する場合、本ドキュメントには次の影響が及びます。
 
 - **細粒度の認可**：発行の可否の判定は Lambda 側が行う（§1）ため、利用者が指定する入力が増えない限り、Docker Action は変わらない
-- **発行可能な権限の拡大**：`permissions` 入力の値（§2.1）と利用例（§4.1）が変わる。許可条件の判定を Lambda の認可に委ねる方針（§2.2）は変わらない。Account / Organization に関係する権限の対象を `repositories` 入力で表せないなら、入力も見直す
+- **Organization permissions、Account permissions、Enterprise permissions の発行**：`permissions` 入力の値（§2.1）が変わる。許可条件の判定を Lambda の認可に委ねる方針（§2.2）は変わらない。これらの権限の対象を `repositories` 入力で表せないなら、入力も見直す
