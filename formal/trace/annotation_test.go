@@ -39,6 +39,42 @@ func TestParseAnnotations(t *testing.T) {
 			want:    []annotation{{kind: checks, ids: []string{"GOJ-AUD"}, path: "c.smt2", line: 2}},
 		},
 		{
+			name:    "SMT-LIB checks expecting only sat is a witness",
+			path:    "c.smt2",
+			content: lines("; expect: sat sat", "; trace:checks GOJ-AUD GH-OIDC-AUD-X", "(check-sat)", "(check-sat)"),
+			want:    []annotation{{kind: checks, ids: []string{"GOJ-AUD", "GH-OIDC-AUD-X"}, path: "c.smt2", line: 2, witness: true}},
+		},
+		{
+			name:    "Alloy checks before a run command is a witness",
+			path:    "m.als",
+			content: lines("// trace:checks GOJ-JWKS", "Chain: run { } for 3 expect 1"),
+			want:    []annotation{{kind: checks, ids: []string{"GOJ-JWKS"}, path: "m.als", line: 1, witness: true}},
+		},
+		{
+			name:    "Alloy check command expecting a counterexample is a witness",
+			path:    "m.als",
+			content: lines("// trace:checks GOJ-JWKS", "check NoChain for 3 expect 1"),
+			want:    []annotation{{kind: checks, ids: []string{"GOJ-JWKS"}, path: "m.als", line: 1, witness: true}},
+		},
+		{
+			name:    "Alloy check command expecting no counterexample is universal",
+			path:    "m.als",
+			content: lines("// trace:checks GOJ-JWKS", "check NoForeignKey for 14 steps expect 0"),
+			want:    []annotation{{kind: checks, ids: []string{"GOJ-JWKS"}, path: "m.als", line: 1, universal: true}},
+		},
+		{
+			name:    "Alloy command without expect is neither universal nor a witness",
+			path:    "m.als",
+			content: lines("// trace:checks GOJ-JWKS", "NoForeignKey: check { } for 4"),
+			want:    []annotation{{kind: checks, ids: []string{"GOJ-JWKS"}, path: "m.als", line: 1}},
+		},
+		{
+			name:    "Alloy run command expecting no instance is neither universal nor a witness",
+			path:    "m.als",
+			content: lines("// trace:checks GOJ-JWKS", "run { } for 3 expect 0"),
+			want:    []annotation{{kind: checks, ids: []string{"GOJ-JWKS"}, path: "m.als", line: 1}},
+		},
+		{
 			name:         "SMT-LIB checks below the second line is reported",
 			path:         "c.smt2",
 			content:      lines("; expect: unsat", "; comment", "; trace:checks GOJ-AUD"),
@@ -99,7 +135,7 @@ func TestParseAnnotations(t *testing.T) {
 		{
 			name:    "Alloy checks before a labeled check command is an annotation",
 			path:    "m.als",
-			content: lines("// trace:checks GOJ-JWKS", "NoForeignKey: check { all k: Key | p[k] } for 4"),
+			content: lines("// trace:checks GOJ-JWKS", "NoForeignKey: check { all k: Key | p[k] } for 4 expect 0"),
 			want:    []annotation{{kind: checks, ids: []string{"GOJ-JWKS"}, path: "m.als", line: 1, universal: true}},
 		},
 		{
@@ -114,6 +150,27 @@ func TestParseAnnotations(t *testing.T) {
 			path:    "x_test.go",
 			content: lines("//trace:checks AC-AUTHN-002 AC-AUTHZ-001", "func TestX(t *testing.T) {}"),
 			want:    []annotation{{kind: checks, ids: []string{"AC-AUTHN-002", "AC-AUTHZ-001"}, path: "x_test.go", line: 1}},
+		},
+		{
+			name:         "Go checks not before a test function is reported",
+			path:         "x_test.go",
+			content:      lines("//trace:checks AC-AUTHN-002", "", "func TestX(t *testing.T) {}"),
+			want:         []annotation{{kind: checks, ids: []string{"AC-AUTHN-002"}, path: "x_test.go", line: 1}},
+			wantFindings: []finding{{path: "x_test.go", line: 1, message: "trace:checks must be on the line just before a test"}},
+		},
+		{
+			name:         "Go checks before a function that is not a test is reported",
+			path:         "x_test.go",
+			content:      lines("//trace:checks AC-AUTHN-002", "func newFixture() {}"),
+			want:         []annotation{{kind: checks, ids: []string{"AC-AUTHN-002"}, path: "x_test.go", line: 1}},
+			wantFindings: []finding{{path: "x_test.go", line: 1, message: "trace:checks must be on the line just before a test"}},
+		},
+		{
+			name:         "Terraform checks not before a run block is reported",
+			path:         "t.tftest.hcl",
+			content:      lines("# trace:checks AC-OPS-005", `variables {`),
+			want:         []annotation{{kind: checks, ids: []string{"AC-OPS-005"}, path: "t.tftest.hcl", line: 1}},
+			wantFindings: []finding{{path: "t.tftest.hcl", line: 1, message: "trace:checks must be on the line just before a test"}},
 		},
 		{
 			name:    "Go comment with a space is not an annotation",

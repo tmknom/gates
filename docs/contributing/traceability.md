@@ -2,7 +2,7 @@
 
 要求や受理条件のように、ほかのドキュメント、コード、`formal/` から個別に参照される種類の定義には ID を付けます。
 参照元は ID で定義を指すため、ID と意味の対応が崩れると、参照元の記述は変わらないまま、別の意味を指すようになります。
-本ドキュメントは、ID を付ける定義の種類、ID の振り方と変え方、定義と参照の書き方、外部仕様の条項の書式、GOJ と条項の関係の書き方、テストと `formal/` から定義を参照する注釈を定めます。
+本ドキュメントは、ID を付ける定義の種類、ID の振り方と変え方、定義と参照の書き方、外部仕様の条項の書式、GOJ と条項の関係の書き方、テストと `formal/` から定義を参照する注釈、それらを確かめる追跡の検査を定めます。
 
 ## 1. ID Kinds
 
@@ -32,6 +32,10 @@ ID を付ける種類は次のとおりです。
 | `GH-ACCOUNT-` | GitHub のオーナーとリポジトリの条項 | `docs/external/github/account.md` | 条項の内容を表す名前 |
 | `GH-APP-` | GitHub App の条項 | `docs/external/github/app.md` | 条項の内容を表す名前 |
 | `GH-ACTIONS-` | GitHub Actions の連携の条項 | `docs/external/github/actions.md` | 条項の内容を表す名前 |
+
+定めるドキュメントをファイル名だけで書いたものは、`docs/spec/` か `docs/design/` の直下にある、その名前のファイルを指します。
+それ以外の場所のドキュメントは、リポジトリのルートからのパスで書きます。
+追跡の検査（[§8](#8-trace-check)）は、ID の定義がこの表の定めるドキュメントにあることを確かめるためです。
 
 これらの種類の定義には、重要度にかかわらず、すべて ID を付けます。
 一部の定義だけに ID がないと、その定義を参照元から指せず、付与漏れも機械的に確かめられないためです。
@@ -215,7 +219,7 @@ AC の意味を変えたときに確かめ直すテスト（[§2](#2-assigning-a
 
 - 宣言は、テストの直前の行コメントに書く。Go のテスト関数では `//trace:checks AC-AUTHN-002 AC-AUTHZ-001`、Terraform の試験の `run` ブロックでは `# trace:checks AC-OPS-005` とする
 - Go では `//` の直後に空白を置かない。Go はこの形の行をディレクティブとして扱い、doc comment の本文に含めないためである。doc comment を持つテスト関数では、本文の後に空行の `//` を挟んで最後の行に置く。gofmt が整える形である
-- 宣言は、AC の判定の証拠にするテストだけに付ける。すべてのテストに付けることは求めない
+- 宣言は、AC の判定か、後に定める関係の証拠にするテストだけに付ける。すべてのテストに付けることは求めない
 - AC の判定の記録には、証拠にしたテストの名前を転記しない。テストは `grep -rnE 'trace:checks.* AC-AUTHN-002( |$)'` で探す
 
 ### Formal Models
@@ -244,6 +248,35 @@ Evidence が Unconfirmed の条項は、モデルが制約しないことで表�
 
 関係（[§6](#6-relations-between-goj-and-clauses)）は、次の検査で確かめます。
 
-- Relation が Satisfies と Accepts の行ごとに、GOJ と条項の両方の ID を挙げた `trace:checks` を持つ検査を置く
-- Relation が Possibly Rejects の行ごとに、互換性の反例を期待し、GOJ と条項の両方の ID を挙げた `trace:checks` を持つ検査を置く
+- Relation が Satisfies の行ごとに、GOJ と条項の両方の ID を挙げた `trace:checks` を持ち、反例のないことを期待する検査（`; expect:` がすべて `unsat` の Z3 の検査か、`expect 0` の Alloy の `check`）を置く。GOJ が受理するすべての JWT が条項に従うことは、反例のないことでしか示せないためである
+- Relation が Accepts の行ごとに、GOJ と条項の両方の ID を挙げた `trace:checks` を持つ `formal/` の検査を置く
+- Satisfies と Accepts の行の GOJ か条項が `trace:unformalized` のときは、`formal/` の検査の代わりに、GOJ と条項の両方の ID を `trace:checks` で宣言した Go のテストを置いてもよい。JSON のバイト列や直列化のように、デコード後の値を扱うモデルが表せない規範は、Go のテストだけが確かめられるためである
+- Relation が Possibly Rejects の行ごとに、互換性の反例を期待し（`; expect:` がすべて `sat` の Z3 の検査か、`expect 1` の Alloy の `run` か `check`）、GOJ と条項の両方の ID を挙げた `trace:checks` を持つ検査を置く。Alloy は `expect` のないコマンドでは反例があっても成功するため、`expect` のないコマンドはどちらの検査にも数えない
+- GOJ と条項の ID を挙げた `trace:checks` では、挙げた GOJ と条項のどの組も、その GOJ の関係の行（条項の ID を Note に書いた行を含む）に当たるようにする。互換性の反例を期待する検査が挙げる GitHub の条項は、Possibly Rejects の行に当たるようにする。関係の行を削除したときに、その関係を確かめたと読める検査が残らないようにするためである
 - 互換性の検査の期待する判定を変えるのは、Possibly Rejects の行を加えるか除く変更と同じ変更に限る。判定だけを変えると、反例として現れる非互換と、GOJ に記録した既知の非互換が食い違うためである
+
+## 8. Trace Check
+
+**追跡の検査** は、本ドキュメントの規則のうち機械的に確かめられるものを確かめます。
+リポジトリのルートで `make trace` を実行すると、規則を満たさない箇所をファイルと行とともに出力し、一つでもあれば失敗します。
+確かめる規則は、§1 の表の接頭辞と追跡の検査が読む接頭辞の一致、ID の定義が接頭辞の定めるドキュメントに一つだけあること、§4 の参照、§6 の関係の表の書式と強い規範の網羅、§7 の注釈の書式と位置、形式化の有無、関係ごとの検査です。
+
+報告ごとの直し方は次のとおりです。
+報告が規則の誤りを示していると考えたときは、規則を変える変更と、検査を変える変更を同じ変更で行います。
+
+| 報告 | 直し方 |
+|---|---|
+| `undefined ID` | ID の誤記を直すか、定義を加える。書式の例に使う ID はフェンスの中に移す（§4） |
+| `is also defined at`、`is defined outside the documents for` | 定義を一つにまとめ、§1 の表が定めるドキュメントに置く |
+| `the table of ID kinds`、`in the table of ID kinds` | 接頭辞を加えるか除くときは、§1 の表と、追跡の検査（`formal/trace/`）の接頭辞の一覧を同じ変更で直す |
+| `no table of ID kinds` | §1 の表の見出しの列（接頭辞、定めるドキュメント）を戻す |
+| `has no relation table`、`relation row has`、`None row`、`want a standard clause`、`want a GitHub clause`、`Clause "…" is not an ID`、`both Accepts and Possibly Rejects`、`table header`、`unknown Relation`、`relation table is not under a definition heading` | §6 の書式に合わせて関係の表を直す |
+| `is a strong norm of a GATES role`、`in the table of standard clauses not applied` | 条項を GOJ の Satisfies か Narrows の行に挙げるか、「適用しない標準の条項」の表に理由とともに挙げる。両方には挙げない（§6） |
+| `no list of the Actors that are GATES roles` | GATES OIDC JWT Claims の「GATES の役割に当たる Actor」の見出しと、「**Actor**：説明」の箇条書きを戻す（§6） |
+| `has neither trace:formalizes nor trace:unformalized`、`has both`、`is Unconfirmed` | 条項か GOJ を形式化して `trace:formalizes` を置くか、`trace:unformalized` と理由を書く。Evidence が Unconfirmed の条項からは注釈を除く（§7） |
+| `has no trace:checks listing both IDs on …` | 報告が示す種類の検査（形式化しない GOJ か条項では Go のテストでもよい）に、GOJ と条項の両方の ID を挙げた `trace:checks` を置く。既にあるなら、期待する判定が関係の種類に合っているかを確かめる |
+| `which no relation row of … links`、`which is not a Possibly Rejects relation` | 関係の行を削除したか種類を変えたなら、検査の `trace:checks` から ID を外すか、検査を直す。関係の行を書き忘れたなら、行を加える |
+| `must be on the line`、`unknown annotation`、`is not an ID`、`lists no ID`、`needs one ID and a reason` | §7 の書式と位置に合わせて注釈を直す |
+
+条項と GOJ のそれぞれを、どの述語が形式化し、どの検査とテストが確かめているかは、`make trace-map` が Markdown の表として標準出力に書きます。
+対応は注釈の側だけにあるため（§7）、この表は必要なときに生成し、コミットしません。

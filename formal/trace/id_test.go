@@ -49,3 +49,48 @@ func TestIsID(t *testing.T) {
 		})
 	}
 }
+
+func TestPrefixOf(t *testing.T) {
+	cases := []struct {
+		name string
+		id   string
+		want string
+	}{
+		{name: "GOJ ID has the GOJ prefix", id: "GOJ-AUD", want: "GOJ"},
+		{name: "GitHub clause has the two-word prefix", id: "GH-OIDC-AUD-DEFAULT", want: "GH-OIDC"},
+		{name: "standard clause has the RFC prefix", id: "RFC7519-AUD-REJECT", want: "RFC7519"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := prefixOf(tc.id); got != tc.want {
+				t.Errorf("prefixOf(%q) = %q, want %q", tc.id, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestClauseKinds(t *testing.T) {
+	cases := []struct {
+		name         string
+		id           string
+		wantStandard bool
+		wantGitHub   bool
+	}{
+		{name: "RFC clause is a standard clause", id: "RFC7519-AUD-REJECT", wantStandard: true},
+		{name: "OpenID Connect clause is a standard clause", id: "OIDCD-ISSUER-MATCH", wantStandard: true},
+		{name: "GH-OIDC clause is a GitHub clause", id: "GH-OIDC-AUD-DEFAULT", wantGitHub: true},
+		{name: "GH-ACTIONS clause is a GitHub clause", id: "GH-ACTIONS-X", wantGitHub: true},
+		{name: "GOJ is not a clause", id: "GOJ-AUD"},
+		{name: "AC is not a clause", id: "AC-AUTHN-001"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isStandardClause(tc.id); got != tc.wantStandard {
+				t.Errorf("isStandardClause(%q) = %v, want %v", tc.id, got, tc.wantStandard)
+			}
+			if got := isGitHubClause(tc.id); got != tc.wantGitHub {
+				t.Errorf("isGitHubClause(%q) = %v, want %v", tc.id, got, tc.wantGitHub)
+			}
+		})
+	}
+}
