@@ -216,6 +216,29 @@ func TestVerifierAuthenticate(t *testing.T) {
 	}
 }
 
+// iss は go-oidc が、sub は Caller の規則が読むため、両方の読み取りでエスケープを解いた名前を確かめる。
+//
+//trace:checks GOJ-CLAIM-NAME-MATCH OIDCC-STRING-UNESCAPE
+func TestVerifierAuthenticate_EscapedClaimName(t *testing.T) {
+	for _, name := range []string{"iss", "sub"} {
+		t.Run("escaped "+name+" returns Caller", func(t *testing.T) {
+			value, err := json.Marshal(validClaims()[name])
+			if err != nil {
+				t.Fatalf("Marshal returned error: %v", err)
+			}
+			token := signLeadingClaims(t, escapedName(name)+":"+string(value), name)
+
+			got, _, err := newTestVerifier(t).Authenticate(t.Context(), unverifiedIDToken(t, token))
+			if err != nil {
+				t.Fatalf("Authenticate returned error: %v", err)
+			}
+			if want := newCaller(t, 11, 22, 33, 2, validAttributes()); got != want {
+				t.Errorf("Authenticate = %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
 //trace:checks AC-AUTHN-002 AC-AUTHN-004
 func TestVerifierAuthenticate_InvalidToken(t *testing.T) {
 	tests := []struct {

@@ -624,7 +624,7 @@ func (s *issuerStub) tokenWithHeader(t *testing.T, key *rsa.PrivateKey, header s
 	return signWithHeader(t, key, header, marshalClaims(t, claimsWith(map[string]any{"iss": s.issuer()})))
 }
 
-//trace:checks AC-AUTHN-005
+//trace:checks AC-AUTHN-005 GOJ-HEADER-JSON RFC7515-HEADER-NAME-DUPLICATE RFC7515-HEADER-NAME-UNIQUE RFC7515-JSON-STRICT RFC7515-JSON-TRAILING-INVALID RFC7519-VALIDATE-REJECT RFC8725-UTF8-APPLICATION RFC8725-UTF8-IMPLEMENTATION
 func TestAuthenticate_UnacceptableHeaderIsRejectedWithoutRetrieval(t *testing.T) {
 	const base = `"alg":"RS256","kid":"` + testKeyID + `"`
 	tests := []struct {
@@ -642,6 +642,11 @@ func TestAuthenticate_UnacceptableHeaderIsRejectedWithoutRetrieval(t *testing.T)
 		{"duplicate name", `{` + base + `,"kid":"` + testKeyID + `"}`},
 		{"duplicate name after unescaping", `{` + base + `,` + escapedName("kid") + `:"` + testKeyID + `"}`},
 		{"invalid UTF-8", `{` + base + `,"unknown":"` + "\xff" + `"}`},
+		{"trailing comma", `{` + base + `,}`},
+		{"text after the object", `{` + base + `}x`},
+		{"second object after the object", `{` + base + `}{}`},
+		{"array", `[{` + base + `}]`},
+		{"null", `null`},
 		// cty の拒否は値によらないため、Nested JWT を示す値で確かめる
 		{"cty", `{` + base + `,"cty":"JWT"}`},
 		{"alg none", `{"alg":"none","kid":"` + testKeyID + `"}`},
@@ -661,6 +666,16 @@ func TestAuthenticate_UnacceptableHeaderIsRejectedWithoutRetrieval(t *testing.T)
 			}
 		})
 	}
+}
+
+// x5t は、GitHub OIDC JWT の研究文書が記録した実測の値
+//
+//trace:checks GOJ-SERIALIZATION-COMPACT GOJ-HEADER-JSON GH-OIDC-HEADER-OBSERVED
+func TestAuthenticate_ObservedHeaderIsAccepted(t *testing.T) {
+	stub := newIssuerStub(t, testKey(t), testKeyID)
+	token := stub.tokenWithHeader(t, testKey(t), `{"alg":"RS256","kid":"`+testKeyID+`","typ":"JWT","x5t":"ykNaY4qM_ta4k2TgZOCEYLkcYlA"}`)
+
+	assertAuthenticated(t, stub.verifier(t), token)
 }
 
 func TestAuthenticate_UnknownHeaderIsIgnored(t *testing.T) {
@@ -1189,7 +1204,7 @@ func TestAuthenticate_ConcurrentRetrievalFailureDoesNotReachCallsRejectedWithout
 
 // 名前の判定と NumericDate の判定は、鍵情報に依存しないため取得の前に行う。
 //
-//trace:checks AC-AUTHN-004
+//trace:checks AC-AUTHN-004 GOJ-CLAIMS-JSON RFC7519-CLAIM-NAME-DUPLICATE RFC7519-CLAIM-NAME-UNIQUE RFC8725-UTF8-APPLICATION RFC8725-UTF8-IMPLEMENTATION
 func TestAuthenticate_UnacceptableClaimsSetIsRejectedWithoutRetrieval(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -1197,6 +1212,8 @@ func TestAuthenticate_UnacceptableClaimsSetIsRejectedWithoutRetrieval(t *testing
 		omitted string
 	}{
 		{"duplicate claim name", `"jti":"a","jti":"b"`, "jti"},
+		{"duplicate claim name after unescaping", `"jti":"a",` + escapedName("jti") + `:"b"`, "jti"},
+		{"invalid UTF-8", "\"jti\":\"\xff\"", "jti"},
 		{"claim name differing only by case", `"EXP":1700000300`, "exp"},
 		{"numeric date as a string", `"exp":"1700000300"`, "exp"},
 	}
@@ -1220,19 +1237,38 @@ func TestAuthenticate_UnacceptableClaimsSetIsRejectedWithoutRetrieval(t *testing
 
 // Claims Set が JSON オブジェクトであることも鍵情報に依存しないため、取得の前に判定する。
 // 配列や文字列は復号の error で拒否され、null だけが error にならずに復号される。
-func TestAuthenticate_NullClaimsSetIsRejectedWithoutRetrieval(t *testing.T) {
-	stub := newIssuerStub(t, testKey(t), testKeyID)
-	token := signWithKeyID(t, jose.RS256, testKey(t), testKeyID, []byte(`null`))
+//
+//trace:checks GOJ-CLAIMS-JSON RFC7515-JSON-STRICT RFC7515-JSON-TRAILING-INVALID RFC7519-VALIDATE-REJECT
+func TestAuthenticate_ClaimsSetThatIsNotJSONObjectIsRejectedWithoutRetrieval(t *testing.T) {
+	tests := []struct {
+		name  string
+		build func(claims string) string
+	}{
+		{"null", func(string) string { return `null` }},
+		{"array", func(claims string) string { return "[" + claims + "]" }},
+		{"trailing comma", func(claims string) string { return strings.TrimSuffix(claims, "}") + ",}" }},
+		{"text after the object", func(claims string) string { return claims + "x" }},
+		{"second object after the object", func(claims string) string { return claims + "{}" }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name+" returns ErrAuthenticationFailure", func(t *testing.T) {
+			stub := newIssuerStub(t, testKey(t), testKeyID)
+			claims := string(marshalClaims(t, claimsWith(map[string]any{"iss": stub.issuer()})))
+			token := signWithKeyID(t, jose.RS256, testKey(t), testKeyID, []byte(tt.build(claims)))
 
-	got, _, err := stub.verifier(t).Authenticate(t.Context(), unverifiedIDToken(t, token))
+			got, _, err := stub.verifier(t).Authenticate(t.Context(), unverifiedIDToken(t, token))
 
-	assertRejected(t, got, err, ErrAuthenticationFailure, token)
-	if requests := stub.documentRequests(); requests != 0 {
-		t.Errorf("retrieved documents %d times, want 0", requests)
+			assertRejected(t, got, err, ErrAuthenticationFailure, token)
+			if requests := stub.documentRequests(); requests != 0 {
+				t.Errorf("retrieved documents %d times, want 0", requests)
+			}
+		})
 	}
 }
 
 // go-oidc の解析は JSON 形式と空白を含む JWT を通し、go-jose の解析は CR と LF を読み飛ばすため、正当な署名でも拒否することを確かめる。
+//
+//trace:checks GOJ-SERIALIZATION-COMPACT RFC7515-BASE64URL-FORMAT RFC7515-COMPACT-FORMAT RFC7519-SERIALIZATION RFC7519-VALIDATE-REJECT
 func TestAuthenticate_NonCompactSerializationIsRejectedWithoutRetrieval(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -1254,6 +1290,21 @@ func TestAuthenticate_NonCompactSerializationIsRejectedWithoutRetrieval(t *testi
 		}},
 		{"compact with LF returns ErrAuthenticationFailure", func(_ *testing.T, compact string) string {
 			return strings.Replace(compact, ".", ".\n", 1)
+		}},
+		{"two parts returns ErrAuthenticationFailure", func(_ *testing.T, compact string) string {
+			return compact[:strings.LastIndex(compact, ".")]
+		}},
+		{"four parts returns ErrAuthenticationFailure", func(_ *testing.T, compact string) string {
+			return compact + "." + compact[strings.LastIndex(compact, ".")+1:]
+		}},
+		{"five parts of JWE Compact Serialization returns ErrAuthenticationFailure", func(_ *testing.T, compact string) string {
+			return strings.Replace(compact, ".", "...", 1)
+		}},
+		{"padding returns ErrAuthenticationFailure", func(_ *testing.T, compact string) string {
+			return strings.Replace(compact, ".", "=.", 1)
+		}},
+		{"Base64 standard alphabet returns ErrAuthenticationFailure", func(_ *testing.T, compact string) string {
+			return compact[:strings.LastIndex(compact, ".")+1] + "+" + compact[strings.LastIndex(compact, ".")+2:]
 		}},
 	}
 	for _, tt := range tests {

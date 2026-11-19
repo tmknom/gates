@@ -27,6 +27,10 @@ type occurrence struct {
 	line int
 }
 
+func (o occurrence) location() string {
+	return fmt.Sprintf("%s:%d", o.path, o.line)
+}
+
 // finding is a missing or broken link between a definition and its references.
 type finding struct {
 	path    string
@@ -40,33 +44,55 @@ func (f finding) String() string {
 
 // links is everything the check reads from the repository.
 type links struct {
-	definitions []occurrence
+	definitions []definition
 	references  []occurrence
 	relations   []relation
+	notApplied  []occurrence
+	actors      []string
+	idKinds     []idKind
 	annotations []annotation
 	findings    []finding
 }
 
-// check reports every ID that is referred to but not defined, every malformed
-// annotation, and every Satisfies relation that no formal check declares.
+// check reports every broken link between the definitions in docs/ and the
+// documents, models, and tests that refer to them.
 func check(fsys fs.FS) ([]finding, error) {
-	var l links
-	if err := walk(fsys, docsRoot, func(name, content string) { l.addDocument(name, content) }); err != nil {
+	l, err := read(fsys)
+	if err != nil {
 		return nil, err
 	}
-	if err := walk(fsys, formalRoot, func(name, content string) { l.addFormal(name, content) }); err != nil {
-		return nil, err
-	}
-	for _, root := range annotationRoots {
-		if err := walk(fsys, root, func(name, content string) { l.addAnnotations(name, content) }); err != nil {
-			return nil, err
-		}
-	}
-	findings := slices.Concat(l.findings, l.undefinedReferences(), l.uncheckedSatisfies())
+	findings := slices.Concat(
+		l.findings,
+		l.undefinedReferences(),
+		l.misplacedDefinitions(),
+		l.idKindsMismatch(),
+		l.relationTableFindings(),
+		l.uncheckedRelations(),
+		l.unrelatedChecks(),
+		l.uncoveredStrongNorms(),
+		l.formalizationFindings(),
+	)
 	slices.SortFunc(findings, func(a, b finding) int {
 		return cmp.Or(cmp.Compare(a.path, b.path), cmp.Compare(a.line, b.line), cmp.Compare(a.message, b.message))
 	})
 	return slices.Compact(findings), nil
+}
+
+// read collects the definitions, references, and annotations of the repository.
+func read(fsys fs.FS) (*links, error) {
+	l := &links{}
+	if err := walk(fsys, docsRoot, l.addDocument); err != nil {
+		return nil, err
+	}
+	if err := walk(fsys, formalRoot, l.addFormal); err != nil {
+		return nil, err
+	}
+	for _, root := range annotationRoots {
+		if err := walk(fsys, root, l.addAnnotations); err != nil {
+			return nil, err
+		}
+	}
+	return l, nil
 }
 
 // walk calls read with the content of every regular file under root.
@@ -95,7 +121,14 @@ func (l *links) addDocument(name, content string) {
 	l.definitions = append(l.definitions, doc.definitions...)
 	l.references = append(l.references, doc.references...)
 	l.relations = append(l.relations, doc.relations...)
+	l.notApplied = append(l.notApplied, doc.notApplied...)
 	l.findings = append(l.findings, doc.findings...)
+	switch name {
+	case actorsDocument:
+		l.actors = parseActors(content)
+	case idKindsDocument:
+		l.idKinds = parseIDKinds(content)
+	}
 }
 
 // addFormal reads a model or a document under formal/. IDs anywhere in a
@@ -145,32 +178,4 @@ func (l *links) undefinedReferences() []finding {
 		}
 	}
 	return findings
-}
-
-// uncheckedSatisfies reports Satisfies relations that no universal formal
-// check declares. A Go test or a check expecting a witness does not count,
-// because only a check that finds no counterexample shows that every Claims
-// Set the GOJ accepts satisfies the clause.
-func (l *links) uncheckedSatisfies() []finding {
-	var findings []finding
-	for _, r := range l.relations {
-		if r.kind != "Satisfies" || l.universallyChecked(r.definition, r.clause) {
-			continue
-		}
-		findings = append(findings, finding{
-			path:    r.path,
-			line:    r.line,
-			message: fmt.Sprintf("Satisfies %s %s has no trace:checks listing both IDs on a check expecting no counterexample", r.definition, r.clause),
-		})
-	}
-	return findings
-}
-
-func (l *links) universallyChecked(definition, clause string) bool {
-	for _, a := range l.annotations {
-		if a.universal && slices.Contains(a.ids, definition) && slices.Contains(a.ids, clause) {
-			return true
-		}
-	}
-	return false
 }

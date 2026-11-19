@@ -145,6 +145,15 @@ alloy: ## verify formal models by Alloy by formal/Makefile
 z3: ## verify formal specifications by Z3 by formal/Makefile
 	$(MAKE) -C $(FORMAL_DIR) z3
 
+.PHONY: trace
+trace: ## check the links between the IDs in docs/ and the documents, models, and tests by formal/Makefile
+	$(MAKE) -C $(FORMAL_DIR) trace
+
+# 出力をそのまま読めるよう、ディレクトリの移動の表示を止める
+.PHONY: trace-map
+trace-map: ## print the annotations that formalize and check each clause and GOJ by formal/Makefile
+	@$(MAKE) --no-print-directory -C $(FORMAL_DIR) trace-map
+
 # Targets: GitHub Actions
 # actionlint は .git からプロジェクトを探すが、コンテナには .github だけを渡すため、検査するファイルを引数で渡す
 .PHONY: lint-gha

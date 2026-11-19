@@ -108,9 +108,9 @@ make z3
 ## 検査の追加
 
 1. 条項か GOJ を加えたら、その層のファイルに述語を書き、直前の行に `trace:formalizes` を置く。形式化しないなら `trace:unformalized` と理由を書く
-2. 関係の表の行を加えたら、その種類に応じた検査を `checks/` の該当するディレクトリに加える。Satisfies の行は安全性の検査、Accepts の行は Accepts の検査、Possibly Rejects の行は Possibly Rejects の検査で、どれも GOJ と条項の両方の ID を `trace:checks` に挙げる
+2. 関係の表の行を加えたら、その種類に応じた検査を `checks/` の該当するディレクトリに加える。Satisfies の行は安全性の検査、Accepts の行は Accepts の検査、Possibly Rejects の行は Possibly Rejects の検査で、どれも GOJ と条項の両方の ID を `trace:checks` に挙げる。GOJ か条項が `trace:unformalized` の行は、Go のテストに両方の ID を挙げた `trace:checks` を置く
 3. `make z3` を実行する
-4. リポジトリのルートで `go run ./formal/trace` を実行し、注釈の ID が定義されていること、関係 Satisfies の行ごとに両方の ID を挙げた反例のないことを期待する検査があることを確かめる。欠落を見つけると、ファイルと行を出力して終了コード 1 で終わる
+4. `make trace` を実行し、注釈と関係の表が [Traceability Policy](../../docs/contributing/traceability.md) の規則を満たすことを確かめる
 
 受理条件を変えたら、`checks/examples/` の該当する例も同じ変更で直します。
 全称の性質は、述語の定義を言い直すのではなく、定義と独立に立てられる性質（標準の要求、規則どうしの関係、判定が時刻や Audience によってどう変わるか）にします。

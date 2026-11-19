@@ -7,7 +7,7 @@ MAKEFLAGS += --no-builtin-rules
 
 # Targets: Formal Verification
 .PHONY: all
-all: alloy z3 ## verify formal models by Alloy and Z3
+all: alloy z3 trace ## verify formal models by Alloy and Z3, and check the trace links
 
 .PHONY: alloy
 alloy: ## verify formal models by Alloy in an isolated container
@@ -18,6 +18,15 @@ alloy: ## verify formal models by Alloy in an isolated container
 .PHONY: z3
 z3: ## verify formal specifications by Z3 in an isolated container
 	Z3_TARGET=$(CURDIR)/z3 docker compose -f ../scripts/z3/compose.yaml run --build --rm -T --interactive=false --entrypoint sh z3 verify.sh
+
+# 検査は docs/ と internal/ も読むため、リポジトリのルートで実行する
+.PHONY: trace
+trace: ## check the links between the IDs in docs/ and the documents, models, and tests
+	go -C .. run ./formal/trace
+
+.PHONY: trace-map
+trace-map: ## print the annotations that formalize and check each clause and GOJ
+	@go -C .. run ./formal/trace -map
 
 # Targets
 .PHONY: help
