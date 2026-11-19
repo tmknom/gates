@@ -15,8 +15,8 @@ GATES は、次の責任を各主体が果たすことを前提に要求を満�
 
 | 主体 | 責任 |
 |---|---|
-| ワークフロー利用者 | 利用者接点を呼び出すジョブで `permissions: id-token: write` を宣言し、利用者接点に対象リポジトリ、権限、GATES 運用者が用意した接続情報を渡す。トークンを取得するジョブで、信頼できないコード（Pull Request のコード、ほかのワークフローの成果物など）を実行しない。取得したトークンを、取得したジョブの外（ほかのジョブ、成果物、ログ）へ渡さない。セルフホストの Runner で実行する場合は、利用者接点が必要とする実行環境と通信先を用意する。 |
-| GitHub App / オーナーの管理者 | 許可オーナーのどのワークフローから GATES を通じて読み取られてもよいリポジトリだけを、Installation の対象に含める。オーナー配下のリポジトリの OIDC JWT に不変 Owner ID を含める設定を行う。鍵の更新後に GitHub App の旧 Private Key を失効させる。 |
+| ワークフロー利用者 | 利用者接点を呼び出すジョブで `permissions: id-token: write` を宣言し、利用者接点に対象リポジトリ、権限、GATES 運用者が用意した接続情報を渡す。権限は、そのジョブの処理に必要なものだけを要求する。トークンを取得するジョブで、信頼できないコード（Pull Request のコード、ほかのワークフローの成果物など）を実行しない。取得したトークンを、取得したジョブの外（ほかのジョブ、成果物、ログ）へ渡さない。セルフホストの Runner で実行する場合は、利用者接点が必要とする実行環境と通信先を用意する。 |
+| GitHub App / オーナーの管理者 | GitHub App には、許可オーナーのどのワークフローに渡ってもよい Repository permissions だけを付与する。GATES が発行しない Organization permissions、Account permissions、Enterprise permissions を、GATES で利用する GitHub App に付与しない。許可オーナーのどのワークフローから、GitHub App に付与した権限で GATES を通じて操作されてもよいリポジトリだけを、Installation の対象に含める。オーナー配下のリポジトリの OIDC JWT に不変 Owner ID を含める設定を行う。鍵の更新後に GitHub App の旧 Private Key を失効させる。 |
 | GATES 運用者 | 許可オーナー、GitHub App、署名に用いる KMS Key をデプロイ時の設定として管理する。GitHub App Private Key を KMS にインポートし、更新する。GATES の呼び出しに使う IAM Role を引き受けられる主体の条件（信頼ポリシー）を管理する。利用者接点を提供し、その入出力を維持する。利用者接点が GATES を呼び出すための接続情報を、ワークフローから参照できるよう GitHub 側に用意する。 |
 
 ## 3. Functional Requirements
@@ -56,9 +56,9 @@ GitHub OIDC JWT の署名の検証では、GATES が対応しない JOSE Header 
 
 許可オーナーに属し、GATES で利用する GitHub App の同一 Installation に含まれるリポジトリだけに発行する。含まれない対象を一つでも含む要求にはトークンを返さない。Installation に含まれることは、発行 API を呼ぶ前に確かめても、発行結果の照合（FR-ISSUANCE-006）で確かめてもよい。
 
-#### FR-AUTHZ-003 権限の `contents:read` への限定
+#### FR-AUTHZ-003 権限の Repository permissions への限定
 
-現在のスコープでは `contents:read` のみ許可し、その他の権限を拒否する。
+GitHub が Repository permissions に分類する権限のうち、発行 API が権限名を定めるものを、その権限に定められた水準で許可する。Organization permissions、Account permissions、Enterprise permissions と、GATES が Repository permissions に当たると確かめていない権限名、その権限に定められていない水準は拒否する。許可する権限名と水準は GATES が列挙して固定し、利用者の入力や GitHub の応答によって実行時に広げない。Caller や対象リポジトリごとに、要求できる権限を変えない。
 
 #### FR-AUTHZ-004 利用者の入力による Caller、Installation ID、認可の根拠、API Host の指定の禁止
 
@@ -70,7 +70,11 @@ GitHub OIDC JWT の署名の検証では、GATES が対応しない JOSE Header 
 
 #### FR-AUTHZ-007 利用者による対象リポジトリと権限の明示
 
-利用者に対象リポジトリと権限の明示を要求し、欠落・未知値を広い既定値に読み替えない。対象は要求で明示したリポジトリ（GitHub の `repository_selection` でいう `selected`）に限り、全リポジトリ（`all`）を対象にする手段を利用者に与えない。
+利用者に対象リポジトリと権限の明示を要求し、欠落・未知値を広い既定値に読み替えない。対象は要求で明示したリポジトリ（GitHub の `repository_selection` でいう `selected`）に限り、全リポジトリ（`all`）を対象にする手段を利用者に与えない。権限は要求で明示した権限名と水準の組に限り、GitHub App に付与された権限のすべてを対象にする手段を利用者に与えない。
+
+#### FR-AUTHZ-008 GitHub App に付与されていない権限を含む要求の不成立
+
+要求した権限は、全件が要求した水準で成立する場合のみ発行する。GitHub App の Installation に付与されていない権限か水準を一つでも含む要求にはトークンを返さず、権限を除いたり水準を下げたりして発行しない。付与されていることは、発行 API を呼ぶ前に確かめても、発行結果の照合（FR-ISSUANCE-006）で確かめてもよい。
 
 ### 3.3 Token Issuance
 
@@ -92,7 +96,7 @@ GitHub OIDC JWT の署名の検証では、GATES が対応しない JOSE Header 
 
 #### FR-ISSUANCE-006 発行応答の照合と、照合に失敗したときのトークンの失効
 
-GitHub API の発行応答で対象一覧・権限の欠落・不整合、要求範囲を超える対象・権限（現在許容する付随権限 `metadata:read` を除く）、不変 Owner ID の不一致を検出した場合は、トークンを返さない。応答から空でないトークン文字列を取得できた場合は失効 API の呼び出しを試み、その成否を監査する。GitHub 側の失効成功および通信断等で取得できなかったトークンの不存在は保証しない。
+GitHub API の発行応答で対象一覧・権限の欠落・不整合、要求範囲を超える対象・権限（現在許容する付随権限 `metadata:read` を除く）、不変 Owner ID の不一致を検出した場合は、トークンを返さない。権限は権限名と水準の組で照合し、要求と水準が異なる権限は、高くても低くても不整合とする。応答から空でないトークン文字列を取得できた場合は失効 API の呼び出しを試み、その成否を監査する。GitHub 側の失効成功および通信断等で取得できなかったトークンの不存在は保証しない。
 
 #### FR-ISSUANCE-007 不要になったトークンの失効
 

@@ -135,6 +135,60 @@ GitHub は、トークンを、中身を解釈しない文字列として扱う�
 
 **Observed（失効）**：発行したトークンの失効は `204` を返し、失効したトークンによる要求は `401` で拒否されました（[GitHub Installation Access Token](../../research/github/installation-access-token.md#失効の前後のトークン)）。ただし、`204` の約 0.4 秒後の要求が `200` で通った事例が 1 回あり、失効が直ちにすべての要求に効くとは限りません。公式資料は、失効が効くまでの時間を記載していません（[GitHub Docker Action Failure and Cancellation](../../research/github/docker-action-cancellation.md#revocation-not-yet-in-effect)）。
 
+### 4.4 権限名と分類
+
+**Documented（スキーマの権限名）**：OpenAPI 定義のスキーマ「App Permissions」は 57 の権限名を定め、権限名ごとに選べる水準を列挙しています。
+スキーマは、権限名を Repository、Organization、Account、Enterprise の分類に分けて示していません（[REST API Description](https://github.com/github/rest-api-description)）。
+
+**Documented（分類と表示名）**：GitHub App の権限ごとに使える API をまとめた資料は、権限を Repository permissions、Organization permissions、User permissions、Enterprise permissions に分け、画面上の表示名（`Contents`、`Pull requests` など）で挙げています（[Permissions required for GitHub Apps](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps)）。
+この資料は、表示名とスキーマの権限名の対応を示していません。
+
+**Inferred（Repository permissions に当たる権限名）**：スキーマの各権限名の説明文と、上の資料の表示名から、スキーマの 57 の権限名のうち次の 28 が Repository permissions に当たると読めます。
+「資料の表示名」が「なし」の権限名は、上の資料に対応する見出しがなく、スキーマの説明文だけから分類したものです。
+
+| 権限名 | 水準 | 資料の表示名 |
+|---|---|---|
+| `actions` | `read`、`write` | Actions |
+| `administration` | `read`、`write` | Administration |
+| `artifact_metadata` | `read`、`write` | Artifact metadata |
+| `attestations` | `read`、`write` | Attestations |
+| `checks` | `read`、`write` | Checks |
+| `code_quality` | `read`、`write` | Code quality |
+| `codespaces` | `read`、`write` | Codespaces |
+| `contents` | `read`、`write` | Contents |
+| `dependabot_secrets` | `read`、`write` | Dependabot secrets |
+| `deployments` | `read`、`write` | Deployments |
+| `discussions` | `read`、`write` | なし |
+| `environments` | `read`、`write` | Environments |
+| `issues` | `read`、`write` | Issues |
+| `merge_queues` | `read`、`write` | なし |
+| `metadata` | `read`、`write` | Metadata |
+| `packages` | `read`、`write` | なし |
+| `pages` | `read`、`write` | Pages |
+| `pull_requests` | `read`、`write` | Pull requests |
+| `repository_custom_properties` | `read`、`write` | Custom properties |
+| `repository_hooks` | `read`、`write` | Webhooks |
+| `repository_projects` | `read`、`write`、`admin` | なし |
+| `secret_scanning_alerts` | `read`、`write` | Secret scanning alerts |
+| `secrets` | `read`、`write` | Secrets |
+| `security_events` | `read`、`write` | Code scanning alerts |
+| `single_file` | `read`、`write` | なし |
+| `statuses` | `read`、`write` | Commit statuses |
+| `vulnerability_alerts` | `read`、`write` | Dependabot alerts |
+| `workflows` | `write` | Workflows |
+
+残りの 29 の権限名は、説明文か上の資料の分類から、Organization permissions、User permissions、Enterprise permissions のいずれかに当たると読めます。
+このうち `interaction_limits` の説明文はリポジトリに触れていますが、上の資料は `Interaction limits` を User permissions に挙げています。
+
+**Unconfirmed**：次の事項は、参照した公式資料から確定できません。
+
+- 上の表の権限名と表示名の対応、および各権限名の分類。GitHub App の設定画面の Repository permissions と、その権限だけを付与した Installation の `permissions` を突き合わせれば確かめられる
+- 上の資料が Repository permissions に挙げる表示名のうち、スキーマに対応する権限名が見当たらないもの（`Variables`、`Repository security advisories`、`Codespaces secrets`、`Codespaces lifecycle admin`、`Codespaces metadata`、`Agent secrets`、`Agent variables`、`Copilot agent settings`、`GitHub App installation repository access`、`Repository creation`）を、発行 API の `permissions` に指定できるか
+- スキーマにない権限名、またはその権限に定められていない水準を指定したときの応答
+- GitHub App に付与されていない権限か、付与された水準より高い水準を指定したときの応答コード。発行 API は付与されていない権限を付与できないと定めるが（[§4.1](#41-発行-api-の呼び出しと有効期限)）、拒否するか、権限を除くか水準を下げて発行するかは示していない
+- `{"contents":"read"}` 以外の `permissions` を指定したときに、`metadata:read` のほかの権限が発行応答に加わるか
+- `repository_projects` の `admin` を付与した Installation に、同じ権限名の `write` と `read` を指定して発行できるか
+
 ## 5. Outstanding Verification
 
 公式資料で確定できていない事項を次にまとめます。根拠と確認範囲は各セクションに記載しています。
@@ -146,3 +200,4 @@ Published や Observed の記述で一部の条件を確かめた事項も、Git
 | Installation の取得 API | Organization の API の `200` 以外の応答（インストールされていない場合を含む）、User の API のアンインストール以外の `200` 以外の応答、Organization の API の応答の形、停止中の Installation の `suspended_at` の値の形、GitHub App とオーナーの組での一意性 |
 | トークン発行 API | 範囲外リポジトリへの要求、500件超の要求、停止中の Installation への要求、`422` の原因、`metadata:read` の付与条件、応答フィールドの有無、`repositories` の並び |
 | トークン失効 API | 新形式のトークンでの失効の動作、`204` の後に失効が効くまでの時間 |
+| 権限名と分類 | スキーマの権限名と表示名の対応、各権限名の分類、スキーマにない Repository permissions の指定、スキーマにない権限名か水準への応答、GitHub App に付与されていない権限への応答、`metadata:read` のほかに加わる権限、`admin` の水準が `write` と `read` を含むか |

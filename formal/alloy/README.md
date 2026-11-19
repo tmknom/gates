@@ -31,24 +31,33 @@ flowchart TB
 ```
 
 調べる範囲は、各要素が最大 3 個、Owner とオーナー名が最大 2 個です。
-権限は `contents:read`、`metadata:read`、`contents:write` と、未知の権限 1 種を調べます。
+権限は、`metadata` を含む 4 つまでの権限名と、`read` と `write` の 2 つの水準を調べます。
+権限名は、GATES が許可権限に列挙するものと列挙しないものに分けます。
+列挙するものは Repository permissions に当たり、列挙しないものの分類は決めずに調べます。
+権限名ごとに定められた水準も決めずに調べるため、権限名に定められていない水準を含む要求も現れます。
 
 ### 反例がないことを確かめる規則
 
 要件の列は、主に対応する要件を示します。
+発行許可と発行 API の呼び出しのコマンド（`NoForeignOwnerGrant` から `AllIssueCallsExplicit` まで）の主張は、モデルの規則から直ちに従います。
+これらは、規則がその条件を書き落としていないことを確かめます。
 
 | コマンド | 確かめること | 要件 |
 |---|---|---|
 | `NoForeignOwnerGrant` | 許可オーナー以外の Caller に発行許可を作らない | FR-AUTHZ-001 |
 | `NoOtherInstallationGrant` | 発行許可の Installation はどれも同じで、許可オーナーのものであり、停止していない | FR-OPS-006 |
-| `OnlyCurrentPermissionGranted` | 発行許可の権限は `contents:read` だけである | FR-AUTHZ-003, FR-AUTHZ-007 |
+| `OnlyAllowedPermissionsGranted` | 発行許可の権限は要求した Permissions のままで、どの Permission Entry も許可権限に含まれる。許可権限に含まれないものを除いて成立させない | FR-AUTHZ-003, FR-AUTHZ-007 |
 | `AllOrNothingGrant` | 発行許可の対象は要求した対象の全件と一致し、一部だけにならない | FR-AUTHZ-006 |
-| `AllIssueCallsExplicit` | 発行 API の呼び出しは、要求された対象と `contents:read` を明示する | FR-ISSUANCE-003 |
-| `NoOverbroadTokenReturned` | 返却可能な発行結果の権限は `contents:read` と任意の `metadata:read` だけで、対象は `selected` である | FR-AUTHZ-003, FR-AUTHZ-007, FR-ISSUANCE-006 |
+| `AllIssueCallsExplicit` | 発行 API の呼び出しは、要求された対象と Permissions を明示する | FR-ISSUANCE-003 |
+| `NoOverbroadTokenReturned` | 返却可能な発行結果の権限は、要求した Permissions と任意の `metadata:read` だけで、対象は `selected` である | FR-AUTHZ-007, FR-ISSUANCE-006 |
+| `NoNarrowedTokenReturned` | 返却可能な発行結果の権限は、要求した Permission Entry を同じ水準ですべて含む。権限が欠けた発行も、水準を下げた発行も返却しない | FR-AUTHZ-008, FR-ISSUANCE-006 |
+| `UnrequestedAllowedPermissionsNotReturned` | GitHub App と Installation の権限が要求より広くても、返却可能な発行結果の権限は、要求していない許可権限を `metadata:read` のほかに含まない | FR-ISSUANCE-003, FR-ISSUANCE-006 |
+| `OnlyRepositoryPermissionsReturned` | 返却可能な発行結果の権限は、どれも Repository permissions である | FR-AUTHZ-003 |
 | `ExactNamesReturned` | 返却可能な発行結果の対象の完全名と件数は、要求と一致する | FR-ISSUANCE-006 |
 | `NoDuplicateEffectiveRepositoriesReturned` | 返却可能な発行結果の実効対象に、同じ Repository ID や同じ完全名の要素はない | FR-ISSUANCE-006 |
 | `ReturnedReposOwnedByAllowedOwner` | 返却可能な発行結果の対象は、すべて許可オーナーのものである | FR-ISSUANCE-006 |
 | `CoverageHoldsWhenGitHubEnforces` | GitHub が Installation の対象を強制するなら、要求した名前はすべて、その Installation に含まれる許可オーナーのリポジトリである | FR-AUTHZ-002 |
+| `RequestedPermissionsHeldWhenGitHubEnforces` | GitHub が Installation の権限を強制するなら、要求した Permission Entry はすべて、その Installation に同じかより高い水準で付与されているか、`metadata:read` である | FR-AUTHZ-008 |
 | `ReturnedResultsHaveValidTokenAndExpiry` | 返却可能な発行結果のトークンは空でなく、有効期限は将来である | FR-ISSUANCE-004 |
 
 表の「返却可能な発行結果」の権限と対象は GitHub の応答が示す値を指し、実際のトークンの権限を GitHub に問い合わせて確かめたものではありません。
@@ -59,16 +68,18 @@ UNSAT で分かるのは、規則を満たす範囲に主張の反例がない�
 
 ### 照合の規則が必要なことを確かめる変種
 
-発行結果の照合のうち、Owner ID、完全名、権限、件数の 4 つの規則を 1 つずつ外すと、対応する主張に反例が出ることを確かめます。
+発行許可の確定のうち許可権限の判定と、発行結果の照合のうち Owner ID、完全名、権限の超過、権限の欠落、件数の規則を、1 つずつ外すと対応する主張に反例が出ることを確かめます。
 その他の照合の規則（トークンの有無、有効期限など）の必要性は確かめていません。
 これらのコマンドでは、反例が出るのが正しい結果です。
 実際の GATES の設定を表すものではありません。
 
 | コマンド | 外す規則 | 出ることを期待する反例 |
 |---|---|---|
+| `WithoutAllowedPermissionCheckPreservesAllowedPermissions` | 要求の Permissions が許可権限に含まれることの判定 | 許可権限に含まれない権限を含むトークンを返却する |
 | `WithoutOwnerCheckPreservesOwnerBoundary` | 実効対象の Owner ID の照合 | 許可オーナー以外のリポジトリを含むトークンを返却する |
 | `WithoutNameCheckPreservesExactNames` | 実効対象の完全名の照合 | 対象の完全名の集合が要求と一致しないトークンを返却する |
-| `WithoutPermissionCheckPreservesPermissionBoundary` | 実効権限の照合 | 許可していない権限を含むトークンを返却する |
+| `WithoutExcessPermissionCheckPreservesPermissionBoundary` | 実効権限が発行許可の Permissions と付随権限の範囲内であることの照合 | 要求していない権限を含むトークンを返却する |
+| `WithoutMissingPermissionCheckPreservesRequestedPermissions` | 実効権限が発行許可の Permissions をすべて含むことの照合 | 要求した権限が欠けたか、水準が下がったトークンを返却する |
 | `WithoutCountCheckPreservesUniqueEffectiveRepositories` | 実効対象の件数の照合 | 実効対象に重複した要素を含むトークンを返却する |
 
 ### 存在することを確かめる状態
@@ -76,10 +87,13 @@ UNSAT で分かるのは、規則を満たす範囲に主張の反例がない�
 | コマンド | 確かめること |
 |---|---|
 | `SuccessfulReturn` | 正常な発行と返却が成立する |
+| `WriteAndMultiplePermissionsReturned` | `write` の水準を含む複数の権限を要求したトークンを返却できる |
 | `CrossRepositoryWithinOwner` | 同じオーナー内なら、実行元とは別の名前のリポジトリを対象にしたトークンを返却できる。現在のスコープで意図した動作である |
 | `IssueCallMayContainUncoveredNames` | Installation の対象外の名前を発行 API に送る場合がある。発行前には対象に含まれるかを確認しないためである |
+| `IssueCallMayContainUnheldPermissions` | Installation に付与されていない権限か水準を発行 API に送る場合がある。発行前には付与されているかを確認しないためである |
+| `ResultWithoutUnheldPermissionNotReturned` | Installation に付与されていない権限を GitHub が除いて発行した結果を受け取る状態を表現でき、その発行結果は返却されない |
 | `CoverageNotIndependentlyProved` | 発行結果の照合を通っても、返却する対象が Installation の対象に含まれることまでは GATES だけで示せない |
-| `InvalidResultCanExist` | `contents:write` を含む発行結果を受け取る状態を表現できる。そのような発行結果を返却しないことは `NoOverbroadTokenReturned` が確かめる |
+| `InvalidResultCanExist` | 要求していない権限を含む発行結果を受け取る状態を表現できる。そのような発行結果を返却しないことは `NoOverbroadTokenReturned` が確かめる |
 
 ## 発行処理のモデル（issuance-temporal.als）
 
@@ -206,7 +220,9 @@ SAT は、モデル上でその事象が起こりうることを意味し、GitH
 - **監査とエラーの種別**：監査はどのモデルも扱わない。エラーの種別は、署名の検証鍵のモデルの認証失敗と内部障害の区別だけを扱う
 - **文字列と件数の規則**：大文字小文字の扱いや要求の件数の上限は扱わない
 - **対象の並び**：発行要求と発行許可の対象を完全名の集合で表し、並びは扱わない。発行許可が要求の並びと表記を保つことは確かめていない
-- **権限名と水準の構造**：権限を名前と水準に分けず、1 つの要素で表す。権限名ごとに水準を一つとする制約がないため `contents:read` と `contents:write` を同時に持つ集合も表現できるが、このような集合は発行許可にも返却可能な発行結果にもならない
+- **権限名と水準の具体的な値**：権限名は `metadata` のほかを具体的な名前で表さず、水準は `read` と `write` だけを扱う（`repository_projects` の `admin` は扱わない）。許可権限に列挙する権限名が Repository permissions に当たることは、GitHub App の設定画面で確かめる運用を規則として仮定しており、モデルでは確かめていない
+- **権限の付与の上限**：GitHub App と Installation に付与された権限が、より低い水準の発行を許すことは、`write` が `read` を含むという順序として仮定している。付与されていない権限への GitHub の応答（拒否か、権限を除くか水準を下げた発行か）は区別しない。`RequestedPermissionsHeldWhenGitHubEnforces` は、GitHub が付与の上限を超えて発行しない場合の帰結だけを確かめる
+- **`metadata:read` のほかに加わる権限**：要求にかかわらず `metadata:read` のほかの権限が発行結果に加わる GitHub の振る舞いは、照合で返却しない発行結果の一つとして扱うだけで、正当な要求が照合に失敗するかは確かめていない
 - **2 つのモデルの接続**：発行処理のモデルは、発行許可の確定と発行結果の照合を「通ったかどうか」だけで表す。認可のモデルの規則とつなげて検証してはいない
 - **Installation の変更**：変更そのものは表さない。変更で起きうる発行の拒否や無効な応答は、原因を区別せず遷移に含まれる。発行済みのトークンへの影響は表さない
 - **認可の逆方向**：発行許可があるなら条件を満たすことは確かめるが、条件を満たす要求に必ず発行許可が作られることは確かめていない

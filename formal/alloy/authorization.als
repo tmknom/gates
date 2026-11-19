@@ -1,9 +1,9 @@
 module gates/authorization
 
 // GATES authorization model, Current Scope.
-// Source of truth: FR-AUTHZ-001..003, FR-AUTHZ-006..007, FR-ISSUANCE-003, FR-ISSUANCE-004, FR-ISSUANCE-006, FR-OPS-006,
-// RULE-010, RULE-011, INV-011, INV-012;
-// docs/design/security.md 3.1..3.4; docs/design/domain.md 3.3.
+// Source of truth: FR-AUTHZ-001..003, FR-AUTHZ-006..008, FR-ISSUANCE-003, FR-ISSUANCE-004, FR-ISSUANCE-006, FR-OPS-006,
+// RULE-010, RULE-011, INV-002, INV-011, INV-012;
+// docs/design/security.md 3.1..3.5; docs/design/domain.md 3.3.
 // This is a finite structural abstraction, NOT the complete GATES implementation.
 // Cryptographic verification, HTTP outcomes, time, revocation, retry and
 // configuration changes are outside this model.
@@ -16,12 +16,71 @@ sig OwnerName {}
 sig FullName { ownerName: one OwnerName }
 sig Repository { owner: one Owner, fullName: one FullName }
 
-abstract sig PermissionEntry {}
-one sig ContentsRead, MetadataRead, ContentsWrite extends PermissionEntry {}
-sig OtherPermissionEntry extends PermissionEntry {}
+// The categories GitHub uses for GitHub App permissions. Only Repository
+// permissions are limited by the repository-scoped authorization and
+// verification; the others reach beyond the requested repositories.
+abstract sig PermissionCategory {}
+one sig RepositoryPermissions, OrganizationPermissions,
+        AccountPermissions, EnterprisePermissions extends PermissionCategory {}
 
-fun allowedPermissions: set PermissionEntry { ContentsRead }
-fun impliedPermissions: set PermissionEntry { MetadataRead }
+// Two levels stand for the levels a permission name can have. `admin` of
+// `repository_projects` is not modeled.
+abstract sig Level {}
+one sig Read, Write extends Level {}
+
+// A permission name and the levels GitHub defines for it.
+abstract sig PermissionName {
+  category: one PermissionCategory,
+  definedLevels: some Level
+}
+// Names GATES enumerates in the allowed permissions.
+sig ListedPermissionName extends PermissionName {}
+one sig Metadata extends ListedPermissionName {}
+// Names GATES does not enumerate: Organization, Account and Enterprise
+// permissions, Repository permissions whose category is not confirmed, and
+// names GitHub adds later. Their category is left free.
+sig UnlistedPermissionName extends PermissionName {}
+
+// A Permission Entry is a value: one atom per pair of name and level, and every
+// pair exists, including levels GitHub does not define for the name.
+sig PermissionEntry { name: one PermissionName, level: one Level }
+
+fact PermissionEntriesAreValues {
+  all disj x, y: PermissionEntry | x.name != y.name or x.level != y.level
+  all n: PermissionName, l: Level | some e: PermissionEntry | e.name = n and e.level = l
+}
+
+fact MetadataLevels { Metadata.definedLevels = Read + Write }
+
+// GATES adds a name to the allowed permissions only after confirming in the
+// GitHub App settings that it is a Repository permission (security.md 3.3).
+// This is an assumption on the enumerated content, not a runtime check.
+fact ListedNamesAreRepositoryPermissions {
+  ListedPermissionName.category = RepositoryPermissions
+}
+
+// The enumerated, fixed allowed permissions: listed names at their defined
+// levels. They do not depend on the Caller or the target repositories.
+fun allowedPermissions: set PermissionEntry {
+  { e: PermissionEntry | e.name in ListedPermissionName and e.level in e.name.definedLevels }
+}
+fun impliedPermissions: set PermissionEntry {
+  { e: PermissionEntry | e.name = Metadata and e.level = Read }
+}
+
+// Permissions are keyed by permission name, so a name has one level.
+pred oneLevelPerName[s: set PermissionEntry] {
+  all disj x, y: s | x.name != y.name
+}
+
+// A held level also covers the lower level: an Installation granted `write`
+// can issue `read` of the same name.
+fun levelsCoveredBy[l: Level]: set Level {
+  (l = Write) => (Read + Write) else Read
+}
+fun coveredBy[held: set PermissionEntry]: set PermissionEntry {
+  { e: PermissionEntry | some h: held | h.name = e.name and e.level in levelsCoveredBy[h.level] }
+}
 
 abstract sig RepositorySelection {}
 one sig Selected, AllRepositories extends RepositorySelection {}
@@ -81,11 +140,13 @@ sig IssuanceResult {
 sig ReturnableIssuanceResult { result: one IssuanceResult }
 
 // The baseline policy is used by the original checks and witnesses.
-// The other policies deliberately disable exactly one return-time check.
+// The other policies deliberately disable exactly one check: the allowed
+// permissions check of authorization, or one return-time check.
 // They are counterfactual verification models, not GATES configurations.
 abstract sig VerificationPolicy {}
-one sig Baseline, WithoutOwnerCheck, WithoutNameCheck,
-        WithoutPermissionCheck, WithoutCountCheck extends VerificationPolicy {}
+one sig Baseline, WithoutAllowedPermissionCheck, WithoutOwnerCheck, WithoutNameCheck,
+        WithoutExcessPermissionCheck, WithoutMissingPermissionCheck,
+        WithoutCountCheck extends VerificationPolicy {}
 one sig ModelConfiguration { policy: one VerificationPolicy }
 
 pred baseline { ModelConfiguration.policy = Baseline }
@@ -95,6 +156,15 @@ pred baseline { ModelConfiguration.policy = Baseline }
 fact ResultCardinality {
   all c: IssueCall | lone c.~call
   all r: IssuanceResult | lone r.~result
+}
+
+// Every Permissions value is keyed by permission name: the request after
+// format validation (INV-002), the Installation's granted permissions, and the
+// effective permissions in the GitHub response.
+fact PermissionsHaveOneLevelPerName {
+  all r: TokenRequest | oneLevelPerName[r.permissions]
+  all i: Installation | oneLevelPerName[i.installedPermissions]
+  all r: IssuanceResult | oneLevelPerName[r.effectivePermissions]
 }
 
 // Identity consistency comes from successful OIDC verification; it is not
@@ -114,17 +184,20 @@ fact OneInstallationPerOwner {
 // The conditions of the Grant operation: the authorization rule and the
 // validity of the installation. The owner ID and owner name are fixed
 // configuration; the owner name is modeled separately from the immutable
-// owner ID.
+// owner ID. A request with any entry outside the allowed permissions is
+// rejected as a whole, never narrowed.
 pred grantable[c: Caller, r: TokenRequest, i: Installation] {
   c.owner = Config.allowedOwner
   all n: r.repositories | n.ownerName = Config.allowedOwnerName
-  r.permissions = allowedPermissions
+  (ModelConfiguration.policy != WithoutAllowedPermissionCheck) implies
+    r.permissions in allowedPermissions
   i.installationOwner = Config.allowedOwner
   i.suspended = No
 }
 
 // Represents the checks before the GitHub issuance API call. In particular,
-// actual repo ownership / installation coverage is NOT a precondition here.
+// actual repo ownership / installation coverage and the Installation's granted
+// permissions are NOT preconditions here.
 fact GrantsRespectAuthorization {
   all g: TokenGrant |
     grantable[g.caller, g.request, g.installation] and
@@ -142,11 +215,12 @@ fact ExplicitIssueCalls {
 
 // Represents return-time checks, NOT a guarantee about the actual GitHub
 // token's authorization outside a trustworthy GitHub response.
+// Permissions are compared as pairs of name and level, so an entry at a lower
+// or higher level than granted fails one of the two permission checks.
 pred verifiedResult[r: IssuanceResult] {
   r.nonemptyToken = Yes
   r.futureExpiry = Yes
   r.repositorySelection = Selected
-  allowedPermissions in r.effectivePermissions
 
   // Equal count and equal name set leave no room for a repeated name or ID.
   (ModelConfiguration.policy != WithoutCountCheck) implies
@@ -155,8 +229,10 @@ pred verifiedResult[r: IssuanceResult] {
     r.effectiveRepositories.repository.fullName = r.call.grant.repositories
   (ModelConfiguration.policy != WithoutOwnerCheck) implies
     (all x: r.effectiveRepositories.repository | x.owner = Config.allowedOwner)
-  (ModelConfiguration.policy != WithoutPermissionCheck) implies
-    r.effectivePermissions in (allowedPermissions + impliedPermissions)
+  (ModelConfiguration.policy != WithoutMissingPermissionCheck) implies
+    r.call.grant.permissions in r.effectivePermissions
+  (ModelConfiguration.policy != WithoutExcessPermissionCheck) implies
+    r.effectivePermissions in (r.call.grant.permissions + impliedPermissions)
 }
 
 fact OnlyVerifiedResultsBecomeReturnable {
@@ -165,10 +241,11 @@ fact OnlyVerifiedResultsBecomeReturnable {
 
 // The following is an *external GitHub behavior assumption*, deliberately
 // not a fact: GitHub must enforce installation coverage and app permissions.
-// GATES does not prevalidate the requested names against coverage.
+// GATES does not prevalidate the requested names against coverage, nor the
+// requested permissions against the Installation's granted permissions.
 pred githubResultRespectsInstallation[r: IssuanceResult] {
   r.effectiveRepositories.repository in r.call.grant.installation.coveredRepositories
-  r.effectivePermissions in (r.call.grant.installation.installedPermissions + impliedPermissions)
+  r.effectivePermissions in (coveredBy[r.call.grant.installation.installedPermissions] + impliedPermissions)
 }
 
 pred effectiveRepositoriesAreUnique[r: IssuanceResult] {
@@ -184,8 +261,9 @@ assert NoOtherInstallationGrant {
   all g: TokenGrant |
     g.installation.installationOwner = Config.allowedOwner and g.installation.suspended = No
 }
-assert OnlyCurrentPermissionGranted {
-  all g: TokenGrant | g.permissions = allowedPermissions
+assert OnlyAllowedPermissionsGranted {
+  baseline implies (all g: TokenGrant |
+    g.permissions = g.request.permissions and g.permissions in allowedPermissions)
 }
 assert AllOrNothingGrant {
   all g: TokenGrant | g.repositories = g.request.repositories
@@ -193,13 +271,27 @@ assert AllOrNothingGrant {
 assert AllIssueCallsExplicit {
   all c: IssueCall |
     c.repositories = c.grant.request.repositories and
-    c.permissions = allowedPermissions
+    c.permissions = c.grant.request.permissions
 }
 assert NoOverbroadTokenReturned {
   baseline implies (all t: ReturnableIssuanceResult |
-    t.result.effectivePermissions in (allowedPermissions + impliedPermissions) and
-    allowedPermissions in t.result.effectivePermissions and
+    t.result.effectivePermissions in (t.result.call.grant.request.permissions + impliedPermissions) and
     t.result.repositorySelection = Selected)
+}
+assert NoNarrowedTokenReturned {
+  baseline implies (all t: ReturnableIssuanceResult |
+    t.result.call.grant.request.permissions in t.result.effectivePermissions)
+}
+// When the GitHub App or the Installation holds allowed permissions beyond the
+// request, a returned token carries none of them except the implied ones.
+assert UnrequestedAllowedPermissionsNotReturned {
+  baseline implies (all t: ReturnableIssuanceResult |
+    no (allowedPermissions - t.result.call.grant.request.permissions - impliedPermissions)
+      & t.result.effectivePermissions)
+}
+assert OnlyRepositoryPermissionsReturned {
+  baseline implies (all t: ReturnableIssuanceResult |
+    t.result.effectivePermissions.name.category in RepositoryPermissions)
 }
 assert ExactNamesReturned {
   baseline implies (all t: ReturnableIssuanceResult |
@@ -222,10 +314,23 @@ assert CoverageHoldsWhenGitHubEnforces {
       some r: t.result.call.grant.installation.coveredRepositories |
         r.fullName = n and r.owner = Config.allowedOwner))
 }
+// Conditional on the same assumption: GATES does not prevalidate the
+// Installation's granted permissions, and its permission checks reject a
+// result that omits or lowers a permission the Installation does not hold.
+assert RequestedPermissionsHeldWhenGitHubEnforces {
+  baseline implies (all t: ReturnableIssuanceResult |
+    githubResultRespectsInstallation[t.result] implies
+    t.result.call.grant.request.permissions in
+      (coveredBy[t.result.call.grant.installation.installedPermissions] + impliedPermissions))
+}
 
 // Mutation checks intentionally evaluate the same returned-token properties
 // under weaker verification policies. Their results must be examined as
 // counterexamples; they are not assertions about the baseline implementation.
+assert WithoutAllowedPermissionCheckPreservesAllowedPermissions {
+  ModelConfiguration.policy = WithoutAllowedPermissionCheck implies
+    (all t: ReturnableIssuanceResult | t.result.effectivePermissions in allowedPermissions)
+}
 assert WithoutOwnerCheckPreservesOwnerBoundary {
   ModelConfiguration.policy = WithoutOwnerCheck implies
     (all t: ReturnableIssuanceResult |
@@ -241,12 +346,15 @@ assert WithoutCountCheckPreservesUniqueEffectiveRepositories {
   ModelConfiguration.policy = WithoutCountCheck implies
     (all t: ReturnableIssuanceResult | effectiveRepositoriesAreUnique[t.result])
 }
-assert WithoutPermissionCheckPreservesPermissionBoundary {
-  ModelConfiguration.policy = WithoutPermissionCheck implies
+assert WithoutExcessPermissionCheckPreservesPermissionBoundary {
+  ModelConfiguration.policy = WithoutExcessPermissionCheck implies
     (all t: ReturnableIssuanceResult |
-      t.result.effectivePermissions in (allowedPermissions + impliedPermissions) and
-      allowedPermissions in t.result.effectivePermissions and
-      t.result.repositorySelection = Selected)
+      t.result.effectivePermissions in (t.result.call.grant.request.permissions + impliedPermissions))
+}
+assert WithoutMissingPermissionCheckPreservesRequestedPermissions {
+  ModelConfiguration.policy = WithoutMissingPermissionCheck implies
+    (all t: ReturnableIssuanceResult |
+      t.result.call.grant.request.permissions in t.result.effectivePermissions)
 }
 assert ReturnedResultsHaveValidTokenAndExpiry {
   all t: ReturnableIssuanceResult |
@@ -259,6 +367,16 @@ pred SuccessfulReturn {
   baseline
   some t: ReturnableIssuanceResult |
     githubResultRespectsInstallation[t.result]
+}
+
+// Positive witness for the widened permissions: a token with several
+// permissions, one of them at `write`, can be returned.
+pred WriteAndMultiplePermissionsReturned {
+  baseline
+  some t: ReturnableIssuanceResult |
+    githubResultRespectsInstallation[t.result] and
+    #(t.result.call.grant.permissions) > 1 and
+    Write in t.result.call.grant.permissions.level
 }
 
 // Intended residual risk: a caller's repository is DIFFERENT from the
@@ -284,6 +402,27 @@ pred IssueCallMayContainUncoveredNames {
       no r: c.grant.installation.coveredRepositories | r.fullName = n
 }
 
+// GATES sends the requested permissions without checking that the
+// Installation holds them (security.md 3.3).
+pred IssueCallMayContainUnheldPermissions {
+  baseline
+  some c: IssueCall |
+    c.permissions not in (coveredBy[c.grant.installation.installedPermissions] + impliedPermissions)
+}
+
+// GitHub may answer a request with a permission the Installation does not hold
+// by issuing without it. Such a result stays within the Installation, and the
+// permission checks keep it from being returned.
+pred ResultWithoutUnheldPermissionNotReturned {
+  baseline
+  some r: IssuanceResult |
+    githubResultRespectsInstallation[r] and
+    (some e: r.call.grant.permissions |
+      e not in (coveredBy[r.call.grant.installation.installedPermissions] + impliedPermissions) and
+      no x: r.effectivePermissions | x.name = e.name) and
+    no t: ReturnableIssuanceResult | t.result = r
+}
+
 pred CoverageNotIndependentlyProved {
   baseline
   some t: ReturnableIssuanceResult |
@@ -295,34 +434,44 @@ pred CoverageNotIndependentlyProved {
 pred InvalidResultCanExist {
   baseline
   some r: IssuanceResult |
-    ContentsWrite in r.effectivePermissions and
+    r.effectivePermissions not in (r.call.grant.permissions + impliedPermissions) and
     no t: ReturnableIssuanceResult | t.result = r
 }
 
 // All commands use a finite scope; absence of counterexamples is NOT
 // an unbounded proof.
-// PermissionEntry is 4 so that one unknown entry exists besides the three named ones.
-check NoForeignOwnerGrant for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 0
-check NoOtherInstallationGrant for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 0
-check OnlyCurrentPermissionGranted for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 0
-check AllOrNothingGrant for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 0
-check AllIssueCallsExplicit for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 0
-check NoOverbroadTokenReturned for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 0
-check ExactNamesReturned for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 0
-check NoDuplicateEffectiveRepositoriesReturned for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 0
-check ReturnedReposOwnedByAllowedOwner for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 0
-check CoverageHoldsWhenGitHubEnforces for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 0
-check ReturnedResultsHaveValidTokenAndExpiry for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 0
+// PermissionName is 4 and PermissionEntry is 8, so that every pair of the four
+// names and two levels exists, and the names can mix listed and unlisted ones.
+check NoForeignOwnerGrant for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check NoOtherInstallationGrant for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check OnlyAllowedPermissionsGranted for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check AllOrNothingGrant for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check AllIssueCallsExplicit for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check NoOverbroadTokenReturned for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check NoNarrowedTokenReturned for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check UnrequestedAllowedPermissionsNotReturned for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check OnlyRepositoryPermissionsReturned for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check ExactNamesReturned for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check NoDuplicateEffectiveRepositoriesReturned for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check ReturnedReposOwnedByAllowedOwner for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check CoverageHoldsWhenGitHubEnforces for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check RequestedPermissionsHeldWhenGitHubEnforces for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check ReturnedResultsHaveValidTokenAndExpiry for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
 
 // These checks use a different verification policy from the baseline.
 // A counterexample is expected: it shows that the removed check matters.
-check WithoutOwnerCheckPreservesOwnerBoundary for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 1
-check WithoutNameCheckPreservesExactNames for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 1
-check WithoutPermissionCheckPreservesPermissionBoundary for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 1
-check WithoutCountCheckPreservesUniqueEffectiveRepositories for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 1
+check WithoutAllowedPermissionCheckPreservesAllowedPermissions for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+check WithoutOwnerCheckPreservesOwnerBoundary for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+check WithoutNameCheckPreservesExactNames for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+check WithoutExcessPermissionCheckPreservesPermissionBoundary for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+check WithoutMissingPermissionCheckPreservesRequestedPermissions for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+check WithoutCountCheckPreservesUniqueEffectiveRepositories for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
 
-run SuccessfulReturn for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 1
-run CrossRepositoryWithinOwner for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 1
-run IssueCallMayContainUncoveredNames for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 1
-run CoverageNotIndependentlyProved for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 1
-run InvalidResultCanExist for 3 but 5 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionEntry expect 1
+run SuccessfulReturn for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run WriteAndMultiplePermissionsReturned for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run CrossRepositoryWithinOwner for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run IssueCallMayContainUncoveredNames for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run IssueCallMayContainUnheldPermissions for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run ResultWithoutUnheldPermissionNotReturned for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run CoverageNotIndependentlyProved for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run InvalidResultCanExist for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1

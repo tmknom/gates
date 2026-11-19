@@ -2,7 +2,7 @@
 
 ## 1. Security Model
 
-本システムでは、AWS IAM による Lambda Invoke の入口制御と、Lambda 内で検証した GitHub OIDC JWT に基づくトークン発行認可を分離します。GitHub App Private Key は AWS KMS に置き、Lambda は署名操作を KMS に依頼します。返却する Installation Access Token は、要求されたリポジトリと `contents:read`（許可された付随権限を除く）に限定します。
+本システムでは、AWS IAM による Lambda Invoke の入口制御と、Lambda 内で検証した GitHub OIDC JWT に基づくトークン発行認可を分離します。GitHub App Private Key は AWS KMS に置き、Lambda は署名操作を KMS に依頼します。返却する Installation Access Token は、要求されたリポジトリと、要求された Repository permissions の権限（許可された付随権限を除く）に限定します。
 
 コンポーネントの全体構成、JWT の生成元、正常系の処理順序は [System Architecture](architecture.md) に記述します。本ドキュメントは各境界が保証する内容と、認可・資格情報保護・拒否条件を定義します。概念の定義は [Domain Model](domain.md) を正本とします。
 
@@ -12,7 +12,7 @@
 |---|---|---|
 | AWS IAM / STS | 許可オーナーの不変 Owner ID を `sub` に含む GitHub OIDC JWT からだけ AWS 一時認証情報を発行し、特定 Lambda の Invoke のみ許可する | ワークフロー・リポジトリ単位のトークン発行認可、資格情報の現在の利用者の特定 |
 | OIDC Verifier | GitHub JWT の真正性、Issuer、Audience、期限、不変 Owner ID と Repository ID を検証する | JWT と AWS 一時認証情報が同じジョブで取得されたことの証明、トークン発行権限そのもの |
-| Authorization | 許可オーナーの Owner ID、取得した Installation の `account.id`、固定権限、明示された要求を照合する | アクセス先ごとの Caller の同意確認、対象リポジトリが Installation に含まれることの事前確認 |
+| Authorization | 許可オーナーの Owner ID、取得した Installation の `account.id`、許可権限、明示された要求を照合する | アクセス先ごとの Caller の同意確認、対象リポジトリが Installation に含まれることの事前確認、要求した権限が Installation に付与されていることの事前確認 |
 | AWS KMS | 非抽出可能な秘密鍵による RSA 署名を実行する | 署名対象 JWT の内容に対する GATES の認可判断 |
 | GitHub API | Installation と App の権限上限に従い短命トークンを発行する | GATES 側のトークン発行認可 |
 
@@ -51,13 +51,14 @@ AWS 一時認証情報と GATES 用 OIDC JWT が同じジョブで取得され�
 
 1. 検証済み Caller の `repository_owner_id` が許可オーナーの不変 Owner ID と一致する。オーナー名の一致では代用しない。
 2. 要求した各 `owner/repo` のオーナー名が固定された許可オーナー名と一致する。
-3. 要求の Permissions が **`contents:read` のみ** である。
+3. 要求の Permissions の Permission Entry が、**どれも許可権限（§3.3）に含まれる**。
 
 Caller の `repository_id` とワークフロー起動属性は監査のための識別に用い、認可条件には含めません。
 署名検証済みの Claims Set（§5）も監査記録に書き写すだけで、認証と認可のどちらにも使いません。
 
 条件 3 の Permissions は、形式が正しければ JWT 検証後に認可条件として判定し、許可外なら認可拒否として扱います。
-形式検証で先に落とさないのは、`contents:write` のような許可外の要求を、認証済み Caller とともに監査記録に残すためです。
+許可外の Permission Entry を一つでも含む要求は、許可権限に含まれるものだけに縮小せず、全体を拒否します。
+形式検証で先に落とさないのは、`members:read` のような許可外の要求を、認証済み Caller とともに監査記録に残すためです。
 形式検証が入力不正にするのは、欠落や空の Permissions のように、要求した権限を読み取れない形に限ります。
 
 要求には、全リポジトリを対象にする項目を設けません。
@@ -72,27 +73,28 @@ Caller の `repository_id` とワークフロー起動属性は監査のため�
 この拒否は利用者の要求に起因せず、運用者かオーナーの管理者が GitHub 側か固定設定を直す必要があるため、認可拒否と区別し、Installation 利用不可として返します。
 停止中の Installation に対する発行 API の応答は公式文書で確認できていないため、GitHub の振る舞いに Fail Closed を預けず、取得した時点で閉じます。
 
-これらの確認の後、Installation ID、要求した完全名、許可権限を含む発行許可を生成します。Installation に対象リポジトリが含まれることと、発行結果が発行許可に一致することは、GitHub API の応答を受けてから確認します。一部だけで発行することや権限を暗黙に広げることは禁止します。
+これらの確認の後、Installation ID、要求した完全名、要求した Permissions を含む発行許可を生成します。Installation に対象リポジトリが含まれること、要求した Permissions が Installation に付与されていること、発行結果が発行許可に一致することは、GitHub API の応答を受けてから確認します。一部だけで発行することや権限を暗黙に広げることは禁止します。
 
 ### 3.2 Installation Scope as Authorization Boundary
 
 Installation の GitHub 側の仕様は [GitHub App Constraints](../external/github/app.md) を参照します。
 
-許可オーナーの有効なワークフローは、呼び出し元リポジトリ／チーム別の認可を経ず、GATES が許可する権限の範囲で GitHub App の Installation 対象リポジトリに横断的なトークン発行を要求できます。この権限は GitHub App / Installation 自体の権限上限にも拘束されます。GATES が許可するのは `contents:read` のみです。
+許可オーナーの有効なワークフローは、呼び出し元リポジトリ／チーム別の認可を経ず、GATES が許可する権限の範囲で GitHub App の Installation 対象リポジトリに横断的なトークン発行を要求できます。この権限は GitHub App / Installation 自体の権限上限にも拘束されます。GATES が許可する権限は §3.3 に定めます。
 
-GitHub App のインストール対象が読み取り可能範囲の上限となります。`Only select repositories` により対象を限定できます。`All repositories` を使用すると、そのオーナーにインストールされた App の対象リポジトリ全体が読み取り可能範囲に含まれます。インストール対象の変更は認可境界の変更として扱います。
+GitHub App のインストール対象が、トークンで操作できる範囲の上限となります。`Only select repositories` により対象を限定できます。`All repositories` を使用すると、そのオーナーにインストールされた App の対象リポジトリ全体が操作できる範囲に含まれます。インストール対象の変更は認可境界の変更として扱います。
 GATES はインストール対象を保持せず、発行のたびに GitHub が判定するため、変更は GATES の設定を変えずに以後の発行要求へ反映されます。対象から外したリポジトリを含む要求は GitHub が拒否し、GATES はどの対象にもトークンを返しません。
 
 許可オーナーが Organization の場合、この変更は Organization オーナーだけの操作ではありません。
 既定では、リポジトリ管理者が自身の管理するリポジトリをインストール済みの App の対象に追加でき、`installation_repositories:write` を持つ呼び出し元も、そのリポジトリを Installation に追加または削除できます。
-追加されたリポジトリは、GATES と Installation が許可する権限の範囲で、許可オーナーの有効なワークフローから横断的にアクセスされ得ます。許可する権限は `contents:read` のため、非公開コードや設定、誤って格納された秘密情報の読み取りが主な懸念です。
+追加されたリポジトリは、GATES と Installation が許可する権限の範囲で、許可オーナーの有効なワークフローから横断的にアクセスされ得ます。懸念は、非公開コードや設定、誤って格納された秘密情報の読み取りと、GitHub App に付与された権限による §3.3 の操作です。
 このため、Organization の許可オーナーには、リポジトリ管理者によるインストールを Organization オーナーが制限していることと、`installation_repositories:write` の付与先を管理していることを、運用の前提として求めます。
 GATES はこの設定を実行時に確認しません。
 
 ここでの上限は、Installation Access Token の対象に指定できる範囲を指します。
 「インストール対象の外にある公開リポジトリは読めない」を意味しません。
 選択対象外の公開リポジトリは、発行の要求に含めると拒否されますが、発行したトークンでは公開の内容として読めます（[GitHub App Constraints](../external/github/app.md)）。
-公開の内容は誰でも読めるため、この振る舞いは読み取り可能範囲を広げません。
+公開の内容は誰でも読めるため、この振る舞いは読み取れる範囲を広げません。
+読み取り以外の権限を持つトークンで、選択対象外の公開リポジトリに何ができるかは確かめていません。
 
 GATES は、デプロイ時に固定した GitHub App と許可オーナーの組から Installation が一意に決まるものとして扱います。
 これは、オーナーを指定して単一の Installation を返すエンドポイントがあることからの推論であり、GitHub が一意性を明示的に保証したものとは扱いません。
@@ -100,14 +102,31 @@ Lambda は Installation ID を設定として持たず、固定したオーナ�
 
 ### 3.3 Permission Boundary
 
-Lambda が許可する権限は `contents:read` に固定します。要求された Permissions が許可条件と異なる場合は拒否します。GitHub App / Installation の付与権限が GATES の許可範囲より広くても、発行するトークンの権限は拡大しません。付随する `metadata:read` のみ、§3.4 の条件で照合時に許容します。
+GATES が発行を許可する Permission Entry の集合を、許可権限と呼びます。
+許可権限は、GitHub が Repository permissions に分類する権限のうち、発行 API のスキーマが権限名を定めるものと、その権限に定められた水準の組です。
+権限名、水準、分類の根拠は [GitHub App Constraints](../external/github/app.md) の「権限名と分類」を参照します。
+
+許可権限は、次の規則で定めます。
+
+- **列挙して固定する**：発行 API のスキーマは、権限名を Repository、Organization、Account、Enterprise に分けて示さない。そのため GATES は、許可する権限名と水準を列挙して持ち、列挙にない権限名と水準を認可拒否にする。GitHub が権限を加えても、GATES が列挙に加えるまで発行しない。権限名の形から分類を推定すると、GitHub が加えた Organization permissions を発行し得るためである
+- **分類を確かめた権限名だけを加える**：GitHub App Constraints の表の分類は、公式資料からの推論である。列挙に加えるのは、GitHub App の設定画面で Repository permissions に当たることを確かめた権限名に限る
+- **スキーマにない Repository permissions は発行しない**：公式資料が Repository permissions に挙げる権限のうち、スキーマに権限名がないもの（`Variables` など）は、発行 API に指定できるかを確定できないため、許可権限に含めない
+- **Organization permissions、Account permissions、Enterprise permissions は発行しない**：これらは対象リポジトリを明示しても影響範囲が狭まらず、リポジトリを単位とする認可条件（§3.1）と照合（§3.4）では範囲を限定できない
+- **Caller と対象によって変えない**：許可権限は、どの Caller にも、どの対象リポジトリにも同じである。一つの要求の Permissions は、その要求のすべての対象に同じく適用される
+- **GATES の設定で狭めない**：許可権限をデプロイごとに狭める設定を持たない。発行できる権限の上限を狭める手段は、GitHub App に付与する権限である
+
+発行できる権限は、GitHub App と Installation に付与された権限にも拘束されます。
+GATES は Installation に付与された権限を事前に確かめません。
+付与されていない権限か水準を含む要求は、発行 API が拒否するか、発行結果の照合（§3.4）が実効権限の不一致を検出するかのどちらかで、トークンを返さずに終わります（[Requirements](../spec/requirements.md) FR-AUTHZ-008）。
+GitHub App / Installation の付与権限が要求より広くても、発行するトークンの権限は要求した Permissions から拡大しません。付随する `metadata:read` のみ、§3.4 の条件で照合時に許容します。
 
 ### 3.4 Issuance Result Verification
 
 - GitHub API に発行を要求するときは、発行許可の対象と Permissions を必ず指定する。
 - 発行応答の対象リポジトリと実効権限を発行許可に照合する。Owner ID、Repository ID の有効性・一意性、対象の全件一致を確認し、必要な情報の欠落、対象外のリポジトリ、過大な権限があればトークンを返却しない。この拒否は GitHub API の通信障害とは別のエラーとして返し、監査記録に Caller とともに残す。
 - GitHub の発行応答からトークン文字列を取得でき、照合に失敗した場合は、利用者へ返却せず失効 API の呼び出しを試みる。失効はベストエフォートとし、試行の成否を監査記録に残す。API 応答が失われた場合はトークンの発行有無が不明となり得る。
-- 要求にかかわらず GitHub が付与する `metadata:read` だけは、応答に含まれていても許容する。付与の条件は未確認であり（[GitHub App Constraints](../external/github/app.md)）、含まれなくても拒否しない。
+- 実効権限は、権限名と水準の組で発行許可の Permissions に照合する。発行許可の Permission Entry が実効権限に一つでも欠けているか、水準が異なれば、トークンを返却しない。水準が要求より低い場合も、要求を縮小した発行として拒否する。
+- 要求にかかわらず GitHub が付与する `metadata:read` だけは、発行許可の Permissions になくても、応答に含まれていれば許容する。付与の条件は未確認であり（[GitHub App Constraints](../external/github/app.md)）、含まれなくても拒否しない。`metadata` を要求した場合は、ほかの権限と同じく発行許可の水準に照合する。`metadata:read` のほかの権限が要求にかかわらず加わるかも未確認であり、加わった応答は照合の失敗になる。
 - 発行応答の `repository_selection` が `selected` であることを確認する。`all` は Installation の全リポジトリを対象にしたことを意味し、要求外の対象を含むため返却しない。
 - 応答の Repository ID は発行結果の確認・監査に利用し、要求時に事前検証した ID と同一であることを証明するものではない。
 
@@ -115,6 +134,27 @@ Lambda が許可する権限は `contents:read` に固定します。要求さ�
 GitHub が範囲外の対象を黙って除いて発行した場合は、応答の対象と発行許可の不一致を検出し、トークンを返さず、取得したトークンの失効を試みます。
 発行 API が呼び出しを `422` で拒否した場合は GitHub 発行拒否、発行応答を取得して照合が失敗した場合は照合失敗とします。どちらも、発行前の GATES の認可条件による認可拒否とは区別します。
 GitHub 側での失効成功や、応答喪失で取得できなかったトークンの不存在は保証せず、GitHub 側で有効なまま残る可能性があります。
+
+### 3.5 Accepted Risks of Owner-Wide Permissions
+
+§3.1 の認可条件は Caller と対象の組み合わせを見ないため、許可オーナーのどのワークフローも、Installation に含まれるどのリポジトリに対しても、GitHub App に付与された Repository permissions をすべて要求できます。
+アクセスされる側のリポジトリは、自身に対する操作を GATES の認可では制限できません。
+[Scope](../spec/scope.md) がこの組み合わせを現在のスコープとするため、次のリスクを受容します。
+各権限で呼べる API は、GitHub の公式資料（[Permissions required for GitHub Apps](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps)）に基づきます。
+
+- **ほかのリポジトリの変更と破壊**：`contents:write` はコミット、ブランチ、タグ、リリースを書き換えられる。`administration:write` はリポジトリの設定の変更と削除、ブランチ保護と ruleset の変更、コラボレーターとデプロイキーの追加、セルフホストの Runner の登録に届く。リポジトリの削除や履歴の書き換えのように、元に戻せない操作を含む
+- **ほかのリポジトリの Secrets と OIDC への到達**：`contents:write` と `workflows:write` を持つトークンは、ほかのリポジトリのワークフローのファイルを書き換えられる。書き換えたワークフローは、そのリポジトリのワークフローとして動き、ブランチと Environment の保護が止めない範囲で、そのリポジトリの Secrets と、そのリポジトリを主体とする OIDC JWT を使える。`secrets:write` は Secrets の値を読めないが、上書きと削除ができる。`actions:write` は、ワークフローの起動、実行ログの削除、OIDC JWT の `sub` のカスタマイズの変更に届く。このため、Installation に含まれるリポジトリの Secrets と、それらのリポジトリを信頼する外部の権限（クラウドの Role など）は、許可オーナーのどのワークフローからも到達され得るものとして扱う
+- **トークンの有効期限より長く残る変更**：デプロイキー、Webhook、コラボレーター、書き換えたワークフローとコードは、トークンの失効と有効期限の後も残る。トークンが短命であることと、ジョブの終了時の失効（§4）は、トークンで行われた変更を取り消さない
+- **信頼できないコードが得る権限の拡大**：トークンを取得するジョブで信頼できないコードが動くと（§5）、そのコードは読み取りにとどまらず、GitHub App に付与された権限で Installation のリポジトリを操作できる
+- **機密の情報の読み取りの拡大**：`secret_scanning_alerts:read` は検出された秘密情報のアラートに、`actions:read` はほかのリポジトリの実行ログと成果物に届く。読み取れる範囲はリポジトリの内容にとどまらない
+- **トークンで行われた操作の追跡**：GATES の監査記録が残すのは、Caller、要求対象、要求権限、発行の結果までである。発行したトークンでどの操作が行われたかは GATES に残らず、GitHub 側の記録に依存する
+
+これらのリスクは、次の手段で抑えます。
+どれも GATES の外の設定であり、GATES は実行時に確かめません。
+
+- **GitHub App に付与する権限を限る**：GitHub App に付与した Repository permissions が、許可オーナーのすべてのワークフローに共通の上限になる。`administration`、`workflows`、`secrets`、`actions` の `write` は、上の経路のうち影響の大きいものを開くため、必要な自動化がある場合に限って付与する。GitHub App の権限の変更は、Installation の対象の変更（§3.2）と同じく、認可境界の変更として扱う
+- **Installation の対象を限る**：GitHub App に付与した権限で、許可オーナーのどのワークフローから操作されてもよいリポジトリだけを対象にする。GATES の Docker Action と Terraform のコードを置くリポジトリや、GATES の AWS リソースを変更できる Role に信頼されたリポジトリを対象に含めると、GATES 自身の改ざんに届く経路ができるため、含めない
+- **アクセスされる側のリポジトリで保護する**：ブランチ保護と ruleset は、GitHub App を bypass の対象に加えない限り、トークンによる変更にも適用される見込みである（公式資料が bypass の対象に App を挙げることからの推論で、実環境では確かめていない）。`administration:write` を持つトークンはこの保護を変更できるため、保護に頼る場合は GitHub App に `administration:write` を付与しない
 
 ## 4. Secret and Token Lifecycle
 
@@ -125,7 +165,7 @@ KMS Key の構成・IAM 権限は Terraform で管理します。GitHub App Priv
 | GitHub App Private Key | KMS インポート前は運用者が別の運用境界で扱う。Lambda と Runner には渡さない。インポート後、インポート前のコピーは運用者の手元から削除する。KMS にインポートした鍵素材は取り出せないため、KMS Key を失った場合は GitHub 側で新しい秘密鍵を発行して切り替える |
 | AWS KMS Key | インポート済みの非対称署名鍵。Lambda 実行 Role に当該キーの `kms:Sign` のみ許可。鍵更新時は新 KMS Key を用意し、Lambda が参照する鍵（使用中の鍵）を切り替える。切り替えの確認の後に旧 KMS Key を無効にし、GitHub 側で旧 Private Key を削除した後に、旧 KMS Key を Terraform の管理から外して削除を予約する |
 | GitHub App JWT | KMS 署名で Lambda が短時間生成し、GitHub API 呼び出しにのみ使用。外部返却・ログ出力禁止 |
-| Installation Access Token | 要求・認可された対象と `contents:read`（付随する `metadata:read` を許容）に限定して Runner へ返す。短命でも窃取リスクは残る。照合に失敗したものは返さず、文字列を取得できた場合に失効を試みる。Runner へ返したものは、ジョブの終了時に Docker Action がトークン自身で認証して失効を試みる（ジョブの終了時の失効）。Docker Action がトークンを取り出した後に失敗するかキャンセルされ、後続ステップへ渡せなかったものは、その場で失効を試みる（失敗時の失効）。Runner の上では、Output（`GITHUB_OUTPUT`）と `GITHUB_STATE` の 2 つのファイルにだけ書く。どちらも Runner のファイルコマンドのディレクトリにある |
+| Installation Access Token | 要求・認可された対象と Permissions（付随する `metadata:read` を許容）に限定して Runner へ返す。短命でも窃取リスクは残る。照合に失敗したものは返さず、文字列を取得できた場合に失効を試みる。Runner へ返したものは、ジョブの終了時に Docker Action がトークン自身で認証して失効を試みる（ジョブの終了時の失効）。Docker Action がトークンを取り出した後に失敗するかキャンセルされ、後続ステップへ渡せなかったものは、その場で失効を試みる（失敗時の失効）。Runner の上では、Output（`GITHUB_OUTPUT`）と `GITHUB_STATE` の 2 つのファイルにだけ書く。どちらも Runner のファイルコマンドのディレクトリにある |
 | AWS 一時認証情報・AWS 用 OIDC JWT・GATES 用 OIDC JWT | Runner の上で Docker Action の子のプロセスのメモリの中だけで扱い、ファイル、環境変数、Output に書かない。プロセスの終了とともに手放す。ログやデバッグ出力に含めない |
 
 ## 5. Failure, Audit, and Security Risks
@@ -144,7 +184,7 @@ KMS Key の構成・IAM 権限は Terraform で管理します。GitHub App Priv
 - Docker Action のコンテナは root で動き、Runner はそこに Docker ソケット（`/var/run/docker.sock`）をマウントするため、次のリスクを受容する。コンテナの中のコードは、ソケットを通じて Runner のホストの root に相当する権限を得られる。調査用のコンテナは、ソケットを通じてホストの `/` をマウントしたコンテナを起動し、ホストのファイルを読めた（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#docker-socket)）。この権限は Docker Action のコンテナに固有のものではない。GitHub がホストする Linux の Runner では、同じジョブの `run` のステップもパスワードなしの `sudo` を使え、観測した Runner ではソケットの所有グループ（`docker`）にも属していた。コンテナの中で動くのは Docker Action のプログラムだけで、そのプログラムはソケットを使わない。このリスクが現れるのは、Docker Action のプログラム、その依存、ビルド用のイメージが改ざんされた場合である。マウントは Runner が決め、Docker Action からは外せない。依存とビルド用のイメージをバージョンと digest で固定し、利用者が Docker Action を commit SHA で参照することで、改ざんされたものが取り込まれる機会を抑える
 - Docker Action のコンテナには、`RUNNER_TEMP` と `HOME` が、同じジョブのほかのステップと共有されるディレクトリとしてマウントされる。Docker Action がこれらに書く資格情報は、`RUNNER_TEMP` の下にある Output と `GITHUB_STATE` のファイルの中のトークンだけである。Docker Action の実行の前後で `RUNNER_TEMP` と `HOME` に増えたファイルのうち、トークンを含むのはこの 2 つだけだった（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#files-left-by-the-gates-action)）。Runner はステップごとのファイルコマンドのファイルをステップの後も消さず、後続のステップはそれを読めた。前のステップが起動したバックグラウンドのプロセスはステップをまたいで動き続け、Docker Action のステップの最中にもそのファイルを読めた（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#file-commands-across-steps)）。このため、トークンを同じジョブのほかのステップから隠すことはできない。Docker Action のコンテナは同じジョブのほかのステップに対する隔離の境界ではなく、資格情報を守る境界はジョブである。資格情報を取得するジョブで信頼できないコードを実行しない前提（前述）で、このリスクを受容する
 - Runner は、`id-token: write` の有無によらず、GitHub Actions のランタイムの操作に使う `ACTIONS_RUNTIME_TOKEN` を Docker Action のコンテナに渡す。`id-token: write` を宣言したジョブでは要求用トークン（`ACTIONS_ID_TOKEN_REQUEST_TOKEN`）も渡り、その値は `ACTIONS_RUNTIME_TOKEN` と同じだった。同じジョブの `run` のステップには、`ACTIONS_RUNTIME_TOKEN` は渡らないが、同じ値の要求用トークンが渡る（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#request-token-in-run-steps)）。Docker Action は `ACTIONS_RUNTIME_TOKEN` を読まず、要求用トークンを OIDC JWT の取得にだけ使うが、どちらも渡されることは止められない。改ざんされた Docker Action のプログラムは、このアクセストークンでジョブのランタイムの操作を行い得る。ランタイムの操作は試していないが、`id-token: write` のジョブでは `run` のステップも同じ値を持つため、受容の判断は操作の範囲によらない。上記の Docker ソケットと同じく、改ざんの機会を抑えることで対処する
-- ジョブの終了時の失効と失敗時の失効はベストエフォートであり、次の場合に、Runner へ返したトークンが GitHub 側の有効期限まで有効なまま残るリスクを受容する。失効の要求が失敗した場合と、Runner がコンテナを強制終了するか Runner が停止して、失効を試みる前に Docker Action が終わった場合である。ジョブのキャンセルでは、Docker Action はシグナルを受けてから失効を試みて終えるため、このリスクは Runner がそれより先にコンテナを止めた場合に限られる。残ったトークンの範囲は、要求した対象と `contents:read` に限られる。失効の要求が `204` を返した後も、短い間はトークンが使えることがある。GitHub は失効が効くまでの時間を公開していない（[GitHub App Constraints](../external/github/app.md)）。その間にトークンを使えるのは同じジョブのステップとプロセスで、それらは失効の前からトークンを読めるため、このリスクを受容する
+- ジョブの終了時の失効と失敗時の失効はベストエフォートであり、次の場合に、Runner へ返したトークンが GitHub 側の有効期限まで有効なまま残るリスクを受容する。失効の要求が失敗した場合と、Runner がコンテナを強制終了するか Runner が停止して、失効を試みる前に Docker Action が終わった場合である。ジョブのキャンセルでは、Docker Action はシグナルを受けてから失効を試みて終えるため、このリスクは Runner がそれより先にコンテナを止めた場合に限られる。残ったトークンの範囲は、要求した対象と Permissions に限られる。読み取り以外の権限を要求していれば、残ったトークンでその操作ができる。失効の要求が `204` を返した後も、短い間はトークンが使えることがある。GitHub は失効が効くまでの時間を公開していない（[GitHub App Constraints](../external/github/app.md)）。その間にトークンを使えるのは同じジョブのステップとプロセスで、それらは失効の前からトークンを読めるため、このリスクを受容する
 - 保持した Issuer の公開鍵に有効期限を設けず、次のリスクを受容する。Issuer が JWKS から鍵を取り下げても、保持した鍵で検証できない `kid` のある JWT が届いて JWKS の取得に成功するか、実行環境が入れ替わるまで、取り下げた鍵で検証できる JWT を受理し続ける。Lambda は呼び出しが続く関数でも実行環境を数時間ごとに終了するため、受理し続ける期間はその程度に収まる見込みだが、AWS は正確な間隔を公開しておらず、GATES はこの期間の上限を保証しない。取り下げた鍵で新しい JWT を偽造するには、対応する秘密鍵が必要である。一方、取り下げ前に発行された JWT の再提示には秘密鍵が要らず、その JWT の `exp` までは受理され得る。どちらの悪用にも、Lambda の Invoke を許可された IAM 認証情報が別に必要である。期限を設けると、期限切れのたびに取得が発生し、Issuer の障害で正当な JWT まで拒否し得る。この可用性の低下を避ける。Issuer の鍵の漏えいが判明したときは、運用者が関数のコードか設定を更新する。AWS は更新の完了まで呼び出しが更新前のコードと設定を使うと定めており、完了後の呼び出しが保持した鍵を持たない実行環境で動くことは、この定めからの推論である（公式文書に明記はない）。検証環境では、関数の環境変数とタイムアウトを変えた後の最初の呼び出しが、初期化から始まる新しい実行環境で動いた（[AWS Fault Injection](../research/aws/fault-injection.md)）。
 - Discovery と JWKS の再取得の上限は実行環境ごとであり、関数全体の上限を設けず、次のリスクを受容する。IAM の認可を得た呼び出し元は、手元の鍵で検証できない JWT を送ることで、実行環境ごとに、再取得の上限が許す頻度まで取得を起こせる。署名の検証には鍵が要るため、取得の前に不正な JWT を見分けることはできない。Issuer がレート制限を返すと、鍵を持たない実行環境とローテーション後の鍵を要する JWT は、再試行できる失敗で拒否され続け得る（Issuer のレート制限の有無は未確認）。影響は可用性にとどまり、この場合も GATES はトークンを返さない。実行環境をまたいで上限を共有すると、そのためだけに外部の状態、権限、障害の経路が増えるため採らない。同時に動く実行環境の数は Reserved Concurrency で抑えられるが、実行環境が入れ替わると新しい環境は取得の履歴を持たないため、厳密な上限にはならない。
 
@@ -189,6 +229,8 @@ KMS Key の署名能力は、GitHub App として認証する手段そのもの�
 
 不正に署名されると、GATES の認可を経ずに GitHub App JWT を作れるため、§3.1 と §3.3 の制限は効きません。
 得られるトークンの上限は、GitHub App の権限と Installation の対象で決まります。
+GATES が発行しない Organization permissions や Account permissions も、GitHub App に付与されていれば、この上限に含まれます。
+GitHub App に付与する権限を広げるほど、署名能力の悪用で得られる権限も広がります。
 GATES は不正な変更や署名を通知する仕組みを持たないため、悪用に気付くまでの時間は保証できません。
 悪用が判明したときは、GitHub 側で Private Key を失効させて止めます。
 `kms:DisableKey` による停止は `kms:EnableKey` を持つ主体が元に戻せるため、これだけでは確実に止められません。
@@ -200,7 +242,7 @@ GATES は不正な変更や署名を通知する仕組みを持たないため�
 | 機能 | 対応要求 |
 |---|---|
 | 入口制御と Caller の識別（§2） | FR-AUTHN-002、FR-AUTHN-003、FR-AUTHN-005〜007、FR-OPS-007 |
-| 発行認可（§3.1〜3.3） | FR-AUTHZ-001〜004、FR-AUTHZ-006、FR-AUTHZ-007、FR-OPS-006 |
+| 発行認可（§3.1〜3.3、§3.5） | FR-AUTHZ-001〜004、FR-AUTHZ-006〜008、FR-OPS-006 |
 | 署名と発行結果の検証（§3.4、§4） | FR-ISSUANCE-001〜004、FR-ISSUANCE-006、QR-003、QR-008 |
 | 失敗時の扱いと監査（§5） | FR-OPS-002、FR-OPS-003、FR-ISSUANCE-007、QR-003、QR-004 |
 | 署名鍵のリスクの抑制と受容（§5.1） | FR-ISSUANCE-001、FR-OPS-008、QR-008 |
@@ -215,6 +257,7 @@ GATES は不正な変更や署名を通知する仕組みを持たないため�
 - [GATES OIDC JWT Signature](gates-oidc-jwt-signature.md)
 - [External](../external/README.md)
 - [GitHub — Securely using pull_request_target](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target)
+- [GitHub — Permissions required for GitHub Apps](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps)
 - [GitHub — GitHub-hosted runners reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
 - [AWS — IAM and AWS STS condition context keys](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_iam-condition-keys.html)
 - [AWS — Lambda Invoke API](https://docs.aws.amazon.com/lambda/latest/api/API_Invoke.html)
@@ -228,8 +271,8 @@ GATES は不正な変更や署名を通知する仕組みを持たないため�
 
 [Scope](../spec/scope.md) が将来取り込むことを想定する機能を導入する場合、本ドキュメントには次の影響が及びます。
 
-- **細粒度の認可**：Caller や対象に応じた条件が認可条件（§3.1）に加わり、横断的な要求を前提とする §3.2 の残留リスクを見直す。監査のためだけに用いている `repository_id` とワークフロー起動属性を認可に使うなら、認可の根拠にできるかを評価する
-- **発行可能な権限の拡大**：認可条件 3（§3.1）、権限の境界（§3.3）、発行結果の照合（§3.4）が変わる。読み取り以外の権限を許可すると、§3.2 の懸念は読み取りにとどまらなくなる。Account / Organization に関係する権限は、リポジトリを単位とする認可条件と照合をそのまま一般化しない
+- **細粒度の認可**：Caller や対象、権限に応じた条件が認可条件（§3.1）に加わり、横断的な要求を前提とする §3.2 の残留リスクと、§3.5 で受容したリスクを見直す。監査のためだけに用いている `repository_id` とワークフロー起動属性を認可に使うなら、認可の根拠にできるかを評価する
+- **Organization permissions、Account permissions、Enterprise permissions の発行**：認可条件 3（§3.1）、権限の境界（§3.3）、発行結果の照合（§3.4）が変わる。リポジトリを単位とする認可条件と照合をそのまま一般化しない
 - **OIDC JWT の再利用の検出とレート制限**：§5 で受容している JWT の再利用のリスクを見直す。どちらも実行環境をまたいで要求の履歴を共有する必要があり、§5 で再取得の上限の共有を採らない理由とした外部の状態、権限、障害の経路が増えるため、それらの脅威と、その状態に障害が起きたときに Fail Closed とするかを評価する
 
 スコープを変更するときは、先に本ドキュメントで脅威と緩和策を評価し、その結果を踏まえて [Requirements](../spec/requirements.md) と各設計書を変更します。
