@@ -4,16 +4,16 @@
 
 | 節 | 作業 | 行う時期 |
 |---|---|---|
-| §1 | インストール対象にリポジトリを足す、外す | 読ませたいリポジトリが変わったとき |
+| §1 | インストール対象と、GitHub App の権限と発行上限を変える | 操作させたいリポジトリか、ワークフローに要る権限が変わったとき |
 | §2 | 監査記録を確かめる | 定期的に。失敗や悪用の疑いを調べるとき |
-| §3 | `terraform.tfvars` の値を変える | Audience、同時実行数、保持期間を変えるとき。許可オーナーが改名したとき |
+| §3 | `terraform.tfvars` の値を変える | Audience、発行上限、同時実行数、保持期間を変えるとき。許可オーナーが改名したとき |
 | §4 | GATES を新しいリリースに更新する | 新しいリリースが出たとき |
 | §5 | 鍵の更新を行う | 定期の更新の時期。鍵の漏えいが疑われるとき |
 | §6 | 発行や署名を止める | 悪用が疑われるとき |
 
 Terraform の操作は、[Deployment](deployment.md) の §2.1 と §2.2 の前提のもとで、`terraform/local/` を保管した GATES のリポジトリのルートから実行します。
 
-## 1. Managing the Installation Scope
+## 1. Managing the Installation Scope and Permissions
 
 ### 1.1 Adding and Removing Repositories
 
@@ -31,14 +31,33 @@ GATES の設定は変えません。
 **外したリポジトリを要求するワークフローは、ほかのリポジトリと一緒に要求していても、要求全体が失敗します。**
 外す前に、そのリポジトリを要求しているワークフローを §2.2 のクエリで調べ、ワークフロー利用者に直してもらいます。
 
-インストール対象は読まれる側のリポジトリで、GATES を呼び出す側とは別です。
+インストール対象はトークンで操作される側のリポジトリで、GATES を呼び出す側とは別です。
 新しいリポジトリのワークフローから GATES を呼び出せるようにするには、そのリポジトリに接続情報を登録します（Deployment の §8）。
 
-### 1.2 Permissions of the GitHub App
+### 1.2 Changing the Permissions
 
-GitHub App の権限は、`Contents` の `Read-only` から広げません。
-GATES が発行するトークンの権限は広がりませんが、GATES を経ずに署名された場合の上限が広がります。
-Installation の設定画面に `Permission updates requested. Review request.` が出ても、身に覚えのない要求は承認しません。
+**GitHub App の権限と発行上限の変更は、許可オーナーのすべてのワークフローにできることを変える、認可境界の変更です。**
+インストール対象の変更と同じく、変更の前に、許可オーナーのどのワークフローにその権限を渡してよいかを、[Security Considerations](security-considerations.md) の §1.4 に照らして判断します。
+
+権限を広げるときは、GitHub App の権限と発行上限の両方を変えます。
+どちらか一方だけでは、加えた権限は発行されません。
+
+1. GitHub App の設定ページの `Permissions & events` で、Repository permissions に権限を加え、`Save changes` をクリックする
+2. Installation の設定画面（§1.1 の手順 1）に出る `Permission updates requested. Review request.` の `Review request` から、加えた権限を承認する。承認するまで、加えた権限は Installation に付与されない
+3. `terraform.tfvars` の `issuable_permissions` に同じ権限を加え、§3.1 の順に適用する。Plan は、`aws_lambda_function.gates` の環境変数 `GATES_ISSUABLE_PERMISSIONS` の変更だけを示す
+4. ワークフロー利用者に、使えるようになった権限を伝える
+
+承認は、GitHub App とオーナーの管理者が行います。
+身に覚えのない `Permission updates requested.` は承認しません。
+
+権限を狭めるときは、先に §2.2 のクエリで、その権限を要求しているワークフローを調べ、ワークフロー利用者に要求から外してもらいます。
+外さないまま狭めると、そのワークフローの要求は全体が失敗します。
+そのうえで、発行上限から外して適用し、GitHub App の権限からも外します。
+発行上限から外すだけでは、GATES を経ない署名で得られる権限は狭まりません。
+
+**発行上限を狭めても、発行済みのトークンは失効しません。**
+発行済みのトークンは、期限（発行から 1 時間）まで、発行したときの権限で使えます。
+悪用を止めるために狭めるときは、[Stopping GATES](stop-issuance.md) の手段もあわせて検討します。
 
 ## 2. Reviewing Audit Records
 
@@ -58,6 +77,7 @@ Installation の設定画面に `Permission updates requested. Review request.` 
 | `caller.event_name` | ワークフローを起動したイベント |
 | `caller.workflow_ref` | 呼び出し元のワークフローのファイル（`<オーナー名>/<リポジトリ名>/.github/workflows/<ファイル>@<ref>`） |
 | `request.repositories` | 要求したリポジトリ。要求の表記のまま記録される |
+| `request.permissions` | 要求した権限。権限名をキー、水準を値とするオブジェクト（`{"contents":"write","pull_requests":"read"}` など） |
 | `claims_set.head_ref` | Pull Request の元のブランチ名 |
 
 `caller` は、GATES が呼び出し元を確かめた後にだけ記録されます。
@@ -91,6 +111,32 @@ aws logs filter-log-events --log-group-name /aws/lambda/gates \
       | [.time, .result, .caller.workflow_ref, .caller.run_id] | @tsv'
 ```
 
+特定の権限を要求したワークフローを、要求した水準とともに出します。
+発行上限や GitHub App の権限を狭める前に、その権限を使っているワークフローを調べるのに使います。
+
+```bash
+aws logs filter-log-events --log-group-name /aws/lambda/gates \
+  --start-time <開始> --end-time <終了> \
+  --filter-pattern '{ $.msg = "audit record" }' \
+  --query 'events[].message' --output json \
+  | jq -r --arg name '<権限名>' '.[] | fromjson
+      | select((.request.permissions // {}) | has($name))
+      | [.time, .result, .request.permissions[$name], .caller.workflow_ref, .caller.run_id] | @tsv'
+```
+
+`read` でない水準（`write` と `admin`）を一つでも含む要求を出します。
+書き込みの権限を得たワークフローと、その実行を確かめるのに使います。
+
+```bash
+aws logs filter-log-events --log-group-name /aws/lambda/gates \
+  --start-time <開始> --end-time <終了> \
+  --filter-pattern '{ $.msg = "audit record" }' \
+  --query 'events[].message' --output json \
+  | jq -r '.[] | fromjson
+      | select((.request.permissions // {}) | any(.[]; . != "read"))
+      | [.time, .result, (.request.permissions | to_entries | map("\(.key):\(.value)") | join(",")), .caller.workflow_ref, .caller.run_id] | @tsv'
+```
+
 `pull_request_target` と `workflow_run` で起動したジョブへの発行を出します。
 見つかったら、そのジョブが信頼できないコードを実行していないかを、ワークフロー実行をたどって確かめます。
 
@@ -116,7 +162,7 @@ Lambda の呼び出しは、CloudTrail のデータイベントの記録を有�
 `terraform/local/terraform.tfvars` の値を変えたら、次の順に適用します。
 
 1. いまデプロイしているリリースのタグをチェックアウトしてあることを確かめる。別のリリースのソースでは、関数のコードの差分も Plan に出る
-2. `make tf-plan` が、§3.2 から §3.4 に書いた差分だけを示すことを確かめる
+2. `make tf-plan` が、§1.2 と §3.2 から §3.4 に書いた差分だけを示すことを確かめる
 3. `make tf-apply` で適用し、もう一度 `make tf-plan` を実行して `No changes` を確かめる
 4. Deployment の §9.1 のワークフローを実行し、発行が成功することを確かめる
 
@@ -127,6 +173,7 @@ make tf-plan
 ```
 
 `kms_keys` と `active_kms_key` は、§5 の鍵の更新の手順で変えます。
+`issuable_permissions` は、§1.2 の手順で GitHub App の権限とあわせて変えます。
 
 ### 3.2 Audience
 
@@ -232,5 +279,7 @@ Plan に KMS Key の削除や置換が含まれていれば、適用しません
 ## 7. References
 
 - [GitHub — Reviewing and modifying installed GitHub Apps](https://docs.github.com/en/apps/using-github-apps/reviewing-and-modifying-installed-github-apps)
+- [GitHub — Modifying a GitHub App registration](https://docs.github.com/en/apps/maintaining-github-apps/modifying-a-github-app-registration)
+- [GitHub — Approving updated permissions for a GitHub App](https://docs.github.com/en/apps/using-github-apps/approving-updated-permissions-for-a-github-app)
 - [AWS — Change log data retention in CloudWatch Logs](https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/Working-with-log-groups-and-streams.html)
 - [AWS — Filter pattern syntax for metric filters, subscription filters, filter log events, and Live Tail](https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/FilterAndPatternSyntax.html)

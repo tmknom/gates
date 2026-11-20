@@ -29,7 +29,7 @@ outputs:
   repositories:
     description: Comma-separated owner/repo list of the repositories the token can access, as returned by GATES
   permissions:
-    description: Comma-separated permission:level list of the permissions the token grants, as returned by GATES
+    description: Comma-separated permission:level list of the permissions the token grants, as returned by GATES. It may include metadata:read, which GitHub adds regardless of the request
 
 runs:
   using: docker

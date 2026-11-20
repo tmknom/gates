@@ -1,6 +1,6 @@
 # Using GATES in Workflows
 
-ワークフロー利用者に向けて、GATES から受け取ったトークンで別のリポジトリを読むワークフローの書き方を示します。
+ワークフロー利用者に向けて、GATES から受け取ったトークンで別のリポジトリを操作するワークフローの書き方を示します。
 ワークフローに書き足すのは、`id-token: write` の権限と Action のステップ一つだけです。
 
 ## 1. Minimal Workflow
@@ -38,8 +38,8 @@ jobs:
 ```
 
 - **`id-token: write`**：Action が OIDC JWT を受け取るために要る。Action を置くジョブにだけ与える
-- **`repositories`**：読むリポジトリ。複数ならカンマ区切りで並べる
-- **`permissions`**：`contents:read` だけを書ける
+- **`repositories`**：トークンで操作するリポジトリ。複数ならカンマ区切りで並べる
+- **`permissions`**：トークンの権限。`権限名:水準` をカンマ区切りで並べる（例：`contents:write,pull_requests:read`）。書ける権限名と水準は [Issue Token](../../.github/actions/issue-token/README.md) の「要求できる権限」にある
 - **`role-arn` から `audience`**：接続情報。値を直接書かず、Secrets と Variables を参照する
 - **`steps.gates.outputs.token`**：トークン。同じジョブの後続のステップで使う
 
@@ -54,7 +54,8 @@ jobs:
 |---|---|
 | 接続情報を登録した Secret と Variables の名前 | `role-arn`、`function-name`、`aws-region`、`audience` |
 | Action のコミットの SHA | `uses` の `<コミット>` |
-| インストール対象のリポジトリ | `repositories`。ここにないリポジトリは読めない |
+| インストール対象のリポジトリ | `repositories`。ここにないリポジトリは要求できない |
+| 使える権限（GitHub App に付与され、発行上限に含まれる権限） | `permissions`。ここにない権限は要求できない |
 
 ワークフローを置くリポジトリも、許可オーナーのものでなければなりません。
 接続情報をそのリポジトリから参照できるかも、運用者に確かめます。
@@ -70,7 +71,7 @@ jobs:
 
 ### 3.2 信頼できないコードは、トークンを受け取るジョブで動かさない
 
-トークンを受け取るジョブの中のコードは、どれもトークンを読めます。
+トークンを受け取るジョブの中のコードは、どれもトークンを読み、トークンの権限で書き込みを含む操作ができます。
 Pull Request のコードや、ほかのワークフローの成果物は、`id-token: write` を持たない別のジョブで動かします。
 
 次の例では、Pull Request のコードを `test` のジョブでだけ動かし、トークンを受け取る `publish` のジョブは、既定のブランチへの push のときだけ動かします。
@@ -125,6 +126,16 @@ jobs:
 これらのジョブでは、Pull Request の head のコードも、起点のワークフローの成果物も実行しません。
 理由は [Security Considerations](security-considerations.md) の §1.2 にあります。
 
+### 3.3 ジョブに必要な権限だけを要求する
+
+`permissions` には、そのジョブで使う権限だけを、使う水準で書きます。
+読むだけなら `read` にし、書き込みが要る権限だけを `write` にします。
+トークンが漏れたときや、ジョブの中のコードが改ざんされていたときに、トークンでできる操作を減らすためです。
+
+同じジョブのステップはどのトークンも読めるため、ステップごとにトークンを分けても、ジョブの中でできることは分かれません。
+書き込みの要らない処理は、読み取りだけを要求する別のジョブに分けます。
+同じジョブで使うリポジトリと権限は、一つの Action のステップにまとめて要求します。
+
 ## 4. Using the Token
 
 この節の例は、どれも §1 の `Issue token` のステップの後に置きます。
@@ -145,8 +156,9 @@ jobs:
 ### 4.2 actions/checkout
 
 `path` で、ワークフローのリポジトリと重ならないディレクトリを指定します。
-`persist-credentials: false` にすると、トークンを Runner のファイルに残しません。
-取得の後に Git でリモートと通信しないなら、こちらにします。
+`persist-credentials: false` にして、トークンを Runner のファイルに残さないようにします。
+取得の後に push するときも `false` のままにし、§4.4 のように `gh auth setup-git` を使います。
+既定の `true` でも push できますが、トークンが Runner のファイルに書かれ、ジョブの後続のステップの Git がどれもトークンを使えるようになります。
 
 ```yaml
       - name: Check out repo-a
@@ -172,14 +184,55 @@ jobs:
           git clone https://github.com/example-owner/repo-a.git
 ```
 
-### 4.4 What the Token Cannot Do
+### 4.4 Writing and Multiple Permissions
 
-- **書き込みなど `contents:read` 以外の操作**：`403` で拒否される
-- **要求しなかったリポジトリの読み取り**：インストール対象のリポジトリでも、要求に含めなかったプライベートリポジトリは `404` になる
+次の例は、`example-owner/repo-a` の Pull Request を一覧し、新しいブランチを push します。
+§1 の `Issue token` のステップの `permissions` を、次の値にします。
+
+```yaml
+          permissions: contents:write,pull_requests:read
+```
+
+Action の Output の `permissions` は、要求した `contents:write,pull_requests:read` に、GitHub が `metadata:read` を加えた値（`contents:write,metadata:read,pull_requests:read`）になることがあります。
+
+```yaml
+      - name: List pull requests
+        env:
+          GH_TOKEN: ${{ steps.gates.outputs.token }}
+        run: gh api repos/example-owner/repo-a/pulls --jq '.[].title'
+
+      - name: Check out repo-a
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: example-owner/repo-a
+          token: ${{ steps.gates.outputs.token }}
+          path: repo-a
+          persist-credentials: false
+
+      - name: Push a branch
+        working-directory: repo-a
+        env:
+          GH_TOKEN: ${{ steps.gates.outputs.token }}
+        run: |
+          gh auth setup-git
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c update-example
+          date -u > example.txt
+          git add example.txt
+          git commit -m "Update example.txt"
+          git push origin update-example
+```
+
+`persist-credentials: false` のまま `gh auth setup-git` を使わずに push すると、Git は資格情報を持たずに失敗します。
+
+### 4.5 What the Token Cannot Do
+
+- **要求しなかった権限の操作**：GitHub App に付与されていても、要求しなかった権限が要る API は `403` で拒否される。`contents:read` だけのトークンでは書き込めない
+- **`.github/workflows/` のファイルを変える push**：`workflows:write` を要求しなかったトークンでは、`refusing to allow a GitHub App to create or update workflow` で拒否される
+- **要求しなかったリポジトリの操作**：インストール対象のリポジトリでも、要求に含めなかったプライベートリポジトリは `404` になる
+- **Organization、Enterprise、ユーザーアカウントの資源の操作**：GATES は Repository permissions だけを発行する
 - **ほかのジョブでの利用**：ジョブの `outputs` に置いても、GitHub はマスクされた値を渡さない。トークンが要るジョブごとに Action のステップを置く
-
-同じジョブのステップはどのトークンも読めるため、リポジトリごとにトークンを分けても、読める範囲は分かれません。
-同じジョブで読むリポジトリは、`repositories` にまとめて要求します。
 
 ## 5. When the Action Fails
 

@@ -101,9 +101,15 @@ Organization なら、Organization の `Settings` の `Developer settings` か�
 | GitHub App name | GitHub 全体で一意な名前 |
 | Homepage URL | 任意の URL（入力は必須） |
 | Webhook | `Active` のチェックを外す |
-| Repository permissions | `Contents` を `Read-only` にする。これより広げない |
+| Repository permissions | 許可オーナーのワークフローが必要とする権限だけを、必要な水準で選ぶ。読むだけの権限は `Read-only` にする |
+| Organization permissions | 何も選ばない |
 | Account permissions | 何も選ばない |
+| Enterprise permissions | 何も選ばない |
 | Where can this GitHub App be installed? | `Only on this account` |
+
+**GitHub App に付与した権限は、§5.4 の発行上限に含めると、許可オーナーのすべてのワークフローが要求できるようになります。**
+付与する権限の決め方と、付与を避ける権限は、[Security Considerations](security-considerations.md) の §1.4 にあります。
+Organization permissions、Account permissions、Enterprise permissions は、GATES が発行しないため付与しません。
 
 `Create GitHub App` をクリックし、設定ページの `General` に表示される **Client ID** を控えます。
 §5 で使います。
@@ -112,7 +118,7 @@ Organization なら、Organization の `Settings` の `Developer settings` か�
 
 設定ページの `Install App` から、許可オーナーの `Install` をクリックします。
 **`Only select repositories` を選び、トークンを発行してよいリポジトリだけを加えます。**
-ここで選ぶインストール対象が、許可オーナーのどのワークフローからでも読める範囲になります。
+許可オーナーのどのワークフローも、ここで選んだインストール対象を、§3.1 で付与し §5.4 の発行上限に含めた権限で操作できます。
 §9 の確認に、インストール対象のリポジトリが一つ要ります。
 
 ## 4. Getting and Verifying the Source
@@ -151,6 +157,7 @@ cp terraform/terraform.tfvars.example terraform/local/terraform.tfvars
 | `allowed_owner_type` | 許可オーナーの種別 | §5.1。`User` か `Organization` |
 | `github_app_client_id` | GitHub App の Client ID | §3.1 で控えた値 |
 | `gates_audience` | GATES が受け付ける Audience | §5.2 |
+| `issuable_permissions` | 発行上限 | §5.4 |
 | `kms_keys` | KMS Key の名前から鍵の種類への Map | §5.3 |
 | `active_kms_key` | 使用中の鍵の名前 | §5.3 |
 | `lambda_reserved_concurrency` | Lambda の関数の同時実行数の予約 | 既定の `-1`（予約しない）のままでよい。予約するなら、アカウントの未予約の同時実行数が 100 を下回らない値にする |
@@ -188,6 +195,30 @@ active_kms_key = "key-1"
 鍵の種類は、§7 でインポートする秘密鍵の鍵長に合わせます。
 秘密鍵はこの後で生成するため、GitHub が生成する鍵の鍵長として観測されている `RSA_2048` にします。
 鍵長が違ったときは、§10.5 で扱います。
+
+### 5.4 Issuable Permissions
+
+`issuable_permissions` には、§3.1 で GitHub App に付与した Repository permissions のうち、ワークフローが要求する権限名と水準の組を、`権限名:水準` のリストで書きます。
+書ける組は [Issue Token](../../.github/actions/issue-token/README.md) の「要求できる権限」にあります。
+GitHub App の設定画面の表示名ではなく、そこにある権限名で書きます。
+
+```hcl
+issuable_permissions = [
+  "contents:read",
+  "contents:write",
+  "pull_requests:read",
+]
+```
+
+- **GitHub App にない権限を含めない**：含めても GitHub が拒否するため発行されないが、後で GitHub App の権限を広げたときに、`terraform.tfvars` のレビューを経ずに発行されるようになる
+- **読み取りだけの要求も通すなら、`read` も書く**：`contents:write` だけを書くと、`contents:read` の要求は拒否される。GitHub App に `Read and write` で付与した権限を読み取りだけで使うワークフローがあるなら、`read` と `write` の両方を書く
+- **`metadata:read` は、明示して要求するワークフローがあるときだけ書く**：GitHub が加えることがある `metadata:read` のためには要らない
+
+書式の誤り（大文字、`:` のない要素、重複）は、`make tf-plan` が止めます。
+**`members:read` のような Repository permissions でない組や、「要求できる権限」にない組は、`make tf-plan` が止めません。**
+適用すると、Lambda の関数が初期化に失敗し、どの要求にもトークンを返さなくなります。
+この失敗は、§9.1 のワークフローで `the Lambda function returned FunctionError` として現れます。
+ログの読み方は [Troubleshooting](troubleshooting.md) の §5.3 にあります。
 
 ## 6. Plan and Apply
 
@@ -323,6 +354,7 @@ gh variable set GATES_AUDIENCE --repo <オーナー名>/<リポジトリ名> --b
 
 §8 で登録したリポジトリに、[Using GATES in Workflows](workflow-usage.md) の §1 のワークフローを置きます。
 `example-owner/repo-a` は、インストール対象のリポジトリの完全名に置き換えます。
+`permissions` の `contents:read` が GitHub App の権限か発行上限にないなら、両方に含まれる `read` の権限に置き換えます。
 `<コミット>` には、§4 でチェックアウトしたタグのコミットの SHA（`git rev-parse HEAD` の出力）を入れます。
 
 ワークフローを既定のブランチに置いて実行します。
@@ -350,14 +382,14 @@ aws logs filter-log-events --log-group-name /aws/lambda/gates \
 ```
 
 ```json
-{"request_id":"<request_id>","result":"success","owner_id":<Owner ID>,"repositories":["<読むリポジトリ>"]}
+{"request_id":"<request_id>","result":"success","owner_id":<Owner ID>,"repositories":["<要求したリポジトリ>"]}
 ```
 
 `result` が `success` で、`owner_id` が `allowed_owner_id` なら、デプロイは完了です。
 
 ### 9.3 Next Steps
 
-ワークフロー利用者に、接続情報の名前、インストール対象、Action のコミットの SHA を伝えます。
+ワークフロー利用者に、接続情報の名前、インストール対象、使える権限（GitHub App に付与し、発行上限に含めた権限）、Action のコミットの SHA を伝えます。
 ほかのリポジトリで GATES を使うときは、そのリポジトリにも §8 の接続情報を登録します。
 デプロイの後の作業は [Operations](operations.md) にあります。
 
@@ -381,7 +413,8 @@ Provider はあるが Client ID に `sts.amazonaws.com` がないときは、`aw
 
 GATES の Terraform は、作る IAM Role に、自身が作る Permissions Boundary の `gates-permissions-boundary` を付けます。
 IAM Role の作成に特定の Permissions Boundary を求めるアカウントでは、`arn:aws:iam::<AWS アカウント ID>:policy/gates-permissions-boundary` を許可の対象に加えてから適用します。
-§6.1 の適用が `EntityAlreadyExists` で失敗したら、別の主体が同じ名前のポリシーを先に作っていないかを調べます。
+許可の対象に加えてから適用するまでは、別の主体が同じ名前のポリシーを任意の内容で作れます。
+§6.1 の適用が `EntityAlreadyExists` で失敗したら、先に作られたポリシーと、そのポリシーを付けた Role を調べます。
 
 ### 10.3 Organization as the Allowed Owner
 

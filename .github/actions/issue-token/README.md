@@ -1,6 +1,6 @@
 # Issue Token
 
-GATES から、指定したリポジトリだけを読める GitHub App の Installation Access Token を受け取る Docker Action です。
+GATES から、指定したリポジトリを指定した権限でだけ操作できる GitHub App の Installation Access Token を受け取る Docker Action です。
 トークンは同じジョブの後続ステップで使え、ジョブの終了時に失効させます。
 GATES の目的と全体像は [GATES](../../../README.md) にあります。
 
@@ -52,8 +52,8 @@ jobs:
 
 | 入力 | 意味 |
 |---|---|
-| `repositories` | トークンで読むリポジトリ。カンマ区切りの `owner/repo` |
-| `permissions` | トークンの権限。値は `contents:read` |
+| `repositories` | トークンで操作するリポジトリ。カンマ区切りの `owner/repo` |
+| `permissions` | トークンの権限。カンマ区切りの `権限名:水準`（例：`contents:read,pull_requests:write`）。書ける組は [要求できる権限](#要求できる権限) にある |
 | `role-arn` | 引き受ける IAM Role の ARN |
 | `function-name` | GATES の Lambda の関数名 |
 | `aws-region` | GATES の Lambda の AWS リージョン |
@@ -66,12 +66,32 @@ jobs:
 
 - 空の要素がある
 - `repositories` の要素が `owner/repo` の形でない
-- `permissions` の要素が `permission:level` の形でない
+- `permissions` の要素が `権限名:水準` の形でない
 - 同じリポジトリ（大文字小文字を区別しない）か、同じ権限名が 2 つ以上ある
 - UTF-8 として正しくない
 
-GATES が許可するのは、運用者が許可したオーナーのリポジトリのうち GitHub App のインストール対象のものと、`contents:read` だけです。
-一つでも許可されない要素があると、要求全体が失敗します。
+GATES がトークンを発行するのは、要素がどれも次の条件を満たすときだけです。
+一つでも満たさない要素があると、要求全体が失敗し、許可される要素だけのトークンも返りません。
+
+- **`repositories`**：運用者が許可したオーナーのリポジトリで、GitHub App のインストール対象に含まれる
+- **`permissions`**：[要求できる権限](#要求できる権限) の組で、GitHub App に付与され、発行上限（運用者が GATES のデプロイで決める、発行してよい権限の一覧）に含まれる
+
+## 要求できる権限
+
+GitHub App の Repository permissions に当たる、次の権限名と水準の組です。
+Organization permissions（`members` など）と Account permissions（`emails` など）は、GitHub App に付与されていても要求できません。
+
+| 水準 | 権限名 |
+|---|---|
+| `read`、`write` | `actions`、`actions_variables`、`administration`、`agent_secrets`、`agent_tasks`、`agent_variables`、`artifact_metadata`、`attestations`、`checks`、`code_quality`、`codespaces`、`codespaces_lifecycle_admin`、`codespaces_secrets`、`contents`、`copilot_agent_settings`、`dependabot_secrets`、`deployments`、`discussions`、`environments`、`installation_repositories`、`issues`、`license_compliance_alerts`、`merge_queues`、`packages`、`pages`、`pull_requests`、`repo_secret_scanning_dismissal_requests`、`repository_advisories`、`repository_creation`、`repository_custom_properties`、`repository_hooks`、`secret_scanning_alerts`、`secret_scanning_bypass_requests`、`secrets`、`security_events`、`single_file`、`statuses`、`vulnerability_alerts`、`workflows` |
+| `read`、`write`、`admin` | `repository_projects` |
+| `read` | `codespaces_metadata`、`metadata`、`repository_license_policy` |
+
+- **権限名は表の名前で書く**：GitHub App の設定画面の表示名（`Contents`、`Pull requests`、`Commit statuses` など）ではなく、`contents`、`pull_requests`、`statuses` のように書く。表示名と権限名は、`Commit statuses` と `statuses` のように一致しないことがある
+- **水準は付与された水準以下にする**：GitHub App に `Read-only` で付与された権限の `write` は、GitHub に拒否される
+- **`single_file` のファイルは選べない**：読み書きできるファイルのパスは GitHub App の設定で決まり、要求では指定できない
+- **`metadata` は書かなくてよい**：GitHub が `metadata:read` を加えることがある。明示して要求するときは、ほかの権限と同じく発行上限に含まれている必要がある
+- **機能が無効なリポジトリでは使えない**：リポジトリの設定で Pull requests の機能が無効なら、`pull_requests` の権限を持つトークンでも Pull Request の API は `404` になる
 
 ## 出力
 
@@ -79,8 +99,8 @@ GATES が許可するのは、運用者が許可したオーナーのリポジ�
 |---|---|
 | `token` | トークン。ログではマスクされる |
 | `expires-at` | トークンの有効期限（RFC 3339）。発行から 1 時間 |
-| `repositories` | トークンで読めるリポジトリ。カンマ区切りの `owner/repo` |
-| `permissions` | トークンの権限。GitHub が加える `metadata:read` を含むことがある |
+| `repositories` | トークンで操作できるリポジトリ。カンマ区切りの `owner/repo` |
+| `permissions` | トークンの権限。カンマ区切りの `権限名:水準`。要求した権限に加えて、要求にかかわらず GitHub が加える `metadata:read` を含むことがある |
 
 出力は、同じジョブの後続ステップでだけ使えます。
 ジョブの `outputs` に置いても、GitHub はマスクされた値をほかのジョブに渡しません。
@@ -88,7 +108,9 @@ GATES が許可するのは、運用者が許可したオーナーのリポジ�
 ## 注意
 
 - **コミットの SHA で参照する**：タグやブランチは後から別のコミットを指せるため、改ざんされた Action を取り込むおそれがある。参照するのは、運用者がデプロイした GATES と同じリリースのコミットにする
-- **トークンを受け取るジョブで、信頼できないコードを実行しない**：そのジョブのコードは、トークンを読めるうえ、`id-token: write` で自分でもトークンを受け取れる。Pull Request のコードや、ほかのワークフローの成果物は、別のジョブで動かす
+- **トークンを受け取るジョブで、信頼できないコードを実行しない**：そのジョブのコードは、トークンを読んでその権限で書き込みを含む操作ができるうえ、`id-token: write` で、要求しなかった権限を含むトークンも自分で受け取れる。Pull Request のコードや、ほかのワークフローの成果物は、別のジョブで動かす
+- **ジョブに必要な権限だけを要求する**：読むだけの権限は `read` にする。書き込みの要らない処理は、読み取りだけを要求する別のジョブに分ける
+- **トークンで行った変更は、失効の後も残る**：トークンの期限が短くても、ジョブの終了時に失効しても、書き換えたコードや設定は元に戻らない
 - **`pull_request_target` と `workflow_run` に注意する**：fork からの Pull Request が起点でもトークンを受け取れる。これらのジョブでは、Pull Request のコードも起点のワークフローの成果物も実行しない
 - **Dependabot のワークフローでは Secret の登録が要る**：Dependabot のワークフローは GitHub Actions の Secrets を参照できないため、運用者が `GATES_AWS_ACCOUNT_ID` を Dependabot の Secrets にも登録する
 - **トークンの一部をログに出さない**：Action はトークンをマスクするが、切り出した一部はマスクされない

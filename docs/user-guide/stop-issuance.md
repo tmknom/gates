@@ -19,7 +19,9 @@
 KMS Key の無効化は、AWS の権限を持つ主体が元に戻せます。
 **署名の悪用を AWS の権限に左右されずに止められるのは、GitHub での秘密鍵の削除です。**
 
-どの手段でも、止める前に発行されたトークンは、期限（発行から 1 時間）まで使えます。
+Reserved Concurrency を 0 にしても KMS Key を無効にしても、止める前に発行されたトークンは、期限（発行から 1 時間）まで使えます。
+**止めても、トークンで行われた変更は取り消されません。**
+書き込みの権限を持つトークンが悪用された疑いがあれば、§6 で残った変更を確かめます。
 
 ## 2. Setting Reserved Concurrency to 0
 
@@ -51,6 +53,14 @@ aws kms describe-key --key-id <KMS Key の ARN> --query 'KeyMetadata.KeyState' -
 
 状態が `Disabled` であることを確かめます。
 以後、Action は `error code "internal_error"` で失敗します。
+
+[Key Rotation](rotate-key.md) の途中で KMS Key が 2 つあるときは、使用中でない KMS Key にも、GitHub App に登録された秘密鍵がインポートされていることがあります。
+その KMS Key でも署名できるため、同じコマンドで無効にします。
+KMS Key の ARN は、Output の `kms_key_arns` で確かめます。
+
+```bash
+jq -r '.outputs.kms_key_arns.value' terraform/local/terraform.tfstate
+```
 無効にする前に署名された GitHub App JWT は、その期限（最長 10 分）まで GitHub に受け付けられ得ます。
 
 KMS Key の状態は Terraform の Plan に現れないため、適用しても無効のままです。
@@ -100,6 +110,22 @@ GATES の Lambda の署名の主体は、`arn:aws:sts::<AWS アカウント ID>:
 これと違う主体の署名があれば、GATES を経ない署名が疑われます。
 GATES を通した発行は、監査記録の `caller.event_name` と `caller.run_id` から、起動したワークフローをたどって調べます。
 
+疑わしい発行の監査記録の `request.permissions` に `write` か `admin` があれば、`request.repositories` のリポジトリごとに、トークンで残された変更を確かめます。
+GATES を経ない署名を疑うときは、GitHub App に付与した書き込みの権限で、インストール対象のすべてのリポジトリが対象になります。
+次のコマンドは、リポジトリの管理者の権限で `gh auth login` した GitHub CLI で実行します。
+
+```bash
+gh api repos/<オーナー名>/<リポジトリ名>/keys --jq '.[] | [.id, .title, .created_at, .read_only] | @tsv'
+gh api repos/<オーナー名>/<リポジトリ名>/hooks --jq '.[] | [.id, .config.url, .created_at] | @tsv'
+gh api "repos/<オーナー名>/<リポジトリ名>/collaborators?affiliation=direct" --jq '.[] | [.login, .role_name] | @tsv'
+gh api repos/<オーナー名>/<リポジトリ名>/branches --jq '.[].name'
+gh api "repos/<オーナー名>/<リポジトリ名>/commits?path=.github/workflows&since=<開始>" --jq '.[] | [.sha, .commit.committer.date, .commit.author.name] | @tsv'
+```
+
+- **デプロイキー、Webhook、コラボレーター**：身に覚えのないものは削除する。トークンが失効しても、これらを通したアクセスは続く
+- **ブランチ**：身に覚えのないブランチは、内容を確かめてから削除する
+- **ワークフローのファイル**：既定のブランチのワークフローのファイルを変えたコミットを確かめる。書き換えられたワークフローは、そのリポジトリの Secrets と、そのリポジトリを信頼するクラウドの権限を使えるため、その実行の記録も確かめる
+
 ## 7. Resuming after Disabling the Key or Deleting It
 
 **再開する前に、悪用した主体の AWS の権限を取り除きます。**
@@ -108,7 +134,7 @@ GATES を通した発行は、監査記録の `caller.event_name` と `caller.ru
 §3 か §5 で止めた後は、[Key Rotation](rotate-key.md) の手順で新しい鍵に替えて再開します。
 そのとき、次のように読み替えます。
 
-- Key Rotation の §2 のうち、ワークフローが成功することは満たせない。§5 で新しい鍵に切り替えるまで、発行は失敗したままになる
+- Key Rotation の §2 のうち、ワークフローが成功することは満たせない。Key Rotation の §5 で新しい鍵に切り替えるまで、発行は失敗したままになる
 - 旧鍵への切り戻しは行わない
 - Key Rotation の §7 の旧 KMS Key の無効化と、§8 の旧秘密鍵の削除は、済んでいれば省く
 
