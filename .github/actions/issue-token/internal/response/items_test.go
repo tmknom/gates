@@ -31,6 +31,15 @@ func TestSuccess_ItemsConvertsTheRemainingItems(t *testing.T) {
 				RequestID:    "abc",
 			},
 		},
+		"three permissions are sorted by name, each with its own level": {
+			fixture: "success_three_permissions.json",
+			want: response.Items{
+				ExpiresAt:    "2030-01-01T00:00:00Z",
+				Repositories: "example-org/repo-a",
+				Permissions:  "contents:read,metadata:read,pull_requests:write",
+				RequestID:    "abc",
+			},
+		},
 		"expires_at that is not RFC 3339 is accepted as is": {
 			fixture: "success_not_rfc3339.json",
 			want: response.Items{

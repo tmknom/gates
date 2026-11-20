@@ -6,7 +6,7 @@ inputs:
     description: Comma-separated owner/repo list of the repositories the token can access
     required: true
   permissions:
-    description: Comma-separated permission:level list of the permissions the token grants, such as contents:read
+    description: Comma-separated permission:level list of the permissions the token grants, such as contents:read,pull_requests:write. Request only the permissions the job needs
     required: true
   role-arn:
     description: ARN of the IAM role to assume with GitHub OIDC
