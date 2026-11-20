@@ -30,7 +30,7 @@ jobs:
       - name: Issue token 1
         id: issue-1
         continue-on-error: true
-        uses: tmknom/gates/.github/actions/issue-token@d116ee17b36a6416e38c741ef900e8dedd3c13d5
+        uses: tmknom/gates/.github/actions/issue-token@979395c6df1668d766af66f4f96564e3fbbba3aa
         with:
           repositories: ${{ vars.GATES_TARGET_PRIMARY }}
           permissions: contents:read
@@ -45,7 +45,7 @@ jobs:
       - name: Issue token 2
         id: issue-2
         continue-on-error: true
-        uses: tmknom/gates/.github/actions/issue-token@d116ee17b36a6416e38c741ef900e8dedd3c13d5
+        uses: tmknom/gates/.github/actions/issue-token@979395c6df1668d766af66f4f96564e3fbbba3aa
         with:
           repositories: ${{ vars.GATES_TARGET_PRIMARY }}
           permissions: contents:read
@@ -60,7 +60,7 @@ jobs:
       - name: Issue token 3
         id: issue-3
         continue-on-error: true
-        uses: tmknom/gates/.github/actions/issue-token@d116ee17b36a6416e38c741ef900e8dedd3c13d5
+        uses: tmknom/gates/.github/actions/issue-token@979395c6df1668d766af66f4f96564e3fbbba3aa
         with:
           repositories: ${{ vars.GATES_TARGET_PRIMARY }}
           permissions: contents:read
@@ -75,7 +75,7 @@ jobs:
       - name: Issue token 4
         id: issue-4
         continue-on-error: true
-        uses: tmknom/gates/.github/actions/issue-token@d116ee17b36a6416e38c741ef900e8dedd3c13d5
+        uses: tmknom/gates/.github/actions/issue-token@979395c6df1668d766af66f4f96564e3fbbba3aa
         with:
           repositories: ${{ vars.GATES_TARGET_PRIMARY }}
           permissions: contents:read
@@ -90,7 +90,7 @@ jobs:
       - name: Issue token 5
         id: issue-5
         continue-on-error: true
-        uses: tmknom/gates/.github/actions/issue-token@d116ee17b36a6416e38c741ef900e8dedd3c13d5
+        uses: tmknom/gates/.github/actions/issue-token@979395c6df1668d766af66f4f96564e3fbbba3aa
         with:
           repositories: ${{ vars.GATES_TARGET_PRIMARY }}
           permissions: contents:read
