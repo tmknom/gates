@@ -200,11 +200,11 @@ Condition を持たない OpenID Connect の条項（文字列の比較など）
 |---|---|---|
 | Satisfies | RFC7519-EXP-NUMERICDATE | なし |
 | Narrows | RFC7519-EXP-OPTIONAL | `exp` がない JWT を拒否する。有効期限のない JWT を資格情報として受理しないため |
-| Narrows | RFC7519-NUMERICDATE-FORMAT | 整数でない値と、範囲 `0..253402300799` の外の値を拒否する。時刻の値を、Claim を読み取る処理によって異なる値に読めないようにするため（FR-AUTHN-006） |
+| Narrows | RFC7519-NUMERICDATE-FORMAT | 整数でない値と、範囲 `0..253402300799` の外の値を拒否する。時刻の値を、Claim を読み取る処理によって異なる値に読めないようにするため（FR-AUTHN-004） |
 | Accepts | GH-OIDC-CLAIM-TYPE-EXAMPLE | なし |
 | Accepts | GH-OIDC-CLAIM-TYPE-OBSERVED | なし |
 | Possibly Rejects | GH-OIDC-CLAIM-PRESENCE | `exp` がない JWT を拒否する。有効期限のない JWT を資格情報として受理しないため |
-| Possibly Rejects | GH-OIDC-CLAIM-TYPE | JSON の整数でない `exp` を拒否する。時刻の値を、Claim を読み取る処理によって異なる値に読めないようにするため（FR-AUTHN-006） |
+| Possibly Rejects | GH-OIDC-CLAIM-TYPE | JSON の整数でない `exp` を拒否する。時刻の値を、Claim を読み取る処理によって異なる値に読めないようにするため（FR-AUTHN-004） |
 
 **GATES の受理条件**：必須。JSON 数値の整数（小数点・指数表記も拒否）、範囲 `0..253402300799` のみ。時刻の判定は [GOJ-TIME-EXP](#goj-time-exp-有効期限の判定) を正本とします。観測された5分寿命（GH-OIDC-TIME-OBSERVED）を GATES 固有の寿命上限にはしません。
 
@@ -214,11 +214,11 @@ Condition を持たない OpenID Connect の条項（文字列の比較など）
 |---|---|---|
 | Satisfies | RFC7519-IAT-NUMERICDATE | なし |
 | Narrows | RFC7519-IAT-OPTIONAL | `iat` がない JWT を拒否する。GOJ-TIME-IAT の発行時刻の判定に使うため |
-| Narrows | RFC7519-NUMERICDATE-FORMAT | 整数でない値と、範囲 `0..253402300799` の外の値を拒否する。時刻の値を、Claim を読み取る処理によって異なる値に読めないようにするため（FR-AUTHN-006） |
+| Narrows | RFC7519-NUMERICDATE-FORMAT | 整数でない値と、範囲 `0..253402300799` の外の値を拒否する。時刻の値を、Claim を読み取る処理によって異なる値に読めないようにするため（FR-AUTHN-004） |
 | Accepts | GH-OIDC-CLAIM-TYPE-EXAMPLE | なし |
 | Accepts | GH-OIDC-CLAIM-TYPE-OBSERVED | なし |
 | Possibly Rejects | GH-OIDC-CLAIM-PRESENCE | `iat` がない JWT を拒否する。GOJ-TIME-IAT の発行時刻の判定に使うため |
-| Possibly Rejects | GH-OIDC-CLAIM-TYPE | JSON の整数でない `iat` を拒否する。時刻の値を、Claim を読み取る処理によって異なる値に読めないようにするため（FR-AUTHN-006） |
+| Possibly Rejects | GH-OIDC-CLAIM-TYPE | JSON の整数でない `iat` を拒否する。時刻の値を、Claim を読み取る処理によって異なる値に読めないようにするため（FR-AUTHN-004） |
 
 **GATES の受理条件**：必須。[GOJ-EXP](#goj-exp-exp) と同じ JSON 整数・範囲を要求し、[GOJ-TIME-IAT](#goj-time-iat-発行時刻の判定) の未来時刻の条件を適用します。
 
@@ -250,10 +250,10 @@ JWT の `iss` の値は照合だけに使い、Discovery / JWKS の取得先に�
 | Relation | Clause | Note |
 |---|---|---|
 | Satisfies | RFC7519-NBF-NUMERICDATE | なし |
-| Narrows | RFC7519-NUMERICDATE-FORMAT | 整数でない値と、範囲 `0..253402300799` の外の値を拒否する。時刻の値を、Claim を読み取る処理によって異なる値に読めないようにするため（FR-AUTHN-006） |
+| Narrows | RFC7519-NUMERICDATE-FORMAT | 整数でない値と、範囲 `0..253402300799` の外の値を拒否する。時刻の値を、Claim を読み取る処理によって異なる値に読めないようにするため（FR-AUTHN-004） |
 | Accepts | GH-OIDC-CLAIM-TYPE-EXAMPLE | なし |
 | Accepts | GH-OIDC-CLAIM-TYPE-OBSERVED | なし |
-| Possibly Rejects | GH-OIDC-CLAIM-TYPE | JSON の整数でない `nbf` を拒否する。時刻の値を、Claim を読み取る処理によって異なる値に読めないようにするため（FR-AUTHN-006） |
+| Possibly Rejects | GH-OIDC-CLAIM-TYPE | JSON の整数でない `nbf` を拒否する。時刻の値を、Claim を読み取る処理によって異なる値に読めないようにするため（FR-AUTHN-004） |
 
 **GATES の受理条件**：任意・検証。欠落を許し、存在時は `exp` / `iat` と同じ JSON 整数・範囲および [GOJ-TIME-NBF](#goj-time-nbf-利用開始時刻の判定) の時刻条件を適用します。型違いを「欠落」として扱いません。
 
@@ -288,7 +288,7 @@ JWT の `iss` の値は照合だけに使い、Discovery / JWKS の取得先に�
 | Accepts | GH-OIDC-REPOSITORY-ID | なし |
 | Possibly Rejects | GH-OIDC-CLAIM-PRESENCE | `repository_id` がない JWT を拒否する。`sub` の Repository ID と照合して Caller を確定するため |
 
-**GATES の受理条件**：必須。[GOJ-ID-FORMAT](#goj-id-format-id-の表記) の形式を満たす正の整数の **JSON 文字列**。`sub` 内の Repository ID と一致すること。Caller の識別・監査に用いますが、現在のオーナー単位の発行認可には使いません（[Requirements](../spec/requirements.md) の FR-AUTHN-002）。
+**GATES の受理条件**：必須。[GOJ-ID-FORMAT](#goj-id-format-id-の表記) の形式を満たす正の整数の **JSON 文字列**。`sub` 内の Repository ID と一致すること。Caller の識別・監査に用いますが、現在のオーナー単位の発行認可には使いません（[Requirements](../spec/requirements.md) の FR-AUTHN-001）。
 
 ### GOJ-REPOSITORY-OWNER `repository_owner`
 
@@ -609,10 +609,10 @@ Claims Set は UTF-8 の JSON オブジェクトとし、不正な UTF-8 と、�
 
 | Relation | Clause | Note |
 |---|---|---|
-| Satisfies | RFC7519-CLAIM-UNKNOWN-IGNORE | 5 つの名前の別名の Claim は、FR-AUTHN-006 が拒否を求める Claim で、条項の Condition（アプリケーションが特定の処理を要求していない）に当たらない。JSON デコーダーが別名を同じ Claim として読む危険を防ぐため、JWT ごと拒否する |
+| Satisfies | RFC7519-CLAIM-UNKNOWN-IGNORE | 5 つの名前の別名の Claim は、FR-AUTHN-004 が拒否を求める Claim で、条項の Condition（アプリケーションが特定の処理を要求していない）に当たらない。JSON デコーダーが別名を同じ Claim として読む危険を防ぐため、JWT ごと拒否する |
 | Accepts | GH-OIDC-DISCOVERY-CLAIMS | `claims_supported` の 36 個の名前は、どれも 5 つの名前の別名ではない |
 
-- `iss`、`aud`、`exp`、`iat`、`nbf` の **別名** の Claim があれば、正しい `iss` などが同時にあっても拒否する。JSON デコーダーが別名を同じ Claim として読む危険を防ぐための、[Requirements](../spec/requirements.md) の FR-AUTHN-006 に従う GATES の追加制約である。
+- `iss`、`aud`、`exp`、`iat`、`nbf` の **別名** の Claim があれば、正しい `iss` などが同時にあっても拒否する。JSON デコーダーが別名を同じ Claim として読む危険を防ぐための、[Requirements](../spec/requirements.md) の FR-AUTHN-004 に従う GATES の追加制約である。
 - 別名は、5 つの名前のどれかと Unicode の単純な Case Folding（[CaseFolding.txt](https://www.unicode.org/Public/UCD/latest/ucd/CaseFolding.txt) の状態 C と S）で同じ文字列に畳み込まれ、その名前自体とは異なる名前とする。5 つの名前の文字では、各 ASCII 英字の大文字と小文字、および `s`、`S`、`ſ`（U+017F）がそれぞれ同じ文字に畳み込まれる。別名は `iss` の 17 個（`ISS`、`iſſ`、`iſs` など）と、ほかの 4 つの名前の各 7 個（`AUD`、`eXp` など）の計 45 個である。
 - 完全な Case Folding（状態 F）とトルコ語用の対応（状態 T）は使わない。そのため、`iß` と `İss` は別名ではなく、未知の Claim として扱う。`ıss` も、`ı`（U+0131）がどの Case Folding でも `i` に畳み込まれないため、未知の Claim として扱う。範囲を単純な Case Folding に揃えるのは、検証ライブラリの JSON デコーダーが Claim 名を同一視する範囲がこれと一致し、`iß` のような名前は `iss` として読まれないためである。
 
@@ -670,10 +670,10 @@ GATES の役割に当たる強い規範の条項のうち、Claims Set を扱い
 
 | GATES の受理条件 | 要求・設計上の根拠 |
 |---|---|
-| 必須 Claim、Issuer、Audience、時間、ID の整合 | [Requirements](../spec/requirements.md) の FR-AUTHN-002、FR-AUTHN-003、[Domain Model](domain.md) の INV-009 |
-| Claim 名の別名の拒否と、時刻の値の表記 | [Requirements](../spec/requirements.md) の FR-AUTHN-006 |
-| 不変形式 `sub` | [Requirements](../spec/requirements.md) の FR-AUTHN-005、FR-OPS-007 |
-| Caller の Owner ID による認可と Repository ID の監査利用 | [Requirements](../spec/requirements.md) の FR-AUTHN-002、FR-AUTHZ-001 |
+| 必須 Claim、Issuer、Audience、時間、ID の整合 | [Requirements](../spec/requirements.md) の FR-AUTHN-001、FR-AUTHN-002、[Domain Model](domain.md) の INV-009 |
+| Claim 名の別名の拒否と、時刻の値の表記 | [Requirements](../spec/requirements.md) の FR-AUTHN-004 |
+| 不変形式 `sub` | [Requirements](../spec/requirements.md) の FR-AUTHN-003、FR-OPS-002 |
+| Caller の Owner ID による認可と Repository ID の監査利用 | [Requirements](../spec/requirements.md) の FR-AUTHN-001、FR-AUTHZ-001 |
 | 起動属性のベストエフォート監査と、署名検証を通った Claims Set の調査用の記録 | [Requirements](../spec/requirements.md) の FR-OPS-003 |
 
 ## Verification Cases

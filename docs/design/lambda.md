@@ -69,7 +69,7 @@ Lambda Invoke には HTTP の `Authorization` ヘッダーに相当するアプ�
 JSON として不正な Payload は、Lambda の Invoke API が関数に渡す前に拒否するため、GATES の応答も監査記録も残りません（[Runtime Entry](#41-runtime-entry)）。
 GATES はそれでもこの形を入力不正として判定し、Invoke API の検査に依存しません。
 
-空の Permissions を入力不正にするのは、`permissions` が必須であり、[Requirements](../spec/requirements.md) FR-AUTHZ-007 が欠落・未知値を広い既定値に読み替えないと定めているためです。
+空の Permissions を入力不正にするのは、`permissions` が必須であり、[Requirements](../spec/requirements.md) FR-AUTHZ-003 が欠落・未知値を広い既定値に読み替えないと定めているためです。
 空の Map は、要求の欠落と同じく、要求した権限を読み取れない形として扱います。
 一方で、許可権限の列挙にないキー（`members` など）は認可拒否にします。
 列挙にない水準と同じく、形式は読み取れて値が許可外の要求であり、監査記録に残す対象だからです。
@@ -443,7 +443,7 @@ Installation の取得、トークンの発行と失効の GitHub API の仕様�
 GitHub API は SDK を使わず、Go 標準ライブラリの HTTP クライアントで呼び出します。
 使うエンドポイントが次の 3 つに限られるためです。
 
-- **Installation の取得**：GitHub App JWT で、許可オーナーの種別が Organization なら `GET /orgs/{org}/installation`、ユーザーアカウントなら `GET /users/{username}/installation` を呼び出す。`GET /repos/{owner}/{repo}/installation` はどちらの種別にも使えるが、採用しない。要求されたリポジトリから Installation を引くことになり、固定した設定から Installation を導出する [Requirements](../spec/requirements.md) FR-OPS-006 から外れるためである。停止の判定は Authorization が行う（[Processing Flow](#5-processing-flow) の手順 5）。
+- **Installation の取得**：GitHub App JWT で、許可オーナーの種別が Organization なら `GET /orgs/{org}/installation`、ユーザーアカウントなら `GET /users/{username}/installation` を呼び出す。`GET /repos/{owner}/{repo}/installation` はどちらの種別にも使えるが、採用しない。要求されたリポジトリから Installation を引くことになり、固定した設定から Installation を導出する [Requirements](../spec/requirements.md) FR-OPS-001 から外れるためである。停止の判定は Authorization が行う（[Processing Flow](#5-processing-flow) の手順 5）。
 - **トークンの発行**：`POST /app/installations/{installation_id}/access_tokens` に、発行許可の対象と Permissions を必ず指定する。発行 API の `repositories` はリポジトリ名だけを受け取るため、発行許可の各完全名を一度だけ `/` で分割し、リポジトリ名の部分を渡す。分割前の完全名は、発行応答の `full_name` との照合に使う。
 - **トークンの失効**：照合に失敗したトークンの失効には `DELETE /installation/token` を使う。このエンドポイントは App JWT ではなく、失効させる Installation Access Token 自体で認証する。`204` だけを失効の成功とし、失敗しても再試行せずに監査記録へ残す。
 - **リダイレクト**：従わず、`3xx` は [Failure](#32-failure) の分類で成功以外の応答として扱う。リダイレクト先は GATES が選んだエンドポイントではなく、その応答を Installation や発行応答として読む根拠がないためである。また、従うと、固定した API Host の外へ GitHub App JWT を送り得る。

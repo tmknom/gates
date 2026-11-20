@@ -218,11 +218,11 @@ Issuer と GitHub API Host は環境変数にしません。
 
 | 要求 | AWS における実現手段 |
 |---|---|
-| FR-AUTHN-005、FR-OPS-007、AC-OPS-005、AC-OPS-007、AC-AUTHN-003 | IAM OIDC Provider、不変 ID 入り `sub` を条件とする IAM Role Trust Policy、対象 Lambda に限定した Invoke 権限、IAM 認証付き Invoke 以外の呼び出し口を設けない Lambda 構成 |
+| FR-AUTHN-003、FR-OPS-002、AC-OPS-005、AC-OPS-007、AC-AUTHN-003 | IAM OIDC Provider、不変 ID 入り `sub` を条件とする IAM Role Trust Policy、対象 Lambda に限定した Invoke 権限、IAM 認証付き Invoke 以外の呼び出し口を設けない Lambda 構成 |
 | FR-ISSUANCE-001、QR-008、AC-OPS-005 | `EXTERNAL` origin の非対称署名 KMS Key、Lambda 実行 Role への `kms:Sign` のみの許可、Key Policy による署名権限と管理権限の分離 |
-| FR-OPS-008、AC-ISSUANCE-005 | 鍵の集合への新 KMS Key の追加と使用中の鍵の切り替えによる鍵更新、`prevent_destroy` と Plan の確認による置換・削除の防止、退役させる鍵の State からの除外 |
+| FR-OPS-005、AC-ISSUANCE-005 | 鍵の集合への新 KMS Key の追加と使用中の鍵の切り替えによる鍵更新、`prevent_destroy` と Plan の確認による置換・削除の防止、退役させる鍵の State からの除外 |
 | QR-008、AC-OPS-006 | 鍵素材インポートおよびインポート前コピー削除の Terraform からの分離 |
-| FR-OPS-006、FR-AUTHZ-009、AC-AUTHZ-007、AC-AUTHZ-010 | 許可オーナー、GitHub App、KMS Key、発行上限を Terraform 入力と Lambda 環境変数で固定。発行上限の書式は Plan の時点で、許可権限の一部であることは Lambda の初期化で確かめる。Installation は固定した GitHub App と不変 Owner ID から一意に導出する（[Security Design](security.md#32-installation-scope-as-authorization-boundary)） |
+| FR-OPS-001、FR-AUTHZ-008、AC-AUTHZ-007、AC-AUTHZ-010 | 許可オーナー、GitHub App、KMS Key、発行上限を Terraform 入力と Lambda 環境変数で固定。発行上限の書式は Plan の時点で、許可権限の一部であることは Lambda の初期化で確かめる。Installation は固定した GitHub App と不変 Owner ID から一意に導出する（[Security Design](security.md#32-installation-scope-as-authorization-boundary)） |
 | FR-OPS-003、QR-004 | CloudWatch Logs の保持期間・アクセス制限と資格情報の非記録 |
 
 受け入れ条件の正本は [Acceptance Criteria](../spec/acceptance-criteria.md) です。

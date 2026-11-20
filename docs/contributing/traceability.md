@@ -10,7 +10,7 @@ ID を付ける種類は次のとおりです。
 
 | 接頭辞 | 対象 | 定めるドキュメント | ID の形 |
 |---|---|---|---|
-| `FR-` | 機能要求 | `requirements.md` | カテゴリのスラッグと、カテゴリごとの 3 桁の連番（`FR-AUTHN-002`）。スラッグは `AUTHN`（Authentication）、`AUTHZ`（Authorization）、`ISSUANCE`（Token Issuance）、`OPS`（Usability and Operations） |
+| `FR-` | 機能要求 | `requirements.md` | カテゴリのスラッグと、カテゴリごとの 3 桁の連番（`FR-AUTHN-001`）。スラッグは `AUTHN`（Authentication）、`AUTHZ`（Authorization）、`ISSUANCE`（Token Issuance）、`OPS`（Usability and Operations） |
 | `QR-` | 品質とセキュリティの要求 | `requirements.md` | 3 桁の連番（`QR-003`） |
 | `AC-` | 受け入れ条件 | `acceptance-criteria.md` | カテゴリのスラッグと、カテゴリごとの 3 桁の連番（`AC-AUTHZ-001`）。スラッグは `FR-` の 4 つに `QUALITY`（Quality and Security）を加えた 5 つ。`FR-` を判定する AC は、期待する結果が判定する `FR-` のカテゴリに置き、`QR-` だけを判定する AC は `QUALITY` に置く |
 | `GOJ-` | GATES 用 OIDC JWT の受理条件 | `gates-oidc-jwt-claims.md`、`gates-oidc-jwt-signature.md` | Claim 名か、規則の内容を表す名前。作り方は `gates-oidc-jwt-claims.md` に定める |
