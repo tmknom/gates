@@ -46,6 +46,7 @@ variables {
   kms_keys             = { key-1 = "RSA_2048" }
   active_kms_key       = "key-1"
   lambda_package_path  = "tests/testdata/package.txt"
+  issuable_permissions = ["contents:read", "contents:write", "pull_requests:write"]
 }
 
 # trace:checks AC-QUALITY-003
@@ -88,6 +89,7 @@ run "function_configuration" {
       GATES_GITHUB_APP_CLIENT_ID = "Iv23example"
       GATES_AUDIENCE             = "gates-test"
       GATES_KMS_KEY_ARN          = "arn:aws:kms:ap-northeast-1:123456789012:key/11111111-2222-3333-4444-555555555555"
+      GATES_ISSUABLE_PERMISSIONS = "contents:read,contents:write,pull_requests:write"
     })
     error_message = "the environment variables must carry the input values"
   }
@@ -378,4 +380,105 @@ run "rejects_empty_gates_audience" {
   }
 
   expect_failures = [var.gates_audience]
+}
+
+# trace:checks AC-AUTHZ-010
+run "rejects_empty_issuable_permissions" {
+  command = plan
+
+  variables {
+    issuable_permissions = []
+  }
+
+  expect_failures = [var.issuable_permissions]
+}
+
+run "rejects_issuable_permission_without_colon" {
+  command = plan
+
+  variables {
+    issuable_permissions = ["contentsread"]
+  }
+
+  expect_failures = [var.issuable_permissions]
+}
+
+run "rejects_issuable_permission_with_two_colons" {
+  command = plan
+
+  variables {
+    issuable_permissions = ["contents:read:write"]
+  }
+
+  expect_failures = [var.issuable_permissions]
+}
+
+run "rejects_issuable_permission_with_empty_name" {
+  command = plan
+
+  variables {
+    issuable_permissions = [":read"]
+  }
+
+  expect_failures = [var.issuable_permissions]
+}
+
+run "rejects_issuable_permission_with_empty_level" {
+  command = plan
+
+  variables {
+    issuable_permissions = ["contents:"]
+  }
+
+  expect_failures = [var.issuable_permissions]
+}
+
+run "rejects_issuable_permission_with_too_long_name" {
+  command = plan
+
+  variables {
+    issuable_permissions = ["${join("", [for i in range(65) : "a"])}:read"]
+  }
+
+  expect_failures = [var.issuable_permissions]
+}
+
+run "rejects_issuable_permission_with_uppercase" {
+  command = plan
+
+  variables {
+    issuable_permissions = ["Contents:read"]
+  }
+
+  expect_failures = [var.issuable_permissions]
+}
+
+run "rejects_issuable_permission_with_surrounding_whitespace" {
+  command = plan
+
+  variables {
+    issuable_permissions = [" contents:read"]
+  }
+
+  expect_failures = [var.issuable_permissions]
+}
+
+run "rejects_issuable_permission_with_trailing_newline" {
+  command = plan
+
+  variables {
+    issuable_permissions = ["contents:read\n"]
+  }
+
+  expect_failures = [var.issuable_permissions]
+}
+
+run "rejects_duplicate_issuable_permissions" {
+  command = plan
+
+  variables {
+    issuable_permissions = ["contents:read", "contents:read"]
+  }
+
+  expect_failures = [var.issuable_permissions]
 }

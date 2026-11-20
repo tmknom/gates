@@ -73,6 +73,7 @@ resource "aws_lambda_function" "gates" {
       GATES_GITHUB_APP_CLIENT_ID = var.github_app_client_id
       GATES_AUDIENCE             = var.gates_audience
       GATES_KMS_KEY_ARN          = aws_kms_external_key.signing[var.active_kms_key].arn
+      GATES_ISSUABLE_PERMISSIONS = join(",", var.issuable_permissions)
     }
   }
 

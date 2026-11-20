@@ -8,9 +8,10 @@ import (
 
 	"github.com/tmknom/gates/internal/authz"
 	"github.com/tmknom/gates/internal/config"
+	"github.com/tmknom/gates/internal/permission"
 )
 
-// validEnv は、6 つの環境変数がすべて条件を満たす組である。
+// validEnv は、すべての環境変数が条件を満たす組である。
 func validEnv() map[string]string {
 	return map[string]string{
 		"GATES_ALLOWED_OWNER_ID":     "12345",
@@ -19,6 +20,7 @@ func validEnv() map[string]string {
 		"GATES_GITHUB_APP_CLIENT_ID": "Iv23liExample",
 		"GATES_AUDIENCE":             "https://gates.example.com",
 		"GATES_KMS_KEY_ARN":          "arn:aws:kms:ap-northeast-1:123456789012:key/11111111-2222-3333-4444-555555555555",
+		"GATES_ISSUABLE_PERMISSIONS": "contents:read,pull_requests:write",
 	}
 }
 
@@ -82,6 +84,34 @@ func TestLoad(t *testing.T) {
 			wantKMSKeyARN := validEnv()["GATES_KMS_KEY_ARN"]
 			if got.KMSKeyARN() != wantKMSKeyARN {
 				t.Errorf("KMSKeyARN() = %q, want %q", got.KMSKeyARN(), wantKMSKeyARN)
+			}
+		})
+	}
+}
+
+// 発行上限の規則は permission が検証する。ここでは、カンマで区切ったどの組も発行上限に入り、ほかの組が入らないことを確かめる
+func TestLoad_IssuablePermissions(t *testing.T) {
+	got, err := config.Load(lookupEnv(validEnv()))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	tests := []struct {
+		name     string
+		levels   map[string]string
+		contains bool
+	}{
+		{name: "first entry is contained", levels: map[string]string{"contents": "read"}, contains: true},
+		{name: "last entry is contained", levels: map[string]string{"pull_requests": "write"}, contains: true},
+		{name: "entry not in the variable is not contained", levels: map[string]string{"contents": "write"}, contains: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := permission.NewPermissions(tt.levels)
+			if err != nil {
+				t.Fatalf("NewPermissions returned error: %v", err)
+			}
+			if c := got.IssuablePermissions().Contains(p); c != tt.contains {
+				t.Errorf("IssuablePermissions().Contains(%v) = %v, want %v", tt.levels, c, tt.contains)
 			}
 		})
 	}
@@ -151,6 +181,27 @@ func TestLoad_InvalidOwnerName(t *testing.T) {
 	}
 }
 
+// 組ごとの規則は permission が検証する。ここでは、カンマで分けた要素を、空の要素も前後の空白も残したまま渡すことと、誤りが初期化の失敗になることを確かめる
+//
+//trace:checks AC-AUTHZ-010
+func TestLoad_InvalidIssuablePermissions(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{name: "leading comma", value: ",contents:read"},
+		{name: "trailing comma", value: "contents:read,"},
+		{name: "consecutive commas", value: "contents:read,,issues:read"},
+		{name: "entry with surrounding spaces", value: "contents:read, issues:read"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name+" returns ErrInvalidConfig", func(t *testing.T) {
+			env := withEnv(map[string]string{"GATES_ISSUABLE_PERMISSIONS": tt.value})
+			assertInvalid(t, env, "GATES_ISSUABLE_PERMISSIONS: ")
+		})
+	}
+}
+
 // 種別の規則そのものは authz が検証する。ここでは誤りが種別の環境変数の名前で報告されることだけを確かめる
 func TestLoad_InvalidOwnerType(t *testing.T) {
 	env := withEnv(map[string]string{"GATES_ALLOWED_OWNER_TYPE": "organization"})
@@ -159,9 +210,10 @@ func TestLoad_InvalidOwnerType(t *testing.T) {
 
 func TestLoad_AggregatesErrors(t *testing.T) {
 	env := withEnv(map[string]string{
-		"GATES_ALLOWED_OWNER_ID":   "0",
-		"GATES_ALLOWED_OWNER_TYPE": "org",
-		"GATES_KMS_KEY_ARN":        "",
+		"GATES_ALLOWED_OWNER_ID":     "0",
+		"GATES_ALLOWED_OWNER_TYPE":   "org",
+		"GATES_KMS_KEY_ARN":          "",
+		"GATES_ISSUABLE_PERMISSIONS": "members:read",
 	})
 	delete(env, "GATES_GITHUB_APP_CLIENT_ID")
 	assertInvalid(t, env,
@@ -169,6 +221,7 @@ func TestLoad_AggregatesErrors(t *testing.T) {
 		"GATES_ALLOWED_OWNER_TYPE: ",
 		"GATES_GITHUB_APP_CLIENT_ID: is not set",
 		"GATES_KMS_KEY_ARN: must not be empty",
+		"GATES_ISSUABLE_PERMISSIONS: ",
 	)
 }
 
@@ -181,6 +234,7 @@ func TestLoad_ErrorsDoNotContainValues(t *testing.T) {
 		{name: "owner id with a non-digit", overrides: map[string]string{"GATES_ALLOWED_OWNER_ID": "SecretMarker1"}},
 		{name: "owner name", overrides: map[string]string{"GATES_ALLOWED_OWNER_NAME": "Secret_Marker"}},
 		{name: "owner type", overrides: map[string]string{"GATES_ALLOWED_OWNER_TYPE": "SecretMarker"}},
+		{name: "issuable permissions with a malformed entry", overrides: map[string]string{"GATES_ISSUABLE_PERMISSIONS": "contents:read,SecretMarker"}},
 	}
 	for _, tt := range tests {
 		t.Run("invalid "+tt.name+" is not written in the error", func(t *testing.T) {

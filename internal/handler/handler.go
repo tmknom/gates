@@ -13,6 +13,7 @@ import (
 	"github.com/tmknom/gates/internal/claimsset"
 	"github.com/tmknom/gates/internal/errorcode"
 	"github.com/tmknom/gates/internal/nonzero"
+	"github.com/tmknom/gates/internal/permission"
 	"github.com/tmknom/gates/internal/request"
 	"github.com/tmknom/gates/internal/tokenissuer"
 )
@@ -29,18 +30,20 @@ type installationAccessTokenIssuer interface {
 
 // Handler は Lambda Handler である。
 type Handler struct {
-	verifier     oidcVerifier
-	tokenIssuer  installationAccessTokenIssuer
-	allowedOwner authz.AllowedOwner
-	log          *slog.Logger
+	verifier            oidcVerifier
+	tokenIssuer         installationAccessTokenIssuer
+	allowedOwner        authz.AllowedOwner
+	issuablePermissions permission.IssuablePermissions
+	log                 *slog.Logger
 }
 
 // NewHandler は、Lambda Handler を作る。
 // log には、監査記録と回復した panic のログを書く。
-func NewHandler(verifier oidcVerifier, tokenIssuer installationAccessTokenIssuer, allowedOwner authz.AllowedOwner, log *slog.Logger) *Handler {
-	// ゼロ値の許可オーナーは、事前認可と Grant の照合先にならない
+func NewHandler(verifier oidcVerifier, tokenIssuer installationAccessTokenIssuer, allowedOwner authz.AllowedOwner, issuablePermissions permission.IssuablePermissions, log *slog.Logger) *Handler {
+	// ゼロ値の許可オーナーと発行上限は、事前認可と Grant の照合先にならない
 	nonzero.Require(allowedOwner)
-	return &Handler{verifier: verifier, tokenIssuer: tokenIssuer, allowedOwner: allowedOwner, log: log}
+	nonzero.Require(issuablePermissions)
+	return &Handler{verifier: verifier, tokenIssuer: tokenIssuer, allowedOwner: allowedOwner, issuablePermissions: issuablePermissions, log: log}
 }
 
 // Handle は、一回の発行処理を行い、応答の JSON を返す。
@@ -96,13 +99,13 @@ func (h *Handler) runProcessingFlow(ctx context.Context, payload []byte, record 
 		return tokenissuer.ReturnableIssuanceResult{}, err
 	}
 	record.SetCaller(verified)
-	if err := authz.Authorize(verified, tokenRequest, h.allowedOwner); err != nil {
+	if err := authz.Authorize(verified, tokenRequest, h.allowedOwner, h.issuablePermissions); err != nil {
 		return tokenissuer.ReturnableIssuanceResult{}, err
 	}
 	// 要求の ctx を別の期限で包まない。失効のタイムアウトは要求の ctx の期限から決まる（Lambda Design の「Call Time Budget」）
 	return h.tokenIssuer.IssueInstallationAccessToken(ctx, func(installation authz.Installation) (authz.TokenGrant, error) {
 		// Grant が拒否しても、Installation の解決には成功しているため、判定の前に詰める
 		record.SetInstallation(installation)
-		return authz.Grant(verified, tokenRequest, h.allowedOwner, installation)
+		return authz.Grant(verified, tokenRequest, h.allowedOwner, h.issuablePermissions, installation)
 	})
 }

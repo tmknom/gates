@@ -7,18 +7,16 @@ import (
 	"slices"
 )
 
-// maxTermLength の根拠は Lambda Design の「権限名と水準の文字種」に記述する。
-const maxTermLength = 64
-
-// errMalformedTerm は、権限名か水準が文字種を満たさないことを表す。文言に入力の値を含めない。
-var errMalformedTerm = fmt.Errorf("must be 1 to %d lowercase ASCII letters or '_'", maxTermLength)
-
 // Permissions は、権限名と水準の組（Permission Entry）の集合である。
 // GitHub の permissions オブジェクトが権限名をキーに持つため、権限名ごとに水準を一つ持つ。
 // map を持つため == と map のキーに使えず、比較は Equal だけを使う。
 type Permissions struct {
 	levels map[string]string
 }
+
+// impliedPermissions は、要求にかかわらず GitHub が付与する Permission Entry のうち、GATES が許容するもの（付随権限）である。
+// 付随権限を `metadata:read` だけにする理由は Security Design の「Issuance Result Verification」に記述する。
+var impliedPermissions = map[entry]bool{{name: "metadata", level: "read"}: true}
 
 // NewPermissions は、空でないことと、権限名と水準がどれも ASCII 小文字とアンダースコアからなる maxTermLength 文字以下の文字列であることを検証する。
 // 文字種の根拠は Lambda Design の「権限名と水準の文字種」に記述する。
@@ -42,42 +40,35 @@ func NewPermissions(levels map[string]string) (Permissions, error) {
 	return Permissions{levels: maps.Clone(levels)}, nil
 }
 
-// AllowedPermissions は、GATES が発行を許可する Permissions を返す。
-// Go では struct を定数にできず、公開変数は import 側から差し替えられるため、呼ぶたびに値を作る関数にする。
-func AllowedPermissions() Permissions {
-	return Permissions{levels: map[string]string{"contents": "read"}}
-}
-
-// ImpliedPermissions は、要求にかかわらず GitHub が付与する Permission Entry のうち、GATES が許容するものを返す。
-// AllowedPermissions と同じ理由で、呼ぶたびに値を作る関数にする。
-func ImpliedPermissions() Permissions {
-	return Permissions{levels: map[string]string{"metadata": "read"}}
-}
-
-// EqualsAllowedExceptImplied は、INV-012 の実効権限の条件に従い、付随権限の Permission Entry を除けば許可権限に等しいかを返す。
-// 付随権限は GitHub が発行結果に加えるものであり、要求の認可には使わない。
-func (p Permissions) EqualsAllowedExceptImplied() bool {
-	allowed := AllowedPermissions().levels
-	implied := ImpliedPermissions().levels
-	for name, level := range allowed {
-		if p.levels[name] != level {
-			return false
-		}
+// WithinAllowed は、Permission Entry がどれも許可権限に含まれるかを返す。
+// 組で照合し、許可権限が同じ権限名の別の水準を含んでも、その組は含まれない。
+// ゼロ値は許可する要求を表さないため、含まれないとする。
+func (p Permissions) WithinAllowed() bool {
+	if len(p.levels) == 0 {
+		return false
 	}
 	for name, level := range p.levels {
-		if allowed[name] != level && implied[name] != level {
+		if !allowedPermissions[entry{name: name, level: level}] {
 			return false
 		}
 	}
 	return true
 }
 
-func wellFormedTerm(s string) bool {
-	if s == "" || len(s) > maxTermLength {
+// EqualsExceptImplied は、INV-012 の実効権限の条件に従い、レシーバの実効権限が発行許可の Permissions をすべて同じ水準で含み、それ以外は付随権限だけかを返す。
+// 発行許可が付随権限の権限名を含むときは、その水準も発行許可に照合する。
+// 発行許可のゼロ値は発行 API を呼ぶ前に止まる値だが、付随権限だけの実効権限を受理しないよう、含まないとする。
+func (p Permissions) EqualsExceptImplied(granted Permissions) bool {
+	if len(granted.levels) == 0 {
 		return false
 	}
-	for i := range len(s) {
-		if (s[i] < 'a' || 'z' < s[i]) && s[i] != '_' {
+	for name, level := range granted.levels {
+		if p.levels[name] != level {
+			return false
+		}
+	}
+	for name, level := range p.levels {
+		if granted.levels[name] != level && !impliedPermissions[entry{name: name, level: level}] {
 			return false
 		}
 	}
