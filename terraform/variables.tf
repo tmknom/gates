@@ -140,3 +140,24 @@ variable "lambda_package_path" {
     error_message = "lambda_package_path must not be empty."
   }
 }
+
+# 許可権限に含まれるかは Terraform では確かめず、Lambda の初期化が確かめる。AWS Infrastructure Design を参照する
+variable "issuable_permissions" {
+  description = "発行上限。発行する権限の上限を「権限名:水準」の形式で並べたリスト"
+  type        = list(string)
+
+  validation {
+    condition     = length(var.issuable_permissions) >= 1
+    error_message = "issuable_permissions must have at least one element."
+  }
+
+  validation {
+    condition     = alltrue([for permission in var.issuable_permissions : can(regex("^[a-z_]{1,64}:[a-z_]{1,64}$", permission))])
+    error_message = "every element of issuable_permissions must be name:level, where each of name and level is 1 to 64 characters of ASCII lowercase letters and underscores."
+  }
+
+  validation {
+    condition     = length(distinct(var.issuable_permissions)) == length(var.issuable_permissions)
+    error_message = "issuable_permissions must not have duplicate elements."
+  }
+}

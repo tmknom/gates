@@ -37,6 +37,9 @@ const (
 // requestedRepositories は、発行許可の対象である。大文字小文字だけが異なる実効対象を受理することを確かめるため、大文字を含める。
 var requestedRepositories = []string{allowedOwnerName + "/repo-b", allowedOwnerName + "/Example-Repo"}
 
+// contentsRead は、調査記録の発行応答を得た要求の Permissions である。
+var contentsRead = map[string]string{"contents": "read"}
+
 // now は、記録した応答の有効期限の 1 時間前である。
 var now = time.Date(2026, 11, 3, 11, 18, 48, 0, time.UTC)
 
@@ -92,7 +95,7 @@ func issue(t *testing.T, body string) github.IssuanceResult {
 	rootCAs := x509.NewCertPool()
 	rootCAs.AddCert(server.Certificate())
 	client := github.NewClient(github.WithAPIHost(apiHost), github.WithRootCAs(rootCAs))
-	result, err := client.Issue(t.Context(), github.NewAppJWT("app-jwt"), tokenGrant(t))
+	result, err := client.Issue(t.Context(), github.NewAppJWT("app-jwt"), tokenGrant(t, contentsRead))
 	if err != nil {
 		t.Fatalf("Issue returned error: %v", err)
 	}
@@ -100,21 +103,22 @@ func issue(t *testing.T, body string) github.IssuanceResult {
 }
 
 // tokenGrant は、TokenGrant を Grant でしか作れないため、記録した Installation で grant を通す。
-func tokenGrant(t *testing.T) authz.TokenGrant {
+func tokenGrant(t *testing.T, permissions map[string]string) authz.TokenGrant {
 	t.Helper()
 	installation, err := authz.NewInstallation(installationID, allowedOwnerID, false)
 	if err != nil {
 		t.Fatalf("NewInstallation returned error: %v", err)
 	}
-	tokenGrant, err := grant(t, installation)
+	tokenGrant, err := grant(t, installation, permissions)
 	if err != nil {
 		t.Fatalf("Grant returned error: %v", err)
 	}
 	return tokenGrant
 }
 
-// grant は、Lambda Handler と同じく、Caller、形式検証を通した発行要求、許可オーナーをそろえて、Installation から発行許可を確定する。
-func grant(t *testing.T, installation authz.Installation) (authz.TokenGrant, error) {
+// grant は、Lambda Handler と同じく、Caller、形式検証を通した発行要求、許可オーナー、発行上限をそろえて、Installation から発行許可を確定する。
+// 発行上限は、Grant が認可を判定し直しても通るよう、要求の Permissions と同じ組にする。
+func grant(t *testing.T, installation authz.Installation, permissions map[string]string) (authz.TokenGrant, error) {
 	t.Helper()
 	c, err := caller.NewCaller(allowedOwnerID, repositoryIDA, 4004, 1, caller.WorkflowTriggerAttributes{})
 	if err != nil {
@@ -124,13 +128,21 @@ func grant(t *testing.T, installation authz.Installation) (authz.TokenGrant, err
 		"version":      1,
 		"id_token":     "header.payload.signature",
 		"repositories": requestedRepositories,
-		"permissions":  map[string]string{"contents": "read"},
+		"permissions":  permissions,
 	})
 	_, req, err := request.Validate([]byte(payload))
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
-	return authz.Grant(c, req, allowedOwner(t), installation)
+	notations := make([]string, 0, len(permissions))
+	for name, level := range permissions {
+		notations = append(notations, name+":"+level)
+	}
+	issuablePermissions, err := permission.NewIssuablePermissions(notations)
+	if err != nil {
+		t.Fatalf("NewIssuablePermissions returned error: %v", err)
+	}
+	return authz.Grant(c, req, allowedOwner(t), issuablePermissions, installation)
 }
 
 func allowedOwner(t *testing.T) authz.AllowedOwner {
@@ -142,9 +154,9 @@ func allowedOwner(t *testing.T) authz.AllowedOwner {
 	return owner
 }
 
-func verifyResult(t *testing.T, result github.IssuanceResult) (ReturnableIssuanceResult, error) {
+func verifyResult(t *testing.T, result github.IssuanceResult, granted map[string]string) (ReturnableIssuanceResult, error) {
 	t.Helper()
-	return verify(result, tokenGrant(t), allowedOwner(t), now)
+	return verify(result, tokenGrant(t, granted), allowedOwner(t), now)
 }
 
 func mustNewPermissions(t *testing.T, levels map[string]string) permission.Permissions {
@@ -167,7 +179,7 @@ func fullNames(repositories []github.EffectiveRepository) []string {
 func TestVerify_ReturnsReturnableIssuanceResult(t *testing.T) {
 	result := issue(t, marshal(t, recordedIssuance()))
 
-	got, err := verifyResult(t, result)
+	got, err := verifyResult(t, result, contentsRead)
 	if err != nil {
 		t.Fatalf("Verify returned error: %v", err)
 	}
@@ -206,8 +218,51 @@ func TestVerify_Accepts(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			response := recordedIssuance()
 			tt.modify(response)
-			if _, err := verifyResult(t, issue(t, marshal(t, response))); err != nil {
+			if _, err := verifyResult(t, issue(t, marshal(t, response)), contentsRead); err != nil {
 				t.Errorf("Verify returned error: %v", err)
+			}
+		})
+	}
+}
+
+// grantedPermissions は、複数の権限と読み取り以外の水準を含む発行許可の Permissions である。
+var grantedPermissions = map[string]string{"contents": "write", "issues": "read"}
+
+//trace:checks AC-ISSUANCE-010
+func TestVerify_AcceptsGrantedPermissionsWithImpliedPermissions(t *testing.T) {
+	response := recordedIssuance()
+	response["permissions"] = map[string]any{"contents": "write", "issues": "read", "metadata": "read"}
+
+	got, err := verifyResult(t, issue(t, marshal(t, response)), grantedPermissions)
+	if err != nil {
+		t.Fatalf("Verify returned error: %v", err)
+	}
+	if want := mustNewPermissions(t, map[string]string{"contents": "write", "issues": "read", "metadata": "read"}); !got.EffectivePermissions().Equal(want) {
+		t.Errorf("EffectivePermissions() is not equal to the permissions of the issuance result")
+	}
+}
+
+// GitHub App に付与されていない権限を GitHub が除くか水準を下げて発行しても、トークンを返さないことを確かめる。
+//
+//trace:checks AC-AUTHZ-008
+func TestVerify_RejectsPermissionsDifferentFromTokenGrant(t *testing.T) {
+	tests := []struct {
+		name        string
+		permissions map[string]any
+	}{
+		{name: "issuance result without a granted permission returns ErrVerificationFailure", permissions: map[string]any{"contents": "write", "metadata": "read"}},
+		{name: "issuance result with a lowered level returns ErrVerificationFailure", permissions: map[string]any{"contents": "read", "issues": "read", "metadata": "read"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			response := recordedIssuance()
+			response["permissions"] = tt.permissions
+			_, err := verifyResult(t, issue(t, marshal(t, response)), grantedPermissions)
+			if !errors.Is(err, ErrVerificationFailure) {
+				t.Fatalf("Verify error = %v, want %v", err, ErrVerificationFailure)
+			}
+			if want := "permissions do not equal token grant permissions except implied permissions"; !strings.Contains(err.Error(), want) {
+				t.Errorf("error message %q does not contain condition %q", err.Error(), want)
 			}
 		})
 	}
@@ -254,22 +309,22 @@ func TestVerify_Rejects(t *testing.T) {
 		{name: "missing permissions returns ErrVerificationFailure", body: modified(func(r map[string]any) { delete(r, "permissions") }), condition: "permissions are unreadable"},
 		{name: "contents write returns ErrVerificationFailure", body: modified(func(r map[string]any) {
 			r["permissions"] = map[string]any{"contents": "write", "metadata": "read"}
-		}), condition: "permissions do not equal allowed permissions except implied permissions"},
+		}), condition: "permissions do not equal token grant permissions except implied permissions"},
 		{name: "missing contents returns ErrVerificationFailure", body: modified(func(r map[string]any) {
 			r["permissions"] = map[string]any{"metadata": "read"}
-		}), condition: "permissions do not equal allowed permissions except implied permissions"},
+		}), condition: "permissions do not equal token grant permissions except implied permissions"},
 		{name: "metadata write returns ErrVerificationFailure", body: modified(func(r map[string]any) {
 			r["permissions"] = map[string]any{"contents": "read", "metadata": "write"}
-		}), condition: "permissions do not equal allowed permissions except implied permissions"},
+		}), condition: "permissions do not equal token grant permissions except implied permissions"},
 		{name: "additional permission entry returns ErrVerificationFailure", body: modified(func(r map[string]any) {
 			r["permissions"] = map[string]any{"contents": "read", "metadata": "read", "issues": "read"}
-		}), condition: "permissions do not equal allowed permissions except implied permissions"},
+		}), condition: "permissions do not equal token grant permissions except implied permissions"},
 		{name: "missing repository_selection returns ErrVerificationFailure", body: modified(func(r map[string]any) { delete(r, "repository_selection") }), condition: "repository_selection is unreadable"},
 		{name: "repository_selection all returns ErrVerificationFailure", body: modified(func(r map[string]any) { r["repository_selection"] = "all" }), condition: "repository_selection is not selected"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := verifyResult(t, issue(t, tt.body(t)))
+			got, err := verifyResult(t, issue(t, tt.body(t)), contentsRead)
 			if !errors.Is(err, ErrVerificationFailure) {
 				t.Fatalf("Verify error = %v, want %v", err, ErrVerificationFailure)
 			}

@@ -39,8 +39,8 @@ func verify(result github.IssuanceResult, grant authz.TokenGrant, allowedOwner a
 	if !ok {
 		return ReturnableIssuanceResult{}, verificationFailure(result, errors.New("permissions are unreadable"))
 	}
-	if !permissions.EqualsAllowedExceptImplied() {
-		return ReturnableIssuanceResult{}, verificationFailure(result, errors.New("permissions do not equal allowed permissions except implied permissions"))
+	if !permissions.EqualsExceptImplied(grant.Permissions()) {
+		return ReturnableIssuanceResult{}, verificationFailure(result, errors.New("permissions do not equal token grant permissions except implied permissions"))
 	}
 	selection, ok := result.RepositorySelection()
 	if !ok {

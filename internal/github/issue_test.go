@@ -67,8 +67,12 @@ func respondIssuance(body string) http.HandlerFunc {
 	}
 }
 
-// tokenGrant は、TokenGrant を Grant でしか作れないため、Caller、形式検証を通した発行要求、許可オーナー、Installation をそろえて Grant を通す。
-func tokenGrant(t *testing.T) authz.TokenGrant {
+// contentsRead は、調査記録の発行応答を得た要求の Permissions である。
+var contentsRead = map[string]string{"contents": "read"}
+
+// tokenGrant は、TokenGrant を Grant でしか作れないため、Caller、形式検証を通した発行要求、許可オーナー、発行上限、Installation をそろえて Grant を通す。
+// 発行上限は、Grant が認可を判定し直しても通るよう、要求の Permissions と同じ組にする。
+func tokenGrant(t *testing.T, permissions map[string]string) authz.TokenGrant {
 	t.Helper()
 	c, err := caller.NewCaller(recordedAccountID, 1234567890, 4004, 1, caller.WorkflowTriggerAttributes{})
 	if err != nil {
@@ -78,13 +82,21 @@ func tokenGrant(t *testing.T) authz.TokenGrant {
 		"version":      1,
 		"id_token":     "header.payload.signature",
 		"repositories": requestedRepositories,
-		"permissions":  map[string]string{"contents": "read"},
+		"permissions":  permissions,
 	})
 	_, req, err := request.Validate([]byte(payload))
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
-	grant, err := authz.Grant(c, req, allowedOwner(t, authz.OwnerTypeUser), newInstallation(t, false))
+	notations := make([]string, 0, len(permissions))
+	for name, level := range permissions {
+		notations = append(notations, name+":"+level)
+	}
+	issuablePermissions, err := permission.NewIssuablePermissions(notations)
+	if err != nil {
+		t.Fatalf("NewIssuablePermissions returned error: %v", err)
+	}
+	grant, err := authz.Grant(c, req, allowedOwner(t, authz.OwnerTypeUser), issuablePermissions, newInstallation(t, false))
 	if err != nil {
 		t.Fatalf("Grant returned error: %v", err)
 	}
@@ -93,7 +105,7 @@ func tokenGrant(t *testing.T) authz.TokenGrant {
 
 func issue(t *testing.T, client *github.Client) (github.IssuanceResult, error) {
 	t.Helper()
-	return client.Issue(t.Context(), github.NewAppJWT(appJWTValue), tokenGrant(t))
+	return client.Issue(t.Context(), github.NewAppJWT(appJWTValue), tokenGrant(t, contentsRead))
 }
 
 func issueBody(t *testing.T, body string) github.IssuanceResult {
@@ -133,8 +145,11 @@ func assertReadFields(t *testing.T, result github.IssuanceResult, unreadable ...
 
 var allFields = []string{"token", "expires_at", "permissions", "repository_selection", "repositories"}
 
-//trace:checks AC-ISSUANCE-002 AC-ISSUANCE-003
+// 本文の permissions が発行許可の Permissions の組だけを持つことを、複数の権限と読み取り以外の水準で確かめる。
+//
+//trace:checks AC-ISSUANCE-002 AC-ISSUANCE-003 AC-ISSUANCE-010
 func TestIssue_SendsExplicitRepositoriesAndPermissions(t *testing.T) {
+	granted := map[string]string{"contents": "write", "pull_requests": "read"}
 	var body atomic.Pointer[string]
 	stub := newAPIStub(t, func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
@@ -143,7 +158,7 @@ func TestIssue_SendsExplicitRepositoriesAndPermissions(t *testing.T) {
 		respondIssuance(marshal(t, recordedIssuance()))(w, r)
 	})
 
-	if _, err := issue(t, stub.client(t)); err != nil {
+	if _, err := stub.client(t).Issue(t.Context(), github.NewAppJWT(appJWTValue), tokenGrant(t, granted)); err != nil {
 		t.Fatalf("Issue returned error: %v", err)
 	}
 
@@ -165,8 +180,8 @@ func TestIssue_SendsExplicitRepositoriesAndPermissions(t *testing.T) {
 	if want := []string{"repo-b", "Example-Repo"}; !slices.Equal(got.Repositories, want) {
 		t.Errorf("request repositories = %q, want %q", got.Repositories, want)
 	}
-	if want := map[string]string{"contents": "read"}; !maps.Equal(got.Permissions, want) {
-		t.Errorf("request permissions = %v, want %v", got.Permissions, want)
+	if !maps.Equal(got.Permissions, granted) {
+		t.Errorf("request permissions = %v, want %v", got.Permissions, granted)
 	}
 }
 
@@ -246,6 +261,17 @@ func TestIssue_ReadsRecordedResponse(t *testing.T) {
 	if !slices.Equal(gotRepositories, wantRepositories) {
 		t.Errorf("EffectiveRepositories() = %v, want %v", gotRepositories, wantRepositories)
 	}
+}
+
+// single_file を含む要求の発行応答には、調査記録のとおり 3 つのキーが加わる。発行結果に写さないキーで読み取りが失敗しないことを確かめる。
+func TestIssue_ReadsResponseWithSingleFileKeys(t *testing.T) {
+	body := recordedIssuance()
+	body["permissions"] = map[string]any{"single_file": "read", "metadata": "read"}
+	body["single_file"] = "README.md"
+	body["has_multiple_single_files"] = false
+	body["single_file_paths"] = []any{"README.md"}
+
+	assertReadFields(t, issueBody(t, marshal(t, body)))
 }
 
 func TestIssue_ReadsEachFieldIndependently(t *testing.T) {
@@ -358,7 +384,7 @@ func assertIssueFailed(t *testing.T, got github.IssuanceResult, err, want error)
 	}
 }
 
-//trace:checks AC-AUTHZ-003 AC-AUTHZ-006 AC-OPS-003 AC-OPS-008
+//trace:checks AC-AUTHZ-003 AC-AUTHZ-006 AC-AUTHZ-008 AC-OPS-003 AC-OPS-008
 func TestIssue_StatusFailure(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -444,7 +470,7 @@ func TestIssue_CommunicationFailureReturnsErrTransientFailure(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 			defer cancel()
 
-			got, err := client.Issue(ctx, github.NewAppJWT(appJWTValue), tokenGrant(t))
+			got, err := client.Issue(ctx, github.NewAppJWT(appJWTValue), tokenGrant(t, contentsRead))
 
 			assertIssueFailed(t, got, err, github.ErrTransientFailure)
 		})

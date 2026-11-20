@@ -4,32 +4,36 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/tmknom/gates/internal/authz"
+	"github.com/tmknom/gates/internal/permission"
 	"github.com/tmknom/gates/internal/repository"
 )
 
 // 環境変数の名前は、AWS Infrastructure Design が定める Lambda と Terraform の間の契約である。
 const (
-	envAllowedOwnerID   = "GATES_ALLOWED_OWNER_ID"
-	envAllowedOwnerName = "GATES_ALLOWED_OWNER_NAME"
-	envAllowedOwnerType = "GATES_ALLOWED_OWNER_TYPE"
-	envClientID         = "GATES_GITHUB_APP_CLIENT_ID"
-	envAudience         = "GATES_AUDIENCE"
-	envKMSKeyARN        = "GATES_KMS_KEY_ARN"
+	envAllowedOwnerID      = "GATES_ALLOWED_OWNER_ID"
+	envAllowedOwnerName    = "GATES_ALLOWED_OWNER_NAME"
+	envAllowedOwnerType    = "GATES_ALLOWED_OWNER_TYPE"
+	envClientID            = "GATES_GITHUB_APP_CLIENT_ID"
+	envAudience            = "GATES_AUDIENCE"
+	envKMSKeyARN           = "GATES_KMS_KEY_ARN"
+	envIssuablePermissions = "GATES_ISSUABLE_PERMISSIONS"
 )
 
 // Config は、固定設定のうち GATES 運用者がデプロイ時に決める値である。
 // Client ID、Audience、KMS Key ARN を文字列のまま持つのは、それらの条件を OIDC Verifier と KMS Signer が作る時点の不変条件として持ち、規則を 2 か所に分けないため。
 // フィールドを非公開にし、ゼロ値以外は Load でしか作れないようにする。
 type Config struct {
-	allowedOwner authz.AllowedOwner
-	clientID     string
-	audience     string
-	kmsKeyARN    string
+	allowedOwner        authz.AllowedOwner
+	clientID            string
+	audience            string
+	kmsKeyARN           string
+	issuablePermissions permission.IssuablePermissions
 }
 
-// Load は、環境変数から固定設定を読み、INV-004 が定める許可オーナーの条件を検証する。
+// Load は、環境変数から固定設定を読み、INV-004 が定める許可オーナーの条件と INV-015 が定める発行上限の条件を検証する。
 // 欠落と不正な値をすべて集めて返す理由は Lambda Design の「Runtime Entry」に記述する。
 func Load(lookupEnv func(key string) (string, bool)) (Config, error) {
 	l := loader{lookupEnv: lookupEnv}
@@ -39,13 +43,15 @@ func Load(lookupEnv func(key string) (string, bool)) (Config, error) {
 	clientID := l.read(envClientID)
 	audience := l.read(envAudience)
 	kmsKeyARN := l.read(envKMSKeyARN)
+	rawIssuablePermissions := l.read(envIssuablePermissions)
 
 	allowedOwner := l.allowedOwner(ownerID, ownerName, ownerType)
+	issuablePermissions := l.issuablePermissions(rawIssuablePermissions)
 
 	if len(l.errs) > 0 {
 		return Config{}, fmt.Errorf("%w: %w", ErrInvalidConfig, errors.Join(l.errs...))
 	}
-	return Config{allowedOwner: allowedOwner, clientID: clientID.value, audience: audience.value, kmsKeyARN: kmsKeyARN.value}, nil
+	return Config{allowedOwner: allowedOwner, clientID: clientID.value, audience: audience.value, kmsKeyARN: kmsKeyARN.value, issuablePermissions: issuablePermissions}, nil
 }
 
 // AllowedOwner は、許可オーナーを返す。
@@ -66,6 +72,11 @@ func (c Config) Audience() string {
 // KMSKeyARN は、署名鍵の KMS Key ARN を返す。
 func (c Config) KMSKeyARN() string {
 	return c.kmsKeyARN
+}
+
+// IssuablePermissions は、発行上限を返す。
+func (c Config) IssuablePermissions() permission.IssuablePermissions {
+	return c.issuablePermissions
 }
 
 // envValue は、読んだ環境変数の値である。
@@ -144,6 +155,19 @@ func (l *loader) ownerType(raw envValue) (authz.OwnerType, bool) {
 		return "", false
 	}
 	return ownerType, true
+}
+
+// issuablePermissions は、カンマで区切った組を、前後の空白を除かず、空の要素も捨てずに発行上限の組の表記として渡す。理由は Lambda Design の「Runtime Entry」に記述する。
+// 空の要素は `:` を含まないため、組の表記の誤りとして報告される。
+func (l *loader) issuablePermissions(raw envValue) permission.IssuablePermissions {
+	if !raw.ok {
+		return permission.IssuablePermissions{}
+	}
+	issuablePermissions, err := permission.NewIssuablePermissions(strings.Split(raw.value, ","))
+	if err != nil {
+		l.fail(raw.key, err)
+	}
+	return issuablePermissions
 }
 
 // parseOwnerID は、符号と先頭の 0 を持たない 10 進表記だけを受け付ける。

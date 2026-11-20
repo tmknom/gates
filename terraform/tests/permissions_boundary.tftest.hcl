@@ -58,6 +58,7 @@ variables {
   kms_keys             = { key-1 = "RSA_2048" }
   active_kms_key       = "key-1"
   lambda_package_path  = "tests/testdata/package.txt"
+  issuable_permissions = ["contents:read", "contents:write", "pull_requests:write"]
 }
 
 run "boundary_name_is_the_one_accounts_allow" {

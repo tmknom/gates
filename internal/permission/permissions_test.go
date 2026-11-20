@@ -15,7 +15,7 @@ func TestNewPermissions(t *testing.T) {
 		levels map[string]string
 	}{
 		{name: "single permission entry is accepted", levels: map[string]string{"contents": "read"}},
-		{name: "permission entry outside allowed permissions is accepted", levels: map[string]string{"contents": "read", "metadata": "read"}},
+		{name: "permission entry outside allowed permissions is accepted", levels: map[string]string{"contents": "read", "members": "read"}},
 		{name: "permission name with underscore is accepted", levels: map[string]string{"pull_requests": "write"}},
 		{name: "permission name and level of 64 characters are accepted", levels: map[string]string{strings.Repeat("a", 64): strings.Repeat("z", 64)}},
 	}
@@ -111,38 +111,70 @@ func TestPermissions_Equal(t *testing.T) {
 	}
 }
 
-func TestAllowedPermissions(t *testing.T) {
-	want := mustNewPermissions(t, map[string]string{"contents": "read"})
-	if !permission.AllowedPermissions().Equal(want) {
-		t.Errorf("AllowedPermissions() is not equal to {contents:read}")
+func TestPermissions_WithinAllowed(t *testing.T) {
+	levels := map[string]string{"contents": "write", "issues": "read", "repository_projects": "admin"}
+	if !mustNewPermissions(t, levels).WithinAllowed() {
+		t.Errorf("%v.WithinAllowed() = false, want true", levels)
 	}
 }
 
-func TestPermissions_EqualsAllowedExceptImplied(t *testing.T) {
+//trace:checks AC-AUTHZ-004
+func TestPermissions_WithinAllowed_False(t *testing.T) {
 	tests := []struct {
 		name   string
 		levels map[string]string
-		equal  bool
 	}{
-		{name: "allowed permissions only return true", levels: map[string]string{"contents": "read"}, equal: true},
-		{name: "allowed and implied permissions return true", levels: map[string]string{"contents": "read", "metadata": "read"}, equal: true},
-		{name: "implied permissions without allowed permissions return false", levels: map[string]string{"metadata": "read"}, equal: false},
-		{name: "allowed permission name with another level returns false", levels: map[string]string{"contents": "write"}, equal: false},
-		{name: "implied permission name with another level returns false", levels: map[string]string{"contents": "read", "metadata": "write"}, equal: false},
-		{name: "additional permission entry returns false", levels: map[string]string{"contents": "read", "issues": "read"}, equal: false},
+		{name: "organization permission returns false", levels: map[string]string{"members": "read"}},
+		{name: "permission name not in enumeration returns false", levels: map[string]string{"nonexistent_permission": "read"}},
+		{name: "level not allowed for permission name returns false", levels: map[string]string{"metadata": "write"}},
+		{name: "allowed entry mixed with organization permission returns false", levels: map[string]string{"contents": "read", "members": "read"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := mustNewPermissions(t, tt.levels).EqualsAllowedExceptImplied(); got != tt.equal {
-				t.Errorf("%v.EqualsAllowedExceptImplied() = %v, want %v", tt.levels, got, tt.equal)
+			if mustNewPermissions(t, tt.levels).WithinAllowed() {
+				t.Errorf("%v.WithinAllowed() = true, want false", tt.levels)
 			}
 		})
 	}
 }
 
-func TestPermissions_EqualsAllowedExceptImpliedZeroValueIsFalse(t *testing.T) {
-	if (permission.Permissions{}).EqualsAllowedExceptImplied() {
-		t.Errorf("Permissions{}.EqualsAllowedExceptImplied() = true, want false")
+func TestPermissions_WithinAllowedZeroValueIsFalse(t *testing.T) {
+	if (permission.Permissions{}).WithinAllowed() {
+		t.Errorf("Permissions{}.WithinAllowed() = true, want false")
+	}
+}
+
+func TestPermissions_EqualsExceptImplied(t *testing.T) {
+	tests := []struct {
+		name      string
+		effective map[string]string
+		granted   map[string]string
+		equal     bool
+	}{
+		{name: "same entries return true", effective: map[string]string{"contents": "write", "issues": "read"}, granted: map[string]string{"contents": "write", "issues": "read"}, equal: true},
+		{name: "added implied permission entry returns true", effective: map[string]string{"contents": "read", "metadata": "read"}, granted: map[string]string{"contents": "read"}, equal: true},
+		{name: "requested metadata read with same entries returns true", effective: map[string]string{"contents": "read", "metadata": "read"}, granted: map[string]string{"contents": "read", "metadata": "read"}, equal: true},
+		{name: "missing requested metadata read returns false", effective: map[string]string{"contents": "read"}, granted: map[string]string{"contents": "read", "metadata": "read"}, equal: false},
+		{name: "added metadata write returns false", effective: map[string]string{"contents": "read", "metadata": "write"}, granted: map[string]string{"contents": "read"}, equal: false},
+		{name: "missing granted entry returns false", effective: map[string]string{"contents": "read", "metadata": "read"}, granted: map[string]string{"contents": "read", "issues": "write"}, equal: false},
+		{name: "higher level than granted returns false", effective: map[string]string{"contents": "write"}, granted: map[string]string{"contents": "read"}, equal: false},
+		{name: "lower level than granted returns false", effective: map[string]string{"contents": "read"}, granted: map[string]string{"contents": "write"}, equal: false},
+		{name: "added allowed permission entry not granted returns false", effective: map[string]string{"contents": "read", "issues": "read"}, granted: map[string]string{"contents": "read"}, equal: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			effective := mustNewPermissions(t, tt.effective)
+			granted := mustNewPermissions(t, tt.granted)
+			if got := effective.EqualsExceptImplied(granted); got != tt.equal {
+				t.Errorf("%v.EqualsExceptImplied(%v) = %v, want %v", tt.effective, tt.granted, got, tt.equal)
+			}
+		})
+	}
+}
+
+func TestPermissions_EqualsExceptImpliedZeroValueGrantedIsFalse(t *testing.T) {
+	if mustNewPermissions(t, map[string]string{"metadata": "read"}).EqualsExceptImplied(permission.Permissions{}) {
+		t.Errorf("{metadata:read}.EqualsExceptImplied(Permissions{}) = true, want false")
 	}
 }
 

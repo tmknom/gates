@@ -14,6 +14,7 @@ import (
 	"github.com/tmknom/gates/internal/caller"
 	"github.com/tmknom/gates/internal/claimsset"
 	"github.com/tmknom/gates/internal/github"
+	"github.com/tmknom/gates/internal/permission"
 	"github.com/tmknom/gates/internal/request"
 	"github.com/tmknom/gates/internal/tokenissuer"
 )
@@ -60,8 +61,9 @@ func recordedIssuance() map[string]any {
 func issueInstallationAccessToken(t *testing.T, issuance map[string]any, revocationStatus int) (tokenissuer.ReturnableIssuanceResult, error) {
 	t.Helper()
 	owner := allowedOwner(t)
+	issuablePermissions := mustNewIssuablePermissions(t, "contents:read")
 	return newTokenIssuer(t, issuance, revocationStatus).IssueInstallationAccessToken(t.Context(), func(installation authz.Installation) (authz.TokenGrant, error) {
-		return authz.Grant(verifiedCaller(t), tokenRequest(t), owner, installation)
+		return authz.Grant(verifiedCaller(t), tokenRequest(t), owner, issuablePermissions, installation)
 	})
 }
 
@@ -113,6 +115,15 @@ func allowedOwner(t *testing.T) authz.AllowedOwner {
 		t.Fatalf("NewAllowedOwner returned error: %v", err)
 	}
 	return owner
+}
+
+func mustNewIssuablePermissions(t *testing.T, notations ...string) permission.IssuablePermissions {
+	t.Helper()
+	p, err := permission.NewIssuablePermissions(notations)
+	if err != nil {
+		t.Fatalf("NewIssuablePermissions(%v) returned error: %v", notations, err)
+	}
+	return p
 }
 
 func verifiedCaller(t *testing.T) caller.Caller {

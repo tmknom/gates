@@ -53,6 +53,7 @@ variables {
   kms_keys             = { key-1 = "RSA_2048" }
   active_kms_key       = "key-1"
   lambda_package_path  = "tests/testdata/package.txt"
+  issuable_permissions = ["contents:read", "contents:write", "pull_requests:write"]
 }
 
 # 既存の鍵の ARN を、新しく作る鍵の ARN と違う値にする。移動せずに作り直す Plan では、ARN が適用まで決まらず、比較できない

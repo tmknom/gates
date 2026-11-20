@@ -147,7 +147,7 @@ func (g *grantRecorder) grant(installation authz.Installation) (authz.TokenGrant
 	if g.err != nil {
 		return authz.TokenGrant{}, g.err
 	}
-	return grant(g.t, installation)
+	return grant(g.t, installation, contentsRead)
 }
 
 func newTestTokenIssuer(t *testing.T, signer *signerStub, stub *gitHubStub) *TokenIssuer {

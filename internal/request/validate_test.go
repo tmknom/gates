@@ -92,15 +92,15 @@ func TestTokenRequest_RepositoriesCannotBeModifiedByCaller(t *testing.T) {
 	assertRepositories(t, req.Repositories(), []string{"org/repo-a", "org/repo-b"})
 }
 
-func TestValidate_KeepsPermissionsOutsideAllowedPermissions(t *testing.T) {
+// 許可権限と発行上限に含まれるかは事前認可が判定するため、形式検証は形式を満たす Permissions をそのまま保つ。
+func TestValidate_KeepsPermissionsWithoutAuthorizing(t *testing.T) {
 	tests := []struct {
 		name        string
 		payload     string
 		permissions map[string]string
 	}{
-		{name: "contents write is kept", payload: payloadWith("permissions", `{"contents":"write"}`), permissions: map[string]string{"contents": "write"}},
-		{name: "permission other than contents is kept", payload: payloadWith("permissions", `{"issues":"read"}`), permissions: map[string]string{"issues": "read"}},
-		{name: "additional metadata read is kept", payload: payloadWith("permissions", `{"contents":"read","metadata":"read"}`), permissions: map[string]string{"contents": "read", "metadata": "read"}},
+		{name: "multiple permissions with write levels are kept", payload: payloadWith("permissions", `{"contents":"write","issues":"write","metadata":"read"}`), permissions: map[string]string{"contents": "write", "issues": "write", "metadata": "read"}},
+		{name: "permission name outside allowed permissions is kept", payload: payloadWith("permissions", `{"members":"read"}`), permissions: map[string]string{"members": "read"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

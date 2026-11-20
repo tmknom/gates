@@ -14,13 +14,15 @@ import (
 
 const installationID = 5005
 
+//trace:checks AC-ISSUANCE-010
 func TestGrant(t *testing.T) {
 	owner := mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName)
 	caller := mustNewCaller(t, allowedOwnerID)
-	req := mustTokenRequest(t, []string{"Example-Org/App", "example-org/lib"}, contentsRead)
+	requested := map[string]string{"contents": "write", "issues": "write"}
+	req := mustTokenRequest(t, []string{"Example-Org/App", "example-org/lib"}, requested)
 	inst := mustNewInstallation(t, allowedOwnerID, false)
 
-	grant, err := authz.Grant(caller, req, owner, inst)
+	grant, err := authz.Grant(caller, req, owner, mustNewIssuablePermissions(t, issuablePermissionNotations...), inst)
 	if err != nil {
 		t.Fatalf("Grant() returned error: %v", err)
 	}
@@ -28,8 +30,12 @@ func TestGrant(t *testing.T) {
 		t.Errorf("InstallationID() = %d, want %d", grant.InstallationID().Int64(), installationID)
 	}
 	assertRepositories(t, grant.Repositories(), []string{"Example-Org/App", "example-org/lib"})
-	if !grant.Permissions().Equal(permission.AllowedPermissions()) {
-		t.Error("Permissions() is not equal to allowed permissions")
+	want, err := permission.NewPermissions(requested)
+	if err != nil {
+		t.Fatalf("NewPermissions returned error: %v", err)
+	}
+	if !grant.Permissions().Equal(want) {
+		t.Error("Permissions() is not equal to the requested permissions")
 	}
 }
 
@@ -37,7 +43,7 @@ func TestTokenGrant_IsZero(t *testing.T) {
 	owner := mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName)
 	caller := mustNewCaller(t, allowedOwnerID)
 	req := mustTokenRequest(t, []string{"Example-Org/app"}, contentsRead)
-	grant, err := authz.Grant(caller, req, owner, mustNewInstallation(t, allowedOwnerID, false))
+	grant, err := authz.Grant(caller, req, owner, mustNewIssuablePermissions(t, issuablePermissionNotations...), mustNewInstallation(t, allowedOwnerID, false))
 	if err != nil {
 		t.Fatalf("Grant() returned error: %v", err)
 	}
@@ -54,7 +60,7 @@ func TestTokenGrant_RepositoriesCannotBeModifiedByCaller(t *testing.T) {
 	owner := mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName)
 	caller := mustNewCaller(t, allowedOwnerID)
 	req := mustTokenRequest(t, []string{"Example-Org/app", "Example-Org/lib"}, contentsRead)
-	grant, err := authz.Grant(caller, req, owner, mustNewInstallation(t, allowedOwnerID, false))
+	grant, err := authz.Grant(caller, req, owner, mustNewIssuablePermissions(t, issuablePermissionNotations...), mustNewInstallation(t, allowedOwnerID, false))
 	if err != nil {
 		t.Fatalf("Grant() returned error: %v", err)
 	}
@@ -63,7 +69,7 @@ func TestTokenGrant_RepositoriesCannotBeModifiedByCaller(t *testing.T) {
 	assertRepositories(t, grant.Repositories(), []string{"Example-Org/app", "Example-Org/lib"})
 }
 
-//trace:checks AC-AUTHZ-004
+//trace:checks AC-AUTHZ-004 AC-AUTHZ-009
 func TestGrant_Denied(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -94,12 +100,13 @@ func TestGrant_Denied(t *testing.T) {
 			wantReason:    "suspended",
 		},
 		{
-			name:          "request failing authorization with usable installation returns ErrAuthorizationDenied",
+			name:          "permission outside issuable permissions with usable installation returns ErrAuthorizationDenied",
 			callerOwnerID: allowedOwnerID,
-			permissions:   map[string]string{"contents": "write"},
+			permissions:   map[string]string{"pull_requests": "read"},
 			installation:  func(t *testing.T) authz.Installation { return mustNewInstallation(t, allowedOwnerID, false) },
 			want:          authz.ErrAuthorizationDenied,
 			notWant:       authz.ErrInstallationUnavailable,
+			wantReason:    "issuable permissions",
 		},
 		{
 			name:          "request failing both authorization and installation validity returns ErrAuthorizationDenied",
@@ -111,11 +118,12 @@ func TestGrant_Denied(t *testing.T) {
 		},
 	}
 	owner := mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName)
+	issuablePermissions := mustNewIssuablePermissions(t, issuablePermissionNotations...)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			caller := mustNewCaller(t, tt.callerOwnerID)
 			req := mustTokenRequest(t, []string{"Example-Org/app"}, tt.permissions)
-			_, err := authz.Grant(caller, req, owner, tt.installation(t))
+			_, err := authz.Grant(caller, req, owner, issuablePermissions, tt.installation(t))
 			if !errors.Is(err, tt.want) {
 				t.Fatalf("Grant() error = %v, want %v", err, tt.want)
 			}
@@ -134,7 +142,7 @@ func TestGrant_ErrorDoesNotContainValues(t *testing.T) {
 	owner := mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName)
 	caller := mustNewCaller(t, allowedOwnerID)
 	req := mustTokenRequest(t, []string{"Example-Org/app"}, contentsRead)
-	_, err := authz.Grant(caller, req, owner, mustNewInstallation(t, installationOwnerID, false))
+	_, err := authz.Grant(caller, req, owner, mustNewIssuablePermissions(t, issuablePermissionNotations...), mustNewInstallation(t, installationOwnerID, false))
 	if err == nil {
 		t.Fatal("Grant() returned no error")
 	}

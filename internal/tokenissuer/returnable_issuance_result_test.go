@@ -12,7 +12,7 @@ import (
 
 func returnableResult(t *testing.T) ReturnableIssuanceResult {
 	t.Helper()
-	got, err := verifyResult(t, issue(t, marshal(t, recordedIssuance())))
+	got, err := verifyResult(t, issue(t, marshal(t, recordedIssuance())), contentsRead)
 	if err != nil {
 		t.Fatalf("Verify returned error: %v", err)
 	}
