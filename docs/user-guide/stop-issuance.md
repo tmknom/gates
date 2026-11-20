@@ -38,7 +38,7 @@ aws lambda put-function-concurrency --function-name gates --reserved-concurrent-
 長く止めるときは、`terraform/local/terraform.tfvars` の `lambda_reserved_concurrency` も `0` にして適用します。
 
 再開するときは、`lambda_reserved_concurrency` を元の値にして、`make tf-plan` と `make tf-apply` で適用します。
-[Deployment](deployment.md) の §9.1 のワークフローで、発行が成功することを確かめます。
+GATES からトークンを受け取るワークフローで、発行が成功することを確かめます。
 
 ## 3. Disabling the KMS Key
 
@@ -61,6 +61,7 @@ KMS Key の ARN は、Output の `kms_key_arns` で確かめます。
 ```bash
 jq -r '.outputs.kms_key_arns.value' terraform/local/terraform.tfstate
 ```
+
 無効にする前に署名された GitHub App JWT は、その期限（最長 10 分）まで GitHub に受け付けられ得ます。
 
 KMS Key の状態は Terraform の Plan に現れないため、適用しても無効のままです。
@@ -131,12 +132,12 @@ gh api "repos/<オーナー名>/<リポジトリ名>/commits?path=.github/workfl
 **再開する前に、悪用した主体の AWS の権限を取り除きます。**
 権限が残ったままでは、新しい KMS Key での署名も悪用され得るためです。
 
-§3 か §5 で止めた後は、[Key Rotation](rotate-key.md) の手順で新しい鍵に替えて再開します。
+KMS Key を無効にしたか、GitHub で秘密鍵を削除した後は、[Key Rotation](rotate-key.md) の手順で新しい鍵に替えて再開します。
 そのとき、次のように読み替えます。
 
-- Key Rotation の §2 のうち、ワークフローが成功することは満たせない。Key Rotation の §5 で新しい鍵に切り替えるまで、発行は失敗したままになる
+- 前提のうち、ワークフローが成功することは満たせない。使用中の鍵を新しい KMS Key に切り替えるまで、発行は失敗したままになる
 - 旧鍵への切り戻しは行わない
-- Key Rotation の §7 の旧 KMS Key の無効化と、§8 の旧秘密鍵の削除は、済んでいれば省く
+- 旧 KMS Key の無効化と旧秘密鍵の削除は、済んでいれば省く
 
 ## 8. References
 

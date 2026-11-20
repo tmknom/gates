@@ -5,7 +5,6 @@ Action が失敗したときに、注釈から原因と直し方を引くため�
 
 Action が失敗すると、ジョブのログとワークフロー実行のページに `::error::` の注釈が出ます。
 注釈の先頭の文言が、失敗した段階を示します。
-文言と段階の一覧は、[Issue Token](../../.github/actions/issue-token/README.md) の「失敗の読み方」にあります。
 
 ## 1. Failures the Workflow User Can Fix
 
@@ -58,7 +57,6 @@ aws logs filter-log-events --log-group-name /aws/lambda/gates \
 
 `result` がエラーコードで、`reason` が失敗した理由です。
 `reason` は応答にも注釈にも出ないため、ワークフロー利用者には見えません。
-エラーコードごとの原因は §4 にあります。
 
 `request_id` がなく、注釈が `GATES returned a failure response` で始まるときは、ワークフロー実行の ID（URL の `.../actions/runs/<ID>`）で引きます。
 呼び出し元を確かめる前に失敗した要求（`invalid_request`、`invalid_id_token` など）は、この方法では見つからないため、時刻で引きます。
@@ -195,3 +193,7 @@ Runner の環境（`invalid ACTIONS_ID_TOKEN_REQUEST_URL`、`could not write to 
 GitHub がホストする Runner で繰り返し出るときは、注釈の全文とワークフロー実行の URL を運用者に伝えます。
 
 同じステップに `::error::` の注釈もあれば、そちらから §1 以降を引きます。
+
+## 7. References
+
+- [Issue Token](../../.github/actions/issue-token/README.md)：注釈の文言と失敗した段階の一覧、要求できる権限

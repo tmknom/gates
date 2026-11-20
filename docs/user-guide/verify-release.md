@@ -22,7 +22,7 @@ sha256sum -c SHA256SUMS        # macOS では shasum -a 256 -c SHA256SUMS
 ```
 
 配布物の行に `OK` と出れば一致です。
-この照合で分かるのはダウンロード中の破損だけで、改ざんは §3 で確かめます。
+この照合で分かるのはダウンロード中の破損だけで、改ざんは次の Attestation の検証で確かめます。
 
 ## 3. Verifying the Attestation
 
@@ -59,7 +59,7 @@ aws lambda get-function --function-name <関数名> --query Configuration.CodeSh
 openssl dgst -sha256 -binary <配布物のパス> | openssl base64
 ```
 
-2 つの出力が一致すれば、関数は §3 で確かめた配布物と同じコードを実行しています。
+2 つの出力が一致すれば、関数は検証した配布物と同じコードを実行しています。
 GATES の Terraform は、手元のソースからデプロイパッケージをビルドして関数に上げます。
 リリースのタグからビルドすれば、デプロイパッケージは配布物と同じバイト列になるため、この照合が使えます。
 
