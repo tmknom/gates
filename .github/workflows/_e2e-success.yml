@@ -25,8 +25,19 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
-        # 事例ごとの Action の入力は、Prepare repositories のステップが組み立てる
-        case: [single, multiple, reversed, letter-case, whitespace]
+        # permissions は Action に渡す入力、output は期待する Output の permissions。
+        # repositories の入力は、Prepare repositories のステップが事例ごとに組み立てる
+        include:
+          - { case: single, permissions: "contents:read", output: "contents:read,metadata:read" }
+          - { case: multiple, permissions: "contents:read", output: "contents:read,metadata:read" }
+          - { case: reversed, permissions: "contents:read", output: "contents:read,metadata:read" }
+          - { case: letter-case, permissions: "contents:read", output: "contents:read,metadata:read" }
+          - { case: whitespace, permissions: "contents:read", output: "contents:read,metadata:read" }
+          - { case: write, permissions: "contents:write", output: "contents:write,metadata:read" }
+          - case: multiple-permissions
+            permissions: "contents:read,pull_requests:read"
+            output: "contents:read,metadata:read,pull_requests:read"
+          - { case: metadata, permissions: "contents:read,metadata:read", output: "contents:read,metadata:read" }
     steps:
       # repositories は Action に渡す入力、expected は GitHub 上の表記の要求した対象、
       # unrequested はトークンで読めないことを確かめるリポジトリ
@@ -40,7 +51,8 @@ jobs:
         run: |
           set -euo pipefail
           case "${CASE}" in
-            single)
+            # 権限を変える事例は、対象を 1 つ目の対象だけにする
+            single | write | multiple-permissions | metadata)
               repositories="${PRIMARY}"
               expected="${PRIMARY}"
               unrequested="${SECONDARY},${CALLER}"
@@ -82,10 +94,10 @@ jobs:
 
       - name: Issue token
         id: gates
-        uses: tmknom/gates/.github/actions/issue-token@22eb9301dc4113ea70c3e3a7cded65b010621a58
+        uses: tmknom/gates/.github/actions/issue-token@d116ee17b36a6416e38c741ef900e8dedd3c13d5
         with:
           repositories: ${{ steps.input.outputs.repositories }}
-          permissions: contents:read
+          permissions: ${{ matrix.permissions }}
           role-arn: arn:aws:iam::${{ secrets.GATES_AWS_ACCOUNT_ID }}:role/${{ vars.GATES_ROLE_NAME }}
           function-name: ${{ vars.GATES_FUNCTION_NAME }}
           aws-region: ${{ vars.GATES_AWS_REGION }}
@@ -96,6 +108,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.gates.outputs.token }}
           CASE: ${{ matrix.case }}
+          PERMISSIONS: ${{ matrix.permissions }}
           EXPECTED: ${{ steps.input.outputs.expected }}
           UNREQUESTED: ${{ steps.input.outputs.unrequested }}
           PUBLIC_UNINSTALLED: ${{ vars.GATES_PUBLIC_UNINSTALLED }}
@@ -128,6 +141,17 @@ jobs:
             fail "GET /installation/repositories failed"
           fi
 
+          # 要求した権限から、書き込みと Pull Request の一覧が許されるかを決める
+          IFS=',' read -ra permissions <<< "${PERMISSIONS}"
+          writable=0
+          pulls=0
+          for permission in "${permissions[@]}"; do
+            case "${permission}" in
+              contents:write) writable=1 ;;
+              pull_requests:read) pulls=1 ;;
+            esac
+          done
+
           # 書き込みが想定に反して成功しても既存の内容を壊さないよう、パスと ref の名前を実行ごとに一意にする
           suffix="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${CASE}"
           for repo in "${requested[@]}"; do
@@ -135,20 +159,34 @@ jobs:
             echo "requested ${repo} read README.md: ${status}"
             [[ "${status}" == "200" ]] || fail "README.md of ${repo} is not readable"
 
+            # 書き込みを許すトークンでは、既定のブランチに書き込まないよう、ファイルの書き込みを試さない
             path="e2e-token-scope/${suffix}.txt"
-            call --method PUT "repos/${repo}/contents/${path}" -f message="e2e: token scope check" -f content=ZTJlCg==
-            echo "requested ${repo} write contents: ${status} accepted=${accepted}"
-            if [[ "${status}" == 2* ]]; then
-              fail "file ${path} was created in ${repo}; the operator must delete it"
-            elif [[ "${status}" != "403" ]]; then
-              fail "write contents to ${repo} was not denied with 403"
+            if [[ "${writable}" == 1 ]]; then
+              echo "requested ${repo} write contents: skipped"
+            else
+              call --method PUT "repos/${repo}/contents/${path}" -f message="e2e: token scope check" -f content=ZTJlCg==
+              echo "requested ${repo} write contents: ${status} accepted=${accepted}"
+              if [[ "${status}" == 2* ]]; then
+                fail "file ${path} was created in ${repo}; the operator must delete it"
+              elif [[ "${status}" != "403" ]]; then
+                fail "write contents to ${repo} was not denied with 403"
+              fi
             fi
 
             ref="refs/heads/e2e-token-scope/${suffix}"
             if sha="$(gh api "repos/${repo}/commits/HEAD" --jq '.sha' 2> /dev/null)"; then
               call --method POST "repos/${repo}/git/refs" -f ref="${ref}" -f sha="${sha}"
               echo "requested ${repo} create ref: ${status} accepted=${accepted}"
-              if [[ "${status}" == 2* ]]; then
+              if [[ "${writable}" == 1 ]]; then
+                # 作った ref はすぐに削除する。削除できなかった場合は Remove test refs のステップがもう一度削除を試す
+                if [[ "${status}" == "201" ]]; then
+                  call --method DELETE "repos/${repo}/git/${ref}"
+                  echo "requested ${repo} delete ref: ${status}"
+                  [[ "${status}" == "204" ]] || fail "ref ${ref} in ${repo} was not deleted with 204"
+                else
+                  fail "create ref in ${repo} did not succeed with 201"
+                fi
+              elif [[ "${status}" == 2* ]]; then
                 fail "ref ${ref} was created in ${repo}; the operator must delete it"
               elif [[ "${status}" != "403" ]]; then
                 fail "create ref in ${repo} was not denied with 403"
@@ -160,7 +198,11 @@ jobs:
             # 対象は非公開のため、Pull requests の権限がなければ一覧を読めない
             call "repos/${repo}/pulls"
             echo "requested ${repo} list pulls: ${status} accepted=${accepted}"
-            [[ "${status}" == "403" ]] || fail "list pulls of ${repo} was not denied with 403"
+            if [[ "${pulls}" == 1 ]]; then
+              [[ "${status}" == "200" ]] || fail "list pulls of ${repo} did not succeed with 200"
+            else
+              [[ "${status}" == "403" ]] || fail "list pulls of ${repo} was not denied with 403"
+            fi
           done
 
           IFS=',' read -ra unrequested <<< "${UNREQUESTED}"
@@ -183,6 +225,7 @@ jobs:
       - name: Check outputs
         env:
           EXPECTED: ${{ steps.input.outputs.expected }}
+          EXPECTED_PERMISSIONS: ${{ matrix.output }}
           EXPIRES_AT: ${{ steps.gates.outputs.expires-at }}
           OUTPUT_REPOSITORIES: ${{ steps.gates.outputs.repositories }}
           OUTPUT_PERMISSIONS: ${{ steps.gates.outputs.permissions }}
@@ -219,8 +262,8 @@ jobs:
             failed=1
           fi
 
-          if [[ "${OUTPUT_PERMISSIONS}" != "contents:read,metadata:read" ]]; then
-            echo "::error::permissions are not contents:read,metadata:read"
+          if [[ "${OUTPUT_PERMISSIONS}" != "${EXPECTED_PERMISSIONS}" ]]; then
+            echo "::error::permissions are not ${EXPECTED_PERMISSIONS}"
             failed=1
           fi
 
@@ -228,6 +271,30 @@ jobs:
             echo "::error::token is empty"
             failed=1
           fi
+          exit "${failed}"
+
+      # 書き込みを許すトークンの事例で、Check token scope が途中で終わっても試験の ref を残さないよう、成否によらず削除を試す。
+      # 削除済みなら GitHub は 422 を返す
+      - name: Remove test refs
+        if: ${{ always() && contains(matrix.permissions, 'contents:write') && steps.gates.outputs.token != '' }}
+        env:
+          GH_TOKEN: ${{ steps.gates.outputs.token }}
+          CASE: ${{ matrix.case }}
+          EXPECTED: ${{ steps.input.outputs.expected }}
+        run: |
+          set -euo pipefail
+          suffix="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${CASE}"
+          failed=0
+          IFS=',' read -ra requested <<< "${EXPECTED}"
+          for repo in "${requested[@]}"; do
+            ref="refs/heads/e2e-token-scope/${suffix}"
+            status="$(gh api --include --method DELETE "repos/${repo}/git/${ref}" 2> /dev/null | head -n 1 | awk '{print $2}' || true)"
+            echo "remove ${repo} ref: ${status}"
+            if [[ "${status}" != "204" && "${status}" != "422" ]]; then
+              echo "::error::ref ${ref} in ${repo} may remain; the operator must delete it"
+              failed=1
+            fi
+          done
           exit "${failed}"
 
       # Action が AWS 一時認証情報を後続ステップの環境に残していないことを確かめる。値は出さず名前だけを出す
@@ -243,7 +310,7 @@ jobs:
 
   # post-entrypoint が失効させた後のトークンが使えないことを、post-entrypoint の後に動く試験用の Action の post から確かめる
   revoked:
-    name: Revoked token
+    name: Revoked token (${{ matrix.permissions }})
     # 発行の事例と Invoke を重ねないよう、issue の後に動かす。issue の事例が失敗しても動かす
     needs: issue
     if: ${{ !cancelled() }}
@@ -252,6 +319,12 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        # 書き込みを許すトークンも、post-entrypoint の失効の後に使えないことを確かめる
+        permissions: ["contents:read", "contents:write"]
     steps:
       # 試験用の Action を相対パスで参照するため、ワークフローのリポジトリを取得する
       - name: Checkout
@@ -268,10 +341,10 @@ jobs:
 
       - name: Issue token
         id: gates
-        uses: tmknom/gates/.github/actions/issue-token@22eb9301dc4113ea70c3e3a7cded65b010621a58
+        uses: tmknom/gates/.github/actions/issue-token@d116ee17b36a6416e38c741ef900e8dedd3c13d5
         with:
           repositories: ${{ vars.GATES_TARGET_PRIMARY }}
-          permissions: contents:read
+          permissions: ${{ matrix.permissions }}
           role-arn: arn:aws:iam::${{ secrets.GATES_AWS_ACCOUNT_ID }}:role/${{ vars.GATES_ROLE_NAME }}
           function-name: ${{ vars.GATES_FUNCTION_NAME }}
           aws-region: ${{ vars.GATES_AWS_REGION }}
@@ -313,61 +386,69 @@ jobs:
           RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
-          job="$(gh api --paginate "repos/${REPOSITORY}/actions/runs/${RUN_ID}/attempts/${RUN_ATTEMPT}/jobs" \
-            --jq '.jobs[] | select(.name == "Revoked token")')"
-          if [[ -z "${job}" ]]; then
-            echo "::error::no Revoked token job"
-            exit 1
-          fi
-          echo "steps: $(jq -r '[.conclusion] + [.steps[] | "\(.number):\(.name)=\(.conclusion)"] | join(" ")' <<< "${job}")"
+          jobs_json="$(gh api --paginate "repos/${REPOSITORY}/actions/runs/${RUN_ID}/attempts/${RUN_ATTEMPT}/jobs" --jq '.jobs[]')"
 
           failed=0
           report() {
             echo "::error::$1"
             failed=1
           }
-          # Post のステップの番号は、Runner が動かした順を表す
-          number() {
-            jq -r --arg name "$1" '[.steps[] | select(.name == $name and .conclusion == "success") | .number] | first // empty' <<< "${job}"
-          }
-          revoke="$(number "Post Issue token")"
-          check="$(number "Post Check revoked token")"
-          [[ -n "${revoke}" ]] || report "Post Issue token did not succeed"
-          [[ -n "${check}" ]] || report "Post Check revoked token did not succeed"
-          if [[ -n "${revoke}" && -n "${check}" && "${revoke}" -ge "${check}" ]]; then
-            report "Post Check revoked token ran before Post Issue token"
-          fi
-
           # ログは色付けのエスケープシーケンスを含み、gh api はその出力を拒否するため curl で取得する。
           # ジョブの完了の直後はログを取得できないことがあるため、空でないログを得るまで待つ
-          log=""
-          for _ in 1 2 3 4 5 6; do
-            if log="$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
-              "${GITHUB_API_URL}/repos/${REPOSITORY}/actions/jobs/$(jq -r '.id' <<< "${job}")/logs")" && [[ -n "${log}" ]]; then
-              break
-            fi
-            sleep 10
-          done
-          if [[ -z "${log}" ]]; then
-            echo "::error::cannot fetch the log of Revoked token"
-            exit 1
-          fi
-          # 失効の行と 401 の行の、ログの中の行番号
-          line() {
-            grep -n -E -e "$1" <<< "${log}" | cut -d: -f1 | paste -sd ',' || true
+          fetch_log() {
+            local log
+            for _ in 1 2 3 4 5 6; do
+              if log="$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+                "${GITHUB_API_URL}/repos/${REPOSITORY}/actions/jobs/$1/logs")" && [[ -n "${log}" ]]; then
+                printf '%s' "${log}"
+                return 0
+              fi
+              sleep 10
+            done
+            return 1
           }
-          revoked="$(line 'revocation succeeded: HTTP status 204')"
-          rejected="$(line 'revoked token read README.md: HTTP status 401')"
-          removed="$(line 'token file removed')"
-          echo "log lines: revocation 204 at ${revoked:-none}, 401 at ${rejected:-none}, token file removed at ${removed:-none}"
-          # ジョブのログ全体の docker build を数える。別のリポジトリの Action はジョブの準備で 1 回ビルドされるため、1 より多ければ、いずれかのステップの中でビルドし直している
-          echo "docker build lines: $(grep -c -E -e '/usr/bin/docker build ' <<< "${log}" || true)"
-          [[ "${revoked}" =~ ^[0-9]+$ ]] || report "the token was not revoked once with 204"
-          [[ "${rejected}" =~ ^[0-9]+$ ]] || report "the post did not get 401 once"
-          [[ "${removed}" =~ ^[0-9]+$ ]] || report "the token file was not removed once"
-          if [[ "${revoked}" =~ ^[0-9]+$ && "${rejected}" =~ ^[0-9]+$ && "${revoked}" -ge "${rejected}" ]]; then
-            report "the 401 check is logged before the revocation"
-          fi
+          for permission in contents:read contents:write; do
+            name="Revoked token (${permission})"
+            job="$(jq -c --arg name "${name}" 'select(.name == $name)' <<< "${jobs_json}")"
+            if [[ -z "${job}" ]]; then
+              report "${name}: no job"
+              continue
+            fi
+            echo "${name}: steps: $(jq -r '[.conclusion] + [.steps[] | "\(.number):\(.name)=\(.conclusion)"] | join(" ")' <<< "${job}")"
+
+            # Post のステップの番号は、Runner が動かした順を表す
+            number() {
+              jq -r --arg name "$1" '[.steps[] | select(.name == $name and .conclusion == "success") | .number] | first // empty' <<< "${job}"
+            }
+            revoke="$(number "Post Issue token")"
+            check="$(number "Post Check revoked token")"
+            [[ -n "${revoke}" ]] || report "${name}: Post Issue token did not succeed"
+            [[ -n "${check}" ]] || report "${name}: Post Check revoked token did not succeed"
+            if [[ -n "${revoke}" && -n "${check}" && "${revoke}" -ge "${check}" ]]; then
+              report "${name}: Post Check revoked token ran before Post Issue token"
+            fi
+
+            if ! log="$(fetch_log "$(jq -r '.id' <<< "${job}")")"; then
+              report "${name}: cannot fetch the log"
+              continue
+            fi
+            # 失効の行と 401 の行の、ログの中の行番号
+            line() {
+              grep -n -E -e "$1" <<< "${log}" | cut -d: -f1 | paste -sd ',' || true
+            }
+            revoked="$(line 'revocation succeeded: HTTP status 204')"
+            rejected="$(line 'revoked token read README.md: HTTP status 401')"
+            removed="$(line 'token file removed')"
+            echo "${name}: log lines: revocation 204 at ${revoked:-none}, 401 at ${rejected:-none}, token file removed at ${removed:-none}"
+            # ジョブのログ全体の docker build を数える。別のリポジトリの Action はジョブの準備で 1 回ビルドされるため、1 より多ければ、いずれかのステップの中でビルドし直している
+            echo "${name}: docker build lines: $(grep -c -E -e '/usr/bin/docker build ' <<< "${log}" || true)"
+            [[ "${revoked}" =~ ^[0-9]+$ ]] || report "${name}: the token was not revoked once with 204"
+            [[ "${rejected}" =~ ^[0-9]+$ ]] || report "${name}: the post did not get 401 once"
+            [[ "${removed}" =~ ^[0-9]+$ ]] || report "${name}: the token file was not removed once"
+            if [[ "${revoked}" =~ ^[0-9]+$ && "${rejected}" =~ ^[0-9]+$ && "${revoked}" -ge "${rejected}" ]]; then
+              report "${name}: the 401 check is logged before the revocation"
+            fi
+          done
           exit "${failed}"
 
   credential-leak:
