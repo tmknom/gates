@@ -63,7 +63,8 @@ jobs:
             # GitHub は、呼び出し元のオーナーとリポジトリ以外を指す github.com の URL を Audience にした要求を 400 で拒否する
             audience) audience="https://github.com/${GITHUB_REPOSITORY_OWNER}/gates-e2e-nonexistent-repository" ;;
             function) function_name="gates-e2e-nonexistent-function" ;;
-            authorization) permissions="contents:write" ;;
+            # Organization permissions の権限は、許可権限に含まれない
+            authorization) permissions="members:read" ;;
             # 試験用のリポジトリ自身は GitHub App のインストール先に含めない
             installation) repositories="${PRIMARY},${GITHUB_REPOSITORY}" ;;
             *) echo "::error::unknown case ${CASE}"; exit 1 ;;
@@ -79,7 +80,7 @@ jobs:
       - name: Issue token
         id: gates
         continue-on-error: true
-        uses: tmknom/gates/.github/actions/issue-token@22eb9301dc4113ea70c3e3a7cded65b010621a58
+        uses: tmknom/gates/.github/actions/issue-token@d116ee17b36a6416e38c741ef900e8dedd3c13d5
         with:
           repositories: ${{ steps.inputs.outputs.repositories }}
           permissions: ${{ steps.inputs.outputs.permissions }}
@@ -122,7 +123,7 @@ jobs:
       - name: Issue token
         id: gates
         continue-on-error: true
-        uses: tmknom/gates/.github/actions/issue-token@22eb9301dc4113ea70c3e3a7cded65b010621a58
+        uses: tmknom/gates/.github/actions/issue-token@d116ee17b36a6416e38c741ef900e8dedd3c13d5
         with:
           repositories: ${{ vars.GATES_TARGET_PRIMARY }}
           permissions: contents:read
@@ -165,7 +166,7 @@ jobs:
       contents: read
     steps:
       - name: Issue token
-        uses: tmknom/gates/.github/actions/issue-token@22eb9301dc4113ea70c3e3a7cded65b010621a58
+        uses: tmknom/gates/.github/actions/issue-token@d116ee17b36a6416e38c741ef900e8dedd3c13d5
         with:
           repositories: ${{ vars.GATES_TARGET_PRIMARY }}
           permissions: contents:read,contents:write

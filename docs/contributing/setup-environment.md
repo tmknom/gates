@@ -16,9 +16,21 @@ Deployment の §3.1 のうち、運用者が決める項目は次の値にし�
 | Description | `A GitHub App for testing GATES (GitHub App Token Exchange System), a system that issues GitHub App installation access tokens to GitHub Actions workflows.` |
 | Homepage URL | `https://example.com` |
 
+Repository permissions は、Deployment の §3.1 の `Contents` の `Read-only` に代えて、[E2E Tests](e2e-tests.md) の事例が使う次の水準にします。
+
+| 権限 | 水準 | 使う事例 |
+|---|---|---|
+| `Contents` | `Read and write` | 書き込みの発行と、`contents:read` の発行 |
+| `Pull requests` | `Read-only` | 複数の権限の発行と、付与した水準より高い `pull_requests:write` の要求の拒否 |
+| `Commit statuses` | `Read-only` | GitHub App に付与されていて、発行上限に含まれない `statuses:read` の要求の拒否 |
+| `Issues` | 付与しない | 付与されていない `issues:read` の要求の拒否 |
+
+`Administration`、`Workflows`、`Secrets`、`Actions` の書き込みは、検証用の GitHub App にも付与しません。
+インストール先のリポジトリも、許可オーナーのどのワークフローからでも、発行したトークンで操作されるためです。
+
 ## 2. Repositories to Install
 
-Deployment の §3.2 のインストール対象には、[E2E Tests](e2e-tests.md) が読み取りを試すリポジトリだけを加えます。
+Deployment の §3.2 のインストール対象には、[E2E Tests](e2e-tests.md) が読み取りと一時的な ref の作成を試すリポジトリだけを加えます。
 E2E テストは、インストール対象の 2 つの非公開リポジトリと、インストール対象に含めない許可オーナーの公開リポジトリを使います。
 どのリポジトリをどの Variables に登録するかは、E2E Tests の Setup にあります。
 
@@ -28,6 +40,22 @@ E2E テストは、試験用のリポジトリを要求に含めたときに発�
 ## 3. Deployment
 
 Deployment の §2 から §8 に従って、AWS リソースを適用し、鍵素材をインポートし、接続情報を試験用のリポジトリに登録します。
+`terraform.tfvars` の発行上限（`issuable_permissions`）は、次の値にします。
+
+```hcl
+issuable_permissions = [
+  "contents:read",
+  "contents:write",
+  "metadata:read",
+  "pull_requests:read",
+  "pull_requests:write",
+  "issues:read",
+]
+```
+
+`pull_requests:write` と `issues:read` は GitHub App に付与しませんが、発行上限には含めます。
+これらの要求を GATES の認可で止めずに GitHub に届け、GitHub App の権限による拒否を確かめるためです。
+GitHub App に付与した `statuses:read` は発行上限に含めず、発行上限による拒否を確かめます。
 接続情報のほかに E2E テストが使う Variables は、E2E Tests の Setup にあります。
 
 Deployment の §9 の最初の発行の確認には、E2E テストの `_e2e-success.yml` を使えます。

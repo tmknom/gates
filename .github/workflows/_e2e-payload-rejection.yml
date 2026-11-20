@@ -299,13 +299,15 @@ jobs:
           json_case repositories-null invalid_request '.repositories = null'
           json_case permissions-missing invalid_request 'del(.permissions)'
           json_case permissions-empty invalid_request '.permissions = {}'
-          json_case permission-unknown-name authorization_denied '.permissions = {issues: "read"}'
+          json_case permission-unknown-name authorization_denied '.permissions = {nonexistent_permission: "read"}'
           json_case permission-unknown-level authorization_denied '.permissions = {contents: "admin"}'
+          # 許可権限の metadata は read だけを許す
+          json_case permission-unallowed-level authorization_denied '.permissions = {metadata: "write"}'
           json_case permission-invalid-charset invalid_request '.permissions = {Contents: "read"}'
           json_case version-unknown invalid_request '.version = 2'
 
       # authorization_denied と github_issuance_rejected の事例は、成功する Payload が形式検証と認証を通ることの確認を兼ねる
-      - name: Reject disallowed targets and permissions
+      - name: Reject disallowed targets
         env:
           WORK_DIR: ${{ steps.workdir.outputs.path }}
         run: |
@@ -314,8 +316,6 @@ jobs:
           # shellcheck source=/dev/null
           source "${WORK_DIR}/helper.sh"
 
-          json_case permission-added authorization_denied '.permissions += {metadata: "read"}'
-          json_case permission-write authorization_denied '.permissions = {contents: "write"}'
           json_case other-owner authorization_denied '.repositories = [env.OTHER_OWNER_REPOSITORY]'
           json_case partially-other-owner authorization_denied '.repositories += [env.OTHER_OWNER_REPOSITORY]'
           # Payload の 16 KiB の上限より先に件数の上限に達するよう、短い名前を並べる
@@ -324,6 +324,29 @@ jobs:
           # 試験用のリポジトリ自身は GitHub App のインストール先に含めない
           json_case not-installed github_issuance_rejected '.repositories = [env.GITHUB_REPOSITORY]'
           json_case partially-not-installed github_issuance_rejected '.repositories += [env.GITHUB_REPOSITORY]'
+
+      # 許可権限と発行上限は、外れた組を除いて縮小せず、要求の全体を拒否する。
+      # GitHub App に付与されていない権限と水準は GitHub が 422 で拒否し、GATES は権限を除いて発行し直さない
+      - name: Reject disallowed and ungranted permissions
+        env:
+          WORK_DIR: ${{ steps.workdir.outputs.path }}
+        run: |
+          set -euo pipefail
+          umask 077
+          # shellcheck source=/dev/null
+          source "${WORK_DIR}/helper.sh"
+
+          # Organization permissions と Account permissions は許可権限に含まれない
+          json_case permission-organization authorization_denied '.permissions = {members: "read"}'
+          json_case permission-account authorization_denied '.permissions = {emails: "read"}'
+          json_case partially-organization authorization_denied '.permissions += {members: "read"}'
+          # statuses:read は GitHub App に付与されているが、発行上限に含めない
+          json_case not-issuable authorization_denied '.permissions = {statuses: "read"}'
+          json_case partially-not-issuable authorization_denied '.permissions += {statuses: "read"}'
+          # issues は GitHub App に付与せず、pull_requests は read だけを付与する。どちらも発行上限に含める
+          json_case not-granted github_issuance_rejected '.permissions = {issues: "read"}'
+          json_case partially-not-granted github_issuance_rejected '.permissions += {issues: "read"}'
+          json_case level-not-granted github_issuance_rejected '.permissions = {pull_requests: "write"}'
 
       - name: Reject ID tokens
         env:
