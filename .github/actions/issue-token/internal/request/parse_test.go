@@ -67,8 +67,8 @@ func TestParse_Payload(t *testing.T) {
 			payload(`["example-org/repo-a","example-org/repo-ab"]`, `{"contents":"read"}`),
 		},
 		"character classes are not validated": {
-			"example_org/repo.a", "contents:admin",
-			payload(`["example_org/repo.a"]`, `{"contents":"admin"}`),
+			"example_org/repo.a", "contents:admin,pull_requests:write",
+			payload(`["example_org/repo.a"]`, `{"contents":"admin","pull_requests":"write"}`),
 		},
 	}
 
