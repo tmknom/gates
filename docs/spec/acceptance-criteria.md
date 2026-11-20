@@ -99,7 +99,7 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 ### AC-AUTHZ-004 許可権限にない権限と全リポジトリの要求の拒否
 
-**条件**：Organization permissions、Account permissions、Enterprise permissions のいずれかの権限、GATES が許可する権限名にない権限名、または許可する権限名にその権限では定められていない水準を組み合わせた権限を、単独で、あるいは許可される権限とともに要求する。または全リポジトリ（`all`）を対象にする `repository_selection` を要求に含める
+**条件**：Organization permissions、Account permissions、Enterprise permissions のいずれかの権限、GATES が許可する権限名にない権限名、または許可する権限名に GATES がその権限名に許可しない水準を組み合わせた権限を、単独で、あるいは許可される権限とともに要求する。または全リポジトリ（`all`）を対象にする `repository_selection` を要求に含める
 
 **期待する結果**：発行を拒否し、許可される権限だけに縮小して発行しない
 
