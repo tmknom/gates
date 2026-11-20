@@ -24,7 +24,7 @@ IAM Role と Lambda の AWS リソース設定は [AWS Infrastructure Design](aw
 | Input | 必須 | 意味 |
 |---|---|---|
 | `repositories` | はい | カンマ区切りの `owner/repo` リスト |
-| `permissions` | はい | カンマ区切りの `permission:level`。`contents:read,pull_requests:write` のように、ジョブの処理に必要な権限だけを書く。書けるのは許可権限（[Security Design](security.md#33-permission-boundary)）に含まれる組である |
+| `permissions` | はい | カンマ区切りの `permission:level`。`contents:read,pull_requests:write` のように、ジョブの処理に必要な権限だけを書く。書けるのは許可権限と発行上限（[Security Design](security.md#33-permission-boundary)）の両方に含まれる組である |
 | `role-arn` | はい | 引き受ける IAM Role の ARN |
 | `function-name` | はい | 呼び出す Lambda の関数名 |
 | `aws-region` | はい | 呼び出す Lambda を置く AWS リージョン。AWS STS の呼び出しにも使う |

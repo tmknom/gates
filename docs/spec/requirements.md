@@ -17,7 +17,7 @@ GATES は、次の責任を各主体が果たすことを前提に要求を満�
 |---|---|
 | ワークフロー利用者 | 利用者接点を呼び出すジョブで `permissions: id-token: write` を宣言し、利用者接点に対象リポジトリ、権限、GATES 運用者が用意した接続情報を渡す。権限は、そのジョブの処理に必要なものだけを要求する。トークンを取得するジョブで、信頼できないコード（Pull Request のコード、ほかのワークフローの成果物など）を実行しない。取得したトークンを、取得したジョブの外（ほかのジョブ、成果物、ログ）へ渡さない。セルフホストの Runner で実行する場合は、利用者接点が必要とする実行環境と通信先を用意する。 |
 | GitHub App / オーナーの管理者 | GitHub App には、許可オーナーのどのワークフローに渡ってもよい Repository permissions だけを付与する。GATES が発行しない Organization permissions、Account permissions、Enterprise permissions を、GATES で利用する GitHub App に付与しない。許可オーナーのどのワークフローから、GitHub App に付与した権限で GATES を通じて操作されてもよいリポジトリだけを、Installation の対象に含める。オーナー配下のリポジトリの OIDC JWT に不変 Owner ID を含める設定を行う。鍵の更新後に GitHub App の旧 Private Key を失効させる。 |
-| GATES 運用者 | 許可オーナー、GitHub App、署名に用いる KMS Key をデプロイ時の設定として管理する。GitHub App Private Key を KMS にインポートし、更新する。GATES の呼び出しに使う IAM Role を引き受けられる主体の条件（信頼ポリシー）を管理する。利用者接点を提供し、その入出力を維持する。利用者接点が GATES を呼び出すための接続情報を、ワークフローから参照できるよう GitHub 側に用意する。 |
+| GATES 運用者 | 許可オーナー、GitHub App、署名に用いる KMS Key、発行上限をデプロイ時の設定として管理する。発行上限には、許可オーナーのワークフローが必要とする権限だけを含める。GitHub App Private Key を KMS にインポートし、更新する。GATES の呼び出しに使う IAM Role を引き受けられる主体の条件（信頼ポリシー）を管理する。利用者接点を提供し、その入出力を維持する。利用者接点が GATES を呼び出すための接続情報を、ワークフローから参照できるよう GitHub 側に用意する。 |
 
 ## 3. Functional Requirements
 
@@ -58,7 +58,7 @@ GitHub OIDC JWT の署名の検証では、GATES が対応しない JOSE Header 
 
 #### FR-AUTHZ-003 権限の Repository permissions への限定
 
-GitHub が Repository permissions に分類する権限を、GitHub が要求どおりに発行する水準で許可する。発行 API の定義に権限名が載っていることは条件にしない。GitHub App に付与された権限を利用者が明示して要求したとき、GitHub が発行する権限を GATES の判断で狭めないためである。Organization permissions、Account permissions、Enterprise permissions と、GATES が Repository permissions に当たると確かめていない権限名、要求どおりに発行されると確かめていない水準は拒否する。許可する権限名と水準は GATES が列挙して固定し、利用者の入力や GitHub の応答によって実行時に広げない。Caller や対象リポジトリごとに、要求できる権限を変えない。
+GitHub が Repository permissions に分類する権限を、GitHub が要求どおりに発行する水準で許可する。発行 API の定義に権限名が載っていることは条件にしない。GitHub App に付与された権限を利用者が明示して要求したとき、発行 API の定義に載っていないことを理由に拒否しないためである。Organization permissions、Account permissions、Enterprise permissions と、GATES が Repository permissions に当たると確かめていない権限名、要求どおりに発行されると確かめていない水準は拒否する。許可する権限名と水準は GATES が列挙して固定し、利用者の入力や GitHub の応答によって実行時に広げない。Caller や対象リポジトリごとに、要求できる権限を変えない。
 
 #### FR-AUTHZ-004 利用者の入力による Caller、Installation ID、認可の根拠、API Host の指定の禁止
 
@@ -75,6 +75,10 @@ GitHub が Repository permissions に分類する権限を、GitHub が要求ど
 #### FR-AUTHZ-008 GitHub App に付与されていない権限を含む要求の不成立
 
 要求した権限は、全件が要求した水準で成立する場合のみ発行する。GitHub App の Installation に付与されていない権限か水準を一つでも含む要求にはトークンを返さず、権限を除いたり水準を下げたりして発行しない。付与されていることは、発行 API を呼ぶ前に確かめても、発行結果の照合（FR-ISSUANCE-006）で確かめてもよい。
+
+#### FR-AUTHZ-009 発行上限による権限の制限
+
+GATES 運用者は、FR-AUTHZ-003 で許可する権限名と水準の組のうち、そのデプロイで発行してよいものを、デプロイ時の設定で定める。この組の集合を **発行上限** と呼ぶ。発行上限に含まれない権限名と水準の組を一つでも含む要求は、GitHub App に付与されていても拒否し、その組を除いて発行しない。組は権限名と水準で照合し、高い水準を含めても低い水準の要求は許さない。発行上限は、FR-AUTHZ-003 で許可する範囲を広げられない。その範囲に含まれない組を含む発行上限と、空の発行上限は設定として受け付けず、どの要求も発行しない。Caller や対象リポジトリごとに、発行上限を変えない。GitHub が要求にかかわらず付与する権限の許容条件は FR-ISSUANCE-006 に従い、発行上限に含まれることを求めない。
 
 ### 3.3 Token Issuance
 
@@ -112,9 +116,9 @@ GitHub API の発行応答で対象一覧・権限の欠落・不整合、要求
 
 認証済み Caller（Owner ID と Repository ID、ワークフロー実行 ID と試行番号、ワークフロー起動属性）、要求対象、要求権限、結果、相関 ID を資格情報を含めず監査可能にする。署名検証を通った GATES 用 OIDC JWT の Claims Set も、Claim の検証で認証に失敗した場合を含めて調査用に記録し、認証と認可には使わない。署名を検証する前の Payload と JWT の文字列は記録しない。相関 ID は成功・失敗のどちらの応答にも含め、呼び出し元が監査記録と突き合わせられるようにする。
 
-#### FR-OPS-006 デプロイ時の設定による許可オーナー、GitHub App、KMS Key の固定
+#### FR-OPS-006 デプロイ時の設定による許可オーナー、GitHub App、KMS Key、発行上限の固定
 
-許可オーナー（不変 Owner ID で指定）、GitHub App、署名に用いる KMS Key は、GATES 運用者が管理するデプロイ時の設定として固定する。Installation は、固定した GitHub App と許可オーナーから一意に導出する。これらは実行時に外部入力から変更できない。
+許可オーナー（不変 Owner ID で指定）、GitHub App、署名に用いる KMS Key、発行上限（FR-AUTHZ-009）は、GATES 運用者が管理するデプロイ時の設定として固定する。Installation は、固定した GitHub App と許可オーナーから一意に導出する。これらは実行時に外部入力から変更できない。
 
 #### FR-OPS-007 IAM で許可された主体に限る呼び出し口
 

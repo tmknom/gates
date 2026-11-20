@@ -129,9 +129,9 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 | `alignment` | `FR-AUTHZ-002` | Functional Requirement |
 | `alignment` | `FR-AUTHZ-006` | Functional Requirement |
 
-### AC-AUTHZ-007 実行時の入力による許可オーナー、GitHub App、Installation、KMS Key の指定の拒否
+### AC-AUTHZ-007 実行時の入力による許可オーナー、GitHub App、Installation、KMS Key、発行上限の指定の拒否
 
-**条件**：実行時の要求やワークフロー側の入力で、許可オーナー・GitHub App・Installation・KMS Key を指定しようとする
+**条件**：実行時の要求やワークフロー側の入力で、許可オーナー・GitHub App・Installation・KMS Key・発行上限を指定しようとする
 
 **期待する結果**：指定を受け付けず、デプロイ時の設定と、そこから導出した Installation が使われる
 
@@ -150,6 +150,29 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 |---|---|---|
 | `alignment` | `FR-AUTHZ-008` | Functional Requirement |
 | `alignment` | `FR-ISSUANCE-006` | Functional Requirement |
+
+### AC-AUTHZ-009 発行上限に含まれない権限を含む要求の全件拒否
+
+**条件**：GATES が許可する権限のうち、発行上限に含まれない権限名と水準の組を、単独で、あるいは発行上限に含まれる権限とともに要求する。その組は GitHub App の Installation に付与されている。発行上限に高い水準だけを含めた権限名の、低い水準の要求を含む
+
+**期待する結果**：発行を拒否し、発行上限に含まれる権限だけに縮小して発行しない。発行上限に含まれる権限だけの要求は発行する
+
+| Relationship | Target | Target Type |
+|---|---|---|
+| `alignment` | `FR-AUTHZ-009` | Functional Requirement |
+| `alignment` | `FR-AUTHZ-006` | Functional Requirement |
+
+### AC-AUTHZ-010 GATES が許可しない権限か空の集合を発行上限にした設定の拒否
+
+**条件**：GATES が許可しない権限名と水準の組（Organization permissions、許可する権限名にない権限名、許可する権限名に許可しない水準）を含む発行上限、空の発行上限、または書式の誤った発行上限でデプロイし、発行を要求する
+
+**期待する結果**：どの要求にもトークンを返さない。設定の誤りは、値を記録せずに、どの設定の誤りかを運用者が特定できる形で残る
+
+| Relationship | Target | Target Type |
+|---|---|---|
+| `alignment` | `FR-AUTHZ-009` | Functional Requirement |
+| `alignment` | `FR-OPS-006` | Functional Requirement |
+| `alignment` | `QR-003` | Quality Requirement |
 
 ## 4. Token Issuance
 

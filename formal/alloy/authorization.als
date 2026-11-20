@@ -1,8 +1,8 @@
 module gates/authorization
 
 // GATES authorization model, Current Scope.
-// Source of truth: FR-AUTHZ-001..003, FR-AUTHZ-006..008, FR-ISSUANCE-003, FR-ISSUANCE-004, FR-ISSUANCE-006, FR-OPS-006,
-// RULE-010, RULE-011, INV-002, INV-011, INV-012;
+// Source of truth: FR-AUTHZ-001..003, FR-AUTHZ-006..009, FR-ISSUANCE-003, FR-ISSUANCE-004, FR-ISSUANCE-006, FR-OPS-006,
+// RULE-010, RULE-011, INV-002, INV-011, INV-012, INV-015;
 // docs/design/security.md 3.1..3.5; docs/design/domain.md 3.3.
 // This is a finite structural abstraction, NOT the complete GATES implementation.
 // Cryptographic verification, HTTP outcomes, time, revocation, retry and
@@ -97,9 +97,14 @@ sig Installation {
   installedPermissions: set PermissionEntry
 }
 
+// The issuable permissions are fixed configuration chosen by the GATES
+// operator for one deployment. Like the allowed permissions they are a set of
+// Permission Entries, may hold several levels of one name, and do not depend
+// on the Caller or the target repositories.
 one sig Config {
   allowedOwner: one Owner,
-  allowedOwnerName: one OwnerName
+  allowedOwnerName: one OwnerName,
+  issuablePermissions: set PermissionEntry
 }
 
 sig TokenRequest {
@@ -140,11 +145,16 @@ sig IssuanceResult {
 sig ReturnableIssuanceResult { result: one IssuanceResult }
 
 // The baseline policy is used by the original checks and witnesses.
-// The other policies deliberately disable exactly one check: the allowed
-// permissions check of authorization, or one return-time check.
+// The other policies deliberately disable a check: the allowed permissions
+// check of authorization, the invariant that the issuable permissions are
+// part of the allowed permissions (INV-015, checked when the configuration is
+// read), both of them, the issuable permissions check of authorization, or one
+// return-time check.
 // They are counterfactual verification models, not GATES configurations.
 abstract sig VerificationPolicy {}
-one sig Baseline, WithoutAllowedPermissionCheck, WithoutOwnerCheck, WithoutNameCheck,
+one sig Baseline, WithoutAllowedPermissionCheck, WithoutIssuableSubsetInvariant,
+        WithoutBothAllowedPermissionGuards, WithoutIssuablePermissionCheck,
+        WithoutOwnerCheck, WithoutNameCheck,
         WithoutExcessPermissionCheck, WithoutMissingPermissionCheck,
         WithoutCountCheck extends VerificationPolicy {}
 one sig ModelConfiguration { policy: one VerificationPolicy }
@@ -167,6 +177,15 @@ fact PermissionsHaveOneLevelPerName {
   all r: IssuanceResult | oneLevelPerName[r.effectivePermissions]
 }
 
+// INV-015: the configuration is read only when the issuable permissions are
+// not empty and are part of the allowed permissions. Otherwise initialization
+// fails and no issuance process starts, so no such state is modeled.
+fact IssuablePermissionsInvariant {
+  some Config.issuablePermissions
+  (ModelConfiguration.policy not in WithoutIssuableSubsetInvariant + WithoutBothAllowedPermissionGuards) implies
+    Config.issuablePermissions in allowedPermissions
+}
+
 // Identity consistency comes from successful OIDC verification; it is not
 // checked again by authorization. The caller's repository is NOT an ACL key.
 fact VerifiedCallerRepository {
@@ -184,13 +203,17 @@ fact OneInstallationPerOwner {
 // The conditions of the Grant operation: the authorization rule and the
 // validity of the installation. The owner ID and owner name are fixed
 // configuration; the owner name is modeled separately from the immutable
-// owner ID. A request with any entry outside the allowed permissions is
-// rejected as a whole, never narrowed.
+// owner ID. A request with any entry outside the allowed permissions or the
+// issuable permissions is rejected as a whole, never narrowed. Entries are
+// compared as pairs of name and level, so a higher issuable level does not
+// admit a lower requested level.
 pred grantable[c: Caller, r: TokenRequest, i: Installation] {
   c.owner = Config.allowedOwner
   all n: r.repositories | n.ownerName = Config.allowedOwnerName
-  (ModelConfiguration.policy != WithoutAllowedPermissionCheck) implies
+  (ModelConfiguration.policy not in WithoutAllowedPermissionCheck + WithoutBothAllowedPermissionGuards) implies
     r.permissions in allowedPermissions
+  (ModelConfiguration.policy != WithoutIssuablePermissionCheck) implies
+    r.permissions in Config.issuablePermissions
   i.installationOwner = Config.allowedOwner
   i.suspended = No
 }
@@ -265,6 +288,9 @@ assert OnlyAllowedPermissionsGranted {
   baseline implies (all g: TokenGrant |
     g.permissions = g.request.permissions and g.permissions in allowedPermissions)
 }
+assert OnlyIssuablePermissionsGranted {
+  baseline implies (all g: TokenGrant | g.permissions in Config.issuablePermissions)
+}
 assert AllOrNothingGrant {
   all g: TokenGrant | g.repositories = g.request.repositories
 }
@@ -288,6 +314,12 @@ assert UnrequestedAllowedPermissionsNotReturned {
   baseline implies (all t: ReturnableIssuanceResult |
     no (allowedPermissions - t.result.call.grant.request.permissions - impliedPermissions)
       & t.result.effectivePermissions)
+}
+// The implied `metadata:read` is accepted at return even when the issuable
+// permissions do not hold it; every other returned entry is issuable.
+assert NoTokenBeyondIssuablePermissions {
+  baseline implies (all t: ReturnableIssuanceResult |
+    t.result.effectivePermissions in (Config.issuablePermissions + impliedPermissions))
 }
 assert OnlyRepositoryPermissionsReturned {
   baseline implies (all t: ReturnableIssuanceResult |
@@ -327,9 +359,24 @@ assert RequestedPermissionsHeldWhenGitHubEnforces {
 // Mutation checks intentionally evaluate the same returned-token properties
 // under weaker verification policies. Their results must be examined as
 // counterexamples; they are not assertions about the baseline implementation.
-assert WithoutAllowedPermissionCheckPreservesAllowedPermissions {
-  ModelConfiguration.policy = WithoutAllowedPermissionCheck implies
-    (all t: ReturnableIssuanceResult | t.result.effectivePermissions in allowedPermissions)
+pred returnsOnlyAllowedPermissions {
+  all t: ReturnableIssuanceResult | t.result.effectivePermissions in allowedPermissions
+}
+// Either of the two guards alone keeps returned tokens within the allowed
+// permissions; removing both breaks the property.
+assert WithoutAllowedPermissionCheckKeepsAllowedPermissions {
+  ModelConfiguration.policy = WithoutAllowedPermissionCheck implies returnsOnlyAllowedPermissions
+}
+assert WithoutIssuableSubsetInvariantKeepsAllowedPermissions {
+  ModelConfiguration.policy = WithoutIssuableSubsetInvariant implies returnsOnlyAllowedPermissions
+}
+assert WithoutBothAllowedPermissionGuardsPreservesAllowedPermissions {
+  ModelConfiguration.policy = WithoutBothAllowedPermissionGuards implies returnsOnlyAllowedPermissions
+}
+assert WithoutIssuablePermissionCheckPreservesIssuablePermissions {
+  ModelConfiguration.policy = WithoutIssuablePermissionCheck implies
+    (all t: ReturnableIssuanceResult |
+      t.result.effectivePermissions in (Config.issuablePermissions + impliedPermissions))
 }
 assert WithoutOwnerCheckPreservesOwnerBoundary {
   ModelConfiguration.policy = WithoutOwnerCheck implies
@@ -377,6 +424,40 @@ pred WriteAndMultiplePermissionsReturned {
     githubResultRespectsInstallation[t.result] and
     #(t.result.call.grant.permissions) > 1 and
     Write in t.result.call.grant.permissions.level
+}
+
+// The issuable permissions can be narrower than the allowed permissions while
+// the Installation holds an allowed permission outside them, and a token is
+// still returned for a request within the issuable permissions.
+pred IssuableNarrowerThanInstallation {
+  baseline
+  some t: ReturnableIssuanceResult |
+    githubResultRespectsInstallation[t.result] and
+    some (allowedPermissions - Config.issuablePermissions - impliedPermissions)
+      & t.result.call.grant.installation.installedPermissions
+}
+
+// The implied `metadata:read` added by GitHub is returned even when the
+// issuable permissions do not hold it.
+pred ImpliedPermissionOutsideIssuableReturned {
+  baseline
+  no impliedPermissions & Config.issuablePermissions
+  some t: ReturnableIssuanceResult |
+    githubResultRespectsInstallation[t.result] and
+    impliedPermissions in t.result.effectivePermissions
+}
+
+// Witnesses for the checks that remove one guard: tokens are still returned
+// under each policy, so those checks do not pass vacuously. Without the
+// invariant, the issuable permissions can reach outside the allowed ones.
+pred ReturnWithoutAllowedPermissionCheck {
+  ModelConfiguration.policy = WithoutAllowedPermissionCheck
+  some ReturnableIssuanceResult
+}
+pred ReturnWithoutIssuableSubsetInvariant {
+  ModelConfiguration.policy = WithoutIssuableSubsetInvariant
+  some Config.issuablePermissions - allowedPermissions
+  some ReturnableIssuanceResult
 }
 
 // Intended residual risk: a caller's repository is DIFFERENT from the
@@ -442,36 +523,49 @@ pred InvalidResultCanExist {
 // an unbounded proof.
 // PermissionName is 4 and PermissionEntry is 8, so that every pair of the four
 // names and two levels exists, and the names can mix listed and unlisted ones.
-check NoForeignOwnerGrant for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check NoOtherInstallationGrant for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check OnlyAllowedPermissionsGranted for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check AllOrNothingGrant for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check AllIssueCallsExplicit for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check NoOverbroadTokenReturned for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check NoNarrowedTokenReturned for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check UnrequestedAllowedPermissionsNotReturned for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check OnlyRepositoryPermissionsReturned for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check ExactNamesReturned for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check NoDuplicateEffectiveRepositoriesReturned for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check ReturnedReposOwnedByAllowedOwner for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check CoverageHoldsWhenGitHubEnforces for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check RequestedPermissionsHeldWhenGitHubEnforces for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check ReturnedResultsHaveValidTokenAndExpiry for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check NoForeignOwnerGrant for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check NoOtherInstallationGrant for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check OnlyAllowedPermissionsGranted for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check OnlyIssuablePermissionsGranted for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check AllOrNothingGrant for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check AllIssueCallsExplicit for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check NoOverbroadTokenReturned for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check NoNarrowedTokenReturned for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check UnrequestedAllowedPermissionsNotReturned for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check NoTokenBeyondIssuablePermissions for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check OnlyRepositoryPermissionsReturned for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check ExactNamesReturned for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check NoDuplicateEffectiveRepositoriesReturned for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check ReturnedReposOwnedByAllowedOwner for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check CoverageHoldsWhenGitHubEnforces for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check RequestedPermissionsHeldWhenGitHubEnforces for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check ReturnedResultsHaveValidTokenAndExpiry for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+
+// These checks remove one of the two guards that keep returned tokens within
+// the allowed permissions. No counterexample is expected: the other guard
+// still holds.
+check WithoutAllowedPermissionCheckKeepsAllowedPermissions for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check WithoutIssuableSubsetInvariantKeepsAllowedPermissions for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
 
 // These checks use a different verification policy from the baseline.
 // A counterexample is expected: it shows that the removed check matters.
-check WithoutAllowedPermissionCheckPreservesAllowedPermissions for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-check WithoutOwnerCheckPreservesOwnerBoundary for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-check WithoutNameCheckPreservesExactNames for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-check WithoutExcessPermissionCheckPreservesPermissionBoundary for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-check WithoutMissingPermissionCheckPreservesRequestedPermissions for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-check WithoutCountCheckPreservesUniqueEffectiveRepositories for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+check WithoutBothAllowedPermissionGuardsPreservesAllowedPermissions for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+check WithoutIssuablePermissionCheckPreservesIssuablePermissions for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+check WithoutOwnerCheckPreservesOwnerBoundary for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+check WithoutNameCheckPreservesExactNames for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+check WithoutExcessPermissionCheckPreservesPermissionBoundary for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+check WithoutMissingPermissionCheckPreservesRequestedPermissions for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+check WithoutCountCheckPreservesUniqueEffectiveRepositories for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
 
-run SuccessfulReturn for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-run WriteAndMultiplePermissionsReturned for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-run CrossRepositoryWithinOwner for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-run IssueCallMayContainUncoveredNames for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-run IssueCallMayContainUnheldPermissions for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-run ResultWithoutUnheldPermissionNotReturned for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-run CoverageNotIndependentlyProved for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-run InvalidResultCanExist for 3 but 7 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run SuccessfulReturn for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run WriteAndMultiplePermissionsReturned for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run IssuableNarrowerThanInstallation for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run ImpliedPermissionOutsideIssuableReturned for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run ReturnWithoutAllowedPermissionCheck for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run ReturnWithoutIssuableSubsetInvariant for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run CrossRepositoryWithinOwner for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run IssueCallMayContainUncoveredNames for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run IssueCallMayContainUnheldPermissions for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run ResultWithoutUnheldPermissionNotReturned for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run CoverageNotIndependentlyProved for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run InvalidResultCanExist for 3 but 10 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1

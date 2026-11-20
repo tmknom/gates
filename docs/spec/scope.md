@@ -7,17 +7,20 @@ GATES が満たす要求は [Requirements](requirements.md) に定めるため�
 
 ## 2. Current Scope
 
-許可された単一のオーナー配下のワークフローが、Installation に含まれるリポジトリを、GitHub App に付与された Repository permissions の範囲で操作するためのトークンを取得できるところまでを実現します。
+許可された単一のオーナー配下のワークフローが、Installation に含まれるリポジトリを、GitHub App に付与され、発行上限に含まれる Repository permissions の範囲で操作するためのトークンを取得できるところまでを実現します。
+**発行上限** は、GATES 運用者がデプロイ時の設定で定める、そのデプロイで発行してよい権限の範囲です（[Requirements](requirements.md) の FR-AUTHZ-009）。
 次の表の項目は、恒久的な原則ではなく、現在の選択です。
 
 | 項目 | 現在のスコープ | 理由 |
 |---|---|---|
-| **認可の粒度** | オーナー単位で認可する。Caller やチーム、対象リポジトリごとに、アクセス先と要求できる権限を制限しない | 認可ポリシーの管理と運用を増やさないため |
-| **発行可能な権限** | Repository permissions を許可する（[Requirements](requirements.md) の FR-AUTHZ-003）。Organization permissions、Account permissions、Enterprise permissions は発行しない | リポジトリを横断する自動化には、読み取り以外の権限も要るため。リポジトリを単位としない権限は、対象リポジトリの明示では影響範囲を限定できないため発行しない |
+| **認可の粒度** | オーナー単位で認可する。Caller やチーム、対象リポジトリごとに、アクセス先と要求できる権限を制限しない。発行上限はデプロイに一つで、どの Caller にも対象リポジトリにも同じに効く | 認可ポリシーの管理と運用を増やさないため |
+| **発行可能な権限** | Repository permissions を許可する（[Requirements](requirements.md) の FR-AUTHZ-003）。そのうち発行するのは、発行上限に含まれるものに限る。Organization permissions、Account permissions、Enterprise permissions は発行しない | リポジトリを横断する自動化には、読み取り以外の権限も要るため。リポジトリを単位としない権限は、対象リポジトリの明示では影響範囲を限定できないため発行しない |
 
-この組み合わせでは、許可オーナーのどのワークフローも、Installation に含まれるどのリポジトリに対しても、GitHub App に付与された Repository permissions のすべてを要求できます。
+この組み合わせでは、許可オーナーのどのワークフローも、Installation に含まれるどのリポジトリに対しても、GitHub App に付与され、発行上限に含まれる Repository permissions のすべてを要求できます。
 アクセスされる側のリポジトリは、自身に対する操作を GATES の認可では制限できません。
-GATES が発行する権限の上限を決めるのは、GitHub App に付与する権限と Installation の対象だけであり、どちらも GitHub 側の設定です（[Requirements](requirements.md) §2 の GitHub App / オーナーの管理者の責任）。
+GATES が発行する権限の上限を決めるのは、GitHub App に付与する権限、Installation の対象、発行上限です。
+前の 2 つは GitHub 側の設定（[Requirements](requirements.md) §2 の GitHub App / オーナーの管理者の責任）、発行上限は GATES のデプロイ時の設定（同じく GATES 運用者の責任）です。
+発行上限は、どのワークフローに対しても同じ範囲を狭めるだけで、オーナー内の横断的な操作そのものは防ぎません。
 オーナー内の横断的な操作は、現在のスコープに伴う残留リスクとして受容します。
 恒久的に受け入れたものではなく、細粒度の認可（[§3](#3-deferred-capabilities)）を取り込むときに見直します。
 

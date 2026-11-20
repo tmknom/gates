@@ -36,7 +36,7 @@ Lambda Invoke には HTTP の `Authorization` ヘッダーに相当するアプ�
 | `version` | 必須、整数 `1` |
 | `id_token` | 必須、GATES 用 Audience の JWT。Bearer 資格情報として慎重に扱う |
 | `repositories` | 必須、重複のない 1 件以上 500 件以下の `owner/repo` の配列。上限は GitHub のトークン発行 API が一度に受け付ける件数に合わせる（[GitHub App Constraints](../external/github/app.md)）。GATES が設ける 16 KiB の Payload には最短の要素で 2,000 件以上が入るため、Payload サイズより先にこの上限に達する |
-| `permissions` | 必須、権限名をキー、水準を値とする 1 組以上のオブジェクト。どの組も許可権限（[Security Design](security.md#33-permission-boundary)）に含まれる必要がある。形式が不正なら入力不正、形式が正しく許可権限に含まれない組が一つでもあれば認可拒否 |
+| `permissions` | 必須、権限名をキー、水準を値とする 1 組以上のオブジェクト。どの組も許可権限と発行上限（[Security Design](security.md#33-permission-boundary)）の両方に含まれる必要がある。形式が不正なら入力不正、形式が正しく許可権限か発行上限に含まれない組が一つでもあれば認可拒否 |
 
 形式検証を通った Invoke Payload から、未検証の GATES 用 OIDC JWT と発行要求を分けて取り出します。
 
@@ -63,7 +63,7 @@ Lambda Invoke には HTTP の `Authorization` ヘッダーに相当するアプ�
 | `version` | 欠落、`null`、整数 `1` 以外（`1.0`、`"1"`、`2` を含む） | なし |
 | `id_token` | 欠落、`null`、文字列以外、空文字列 | なし（JWT の検証失敗は `invalid_id_token`） |
 | `repositories` | 欠落、`null`、配列以外、空配列、文字列以外の要素、[完全名の形式](#名前の文字種と比較規則)に合わない要素、大文字小文字を区別しない重複、500 件超 | オーナー名が許可オーナー名と異なる要素を含む |
-| `permissions` | 欠落、`null`、オブジェクト以外、空オブジェクト、文字列以外の値、[権限名と水準の文字種](#権限名と水準の文字種)に合わないキーまたは値（空文字列を含む） | 許可権限に含まれない組を一つでも含む（`members` のような Repository permissions でない権限名、列挙にない権限名、`metadata` の `write` や `contents` の `admin` のように、許可権限がその権限名に含めない水準） |
+| `permissions` | 欠落、`null`、オブジェクト以外、空オブジェクト、文字列以外の値、[権限名と水準の文字種](#権限名と水準の文字種)に合わないキーまたは値（空文字列を含む） | 許可権限に含まれない組を一つでも含む（`members` のような Repository permissions でない権限名、列挙にない権限名、`metadata` の `write` や `contents` の `admin` のように、許可権限がその権限名に含めない水準）。許可権限に含まれても、発行上限に含まれない組を一つでも含む |
 | Payload 全体 | 16 KiB 超、JSON として不正、オブジェクト以外、未知のフィールド、重複したキー、不正な UTF-8、オブジェクトの後に続くデータ | なし |
 
 JSON として不正な Payload は、Lambda の Invoke API が関数に渡す前に拒否するため、GATES の応答も監査記録も残りません（[Runtime Entry](#41-runtime-entry)）。
@@ -363,9 +363,9 @@ ctx は期限を変えずにそのまま渡します（[Call Time Budget](#64-ca
 Lambda Handler は Lambda Runtime のライブラリに依存せず、応答を書けた Invoke を `FunctionError` にしません。
 Lambda Runtime のライブラリを Runtime Entry だけに閉じるのは、Lambda Handler のテストで Lambda の ctx を組み立てずに済ませるためです。
 
-固定設定のうち Issuer と API Host は本ドキュメントが固定し（[§6.1](#61-oidc-validation)、[§6.3](#63-github-client)）、残りの値（許可オーナー、Client ID、GATES 用 Audience、KMS Key ARN）は Runtime Entry が起動時に環境変数から読みます。
-読んだ値を [Domain Model](domain.md) の許可オーナーの不変条件（INV-004）で検証するのは固定設定の読み込みであり、Runtime Entry はその結果を受け取るだけで、値の検証の判断を持ちません。
-環境変数の欠落か不正な値、[Domain Model](domain.md) の許可オーナー、認証の固定設定、署名の固定設定の不変条件（INV-004、INV-005、INV-006）の違反、AWS SDK の設定の読み込みの失敗は、どれも初期化の失敗です。
+固定設定のうち Issuer と API Host は本ドキュメントが固定し（[§6.1](#61-oidc-validation)、[§6.3](#63-github-client)）、残りの値（許可オーナー、Client ID、GATES 用 Audience、KMS Key ARN、発行上限）は Runtime Entry が起動時に環境変数から読みます。
+読んだ値を [Domain Model](domain.md) の許可オーナーと発行上限の不変条件（INV-004、INV-015）で検証するのは固定設定の読み込みであり、Runtime Entry はその結果を受け取るだけで、値の検証の判断を持ちません。
+環境変数の欠落か不正な値、[Domain Model](domain.md) の許可オーナー、認証の固定設定、署名の固定設定、発行上限の不変条件（INV-004、INV-005、INV-006、INV-015）の違反、AWS SDK の設定の読み込みの失敗は、どれも初期化の失敗です。
 初期化に失敗した Runtime Entry は、ログに記録して異常終了し、Lambda Handler を Lambda Runtime に渡しません。
 Lambda はこの Invoke を `Runtime.ExitError` の `FunctionError` にします（[AWS Fault Injection](../research/aws/fault-injection.md)）。
 
@@ -380,11 +380,23 @@ Lambda はこの Invoke を `Runtime.ExitError` の `FunctionError` にします
 AWS SDK の失敗も、SDK の文言を含めず、設定を読めなかったことだけを書きます。
 Discovery / JWKS は初期化で取得しません（[§6.1](#61-oidc-validation)）。
 
+発行上限の環境変数は、`contents:read,pull_requests:write` のように、権限名と水準を `:` でつないだ組をカンマで区切って並べた文字列です。
+組の並びは意味を持ちません。
+固定設定の読み込みは、次のどれかに当たる値を不正な値にします。
+
+- 空文字列、空の要素（先頭、末尾、連続したカンマ）
+- `:` をちょうど一つ含まない要素、権限名か水準が[権限名と水準の文字種](#権限名と水準の文字種)に合わない要素（前後の空白を含む）
+- 同じ組の重複
+- 許可権限に含まれない組
+
+前後の空白を除かず、重複を一つにまとめないのは、どちらも書き損じであることが多く、読み替えると運用者が書いた値と Lambda が使う値が食い違うためです。
+許可権限に含まれるかも固定設定の読み込みで確かめるため、この誤りも環境変数の名前で示します。
+
 ## 5. Processing Flow
 
 1. Lambda Handler が Payload を形式検証し（[Validation](#22-validation)）、GATES 用 OIDC JWT と発行要求を取り出す。
 2. OIDC Verifier が GATES 用 OIDC JWT を認証し、Caller を確定する。
-3. Authorization が、Caller の Owner ID、要求した各完全名のオーナー名、要求の Permissions を許可条件と照合する。
+3. Authorization が、Caller の Owner ID、要求した各完全名のオーナー名、要求の Permissions を許可条件と照合する。Permissions は、許可権限と発行上限の両方に含まれることを確かめる。
 4. Token Issuer が KMS Signer で GitHub App JWT を作り、GitHub Client で許可オーナーの Installation を取得する。
 5. Authorization が取得した Installation の有効性を確かめ、発行許可を確定する（Grant）。
 6. Token Issuer が発行許可の対象と Permissions を明示して GitHub API にトークンを発行させ、発行応答を発行許可と照合する。
@@ -576,6 +588,6 @@ Lambda の Go Runtime では標準出力が CloudWatch Logs に送られ、JSON 
 
 [Scope](../spec/scope.md) が将来取り込むことを想定する機能を導入する場合、本ドキュメントには次の影響が及びます。
 
-- **細粒度の認可**：処理フロー（§5）の手順 3 の照合と Grant が判定する認可条件が変わる
+- **細粒度の認可**：処理フロー（§5）の手順 3 の照合と Grant が判定する認可条件が変わる。Caller や対象ごとに発行上限を変えるなら、発行上限を一つの環境変数で持つ形（§4.1）も見直す
 - **Organization permissions、Account permissions、Enterprise permissions の発行**：`permissions` の値（§2.1）、入力不正と認可拒否の分け方（§2.2）、手順 3 の権限の確認（§5）が変わる。対象を `repositories` で表せない権限を扱うなら、Payload の形も見直す
 - **OIDC JWT の再利用の検出とレート制限**：処理フロー（§5）に要求の履歴を照会して記録する手順が加わり、その拒否と履歴の照会の障害を表すエラーコード（§3.2）が加わる
