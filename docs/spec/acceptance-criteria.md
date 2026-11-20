@@ -16,7 +16,7 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-AUTHN-003` | Functional Requirement |
+| `alignment` | `FR-AUTHN-002` | Functional Requirement |
 | `alignment` | `FR-AUTHZ-001` | Functional Requirement |
 
 ### AC-AUTHN-002 JWT の欠落と、改ざん、期限切れ、Audience 不一致、必須 Claim の欠落・不正型の JWT の拒否
@@ -27,8 +27,8 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
+| `alignment` | `FR-AUTHN-001` | Functional Requirement |
 | `alignment` | `FR-AUTHN-002` | Functional Requirement |
-| `alignment` | `FR-AUTHN-003` | Functional Requirement |
 
 ### AC-AUTHN-003 `sub` の先頭で許可オーナーの不変 Owner ID を示さない JWT による IAM Role の引き受けの拒否
 
@@ -38,7 +38,7 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-AUTHN-005` | Functional Requirement |
+| `alignment` | `FR-AUTHN-003` | Functional Requirement |
 
 ### AC-AUTHN-004 検証に使う Claim を一つの解釈で読み取れない JWT の拒否
 
@@ -48,9 +48,9 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
+| `alignment` | `FR-AUTHN-001` | Functional Requirement |
 | `alignment` | `FR-AUTHN-002` | Functional Requirement |
-| `alignment` | `FR-AUTHN-003` | Functional Requirement |
-| `alignment` | `FR-AUTHN-006` | Functional Requirement |
+| `alignment` | `FR-AUTHN-004` | Functional Requirement |
 
 ### AC-AUTHN-005 未対応の JOSE Header の拡張か検証に適さない鍵を用いた JWT の拒否と、検証鍵を得られない障害の区別
 
@@ -60,10 +60,10 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
+| `alignment` | `FR-AUTHN-001` | Functional Requirement |
 | `alignment` | `FR-AUTHN-002` | Functional Requirement |
-| `alignment` | `FR-AUTHN-003` | Functional Requirement |
-| `alignment` | `FR-OPS-002` | Functional Requirement |
-| `alignment` | `FR-AUTHN-007` | Functional Requirement |
+| `alignment` | `FR-OPS-004` | Functional Requirement |
+| `alignment` | `FR-AUTHN-005` | Functional Requirement |
 
 ## 3. Authorization
 
@@ -85,7 +85,7 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-AUTHZ-004` | Functional Requirement |
+| `alignment` | `FR-AUTHZ-002` | Functional Requirement |
 
 ### AC-AUTHZ-003 Installation の対象外のリポジトリか、他のオーナーの Private Repository の要求の拒否
 
@@ -95,7 +95,7 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-AUTHZ-002` | Functional Requirement |
+| `alignment` | `FR-AUTHZ-005` | Functional Requirement |
 
 ### AC-AUTHZ-004 許可権限にない権限と全リポジトリの要求の拒否
 
@@ -105,8 +105,8 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
+| `alignment` | `FR-AUTHZ-006` | Functional Requirement |
 | `alignment` | `FR-AUTHZ-003` | Functional Requirement |
-| `alignment` | `FR-AUTHZ-007` | Functional Requirement |
 
 ### AC-AUTHZ-005 リポジトリか権限が欠落、空、未知値の要求の拒否
 
@@ -116,7 +116,7 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-AUTHZ-007` | Functional Requirement |
+| `alignment` | `FR-AUTHZ-003` | Functional Requirement |
 
 ### AC-AUTHZ-006 一部が発行できない複数対象の要求の全件拒否
 
@@ -126,8 +126,8 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-AUTHZ-002` | Functional Requirement |
-| `alignment` | `FR-AUTHZ-006` | Functional Requirement |
+| `alignment` | `FR-AUTHZ-005` | Functional Requirement |
+| `alignment` | `FR-AUTHZ-004` | Functional Requirement |
 
 ### AC-AUTHZ-007 実行時の入力による許可オーナー、GitHub App、Installation、KMS Key、発行上限の指定の拒否
 
@@ -137,8 +137,8 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-AUTHZ-004` | Functional Requirement |
-| `alignment` | `FR-OPS-006` | Functional Requirement |
+| `alignment` | `FR-AUTHZ-002` | Functional Requirement |
+| `alignment` | `FR-OPS-001` | Functional Requirement |
 
 ### AC-AUTHZ-008 GitHub App に付与されていない権限を含む要求の全件拒否
 
@@ -148,8 +148,8 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-AUTHZ-008` | Functional Requirement |
-| `alignment` | `FR-ISSUANCE-006` | Functional Requirement |
+| `alignment` | `FR-AUTHZ-007` | Functional Requirement |
+| `alignment` | `FR-ISSUANCE-004` | Functional Requirement |
 
 ### AC-AUTHZ-009 発行上限に含まれない権限を含む要求の全件拒否
 
@@ -159,8 +159,8 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-AUTHZ-009` | Functional Requirement |
-| `alignment` | `FR-AUTHZ-006` | Functional Requirement |
+| `alignment` | `FR-AUTHZ-008` | Functional Requirement |
+| `alignment` | `FR-AUTHZ-004` | Functional Requirement |
 
 ### AC-AUTHZ-010 GATES が許可しない権限か空の集合を発行上限にした設定の拒否
 
@@ -170,8 +170,8 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-AUTHZ-009` | Functional Requirement |
-| `alignment` | `FR-OPS-006` | Functional Requirement |
+| `alignment` | `FR-AUTHZ-008` | Functional Requirement |
+| `alignment` | `FR-OPS-001` | Functional Requirement |
 | `alignment` | `QR-003` | Quality Requirement |
 
 ## 4. Token Issuance
@@ -184,9 +184,9 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-AUTHN-002` | Functional Requirement |
+| `alignment` | `FR-AUTHN-001` | Functional Requirement |
 | `alignment` | `FR-ISSUANCE-002` | Functional Requirement |
-| `alignment` | `FR-ISSUANCE-004` | Functional Requirement |
+| `alignment` | `FR-ISSUANCE-005` | Functional Requirement |
 
 ### AC-ISSUANCE-002 同一 Installation の複数対象への発行
 
@@ -202,23 +202,23 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 **条件**：App の権限上限・Installation の対象が要求より広い
 
-**期待する結果**：発行結果は要求した対象と権限だけに限定（FR-ISSUANCE-006 の除外対象を除く）
+**期待する結果**：発行結果は要求した対象と権限だけに限定（FR-ISSUANCE-004 の除外対象を除く）
 
 | Relationship | Target | Target Type |
 |---|---|---|
 | `alignment` | `FR-ISSUANCE-003` | Functional Requirement |
-| `alignment` | `FR-ISSUANCE-006` | Functional Requirement |
+| `alignment` | `FR-ISSUANCE-004` | Functional Requirement |
 
 ### AC-ISSUANCE-004 照合に失敗した発行応答でのトークンの不返却と失効の試行
 
-**条件**：GitHub API の発行応答が対象・権限（FR-ISSUANCE-006 の例外を除く）の範囲外、不変 Owner ID 不一致、必要な対象一覧の欠落、または不整合
+**条件**：GitHub API の発行応答が対象・権限（FR-ISSUANCE-004 の例外を除く）の範囲外、不変 Owner ID 不一致、必要な対象一覧の欠落、または不整合
 
 **期待する結果**：トークンを返さない。空でないトークン文字列を取得した場合は失効 API を試み、成否を監査する。失効成功は保証しない
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-AUTHZ-002` | Functional Requirement |
-| `alignment` | `FR-ISSUANCE-006` | Functional Requirement |
+| `alignment` | `FR-AUTHZ-005` | Functional Requirement |
+| `alignment` | `FR-ISSUANCE-004` | Functional Requirement |
 
 ### AC-ISSUANCE-005 GitHub App Private Key の更新後の発行
 
@@ -229,7 +229,7 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 | Relationship | Target | Target Type |
 |---|---|---|
 | `alignment` | `FR-ISSUANCE-001` | Functional Requirement |
-| `alignment` | `FR-OPS-008` | Functional Requirement |
+| `alignment` | `FR-OPS-005` | Functional Requirement |
 
 ### AC-ISSUANCE-006 発行 API の応答を受信できない場合の扱い
 
@@ -239,7 +239,7 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-ISSUANCE-006` | Functional Requirement |
+| `alignment` | `FR-ISSUANCE-004` | Functional Requirement |
 | `alignment` | `QR-003` | Quality Requirement |
 
 ### AC-ISSUANCE-007 ジョブの終了時のトークンの失効
@@ -250,7 +250,7 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-ISSUANCE-007` | Functional Requirement |
+| `alignment` | `FR-ISSUANCE-006` | Functional Requirement |
 | `alignment` | `QR-004` | Quality Requirement |
 
 ### AC-ISSUANCE-008 後続ステップへ渡す前に失敗した場合のトークンの失効
@@ -261,7 +261,7 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-ISSUANCE-007` | Functional Requirement |
+| `alignment` | `FR-ISSUANCE-006` | Functional Requirement |
 | `alignment` | `QR-004` | Quality Requirement |
 
 ### AC-ISSUANCE-009 ジョブのキャンセル時のトークンの失効
@@ -272,20 +272,20 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-ISSUANCE-007` | Functional Requirement |
+| `alignment` | `FR-ISSUANCE-006` | Functional Requirement |
 | `alignment` | `QR-004` | Quality Requirement |
 
 ### AC-ISSUANCE-010 複数の権限と読み取り以外の水準の発行
 
 **条件**：GATES が許可する権限のうち GitHub App に付与された権限から、複数の権限を、読み取り以外の水準を含めて要求する
 
-**期待する結果**：要求した権限名と水準の組だけを持つトークンを取得できる（FR-ISSUANCE-006 の除外対象を除く）。そのトークンで、要求した権限が許す操作は成功し、GitHub App に付与されていても要求しなかった権限の操作は拒否される
+**期待する結果**：要求した権限名と水準の組だけを持つトークンを取得できる（FR-ISSUANCE-004 の除外対象を除く）。そのトークンで、要求した権限が許す操作は成功し、GitHub App に付与されていても要求しなかった権限の操作は拒否される
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-AUTHZ-003` | Functional Requirement |
+| `alignment` | `FR-AUTHZ-006` | Functional Requirement |
 | `alignment` | `FR-ISSUANCE-003` | Functional Requirement |
-| `alignment` | `FR-ISSUANCE-006` | Functional Requirement |
+| `alignment` | `FR-ISSUANCE-004` | Functional Requirement |
 
 ## 5. Usability and Operations
 
@@ -297,7 +297,7 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-OPS-009` | Functional Requirement |
+| `alignment` | `FR-OPS-006` | Functional Requirement |
 
 ### AC-OPS-002 利用者接点が発行処理のエラーを受け取ったときの終了
 
@@ -307,7 +307,7 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-OPS-009` | Functional Requirement |
+| `alignment` | `FR-OPS-006` | Functional Requirement |
 | `alignment` | `QR-004` | Quality Requirement |
 
 ### AC-OPS-003 失敗の種別ごとに区別したエラー
@@ -318,7 +318,7 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-OPS-002` | Functional Requirement |
+| `alignment` | `FR-OPS-004` | Functional Requirement |
 
 ### AC-OPS-004 成功と認証後の拒否の監査記録
 
@@ -328,7 +328,7 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-ISSUANCE-004` | Functional Requirement |
+| `alignment` | `FR-ISSUANCE-005` | Functional Requirement |
 | `alignment` | `FR-OPS-003` | Functional Requirement |
 
 ### AC-OPS-005 構築した AWS リソースでの Lambda の実行 Role の権限の限定、Invoke を許可する主体の限定、認証なしの呼び出し口の不在
@@ -339,7 +339,7 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-OPS-007` | Functional Requirement |
+| `alignment` | `FR-OPS-002` | Functional Requirement |
 | `alignment` | `QR-008` | Quality Requirement |
 
 ### AC-OPS-006 秘密鍵のインポートとインポート前のコピーの削除
@@ -361,7 +361,7 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-OPS-007` | Functional Requirement |
+| `alignment` | `FR-OPS-002` | Functional Requirement |
 
 ### AC-OPS-008 発行 API の `422` の GitHub 発行拒否としての扱い
 
@@ -371,7 +371,7 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-OPS-002` | Functional Requirement |
+| `alignment` | `FR-OPS-004` | Functional Requirement |
 | `alignment` | `QR-003` | Quality Requirement |
 
 ### AC-OPS-009 署名検証を通った Claims Set の調査用の記録
@@ -393,7 +393,7 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 | Relationship | Target | Target Type |
 |---|---|---|
-| `alignment` | `FR-OPS-009` | Functional Requirement |
+| `alignment` | `FR-OPS-006` | Functional Requirement |
 
 ## 6. Quality and Security
 

@@ -64,7 +64,7 @@ Secrets と Variables を置く単位は、許可オーナーの種別で決ま�
 | `repositories` | Lambda 応答が示す発行対象のリポジトリ。入力と同じ形式のカンマ区切りの `owner/repo` |
 | `permissions` | Lambda 応答が示す実効権限。入力と同じ形式のカンマ区切りの `permission:level`。要求にかかわらず GitHub が付与する `metadata:read` を含み得る |
 
-対象と実効権限を Output に含めるのは、利用者が受け取ったトークンの範囲を確認できるようにするためです（[Requirements](../spec/requirements.md) FR-ISSUANCE-004）。Output は呼び出したステップの `steps.<id>.outputs` から同一ジョブ内の後続ステップが利用できます。Action はジョブ間のトークン転送を提供しません。
+対象と実効権限を Output に含めるのは、利用者が受け取ったトークンの範囲を確認できるようにするためです（[Requirements](../spec/requirements.md) FR-ISSUANCE-005）。Output は呼び出したステップの `steps.<id>.outputs` から同一ジョブ内の後続ステップが利用できます。Action はジョブ間のトークン転送を提供しません。
 
 4 つの Output は、`GITHUB_OUTPUT` に `name=value` の 1 行の形式で 1 つずつ書きます。
 どの値も改行を含まないため、1 行の形式で足ります。

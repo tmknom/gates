@@ -46,7 +46,7 @@ GATES は IAM Role の Trust Policy と許可する操作を設計します。
 
 | GATES の条件 | 要求上の根拠 |
 |---|---|
-| AWS STS の入口制御 | [Requirements](../spec/requirements.md) の FR-AUTHN-005、FR-OPS-007 |
+| AWS STS の入口制御 | [Requirements](../spec/requirements.md) の FR-AUTHN-003、FR-OPS-002 |
 
 ## Verification Cases
 

@@ -57,7 +57,7 @@ func TestParseIDKinds(t *testing.T) {
 				"",
 				"| 接頭辞 | 対象 | 定めるドキュメント | ID の形 |",
 				"|---|---|---|---|",
-				"| `FR-` | 機能要求 | `requirements.md` | 連番（`FR-AUTHN-002`） |",
+				"| `FR-` | 機能要求 | `requirements.md` | 連番（`FR-AUTHN-001`） |",
 				"| `GOJ-` | 受理条件 | `gates-oidc-jwt-claims.md`、`gates-oidc-jwt-signature.md` | 名前 |",
 				"| `GH-OIDC-` | GitHub Actions OIDC の条項 | `docs/external/github/oidc.md` | 名前 |",
 			),

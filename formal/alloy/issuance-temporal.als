@@ -3,7 +3,7 @@ module gates/issuance_temporal
 // GATES Current Scope: abstract one GitHub issuance API call per Lambda invocation.
 // This intentionally models TWO invocations so client-controlled retry and
 // duplicate remote issuance can be represented. No idempotency guarantee.
-// Input: FR-ISSUANCE-002, FR-ISSUANCE-006, QR-003, AC-ISSUANCE-004, AC-ISSUANCE-006, INV-012, INV-014;
+// Input: FR-ISSUANCE-002, FR-ISSUANCE-004, QR-003, AC-ISSUANCE-004, AC-ISSUANCE-006, INV-012, INV-014;
 // docs/design/security.md 3.4;
 // docs/design/lambda.md 3.1 and 6.3.
 

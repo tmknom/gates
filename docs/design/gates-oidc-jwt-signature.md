@@ -56,7 +56,7 @@ JOSE Header で、エスケープ解除後に同一となる JSON 名の重複�
 | Satisfies | RFC8725-ALG-NONE-CONSUME | なし |
 | Satisfies | RFC8725-ALG-SET-RESTRICT | なし |
 | Satisfies | RFC8725-ALG-SET-SPECIFY | GATES は、受理するアルゴリズムを `RS256` だけとしてライブラリに指定する |
-| Narrows | RFC7515-ALG-FORMAT | `RS256` のほかの値を拒否する。GitHub が公開する署名のアルゴリズムが `RS256` だけで、ほかのアルゴリズムを受理すると、アルゴリズムの取り違えを使った攻撃の余地が残るため（FR-AUTHN-007） |
+| Narrows | RFC7515-ALG-FORMAT | `RS256` のほかの値を拒否する。GitHub が公開する署名のアルゴリズムが `RS256` だけで、ほかのアルゴリズムを受理すると、アルゴリズムの取り違えを使った攻撃の余地が残るため（FR-AUTHN-005） |
 | Accepts | GH-OIDC-DISCOVERY-ALG | なし |
 | Accepts | GH-OIDC-HEADER-EXAMPLE | なし |
 | Accepts | GH-OIDC-HEADER-OBSERVED | なし |
@@ -105,7 +105,7 @@ JOSE Header で、エスケープ解除後に同一となる JSON 名の重複�
 |---|---|---|
 | Satisfies | RFC7515-CRIT-UNDERSTAND | なし |
 | Satisfies | RFC7515-CRIT-UNSUPPORTED-INVALID | なし |
-| Narrows | RFC7515-CRIT-OPTIONAL | `crit` を持つ JWT を、値を問わず拒否する。GATES は拡張を実装せず、未対応の拡張が意味する処理を無視しないため（FR-AUTHN-007） |
+| Narrows | RFC7515-CRIT-OPTIONAL | `crit` を持つ JWT を、値を問わず拒否する。GATES は拡張を実装せず、未対応の拡張が意味する処理を無視しないため（FR-AUTHN-005） |
 | Accepts | GH-OIDC-HEADER-OBSERVED | なし |
 | Possibly Rejects | GH-OIDC-HEADER-PARAMETERS | `crit` を持つ JWT を拒否する。GitHub が拡張を使っても、GATES が実装しない拡張の処理を無視しないことを優先する |
 
@@ -116,7 +116,7 @@ JOSE Header で、エスケープ解除後に同一となる JSON 名の重複�
 | Relation | Clause | Note |
 |---|---|---|
 | Satisfies | RFC7797-JWT-B64-FALSE | なし |
-| Narrows | RFC7797-B64-OPTIONAL | `true` の `b64` も拒否する。GATES が扱う JWT は Payload を Base64url で符号化した形に限り、`b64` の扱いをライブラリに任せないため（FR-AUTHN-007） |
+| Narrows | RFC7797-B64-OPTIONAL | `true` の `b64` も拒否する。GATES が扱う JWT は Payload を Base64url で符号化した形に限り、`b64` の扱いをライブラリに任せないため（FR-AUTHN-005） |
 | Accepts | GH-OIDC-HEADER-OBSERVED | なし |
 | Possibly Rejects | GH-OIDC-HEADER-PARAMETERS | `b64` を持つ JWT を拒否する。`true` の `b64` は省いた場合と同じ意味だが、受理する Header の形を限ることを優先する |
 
@@ -396,10 +396,10 @@ GATES の役割に当たる Actor と、Claims Set を扱う条項は [GATES OID
 
 | GATES の受理条件 | 要求・設計上の根拠 |
 |---|---|
-| 署名と検証鍵 | [Requirements](../spec/requirements.md) の FR-AUTHN-002、FR-AUTHN-003 |
-| 署名鍵の固定 Issuer からの取得 | [Requirements](../spec/requirements.md) の FR-AUTHN-002 |
-| `crit`、`b64` の拒否と、JWK の用途、署名方式、強度の条件 | [Requirements](../spec/requirements.md) の FR-AUTHN-007 |
-| JWKS の取得の障害と使用可能な鍵がない JWKS を、認証失敗と区別すること | [Requirements](../spec/requirements.md) の FR-OPS-002 |
+| 署名と検証鍵 | [Requirements](../spec/requirements.md) の FR-AUTHN-001、FR-AUTHN-002 |
+| 署名鍵の固定 Issuer からの取得 | [Requirements](../spec/requirements.md) の FR-AUTHN-001 |
+| `crit`、`b64` の拒否と、JWK の用途、署名方式、強度の条件 | [Requirements](../spec/requirements.md) の FR-AUTHN-005 |
+| JWKS の取得の障害と使用可能な鍵がない JWKS を、認証失敗と区別すること | [Requirements](../spec/requirements.md) の FR-OPS-004 |
 
 ## Verification Cases
 
