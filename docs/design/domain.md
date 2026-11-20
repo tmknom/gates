@@ -48,7 +48,7 @@ GATES は、この二つの要求を同時に満たす仲介者です。
 
 - **ワークフロー利用者**：対象リポジトリと権限を指定してトークンを受け取る
 - **GitHub App / オーナーの管理者**：Installation の対象リポジトリを管理し、GATES で読める範囲の上限を決める
-- **GATES 運用者**：許可オーナー、GitHub App、署名鍵を固定し、GATES を運用する
+- **GATES 運用者**：許可オーナー、GitHub App、署名鍵、発行上限を固定し、GATES を運用する
 
 GATES が所有する概念は、固定設定、発行要求、Caller、発行許可、発行結果、監査記録です。
 オーナー、リポジトリ、GitHub App、Installation は GitHub が所有する概念で、GATES はそれらを参照し、照合します。
@@ -115,11 +115,12 @@ Issuer と API Host は GATES 自身が固定し、残りの値は GATES 運用�
 | 許可オーナーの種別 | Allowed Owner Type | Installation の取得方法の選択（Organization かユーザーアカウントか） | 事実：Lambda Design §6.3 |
 | GitHub App の Client ID | Client ID | GitHub App JWT の発行者 | 事実：Lambda Design §4 |
 | 署名鍵の KMS Key ARN | KMS Key ARN | GitHub App JWT の署名 | 事実：Lambda Design §4 |
+| 発行上限 | Issuable Permissions | 事前認可と発行許可の確定で、要求の Permissions を照合する（[3.3](#33-request-and-decision)） | 事実：Requirements FR-AUTHZ-009、Security Design §3.3 |
 | GATES 用 Audience | Audience | GATES 用 OIDC JWT の Audience の照合 | 事実：GATES OIDC JWT Claims の GOJ-AUD |
 | Issuer | Issuer | GATES 用 OIDC JWT の Issuer の照合と Discovery / JWKS の取得先。GitHub Actions の OIDC Provider に固定。JWKS は Issuer の Discovery から得るため、独立した値を持たない | 事実：GATES OIDC JWT Claims の GOJ-ISS、GATES OIDC JWT Signature の GOJ-DISCOVERY-ISSUER、GOJ-DISCOVERY-JWKS-URI、Lambda Design §6.1 |
 | GitHub API Host | API Host | Installation の取得、トークンの発行と失効の呼び出し先。GitHub.com の API に固定 | 事実：Requirements FR-AUTHZ-004、Scope §4、Lambda Design §6.3 |
 
-Authorization が読むのは、固定設定のうち許可オーナー（ID と名前）だけです。
+Authorization が読むのは、固定設定のうち許可オーナー（ID と名前）と発行上限だけです。
 Client ID、KMS Key ARN、Audience、Issuer、API Host は、認証、署名、Installation の解決、発行を担うコンポーネントが読みます。
 
 ### 3.3 Request and Decision
@@ -128,13 +129,20 @@ Client ID、KMS Key ARN、Audience、Issuer、API Host は、認証、署名、I
 |---|---|---|---|---|
 | **発行要求** | Token Request | 値 | 対象（重複のない完全名の列）と Permissions。利用者が明示する。対象は明示した完全名だけで、全リポジトリを対象にする手段を持たない | 事実：Requirements FR-AUTHZ-007、Lambda Design §2.1 |
 | **Permission Entry** | Permission Entry | 値 | 権限名と水準の組（`contents:read` など） | 事実：Requirements FR-AUTHZ-003 |
-| **Permissions** | Permissions | 値 | Permission Entry の集合。権限名ごとに水準を一つ持つ（GitHub の権限の表現が権限名をキーに持つため）。要求では、どの Permission Entry も許可権限に含まれるものだけが許可される。GitHub の Installation Access Token の権限の表現に対応する。権限名は、発行 API のスキーマ「App Permissions」が定めるものに限らない | 事実：Requirements FR-AUTHZ-003、Security Design §3.1、GitHub App Constraints |
+| **Permissions** | Permissions | 値 | Permission Entry の集合。権限名ごとに水準を一つ持つ（GitHub の権限の表現が権限名をキーに持つため）。要求では、どの Permission Entry も許可権限と発行上限の両方に含まれるものだけが許可される。GitHub の Installation Access Token の権限の表現に対応する。権限名は、発行 API のスキーマ「App Permissions」が定めるものに限らない | 事実：Requirements FR-AUTHZ-003、Security Design §3.1、GitHub App Constraints |
 | **許可権限** | Allowed Permissions | 値 | GATES が発行を許可する Permission Entry の集合。GitHub が Repository permissions に分類する権限の権限名と、GitHub が要求どおりに発行する水準の組を、GATES が列挙して固定したもの。発行 API のスキーマに権限名があることを条件にしない。一つの権限名に複数の水準を含み得るため、Permissions ではない。Caller と対象によって変わらない | 事実：Requirements FR-AUTHZ-003、Security Design §3.3。列挙する権限名と水準：GitHub App Constraints の「権限名と分類」 |
-| **付随権限** | Implied Permissions | 値 | 要求にかかわらず GitHub が付与する Permission Entry。`metadata:read` だけを許容する | 事実：Requirements FR-ISSUANCE-006 が除外の枠を定める。`metadata:read` だけを許容するのは GATES の判断。許可権限の各権限名を単独で要求した発行と、複数の権限を要求した発行では、`metadata:read` のほかに加わった権限はなかった（GitHub App Constraints）。未確認：`metadata:read` が付与される条件と、ほかの権限が加わらないことの保証。語は候補 |
+| **発行上限** | Issuable Permissions | 値 | 許可権限のうち、そのデプロイで発行してよい Permission Entry の集合。GATES 運用者が固定設定として決める。許可権限と同じく一つの権限名に複数の水準を含み得るため、Permissions ではない。高い水準は低い水準を含まない。Caller と対象によって変わらない | 事実：Requirements FR-AUTHZ-009、Security Design §3.3 |
+| **付随権限** | Implied Permissions | 値 | 要求にかかわらず GitHub が付与する Permission Entry。`metadata:read` だけを許容する。発行上限に含まれなくても許容する | 事実：Requirements FR-ISSUANCE-006 が除外の枠を定める。`metadata:read` だけを許容するのは GATES の判断。許可権限の各権限名を単独で要求した発行と、複数の権限を要求した発行では、`metadata:read` のほかに加わった権限はなかった（GitHub App Constraints）。未確認：`metadata:read` が付与される条件と、ほかの権限が加わらないことの保証。語は候補 |
 | **Caller** | Caller | 値 | 検証済み GATES 用 OIDC JWT から確定した呼び出し元。不変 Owner ID と Repository ID で識別し、ワークフロー実行 ID と試行番号、およびワークフロー起動属性を監査のためだけに添える | 事実：Requirements FR-AUTHN-002 |
 | **ワークフロー起動属性** | Workflow Trigger Attributes | 値 | ワークフロー実行の起動と、GATES 用 OIDC JWT を取得したジョブを示す属性の組。誰が起動したか（行為者の名前と ID）、どのイベントか、どの ref とコミットか、どのワークフロー定義か、どの environment か。どれも欠落し得る | 事実：GitHub Actions OIDC Constraints、GATES OIDC JWT Claims の Claim Summary |
 | **署名検証済みの Claims Set** | Signature-Verified Claims Set | 値 | 署名検証を通った GATES 用 OIDC JWT の Claims Set の JSON オブジェクト全体。Claim の分類によらずすべての Claim を含み、署名を含まない。監査記録で調査に使うだけで、Caller にもワークフロー起動属性にも含めない | 事実：Requirements FR-OPS-003 |
 | **発行許可** | Token Grant | 値 | Installation ID、対象の完全名の列、発行要求の Permissions。認可が成立した結果であり、発行 API の呼び出しの内容を定める | 事実：Security Design §3.1 |
+
+許可権限と発行上限は、どちらも要求の Permissions を照合する Permission Entry の集合ですが、決める主体と変わる契機が異なるため、別の概念として扱います。
+許可権限は GATES のコードが列挙して固定し、GitHub の分類と発行の振る舞いを確かめた結果でだけ変わります（事実：Security Design §3.3）。
+発行上限は GATES 運用者がデプロイごとに決め、許可権限の一部に限られます（事実：Requirements FR-AUTHZ-009）。
+一つの概念にまとめると、デプロイ時の設定で Organization permissions のような許可権限の外の Permission Entry を発行できる形になり、許可権限が最後の上限として働かなくなります（推論）。
+付随権限は要求の照合ではなく発行結果の照合で許容するものであり、発行上限の影響を受けません（事実：Security Design §3.3）。
 
 発行要求と Caller は、同じ Invoke Payload から取り出す別の概念です。
 Payload に含まれる GATES 用 OIDC JWT は Caller を確定するための資格情報であり、発行要求の一部ではありません（事実：Lambda Design §2.1）。
@@ -283,15 +291,16 @@ flowchart LR
 | 失敗時の失効 | Revoke | Docker Action | 受け取った後、後続ステップへ渡す前に失敗するかキャンセルされた Installation Access Token | 成功または失敗。成否にかかわらず Docker Action は失敗で終わる | 事実：Requirements FR-ISSUANCE-007、GitHub Actions Design §3.5、§3.6 |
 | 形式検証 | Validate | Lambda Handler | Invoke Payload | 発行要求と未検証の GATES 用 OIDC JWT を取り出す、または入力不正 | 事実：Lambda Design §2.2 |
 | 認証 | Authenticate | OIDC Verifier | 未検証の GATES 用 OIDC JWT、固定設定、Issuer の公開鍵、現在時刻 | Caller を確定する、または拒否 | 事実：Requirements FR-AUTHN-002 |
-| 事前認可 | Authorize | Authorization | Caller、発行要求、許可オーナー | 外部呼び出しに進める、または認可拒否 | 事実：Lambda Design §5 手順 3 |
+| 事前認可 | Authorize | Authorization | Caller、発行要求、許可オーナー、発行上限 | 外部呼び出しに進める、または認可拒否 | 事実：Lambda Design §5 手順 3 |
 | 署名 | Sign | KMS Signer | 固定設定の Client ID と KMS Key ARN、現在時刻 | GitHub App JWT | 事実：Requirements FR-ISSUANCE-001、Lambda Design §4 |
 | Installation の解決 | Resolve Installation | Token Issuer | GitHub App JWT、許可オーナーの名前と種別 | 取得した Installation、または拒否（一時的な障害を除く成功以外の応答、解釈できない応答、必須項目の欠落、停止状態を読み取れない応答、一時的な障害） | 事実：Lambda Design §3.2、§6.3 |
-| 発行許可の確定 | Grant | Authorization | Caller、発行要求、許可オーナー、取得した Installation | 発行許可、または拒否（インストール先 Owner ID の不一致、停止、認可条件の不成立） | 事実：Lambda Design §5、Security Design §3.1 |
+| 発行許可の確定 | Grant | Authorization | Caller、発行要求、許可オーナー、発行上限、取得した Installation | 発行許可、または拒否（インストール先 Owner ID の不一致、停止、認可条件の不成立） | 事実：Lambda Design §5、Security Design §3.1 |
 | 発行 | Issue | Token Issuer | 発行許可、GitHub App JWT | 発行結果、または失敗 | 事実：Requirements FR-ISSUANCE-002、FR-ISSUANCE-003 |
 | 発行結果の照合 | Verify | Token Issuer | 発行結果、発行許可、許可オーナー、現在時刻 | 返却可能な発行結果、または拒否 | 事実：Requirements FR-ISSUANCE-006 |
 | 失効 | Revoke | Token Issuer | 照合を通らなかった発行結果のトークン | 成功または失敗。成否にかかわらず拒否のまま終わる | 事実：Requirements FR-ISSUANCE-006、Lambda Design §3.1 |
 | Installation Access Token の発行 | Issue Installation Access Token | Token Issuer | 発行許可の確定（Caller と発行要求は Token Issuer に渡さない）、許可オーナー、現在時刻 | 署名、Installation の解決、発行許可の確定、発行、発行結果の照合を順に行い、返却可能な発行結果、またはいずれかの段階の拒否。照合失敗には失効の結果を添える | 事実：Lambda Design §6.2。語は候補 |
 | 監査記録の出力 | Audit | Lambda Handler | 発行処理の結果 | 監査記録 | 事実：Requirements FR-OPS-003 |
+| 発行上限を変える | （運用手順） | GATES 運用者 | 新しい発行上限 | Lambda の設定の更新が完了した後の発行要求から、新しい発行上限で認可する。発行済みのトークンは失効させず、発行したときの権限のまま有効期限まで残る | 事実：Security Design §3.3 |
 | 署名鍵を更新する | （運用手順） | GATES 運用者 | 新しい Private Key | 鍵の集合への新しい KMS Key の追加と、使用中の鍵（Lambda が参照する Key ARN）の切り替え | 事実：Requirements FR-OPS-008、AWS Infrastructure Design §4.2、§4.3 |
 | Installation の対象を変える | （GitHub 側の操作） | GitHub App / オーナーの管理者 | 対象リポジトリの選択 | 読み取り可能範囲の上限が変わる | 事実：Requirements §2、Security Design §3.2 |
 
@@ -312,8 +321,8 @@ flowchart LR
 
 どの段階にも属さない想定外の障害も、Handler が応答を書ける限り内部障害で終わります。
 
-最後の 2 つの操作は GATES の外で行われますが、発行できる範囲を変えるため、モデルに含めます。
-認可の境界は GATES の設定だけでは決まらず、Installation の対象に依存します。
+最後の 3 つの操作は発行処理の外で行われますが、発行の結果か発行できる範囲を変えるため、モデルに含めます。
+認可の境界は GATES の設定（許可オーナーと発行上限）だけでは決まらず、Installation の対象と GitHub App に付与された権限に依存します。
 
 ### 4.2 Failure Kinds
 
@@ -422,7 +431,7 @@ stateDiagram-v2
 
 Handler が応答を書けない Invoke には、発行処理を始めないものもあります。
 初期化の失敗と、相関 ID が UTF-8 として正しくない場合です（事実：Lambda Design §3.2、§4.1）。
-初期化の失敗は、固定設定が不変条件（[INV-004 許可オーナー](#inv-004-許可オーナー)、[INV-005 認証の固定設定](#inv-005-認証の固定設定)、[INV-006 署名の固定設定](#inv-006-署名の固定設定)）を満たさないか、実行環境から AWS SDK の設定を読めず、部品を作れない場合で、その実行環境は受け取った Invoke に対して発行処理を始めません（推論：不変条件を満たさない値を作らない方針から）。
+初期化の失敗は、固定設定が不変条件（[INV-004 許可オーナー](#inv-004-許可オーナー)、[INV-005 認証の固定設定](#inv-005-認証の固定設定)、[INV-006 署名の固定設定](#inv-006-署名の固定設定)、[INV-015 発行上限](#inv-015-発行上限)）を満たさないか、実行環境から AWS SDK の設定を読めず、部品を作れない場合で、その実行環境は受け取った Invoke に対して発行処理を始めません（推論：不変条件を満たさない値を作らない方針から）。
 どちらも中断と異なり、監査記録は残らず、GitHub 側にトークンを残すこともありません（推論：発行処理を始める前に止まり、GitHub API を呼ばないため）。
 
 認可が事前認可と発行許可の確定の二段に分かれるのは、Installation を取得しないとインストール先 Owner ID を照合できず、Installation の取得には署名済みの GitHub App JWT が要るためです（推論：Lambda Design §5 手順 3 から 5 の順序から）。
@@ -438,6 +447,7 @@ Handler が応答を書けない Invoke には、発行処理を始めないも�
 | リポジトリの名前変更 | 旧名で要求すると、GitHub が拒否するか実効対象の完全名が一致せず返却できない場合がある。同一の許可オーナー・Installation の対象に残り、ほかの条件も成立するなら、新しい完全名で要求できる | 推論：Security Design §3.4 の照合条件から。旧名への GitHub の応答は未確認 |
 | リポジトリの移管 | 所有オーナーと Installation の対象範囲が変わり得る。異なるオーナーへの移管後は、名前を変えて要求するだけでは単一オーナー認可を満たさない | 推論：Requirements FR-AUTHZ-001・FR-AUTHZ-002、Security Design §3.1 の Owner ID と Installation の確認から |
 | Installation の対象の追加・削除 | 読み取り可能範囲の上限が変わる。Organization では、制限していなければリポジトリ管理者も追加できる | 事実：Security Design §3.2 |
+| GitHub App の権限の変更 | 広げても、許可権限と発行上限の両方に含まれない権限を含む要求は認可拒否のまま変わらない。狭めると、付与されなくなった権限を含む要求は GitHub 発行拒否か照合失敗になる | 事実：Security Design §3.3、Requirements FR-AUTHZ-008 |
 | GitHub App の再インストール | Installation ID が変わるが、設定変更なしに新しい Installation を導出する | 事実：Security Design §3.2 |
 | Installation の停止 | 取得した Installation が停止状態のため、発行許可を作らず Installation 利用不可で閉じる。GitHub の発行 API を呼ばない | 事実：Security Design §3.1、Lambda Design §5 手順 5 |
 | GitHub 側での旧 Private Key の失効 | 新しい KMS Key に切り替え済みなら影響しない | 事実：Acceptance Criteria AC-ISSUANCE-005 |
@@ -528,11 +538,11 @@ Handler が応答を書けない Invoke には、発行処理を始めないも�
 
 **適用対象**：事前認可、発行許可の確定
 
-**成立条件**：Caller の Owner ID が許可オーナーの Owner ID と一致し、要求の各完全名のオーナー名が許可オーナー名と一致し、Permissions の Permission Entry がどれも許可権限に含まれる。満たさなければ認可拒否。許可権限に含まれない Permission Entry を除いて成立させない
+**成立条件**：Caller の Owner ID が許可オーナーの Owner ID と一致し、要求の各完全名のオーナー名が許可オーナー名と一致し、Permissions の Permission Entry がどれも許可権限と発行上限の両方に含まれる。満たさなければ認可拒否。許可権限か発行上限に含まれない Permission Entry を除いて成立させない。Permission Entry は権限名と水準の組で照合し、発行上限が同じ権限名の高い水準を含んでも、低い水準の Permission Entry は含まれない
 
 **例外**：なし
 
-**根拠**：事実：Security Design §3.1
+**根拠**：事実：Security Design §3.1、§3.3、Requirements FR-AUTHZ-009。発行上限は [INV-015 発行上限](#inv-015-発行上限)により許可権限の一部だが、許可権限の判定も残す（推論：許可権限を、固定設定の読み込みの誤りにも左右されない最後の上限として保つため）
 
 #### RULE-011 Installation の有効性
 
@@ -574,7 +584,7 @@ Installation に対象リポジトリが含まれることを、GATES は発行�
 
 **適用対象**：固定設定
 
-**成立条件**：実行時の入力から許可オーナー、GitHub App、Installation、KMS Key、Issuer、JWKS、Audience、API Host を指定できない
+**成立条件**：実行時の入力から許可オーナー、GitHub App、Installation、KMS Key、Issuer、JWKS、Audience、API Host、発行上限を指定できない
 
 **例外**：なし
 
@@ -632,6 +642,14 @@ Installation に対象リポジトリが含まれることを、GATES は発行�
 
 **根拠**：推論：UTF-8 として正しくない Client ID は GitHub App JWT の JSON にできず、空の Client ID の GitHub App JWT は GitHub に拒否され、空の KMS Key ARN では KMS が署名しない。どれも発行のたびに失敗する設定であり、作る時点で止める
 
+#### INV-015 発行上限
+
+**時点**：固定設定を読んだ時点
+
+**常に成り立つこと**：Permission Entry を 1 つ以上持ち、どの Permission Entry も許可権限に含まれる
+
+**根拠**：事実：Requirements FR-AUTHZ-009、Security Design §3.3。推論：条件を満たさない値を作らない方針（[5.3 Invariants](#53-invariants) の冒頭）
+
 #### INV-007 保持した Discovery
 
 **時点**：保持した時点
@@ -668,7 +686,7 @@ Installation に対象リポジトリが含まれることを、GATES は発行�
 
 **時点**：確定した時点
 
-**常に成り立つこと**：[RULE-010 認可条件](#rule-010-認可条件)をすべて満たす。対象は発行要求の対象と同じ列で、各完全名の表記と並びも発行要求のままである（GitHub API に渡すリポジトリ名と監査記録の要求対象を、利用者の要求と一致させるため）。Permissions は発行要求の Permissions に等しく、その Permission Entry はどれも許可権限に含まれる。Installation ID は、インストール先 Owner ID が許可オーナーの Owner ID と一致し、停止していない Installation のものである
+**常に成り立つこと**：[RULE-010 認可条件](#rule-010-認可条件)をすべて満たす。対象は発行要求の対象と同じ列で、各完全名の表記と並びも発行要求のままである（GitHub API に渡すリポジトリ名と監査記録の要求対象を、利用者の要求と一致させるため）。Permissions は発行要求の Permissions に等しく、その Permission Entry はどれも許可権限と発行上限の両方に含まれる。Installation ID は、インストール先 Owner ID が許可オーナーの Owner ID と一致し、停止していない Installation のものである
 
 **根拠**：事実：Security Design §3.1
 
@@ -840,5 +858,5 @@ Lambda の Invoke API が JSON として読めずに拒否した Payload も、�
 
 [Scope](../spec/scope.md) が将来取り込むことを想定する機能を導入する場合、本ドキュメントには次の影響が及びます。
 
-- **細粒度の認可**：認可条件（RULE-010）と発行許可の不変条件（INV-011）が変わる。Caller と対象によって変わらないという許可権限の定義（§3.3）も変わる。Caller の Repository ID を認可に使うなら、監査のためだけに添えるという Caller の定義（§3.3）も変わる
+- **細粒度の認可**：認可条件（RULE-010）と発行許可の不変条件（INV-011）が変わる。Caller と対象によって変わらないという許可権限と発行上限の定義（§3.3）も変わる。Caller の Repository ID を認可に使うなら、監査のためだけに添えるという Caller の定義（§3.3）も変わる
 - **Organization permissions、Account permissions、Enterprise permissions の発行**：許可権限と付随権限（§3.3）、返却可能な発行結果（INV-012）が変わる。リポジトリを対象とする発行要求の概念も見直す

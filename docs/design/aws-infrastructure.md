@@ -132,7 +132,7 @@ KMS Key の `key_spec` は、RSA_2048 / RSA_3072 / RSA_4096 のうち GitHub App
 - 既存の KMS Key の置換・削除を避けるため `prevent_destroy` を設定する。`prevent_destroy` は鍵の削除・置換を含む Plan をエラーで拒否し、鍵の集合（§4.3）から鍵を除いた Plan も拒否するが、リソースの設定自体を取り除いた場合の削除は防がない。Plan に鍵削除が現れた場合は適用を中止して確認する。
 - インポートした非対称 KMS Key の鍵素材は別の鍵素材に交換できない。更新時は新しい KMS Key を追加し、Lambda が参照する Key ARN を切り替える（§4.3）。
 
-Terraform への入力には、Key ID / ARN、GitHub App の Client ID、オーナー名と不変 Owner ID、オーナーの種別（Organization またはユーザーアカウント）、GATES 用 Audience などの非秘密値を使用できます。GitHub App の Private Key は一切渡しません。
+Terraform への入力には、Key ID / ARN、GitHub App の Client ID、オーナー名と不変 Owner ID、オーナーの種別（Organization またはユーザーアカウント）、GATES 用 Audience、発行上限などの非秘密値を使用できます。GitHub App の Private Key は一切渡しません。
 
 ### 4.3 Key Set and Rotation
 
@@ -194,8 +194,17 @@ Lambda の設定では次を扱います。
 | `GATES_GITHUB_APP_CLIENT_ID` | GitHub App の Client ID |
 | `GATES_AUDIENCE` | GATES 用 Audience |
 | `GATES_KMS_KEY_ARN` | 使用中の鍵（§4.3）の KMS Key ARN |
+| `GATES_ISSUABLE_PERMISSIONS` | 発行上限（[Security Design](security.md#33-permission-boundary)）。権限名と水準を `:` でつないだ組を、カンマで区切って並べる（`contents:read,pull_requests:write`）。書式は [Lambda Design](lambda.md#41-runtime-entry) に定める |
+
+発行上限は、既定値のない Terraform の変数で、組の文字列のリストとして受け取り、カンマで連結して環境変数に渡します。
+既定値を置かないのは、ほかの固定設定の変数と同じく、発行してよい権限を運用者に明示して決めさせるためです。
 
 Terraform の変数の検証は、環境変数の値のうち Lambda が初期化で拒否する値を Plan の時点で拒否します。
+例外は、発行上限が許可権限の一部であることで、Terraform では確かめず、Lambda の初期化だけが確かめます。
+Terraform で確かめるには、Go のコードが列挙する許可権限を Terraform にも写すことになり、列挙が 2 か所になって、一致を確かめる仕組みが別に要るためです。
+許可権限に含まれない組を含む発行上限は、適用した後の最初の Invoke で初期化の失敗になり、どの要求にもトークンを返しません。
+発行上限の書式（要素が 1 つ以上あること、各要素の形と文字種、重複がないこと）は、Terraform でも確かめます。
+
 Terraform の検証は、次の点で Lambda より狭い値だけを通します。
 
 - Owner ID は、`int64` に必ず収まる 18 桁までに限る
@@ -213,7 +222,7 @@ Issuer と GitHub API Host は環境変数にしません。
 | FR-ISSUANCE-001、QR-008、AC-OPS-005 | `EXTERNAL` origin の非対称署名 KMS Key、Lambda 実行 Role への `kms:Sign` のみの許可、Key Policy による署名権限と管理権限の分離 |
 | FR-OPS-008、AC-ISSUANCE-005 | 鍵の集合への新 KMS Key の追加と使用中の鍵の切り替えによる鍵更新、`prevent_destroy` と Plan の確認による置換・削除の防止、退役させる鍵の State からの除外 |
 | QR-008、AC-OPS-006 | 鍵素材インポートおよびインポート前コピー削除の Terraform からの分離 |
-| FR-OPS-006、AC-AUTHZ-007 | 許可オーナー、GitHub App、KMS Key を Terraform 入力と Lambda 環境変数で固定。Installation は固定した GitHub App と不変 Owner ID から一意に導出する（[Security Design](security.md#32-installation-scope-as-authorization-boundary)） |
+| FR-OPS-006、FR-AUTHZ-009、AC-AUTHZ-007、AC-AUTHZ-010 | 許可オーナー、GitHub App、KMS Key、発行上限を Terraform 入力と Lambda 環境変数で固定。発行上限の書式は Plan の時点で、許可権限の一部であることは Lambda の初期化で確かめる。Installation は固定した GitHub App と不変 Owner ID から一意に導出する（[Security Design](security.md#32-installation-scope-as-authorization-boundary)） |
 | FR-OPS-003、QR-004 | CloudWatch Logs の保持期間・アクセス制限と資格情報の非記録 |
 
 受け入れ条件の正本は [Acceptance Criteria](../spec/acceptance-criteria.md) です。
