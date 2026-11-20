@@ -2,24 +2,24 @@
 
 **GitHub App Token Exchange System**
 
-Give your GitHub Actions workflows short-lived, read-only access to other repositories, without ever handing them a GitHub App private key.
+Give your GitHub Actions workflows short-lived access to other repositories, limited to the repositories and permissions they ask for, without ever handing them a GitHub App private key.
 
 ## Why GATES
 
 The `GITHUB_TOKEN` that GitHub Actions provides can only reach the repository the workflow runs in.
-To read another repository, such as a shared configuration repository or a private dependency, teams usually reach for one of two workarounds:
+To read or update another repository, such as a shared configuration repository or a private dependency, teams usually reach for one of two workarounds:
 
 - a personal access token stored as a secret, tied to one person's account and often broader and longer-lived than needed
 - a GitHub App private key stored as a secret, which lets anyone who obtains it act with every permission of the GitHub App until someone deletes the key from the GitHub App
 
 GATES replaces both.
-A workflow asks GATES for the repositories it needs and receives a GitHub App installation access token for only those repositories, with read-only access.
+A workflow asks GATES for the repositories and permissions it needs and receives a GitHub App installation access token for only those repositories and permissions.
 
 ## Benefits
 
 - **No long-lived secrets in workflows**: Workflows prove who they are with GitHub OIDC. There is no private key, personal access token, or AWS access key to store, rotate, or leak.
 - **Private key locked in AWS KMS**: The GitHub App private key is imported into AWS KMS and signs only inside it, so no workflow, runner, secret, or even the GATES Lambda function holds the key.
-- **Least-privilege tokens**: Each token covers only the repositories you list, with `contents:read`. GATES never widens a request on its own, and it rejects the whole request if any listed repository is not allowed.
+- **Least-privilege tokens**: Each token covers only the repositories and the repository permissions you list, such as `contents:write` and `pull_requests:read`. GATES never widens a request on its own, and it rejects the whole request if any listed repository or permission is not allowed.
 - **Short-lived tokens, revoked when the job ends**: Tokens expire on GitHub's schedule (one hour), and the action also tries to revoke them when the job ends, even after a failed or canceled step.
 - **Fail closed**: If GATES cannot verify the caller, authorize the request, or confirm that the token GitHub issued matches the request, the workflow gets no token.
 - **Auditable**: Every request that GATES answers leaves an audit record of its result, with the requested repositories and the calling repository and workflow run once GATES has checked them, never the token itself. Every response carries a request ID that points to its record.
@@ -37,7 +37,7 @@ sequenceDiagram
 
     W->>S: Exchange a GitHub OIDC token for temporary AWS credentials
     W->>L: Request a token with a second GitHub OIDC token
-    L->>L: Verify the caller and authorize the repositories
+    L->>L: Verify the caller and authorize the repositories and permissions
     L->>K: Sign a GitHub App JWT
     L->>G: Request an installation access token
     L->>L: Check that the token matches the request
@@ -53,6 +53,7 @@ GATES trusts a caller by its immutable GitHub owner ID, not by its name, so rena
 
 - The GATES operator has deployed GATES for your organization or user account and registered its connection information as GitHub Secrets and Variables (`GATES_AWS_ACCOUNT_ID`, `GATES_ROLE_NAME`, `GATES_FUNCTION_NAME`, `GATES_AWS_REGION`, `GATES_AUDIENCE`).
 - The repositories you request belong to the same owner as the calling repository, and the GATES GitHub App is installed on them.
+- The permissions you request are granted to the GATES GitHub App and included in the issuable permissions, the list of permissions the operator allows the deployment to issue.
 - The calling repository uses GitHub's immutable OIDC subject claims. Repositories created after 2026-07-15 use them by default; older repositories need `use_immutable_subject` enabled on the organization or repository.
 - The job declares `id-token: write`.
 - The job runs on a Linux runner with Docker, such as `ubuntu-latest`. Self-hosted runners also need the network access listed in [Using GATES in Workflows](docs/user-guide/workflow-usage.md#6-self-hosted-runners).
@@ -96,7 +97,7 @@ All inputs are required.
 | Input | Description |
 |---|---|
 | `repositories` | Comma-separated `owner/repo` list of the repositories the token can access (up to 500) |
-| `permissions` | Comma-separated `permission:level` list. Currently only `contents:read` is supported |
+| `permissions` | Comma-separated `permission:level` list of repository permissions, such as `contents:read,pull_requests:write`. The accepted names and levels are listed in the [Issue Token action](.github/actions/issue-token/README.md) |
 | `role-arn` | ARN of the IAM role to assume. Build it from the operator's Secrets and Variables as in the example |
 | `function-name` | Name of the GATES Lambda function |
 | `aws-region` | AWS region of the GATES Lambda function |
@@ -123,18 +124,22 @@ The token still stops working at `expires-at`.
 ## Security notes
 
 - Use the `token` output only in later steps of the same job. GitHub refuses to pass masked values through job `outputs`.
-- Do not run untrusted code, such as pull request code checked out under `pull_request_target`, in a job that requests a token. Any code in that job can request its own token from GATES and read the token you received.
+- Request only the permissions the job needs, at the lowest level that works.
+- Do not run untrusted code, such as pull request code checked out under `pull_request_target`, in a job that requests a token. Any code in that job can read the token you received and request its own token from GATES, even with permissions you did not request.
+- Changes made with a token, such as pushed commits or added deploy keys, remain after the token expires or is revoked.
 - Workflows triggered by Dependabot cannot read GitHub Actions secrets. Register `GATES_AWS_ACCOUNT_ID` as a Dependabot secret too if Dependabot workflows need tokens.
 - The action masks the token, but not a substring of it that you print yourself.
 
 ## Scope
 
-GATES issues `contents:read` tokens for repositories of a single allowed owner to GitHub Actions workflows of that owner.
+GATES issues tokens with repository permissions for repositories of a single allowed owner to GitHub Actions workflows of that owner.
+It does not issue organization, account, or enterprise permissions.
 It does not serve clients outside GitHub Actions, manage other kinds of secrets, or change GitHub App installations and permissions for you.
 
-Authorization is currently per owner: any workflow of the allowed owner can request read access to any repository the GitHub App is installed on.
-Keep this in mind before installing the GitHub App on highly sensitive repositories.
-Finer-grained authorization per caller or team, and permissions beyond `contents:read`, are candidates for the future, with no timeline yet.
+Authorization is currently per owner: any workflow of the allowed owner can request any permission that is both granted to the GitHub App and in the issuable permissions, for any repository the GitHub App is installed on.
+Grant the GitHub App and the issuable permissions only what the workflows need, and keep this in mind before installing the GitHub App on highly sensitive repositories.
+Write permissions such as `workflows`, `administration`, `secrets`, and `actions` can reach the secrets and settings of other repositories.
+Finer-grained authorization per caller or team, and organization, account, and enterprise permissions, are candidates for the future, with no timeline yet.
 
 ## Documentation
 

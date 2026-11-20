@@ -19,12 +19,14 @@ Action が失敗すると、ジョブのログとワークフロー実行のペ�
 | `AssumeRoleWithWebIdentity failed` で始まる | `role-arn` の誤り、ワークフローを置くリポジトリが許可オーナーのものでない、またはリポジトリの OIDC JWT が不変の ID を含む形式でない | `role-arn` が `arn:aws:iam::${{ secrets.GATES_AWS_ACCOUNT_ID }}:role/${{ vars.GATES_ROLE_NAME }}` の形かを見直す。正しければ §2 に進む |
 | `AssumeRoleWithWebIdentity failed` で始まり、Dependabot のワークフローでだけ起きる | Dependabot のワークフローは GitHub Actions の Secrets を参照できない | 運用者に、Dependabot の Secrets への登録を頼む |
 | `the Lambda Invoke failed` で始まり、`AccessDeniedException` を含む | `function-name` か `aws-region` の誤り | 運用者が登録した Variables を渡す |
-| `error code "invalid_request"` を含む | 要求の形が正しくない（名前に使えない文字、500 を超える `repositories`、大文字の権限名など） | `repositories` は `owner/repo` の形で書く。`permissions` は `contents:read` と書く |
+| `error code "invalid_request"` を含む | 要求の形が正しくない（名前に使えない文字、500 を超える `repositories`、大文字の権限名など） | `repositories` は `owner/repo` の形で書く。`permissions` は `contents:read` のように小文字の `権限名:水準` で書く |
 | `error code "invalid_id_token"` を含む | `audience` が GATES の設定と一致しない | 運用者が登録した Variable を渡す。渡しているなら §2 に進む |
-| `error code "authorization_denied"` を含む | 許可オーナー以外のリポジトリか、`contents:read` 以外の権限を要求した | 許可オーナーのリポジトリと `contents:read` だけを要求する。一つでも許可されないと、要求全体が失敗する |
-| `error code "github_issuance_rejected"` を含む | インストール対象にないか、存在しないリポジトリを要求した。または GitHub App に `Contents` の権限がない | 綴りを確かめる。正しければ、インストール対象に加えるよう頼むか、要求から外す。インストール対象に入っているなら §2 に進む |
+| `error code "authorization_denied"` を含む | 許可オーナー以外のリポジトリを要求した。または、Issue Token の「要求できる権限」にない権限名か水準（Organization permissions の `members` など）か、発行上限に含まれない権限を要求した | 許可オーナーのリポジトリと、運用者から受け取った使える権限だけを要求する。一つでも許可されないと、要求全体が失敗する |
+| `error code "github_issuance_rejected"` を含む | インストール対象にないか、存在しないリポジトリを要求した。または、GitHub App に付与されていない権限か、付与された水準より高い水準を要求した | リポジトリの綴りを確かめる。正しければ、インストール対象に加えるよう頼むか、要求から外す。権限は、運用者から受け取った使える権限と水準に直す。どちらも正しいなら §2 に進む |
 | ジョブの `outputs` に置いたトークンが空になる | GitHub はマスクされた値をジョブの外に渡さない | トークンが要るジョブごとに Action のステップを置く |
-| トークンで呼んだ API が `403` か `404` を返す | `403` は `contents:read` でできない操作、`404` は要求に含めなかったリポジトリ | `403` の操作は GATES のトークンではできない。`404` のリポジトリは `repositories` に加える |
+| トークンで呼んだ API が `403` を返す | トークンに、その操作に要る権限がない（要求しなかった権限か、`read` で要求した権限の書き込み）。または、インストール対象外の公開リポジトリへの書き込み | 権限の不足なら、応答の `X-Accepted-GitHub-Permissions` ヘッダーが要る権限を `権限名=水準` の形で示す（`;` で区切った候補はどれか一つを満たせばよく、候補の中で `,` でつないだ権限はすべて要る）。`権限名:水準` に直して `permissions` に加える。運用者から受け取った使える権限になければ、運用者に相談する。インストール対象外のリポジトリなら、インストール対象に加えるよう頼む |
+| `git push` が `refusing to allow a GitHub App to create or update workflow` で拒否される | `.github/workflows/` のファイルを変える push に、`workflows:write` がない | 使える権限に `workflows:write` があれば加える。なければ、ワークフローのファイルを変えない |
+| トークンで呼んだ API が `404` を返す | 要求に含めなかったプライベートリポジトリ（インストール対象外のものを含む）。または、リポジトリの設定でその機能が無効（Pull requests の機能が無効なら、`pull_requests` の権限があっても Pull Request の API は `404`） | インストール対象のリポジトリなら `repositories` に加える。対象外なら、インストール対象に加えるよう頼み、加わったら `repositories` に加える。機能が無効なら、リポジトリの管理者に有効にしてもらう |
 
 ## 2. Reporting a Failure to the Operator
 
@@ -76,14 +78,17 @@ aws logs filter-log-events --log-group-name /aws/lambda/gates \
 |---|---|---|
 | `invalid_request` | 要求の形が正しくない。Action と GATES のリリースが違う場合にも起きる | `reason` で不正なフィールドを見る。ワークフロー利用者に §1 の直し方を伝える。Action の参照先がデプロイした GATES と同じリリースかを確かめる |
 | `invalid_id_token` | GATES 用の OIDC JWT が受け付けられない。Audience の食い違い、期限切れ、署名の不正など | Variable の `GATES_AUDIENCE` が `gates_audience` と同じかを確かめる |
-| `authorization_denied` | 許可オーナー以外のリポジトリか、`contents:read` 以外の権限の要求 | `request` の値を見て、ワークフロー利用者に §1 の直し方を伝える |
+| `authorization_denied` | 許可オーナー以外のリポジトリか、要求できない権限の要求。`reason` が `permissions are not within allowed permissions` なら Issue Token の「要求できる権限」にない権限名か水準、`permissions are not within issuable permissions` なら発行上限に含まれない権限 | `request` の値を見て、ワークフロー利用者に §1 の直し方を伝える。発行上限に含まれない権限がワークフローに必要なら、発行上限と GitHub App の権限の両方に加えるかを判断する。加えた権限は、許可オーナーのすべてのワークフローが要求できるようになる |
 | `identity_verification_unavailable` | GitHub の OIDC の公開鍵を一時的に取得できない | 再実行で解消し得る。繰り返すなら [GitHub Status](https://www.githubstatus.com/) を見る |
 | `signing_unavailable` | AWS KMS の署名が一時的に失敗した | 再実行で解消し得る。`reason` が `ThrottlingException` で繰り返すなら、KMS のクォータを確かめる |
 | `installation_unavailable` | GATES が Installation を使えない。GitHub App のアンインストール（`status 404`）、Installation の停止（`installation is suspended`）、`github_app_client_id` の誤り、使用中の鍵と GitHub App の鍵の不一致、GitHub からの鍵の削除 | アンインストールなら、`Only select repositories` で再インストールする。停止なら、悪用への対処で意図して停止したものでないかを確かめてから解く。鍵の不一致は下記で確かめる |
 | `github_api_unavailable` | GitHub API が一時的に失敗した | 再実行で解消し得る。繰り返すなら GitHub Status を見る |
-| `github_issuance_rejected` | インストール対象にないか、存在しないリポジトリの要求。または GitHub App に `Contents` の権限がない | `request.repositories` を Installation の画面のリポジトリと比べる。入っているなら、GitHub App の Repository permissions で `Contents` が `Read-only` かを確かめる。どちらも正しいのに拒否されるなら、`reason` の GitHub の request ID を控えて GitHub に問い合わせる |
+| `github_issuance_rejected` | インストール対象にないか、存在しないリポジトリの要求。または、GitHub App に付与されていない権限か、付与された水準より高い水準の要求 | `request.repositories` を Installation の画面のリポジトリと比べる。`request.permissions` を GitHub App の Repository permissions と比べる。どちらも正しいのに拒否されるなら、`reason` の GitHub の request ID を控えて GitHub に問い合わせる |
 | `issuance_verification_failed` | GitHub が返したトークンが要求と合わない | `reason` と GitHub の request ID を控え、GATES の開発者に報告する。`revocation` が `failed` なら、トークンは 1 時間まで残り得る |
 | `internal_error` | ほかに当たらない失敗。使用中の KMS Key が使えない（無効、削除の予約、鍵素材のインポート前）、Lambda の権限の不足、Lambda の panic など | 下記で KMS Key の状態を確かめる。`Disabled` なら、悪用への対処や鍵の更新で意図して無効にしたものでないかを確かめてから有効にする。`PendingDeletion` なら削除の予約を取り消す。`PendingImport` なら [Key Material Import](import-key-material.md) で鍵素材をインポートする。panic なら、同じ `request_id` の `panic recovered` の行を見る |
+
+GitHub App に権限を加えた後に `github_issuance_rejected` か `issuance_verification_failed` が続くなら、Installation の設定画面に `Permission updates requested. Review request.` が出ていないかを確かめます。
+GitHub App に加えた権限は、Installation の側で承認するまで Installation に付与されません。
 
 使用中の KMS Key の状態を確かめます。
 
@@ -147,7 +152,7 @@ AWS Lambda が要求を関数に渡しませんでした。
 
 | `errorType` | 原因 | 直し方 |
 |---|---|---|
-| `Runtime.ExitError` | 関数の初期化の失敗。関数の設定の環境変数が欠けていると起きる | ログの `initialization failed` の行に、欠けた設定の名前が出る。`make tf-plan` で差分を確かめてから適用し直す |
+| `Runtime.ExitError` | 関数の初期化の失敗。関数の設定の環境変数の欠落か不正な値（発行上限の `issuable_permissions` に GATES が発行できない組があるなど）で起きる | ログの `initialization failed` の行に、満たさなかった設定の名前と条件が出る。発行上限の誤りの読み方は下記にある。`make tf-plan` で差分を確かめてから適用し直す |
 | `Sandbox.Timedout` | 関数のタイムアウト | ログの `REPORT` の行に `Status: timeout` が出る。タイムアウトが Terraform の値（45 秒）から変わっていれば、適用し直す |
 
 時刻でログを引きます。
@@ -158,6 +163,18 @@ aws logs filter-log-events --log-group-name /aws/lambda/gates \
   --start-time <開始> --end-time <終了> \
   --query 'events[].message' --output text
 ```
+
+発行上限の誤りでは、`initialization failed` の行の `error` が次の形になります。
+
+```text
+invalid config: GATES_ISSUABLE_PERMISSIONS: invalid issuable permissions: entries[1] is not in allowed permissions; entries[2] is not in allowed permissions
+```
+
+`entries[N]` は、`terraform.tfvars` の `issuable_permissions` のリストの、0 から数えた位置です。
+ログには値が出ないため、位置でリストの要素を探します。
+誤った組がいくつあっても、`; ` で区切って一行に並びます。
+`is not in allowed permissions` は、その組が Issue Token の「要求できる権限」にないことを示します（`members:read` のような Repository permissions でない権限、`contents:admin` のような水準、綴りの誤り）。
+この組を除くか直して、適用し直します。
 
 ### 5.4 Other Annotations
 
@@ -171,7 +188,8 @@ Runner の環境（`invalid ACTIONS_ID_TOKEN_REQUEST_URL`、`could not write to 
 
 `revocation failed:` で始まる `::warning::` は、ジョブの終了時にトークンを失効できなかったことを示します。
 ジョブは失敗せず、トークンは期限（発行から 1 時間）を過ぎれば使えなくなります。
-残ったトークンで読めるのは、要求したリポジトリだけです。
+残ったトークンで操作できるのは、要求したリポジトリに対する、要求した権限の範囲です。
+書き込みの権限を要求していれば、期限まで書き込めます。
 
 セルフホストの Runner では、`api.github.com` への通信の許可を確かめます。
 GitHub がホストする Runner で繰り返し出るときは、注釈の全文とワークフロー実行の URL を運用者に伝えます。

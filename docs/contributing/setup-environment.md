@@ -16,7 +16,7 @@ Deployment の §3.1 のうち、運用者が決める項目は次の値にし�
 | Description | `A GitHub App for testing GATES (GitHub App Token Exchange System), a system that issues GitHub App installation access tokens to GitHub Actions workflows.` |
 | Homepage URL | `https://example.com` |
 
-Repository permissions は、Deployment の §3.1 の `Contents` の `Read-only` に代えて、[E2E Tests](e2e-tests.md) の事例が使う次の水準にします。
+Deployment の §3.1 の Repository permissions は、[E2E Tests](e2e-tests.md) の事例が使う次の水準にします。
 
 | 権限 | 水準 | 使う事例 |
 |---|---|---|
