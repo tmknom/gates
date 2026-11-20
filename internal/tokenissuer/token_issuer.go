@@ -10,6 +10,15 @@ import (
 	"github.com/tmknom/gates/internal/nonzero"
 )
 
+// TokenIssuer は、KMS Signer と GitHub Client を使って Installation Access Token を発行する Token Issuer である。
+// 入口を struct のメソッドにするのは、KMS Signer、GitHub Client、許可オーナーを要求をまたいで保持するためである。
+type TokenIssuer struct {
+	signer       kmsSigner
+	client       *github.Client
+	allowedOwner authz.AllowedOwner
+	now          func() time.Time
+}
+
 // kmsSigner は、KMS Signer のうち Token Issuer が使う操作である。
 // テストが AWS SDK に依存せずに署名を差し替えるため、interface で受ける。
 type kmsSigner interface {
@@ -20,15 +29,6 @@ type kmsSigner interface {
 // Token Issuer が Caller と発行要求を知らずに済むよう、発行許可の確定を関数で受け取る。
 // 署名から照合までを一つの操作にまとめる理由は、Lambda Design の「GitHub App JWT」に記述する。
 type GrantFunc func(installation authz.Installation) (authz.TokenGrant, error)
-
-// TokenIssuer は、KMS Signer と GitHub Client を使って Installation Access Token を発行する Token Issuer である。
-// 入口を struct のメソッドにするのは、KMS Signer、GitHub Client、許可オーナーを要求をまたいで保持するためである。
-type TokenIssuer struct {
-	signer       kmsSigner
-	client       *github.Client
-	allowedOwner authz.AllowedOwner
-	now          func() time.Time
-}
 
 // NewTokenIssuer は Token Issuer を作る。
 func NewTokenIssuer(signer kmsSigner, client *github.Client, allowedOwner authz.AllowedOwner, now func() time.Time) *TokenIssuer {

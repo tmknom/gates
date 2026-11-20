@@ -8,18 +8,18 @@ import (
 	"net/url"
 )
 
-// 値の理由は Lambda Design の「GitHub Client」に記述する。
-const (
-	apiVersion = "2026-03-10"
-	userAgent  = "gates"
-)
-
 // Client は GitHub API の呼び出しを担う GitHub Client である。
 type Client struct {
 	// API Host は固定設定であり、実行時の入力から変えられないよう、テストだけが Option で差し替える
 	apiHost    *url.URL
 	httpClient *http.Client
 }
+
+// 値の理由は Lambda Design の「GitHub Client」に記述する。
+const (
+	apiVersion = "2026-03-10"
+	userAgent  = "gates"
+)
 
 // Option は GitHub Client の設定を変える。
 type Option func(*Client)
@@ -42,13 +42,6 @@ func WithRootCAs(rootCAs *x509.CertPool) Option {
 		transport.TLSClientConfig = &tls.Config{RootCAs: rootCAs, MinVersion: tls.VersionTLS12}
 		c.httpClient.Transport = transport
 	}
-}
-
-// newTransport は、要求ごとに接続を張る Transport を作る。理由は Lambda Design の Call Time Budget にある。
-func newTransport() *http.Transport {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.DisableKeepAlives = true
-	return transport
 }
 
 // NewClient は GitHub.com の API に要求を送る GitHub Client を作る。
@@ -87,4 +80,11 @@ func (c *Client) newRequest(ctx context.Context, method, path string, credential
 	request.Header.Set("X-GitHub-Api-Version", apiVersion)
 	request.Header.Set("User-Agent", userAgent)
 	return request
+}
+
+// newTransport は、要求ごとに接続を張る Transport を作る。理由は Lambda Design の Call Time Budget にある。
+func newTransport() *http.Transport {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DisableKeepAlives = true
+	return transport
 }

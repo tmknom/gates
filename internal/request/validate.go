@@ -25,6 +25,9 @@ type payload struct {
 	Permissions  map[string]string `json:"permissions"`
 }
 
+// 解析は復号の時点で行わない。行うと、完全名の形式の誤りが decode の文言に一本化されて repository.ErrInvalidFullName を失い、ほかのフィールドの検証より先に判定される。
+type rawFullNames []string
+
 // fieldErrors は、値を期待する型に復号できないときに返す sentinel error を、Payload のフィールド名で引く。
 var fieldErrors = map[string]error{
 	"version":      ErrInvalidVersion,
@@ -36,28 +39,28 @@ var fieldErrors = map[string]error{
 // Validate は、Payload を形式検証し、未検証の GATES 用 OIDC JWT と発行要求に分けて返す。
 // 値を読み取れない形だけを入力不正にし、Permissions が許可条件に合うかは判定しない。
 // 返す error はどれも入力不正である。sentinel error は、どの規則で拒否したかを区別するために分ける。
-func Validate(b []byte) (UnverifiedIDToken, TokenRequest, error) {
+func Validate(b []byte) (UnverifiedOIDCJWT, TokenRequest, error) {
 	if len(b) > maxPayloadBytes {
-		return UnverifiedIDToken{}, TokenRequest{}, fmt.Errorf("%w: must be at most %d bytes", ErrPayloadTooLarge, maxPayloadBytes)
+		return UnverifiedOIDCJWT{}, TokenRequest{}, fmt.Errorf("%w: must be at most %d bytes", ErrPayloadTooLarge, maxPayloadBytes)
 	}
 	p, err := decode(b)
 	if err != nil {
-		return UnverifiedIDToken{}, TokenRequest{}, err
+		return UnverifiedOIDCJWT{}, TokenRequest{}, err
 	}
 
 	if p.Version != 1 {
-		return UnverifiedIDToken{}, TokenRequest{}, ErrInvalidVersion
+		return UnverifiedOIDCJWT{}, TokenRequest{}, ErrInvalidVersion
 	}
 	if p.IDToken == "" {
-		return UnverifiedIDToken{}, TokenRequest{}, ErrInvalidIDTokenField
+		return UnverifiedOIDCJWT{}, TokenRequest{}, ErrInvalidIDTokenField
 	}
 	repositories, err := p.Repositories.parse()
 	if err != nil {
-		return UnverifiedIDToken{}, TokenRequest{}, err
+		return UnverifiedOIDCJWT{}, TokenRequest{}, err
 	}
 	permissions, err := permission.NewPermissions(p.Permissions)
 	if err != nil {
-		return UnverifiedIDToken{}, TokenRequest{}, fmt.Errorf("%w: %w", ErrInvalidPermissions, err)
+		return UnverifiedOIDCJWT{}, TokenRequest{}, fmt.Errorf("%w: %w", ErrInvalidPermissions, err)
 	}
 
 	req := TokenRequest{
@@ -65,8 +68,31 @@ func Validate(b []byte) (UnverifiedIDToken, TokenRequest, error) {
 		permissions:  permissions,
 	}
 	// p のフィールドを指すと、トークンが復号した Payload 全体を保持し続けるため、値を写してから指す
-	idToken := p.IDToken
-	return UnverifiedIDToken{value: &idToken}, req, nil
+	oidcJWT := p.IDToken
+	return UnverifiedOIDCJWT{value: &oidcJWT}, req, nil
+}
+
+// parse は、件数、完全名の形式、大文字小文字を区別しない重複を検証する。
+// 重複は FullName.Equal の総当たりで判定し、比較規則の写しを持たない。件数を先に maxRepositories 以下に限るため、総当たりの回数にも上限がある。
+// 不正な要素は最初の 1 件で返す。どの要素で拒否しても入力不正という結果は変わらず、失敗応答も要素を示さないため。
+func (names rawFullNames) parse() ([]repository.FullName, error) {
+	if len(names) == 0 || len(names) > maxRepositories {
+		return nil, fmt.Errorf("%w: must have 1 to %d items", ErrInvalidRepositories, maxRepositories)
+	}
+	repositories := make([]repository.FullName, 0, len(names))
+	for i, name := range names {
+		f, err := repository.ParseFullName(name)
+		if err != nil {
+			return nil, fmt.Errorf("%w: repositories[%d]: %w", ErrInvalidRepositories, i, err)
+		}
+		for j, prev := range repositories {
+			if f.Equal(prev) {
+				return nil, fmt.Errorf("%w: repositories[%d] duplicates repositories[%d]", ErrInvalidRepositories, i, j)
+			}
+		}
+		repositories = append(repositories, f)
+	}
+	return repositories, nil
 }
 
 // decode は、重複したキーと不正な UTF-8 を拒否し、フィールド名の大文字小文字を区別する encoding/json/v2 の既定に、未知のフィールドの拒否を加えて復号する。
@@ -96,30 +122,4 @@ func decode(b []byte) (*payload, error) {
 		return nil, fmt.Errorf("%w: cannot be decoded as the expected type", fieldErr)
 	}
 	return nil, fmt.Errorf("%w: payload must be a JSON object", ErrMalformedPayload)
-}
-
-// 解析は復号の時点で行わない。行うと、完全名の形式の誤りが decode の文言に一本化されて repository.ErrInvalidFullName を失い、ほかのフィールドの検証より先に判定される。
-type rawFullNames []string
-
-// parse は、件数、完全名の形式、大文字小文字を区別しない重複を検証する。
-// 重複は FullName.Equal の総当たりで判定し、比較規則の写しを持たない。件数を先に maxRepositories 以下に限るため、総当たりの回数にも上限がある。
-// 不正な要素は最初の 1 件で返す。どの要素で拒否しても入力不正という結果は変わらず、失敗応答も要素を示さないため。
-func (names rawFullNames) parse() ([]repository.FullName, error) {
-	if len(names) == 0 || len(names) > maxRepositories {
-		return nil, fmt.Errorf("%w: must have 1 to %d items", ErrInvalidRepositories, maxRepositories)
-	}
-	repositories := make([]repository.FullName, 0, len(names))
-	for i, name := range names {
-		f, err := repository.ParseFullName(name)
-		if err != nil {
-			return nil, fmt.Errorf("%w: repositories[%d]: %w", ErrInvalidRepositories, i, err)
-		}
-		for j, prev := range repositories {
-			if f.Equal(prev) {
-				return nil, fmt.Errorf("%w: repositories[%d] duplicates repositories[%d]", ErrInvalidRepositories, i, j)
-			}
-		}
-		repositories = append(repositories, f)
-	}
-	return repositories, nil
 }

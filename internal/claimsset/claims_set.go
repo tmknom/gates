@@ -7,14 +7,14 @@ import (
 	"errors"
 )
 
-// ErrInvalidClaimsSet は、RFC 7493 の JSON オブジェクトでない Payload から署名検証済みの Claims Set を作ろうとしたことを表す。
-var ErrInvalidClaimsSet = errors.New("invalid claims set")
-
 // SignatureVerified は、署名検証済みの Claims Set である。
 // 認証、認可、ワークフロー起動属性の判断に使わないため、Claim を読むメソッドを持たず、監査記録に書く JSON だけを返す。
 type SignatureVerified struct {
 	json string
 }
+
+// ErrInvalidClaimsSet は、RFC 7493 の JSON オブジェクトでない Payload から署名検証済みの Claims Set を作ろうとしたことを表す。
+var ErrInvalidClaimsSet = errors.New("invalid claims set")
 
 // NewSignatureVerified は、署名を検証した Payload を JSON として再符号化し、署名検証済みの Claims Set を作る。
 // EscapeForJS は、slog の JSON Handler が文字列の属性で U+2028 と U+2029 をエスケープするのに揃える。

@@ -15,9 +15,6 @@ import (
 	"github.com/go-jose/go-jose/v4"
 )
 
-// keyRetrievalInterval の値の理由は Lambda Design の JWKS の再取得の上限に置く。
-const keyRetrievalInterval = time.Minute
-
 // issuerKeySet は Issuer の公開鍵を取得して保持する oidc.KeySet である。
 // go-oidc の RemoteKeySet を使わないのは、次の点で要件に合わないため。
 // 取得の失敗を分類できる形で返さず、応答の大きさに上限がなく、応答本文をエラーに含め、kid のない JWT を保持した鍵のすべてで試行し、再取得の頻度を制限しない。
@@ -38,6 +35,9 @@ type issuerKeySet struct {
 	retrievalFailure error
 }
 
+// keyRetrievalInterval の値の理由は Lambda Design の JWKS の再取得の上限に置く。
+const keyRetrievalInterval = time.Minute
+
 // Option は Discovery と JWKS の取得の設定を変える。
 type Option func(*issuerKeySet)
 
@@ -54,13 +54,6 @@ func WithRootCAs(rootCAs *x509.CertPool) Option {
 		transport.TLSClientConfig = &tls.Config{RootCAs: rootCAs, MinVersion: tls.VersionTLS12}
 		keySet.client.Transport = transport
 	}
-}
-
-// newTransport は、要求ごとに接続を張る Transport を作る。理由は Lambda Design の Call Time Budget にある。
-func newTransport() *http.Transport {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.DisableKeepAlives = true
-	return transport
 }
 
 func newIssuerKeySet(issuer *url.URL, now func() time.Time, log *slog.Logger, opts ...Option) *issuerKeySet {
@@ -114,15 +107,6 @@ func (k *issuerKeySet) VerifySignature(ctx context.Context, jwt string) ([]byte,
 	return k.verify(signature)
 }
 
-// retrievalFailureKind は取得の失敗から種別だけを取り出す。応答のステータスのような内容を、後の呼び出しの失敗に持ち越さないため。
-// retrieve の失敗はどれも ErrTransientFailure か ErrInternalFailure を包む。
-func retrievalFailureKind(err error) error {
-	if errors.Is(err, ErrTransientFailure) {
-		return ErrTransientFailure
-	}
-	return ErrInternalFailure
-}
-
 // verify は mu を保持して呼ぶ。
 // go-jose は同じ kid の先頭の鍵を使うため、一意に選べない JWT を先に拒否する。
 // JWKS の取得は同じ kid の鍵を拒否しない。選択できるかは JWT ごとに決まり、ほかの kid の JWT の検証を止めないため。
@@ -149,4 +133,20 @@ func (k *issuerKeySet) retrieve(ctx context.Context) error {
 	}
 	k.keys = keys
 	return nil
+}
+
+// newTransport は、要求ごとに接続を張る Transport を作る。理由は Lambda Design の Call Time Budget にある。
+func newTransport() *http.Transport {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DisableKeepAlives = true
+	return transport
+}
+
+// retrievalFailureKind は取得の失敗から種別だけを取り出す。応答のステータスのような内容を、後の呼び出しの失敗に持ち越さないため。
+// retrieve の失敗はどれも ErrTransientFailure か ErrInternalFailure を包む。
+func retrievalFailureKind(err error) error {
+	if errors.Is(err, ErrTransientFailure) {
+		return ErrTransientFailure
+	}
+	return ErrInternalFailure
 }

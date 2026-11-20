@@ -10,28 +10,6 @@ import (
 	"github.com/tmknom/gates/internal/github"
 )
 
-const appJWTValue = "secret.app.jwt"
-
-// credentialCase は、値を伏せて出力する資格情報と、その値である。
-type credentialCase struct {
-	name   string
-	output any
-	value  string
-}
-
-// credentials は、GitHub Client が扱う資格情報を返す。Installation Access Token は発行応答からしか作れないため、Issue で読み取る。
-func credentials(t *testing.T) []credentialCase {
-	t.Helper()
-	token, ok := issueBody(t, marshal(t, recordedIssuance())).Token()
-	if !ok {
-		t.Fatal("Token() was not read")
-	}
-	return []credentialCase{
-		{name: "GitHub App JWT", output: github.NewAppJWT(appJWTValue), value: appJWTValue},
-		{name: "Installation Access Token", output: token, value: tokenMarker},
-	}
-}
-
 // TestCredentials_AreRedactedInOutput は、credential.Redacted のメソッドが各資格情報の型に昇格していることを確かめる。
 // 書式指定や出力先ごとの網羅は credential package のテストが確かめる。
 //
@@ -92,5 +70,25 @@ func TestCredentials_UnexportedFieldDoesNotShowValue(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// credentialCase は、値を伏せて出力する資格情報と、その値である。
+type credentialCase struct {
+	name   string
+	output any
+	value  string
+}
+
+// credentials は、GitHub Client が扱う資格情報を返す。Installation Access Token は発行応答からしか作れないため、Issue で読み取る。
+func credentials(t *testing.T) []credentialCase {
+	t.Helper()
+	token, ok := issueBody(t, marshal(t, recordedIssuance())).Token()
+	if !ok {
+		t.Fatal("Token() was not read")
+	}
+	return []credentialCase{
+		{name: "GitHub App JWT", output: github.NewAppJWT(appJWTValue), value: appJWTValue},
+		{name: "Installation Access Token", output: token, value: tokenMarker},
 	}
 }

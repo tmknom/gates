@@ -202,12 +202,3 @@ func TestPermissions_EntriesStopsWhenLoopBreaks(t *testing.T) {
 		t.Errorf("Entries() until break = %v, want %v", got, want)
 	}
 }
-
-func mustNewPermissions(t *testing.T, levels map[string]string) permission.Permissions {
-	t.Helper()
-	p, err := permission.NewPermissions(levels)
-	if err != nil {
-		t.Fatalf("NewPermissions(%v) returned error: %v", levels, err)
-	}
-	return p
-}

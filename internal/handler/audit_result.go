@@ -9,9 +9,6 @@ import (
 	"github.com/tmknom/gates/internal/tokenissuer"
 )
 
-// reasonPanicRecovered は、panic を回復した発行処理の拒否の理由である。panic の値を含めないため、固定の文言にする。
-const reasonPanicRecovered = "panic recovered"
-
 // failedResult は、部品が返した失敗から、エラーコードと拒否の理由を持つ監査記録の結果を作る。
 // 失効の結果は、Domain Model の「Audit Record」の記録する条件に従い、照合失敗のエラーコードで終わる場合だけ持つ。
 func failedResult(code errorcode.Code, err error) audit.Result {

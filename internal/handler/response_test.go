@@ -1,9 +1,7 @@
 package handler
 
 import (
-	"encoding/json/v2"
 	"fmt"
-	"maps"
 	"net/http"
 	"reflect"
 	"slices"
@@ -12,25 +10,6 @@ import (
 
 	"github.com/tmknom/gates/internal/errorcode"
 )
-
-// lambdaRequestID は、Lambda の request ID の形をした相関 ID である。
-const lambdaRequestID = "c6af9ac6-7b61-11e6-9a41-93e8deadbeef"
-
-func decodeResponse(t *testing.T, b []byte) map[string]any {
-	t.Helper()
-	var decoded map[string]any
-	if err := json.Unmarshal(b, &decoded); err != nil {
-		t.Fatalf("response %s is not a JSON object: %v", b, err)
-	}
-	return decoded
-}
-
-func assertKeys(t *testing.T, name string, object map[string]any, want ...string) {
-	t.Helper()
-	if got := slices.Sorted(maps.Keys(object)); !slices.Equal(got, slices.Sorted(slices.Values(want))) {
-		t.Errorf("%s keys = %q, want %q", name, got, want)
-	}
-}
 
 func TestEncodeFailure_WritesErrorCodeAndRequestID(t *testing.T) {
 	got := decodeResponse(t, encodeFailure(lambdaRequestID, errorcode.AuthorizationDenied))

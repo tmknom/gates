@@ -2,17 +2,13 @@ package authz_test
 
 import (
 	"errors"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/tmknom/gates/internal/authz"
 	"github.com/tmknom/gates/internal/permission"
-	"github.com/tmknom/gates/internal/repository"
 )
-
-const installationID = 5005
 
 //trace:checks AC-ISSUANCE-010
 func TestGrant(t *testing.T) {
@@ -37,36 +33,6 @@ func TestGrant(t *testing.T) {
 	if !grant.Permissions().Equal(want) {
 		t.Error("Permissions() is not equal to the requested permissions")
 	}
-}
-
-func TestTokenGrant_IsZero(t *testing.T) {
-	owner := mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName)
-	caller := mustNewCaller(t, allowedOwnerID)
-	req := mustTokenRequest(t, []string{"Example-Org/app"}, contentsRead)
-	grant, err := authz.Grant(caller, req, owner, mustNewIssuablePermissions(t, issuablePermissionNotations...), mustNewInstallation(t, allowedOwnerID, false))
-	if err != nil {
-		t.Fatalf("Grant() returned error: %v", err)
-	}
-
-	if grant.IsZero() {
-		t.Error("IsZero() = true for the TokenGrant created by Grant")
-	}
-	if !(authz.TokenGrant{}).IsZero() {
-		t.Error("IsZero() = false for the zero TokenGrant")
-	}
-}
-
-func TestTokenGrant_RepositoriesCannotBeModifiedByCaller(t *testing.T) {
-	owner := mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName)
-	caller := mustNewCaller(t, allowedOwnerID)
-	req := mustTokenRequest(t, []string{"Example-Org/app", "Example-Org/lib"}, contentsRead)
-	grant, err := authz.Grant(caller, req, owner, mustNewIssuablePermissions(t, issuablePermissionNotations...), mustNewInstallation(t, allowedOwnerID, false))
-	if err != nil {
-		t.Fatalf("Grant() returned error: %v", err)
-	}
-	got := grant.Repositories()
-	got[0] = got[1]
-	assertRepositories(t, grant.Repositories(), []string{"Example-Org/app", "Example-Org/lib"})
 }
 
 //trace:checks AC-AUTHZ-004 AC-AUTHZ-009
@@ -150,26 +116,5 @@ func TestGrant_ErrorDoesNotContainValues(t *testing.T) {
 		if strings.Contains(err.Error(), s) {
 			t.Errorf("error %q contains value %q", err, s)
 		}
-	}
-}
-
-func mustNewInstallation(t *testing.T, installationOwnerID int64, suspended bool) authz.Installation {
-	t.Helper()
-	inst, err := authz.NewInstallation(installationID, installationOwnerID, suspended)
-	if err != nil {
-		t.Fatalf("NewInstallation returned error: %v", err)
-	}
-	return inst
-}
-
-func assertRepositories(t *testing.T, got []repository.FullName, want []string) {
-	t.Helper()
-	// FullName.Equal は大文字小文字を区別しないため、要求どおりの表記が保たれたかは String() の列で比べる
-	names := make([]string, len(got))
-	for i, f := range got {
-		names[i] = f.String()
-	}
-	if !slices.Equal(names, want) {
-		t.Errorf("Repositories() = %v, want %v", names, want)
 	}
 }

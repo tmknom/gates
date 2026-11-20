@@ -3,142 +3,26 @@ package authn
 import (
 	"context"
 	"crypto"
-	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
-	jsonv1 "encoding/json"
 	"encoding/json/v2"
 	"errors"
-	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
-	"unicode"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/go-jose/go-jose/v4"
 
 	"github.com/tmknom/gates/internal/caller"
 	"github.com/tmknom/gates/internal/claimsset"
-	"github.com/tmknom/gates/internal/request"
 )
 
-const (
-	testIssuer   = "https://token.actions.githubusercontent.com"
-	testAudience = "gates"
-	testKeyID    = "test-key"
-)
-
-// testNow は validClaims の iat と同じ時刻で、実時間に依存せず時間条件の境界を確かめるために固定する。
-var testNow = time.Unix(1700000000, 0)
-
-func testClock() time.Time { return testNow }
-
-// discardLog は、ログを確かめないテストが Verifier に渡す logger である。
-var discardLog = slog.New(slog.DiscardHandler)
-
-// sharedKey は、鍵の生成が遅いため 1 回だけ作る。
-var sharedKey = sync.OnceValues(func() (*rsa.PrivateKey, error) {
-	return rsa.GenerateKey(rand.Reader, 2048)
-})
-
-// testKey は、テストが共有する鍵を返す。
-func testKey(t *testing.T) *rsa.PrivateKey {
-	t.Helper()
-	key, err := sharedKey()
-	if err != nil {
-		t.Fatalf("rsa.GenerateKey returned error: %v", err)
-	}
-	return key
-}
-
-// generateKey は、共有する鍵と異なる鍵を作る。
-func generateKey(t *testing.T) *rsa.PrivateKey {
-	t.Helper()
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatalf("rsa.GenerateKey returned error: %v", err)
-	}
-	return key
-}
-
-func newTestVerifier(t *testing.T) *Verifier {
-	t.Helper()
-	keys := &oidc.StaticKeySet{PublicKeys: []crypto.PublicKey{testKey(t).Public()}}
-	return newVerifier(testIssuer, testAudience, keys, testClock)
-}
-
-// signPayload は Claim を JSON のまま受ける。重複したキーのように、map から作れない Payload にも署名するため。
-func signPayload(t *testing.T, algorithm jose.SignatureAlgorithm, key *rsa.PrivateKey, payload []byte) string {
-	t.Helper()
-	return signWithKeyID(t, algorithm, key, testKeyID, payload)
-}
-
-// signWithKeyID は keyID をヘッダーの kid に書く。keyID が空なら kid のない JWT になる。
-func signWithKeyID(t *testing.T, algorithm jose.SignatureAlgorithm, key *rsa.PrivateKey, keyID string, payload []byte) string {
-	t.Helper()
-	signingKey := jose.SigningKey{Algorithm: algorithm, Key: jose.JSONWebKey{Key: key, KeyID: keyID}}
-	signer, err := jose.NewSigner(signingKey, nil)
-	if err != nil {
-		t.Fatalf("NewSigner returned error: %v", err)
-	}
-	signed, err := signer.Sign(payload)
-	if err != nil {
-		t.Fatalf("Sign returned error: %v", err)
-	}
-	token, err := signed.CompactSerialize()
-	if err != nil {
-		t.Fatalf("CompactSerialize returned error: %v", err)
-	}
-	return token
-}
-
-func signClaims(t *testing.T, claims map[string]any) string {
-	t.Helper()
-	return signPayload(t, jose.RS256, testKey(t), marshalClaims(t, claims))
-}
-
-// signLeadingClaims は leading の JSON のメンバーを先頭に固定して署名する。
-// go-oidc が読む値は別名との順序で変わり、map から作る JSON では順序を決められないため。
-func signLeadingClaims(t *testing.T, leading, omitted string) string {
-	t.Helper()
-	rest := marshalClaims(t, claimsWithout(omitted))[1:]
-	return signPayload(t, jose.RS256, testKey(t), append([]byte("{"+leading+","), rest...))
-}
-
-// escapedName は、先頭の文字を Unicode エスケープで書いた JSON の文字列を返す。エスケープを解いた後の名前で比較されることを確かめるため。
-func escapedName(name string) string {
-	return fmt.Sprintf(`"%cu%04x%s"`, '\\', name[0], name[1:])
-}
-
-func unverifiedIDToken(t *testing.T, token string) request.UnverifiedIDToken {
-	t.Helper()
-	payload, err := json.Marshal(map[string]any{
-		"version":      1,
-		"id_token":     token,
-		"repositories": []string{"octo/app"},
-		"permissions":  map[string]string{"contents": "read"},
-	})
-	if err != nil {
-		t.Fatalf("Marshal returned error: %v", err)
-	}
-	raw, _, err := request.Validate(payload)
-	if err != nil {
-		t.Fatalf("Validate returned error: %v", err)
-	}
-	return raw
-}
-
-func unixAfter(d time.Duration) int64 {
-	return testNow.Add(d).Unix()
-}
+const testIssuer = "https://token.actions.githubusercontent.com"
 
 func TestNewVerifier_InvalidConfig(t *testing.T) {
 	tests := []struct {
@@ -205,7 +89,7 @@ func TestVerifierAuthenticate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name+" returns Caller", func(t *testing.T) {
-			got, _, err := newTestVerifier(t).Authenticate(t.Context(), unverifiedIDToken(t, signClaims(t, tt.claims)))
+			got, _, err := newTestVerifier(t).Authenticate(t.Context(), unverifiedOIDCJWT(t, signClaims(t, tt.claims)))
 			if err != nil {
 				t.Fatalf("Authenticate returned error: %v", err)
 			}
@@ -228,7 +112,7 @@ func TestVerifierAuthenticate_EscapedClaimName(t *testing.T) {
 			}
 			token := signLeadingClaims(t, escapedName(name)+":"+string(value), name)
 
-			got, _, err := newTestVerifier(t).Authenticate(t.Context(), unverifiedIDToken(t, token))
+			got, _, err := newTestVerifier(t).Authenticate(t.Context(), unverifiedOIDCJWT(t, token))
 			if err != nil {
 				t.Fatalf("Authenticate returned error: %v", err)
 			}
@@ -407,7 +291,7 @@ func TestVerifierAuthenticate_ObservedClaims(t *testing.T) {
 			// formal/z3 の実測の例と同じく、発行の 1 秒後に検証する
 			clock := func() time.Time { return time.Unix(observed.IssuedAt+1, 0) }
 			verifier := newVerifier(testIssuer, "https://github.com/octocat", keys, clock)
-			got, _, err := verifier.Authenticate(t.Context(), unverifiedIDToken(t, signPayload(t, jose.RS256, testKey(t), payload)))
+			got, _, err := verifier.Authenticate(t.Context(), unverifiedOIDCJWT(t, signPayload(t, jose.RS256, testKey(t), payload)))
 			if err != nil {
 				t.Fatalf("Authenticate returned error: %v", err)
 			}
@@ -416,16 +300,6 @@ func TestVerifierAuthenticate_ObservedClaims(t *testing.T) {
 			}
 		})
 	}
-}
-
-// parseObservedID は、実測の Payload の ID の文字列を、Caller と比べるために整数に変換する。
-func parseObservedID(t *testing.T, id string) int64 {
-	t.Helper()
-	n, err := strconv.ParseInt(id, 10, 64)
-	if err != nil {
-		t.Fatalf("ParseInt(%q) returned error: %v", id, err)
-	}
-	return n
 }
 
 // 単純な Case Folding で iss と一致しない名前は、未知の Claim として受理する。
@@ -444,7 +318,7 @@ func TestVerifierAuthenticate_NonAliasClaimName(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name+" returns Caller", func(t *testing.T) {
 			payload := validClaimsAnd(t, `"`+tt.name+`":"https://evil.example"`)
-			got, _, err := newTestVerifier(t).Authenticate(t.Context(), unverifiedIDToken(t, signPayload(t, jose.RS256, testKey(t), []byte(payload))))
+			got, _, err := newTestVerifier(t).Authenticate(t.Context(), unverifiedOIDCJWT(t, signPayload(t, jose.RS256, testKey(t), []byte(payload))))
 			if err != nil {
 				t.Fatalf("Authenticate returned error: %v", err)
 			}
@@ -452,103 +326,6 @@ func TestVerifierAuthenticate_NonAliasClaimName(t *testing.T) {
 				t.Errorf("Authenticate = %+v, want %+v", got, want)
 			}
 		})
-	}
-}
-
-// claimAliasLetters は、GOJ-CLAIM-NAME-ALIAS が別名の範囲として定める、別名を持つ 5 つの Claim 名の各文字と同じ文字に畳み込まれる文字の組である。
-var claimAliasLetters = map[rune][]rune{
-	'a': []rune("aA"), 'b': []rune("bB"), 'd': []rune("dD"), 'e': []rune("eE"),
-	'f': []rune("fF"), 'i': []rune("iI"), 'n': []rune("nN"), 'p': []rune("pP"),
-	's': []rune("sSſ"), 't': []rune("tT"), 'u': []rune("uU"), 'x': []rune("xX"),
-}
-
-// claimAliases は、各文字を letters の返す文字に置き換えて作れる名前のうち元の名前と異なるものを、元の名前を値とする map で返す。
-func claimAliases(letters func(rune) []rune) map[string]string {
-	aliases := map[string]string{}
-	for _, name := range []string{"iss", "aud", "exp", "iat", "nbf"} {
-		spellings := []string{""}
-		for _, r := range name {
-			var next []string
-			for _, prefix := range spellings {
-				for _, letter := range letters(r) {
-					next = append(next, prefix+string(letter))
-				}
-			}
-			spellings = next
-		}
-		for _, spelling := range spellings {
-			if spelling != name {
-				aliases[spelling] = name
-			}
-		}
-	}
-	return aliases
-}
-
-// simpleFoldOrbit は、r と Unicode の単純な Case Folding で同じ文字に畳み込まれる文字を返す。
-func simpleFoldOrbit(r rune) []rune {
-	orbit := []rune{r}
-	for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
-		orbit = append(orbit, f)
-	}
-	return orbit
-}
-
-// claimNameCandidates は、5 つの Claim 名と、その各文字を単純な Case Folding で同じ文字に畳み込まれる文字に置き換えた名前を返す。
-// i には、トルコ語用の対応でだけ i と同じになる İ と、i に似るがどの Case Folding でも i にならない ı も充てる。
-// 完全な Case Folding でだけ ss と同じになる iß も加える。
-func claimNameCandidates() []string {
-	letters := func(r rune) []rune {
-		if r == 'i' {
-			return append(simpleFoldOrbit(r), 'İ', 'ı')
-		}
-		return simpleFoldOrbit(r)
-	}
-	names := []string{"iss", "aud", "exp", "iat", "nbf", "iß"}
-	for name := range claimAliases(letters) {
-		names = append(names, name)
-	}
-	return names
-}
-
-// decodedClaimName は、go-oidc が Claim を読む encoding/json (v1) が、name を 5 つの Claim 名のどれとして読むかを返す。どれとしても読まなければ空文字列を返す。
-func decodedClaimName(t *testing.T, name string) string {
-	t.Helper()
-	var claims struct {
-		Iss jsonv1.RawMessage `json:"iss"`
-		Aud jsonv1.RawMessage `json:"aud"`
-		Exp jsonv1.RawMessage `json:"exp"`
-		Iat jsonv1.RawMessage `json:"iat"`
-		Nbf jsonv1.RawMessage `json:"nbf"`
-	}
-	if err := jsonv1.Unmarshal([]byte(`{"`+name+`":0}`), &claims); err != nil {
-		t.Fatalf("Unmarshal returned error: %v", err)
-	}
-	for claimName, value := range map[string]jsonv1.RawMessage{"iss": claims.Iss, "aud": claims.Aud, "exp": claims.Exp, "iat": claims.Iat, "nbf": claims.Nbf} {
-		if value != nil {
-			return claimName
-		}
-	}
-	return ""
-}
-
-// GOJ-CLAIM-NAME-ALIAS が定める別名が、go-oidc のデコーダが 5 つの Claim 名として読む名前とも、isClaimAlias が拒否する名前とも一致することを確かめる。
-// デコーダの照合は Go の Unicode の版で広がり得るため、単純な Case Folding で畳み込まれる文字はすべて候補に入れる。
-//
-//trace:checks AC-AUTHN-004
-func TestClaimAliases_MatchDecoderAndRejection(t *testing.T) {
-	aliases := claimAliases(func(r rune) []rune { return claimAliasLetters[r] })
-	for _, name := range claimNameCandidates() {
-		claimName, isAlias := aliases[name]
-		if !isAlias && slices.Contains([]string{"iss", "aud", "exp", "iat", "nbf"}, name) {
-			claimName = name
-		}
-		if got := decodedClaimName(t, name); got != claimName {
-			t.Errorf("decoder under unicode %s reads %q as %q, want %q", unicode.Version, name, got, claimName)
-		}
-		if got := isClaimAlias(name); got != isAlias {
-			t.Errorf("isClaimAlias(%q) = %v, want %v", name, got, isAlias)
-		}
 	}
 }
 
@@ -567,39 +344,6 @@ func TestVerifierAuthenticate_ClaimAlias(t *testing.T) {
 	}
 }
 
-func assertAuthenticationFailure(t *testing.T, token string, values ...string) {
-	t.Helper()
-	got, _, err := newTestVerifier(t).Authenticate(t.Context(), unverifiedIDToken(t, token))
-	if !errors.Is(err, ErrAuthenticationFailure) {
-		t.Fatalf("Authenticate error = %v, want ErrAuthenticationFailure", err)
-	}
-	if got != (caller.Caller{}) {
-		t.Errorf("Authenticate = %+v, want zero Caller", got)
-	}
-
-	// oidc: は検証ライブラリの文言の接頭辞で、値を含まない文言が混ざったときにも検出するために入れる
-	forbidden := append(strings.Split(token, "."), "oidc:", testIssuer, "octo@", "other.example", "EXP", "IAT", "ISS", "AUD", "NBF", "ſ")
-	for _, value := range append(forbidden, values...) {
-		if strings.Contains(err.Error(), value) {
-			t.Errorf("error message %q contains %q", err.Error(), value)
-		}
-	}
-}
-
-// decodedClaimsSet は、署名検証済みの Claims Set の JSON を、Payload と比べられる値に復号する。
-func decodedClaimsSet(t *testing.T, claimsSet claimsset.SignatureVerified) map[string]any {
-	t.Helper()
-	b, err := claimsSet.MarshalJSON()
-	if err != nil {
-		t.Fatalf("MarshalJSON returned error: %v", err)
-	}
-	var got map[string]any
-	if err := json.Unmarshal(b, &got); err != nil {
-		t.Fatalf("Unmarshal returned error: %v; claims set = %s", err, b)
-	}
-	return got
-}
-
 // TestVerifierAuthenticate_ClaimsSet は、成功した認証が、Caller に読まない Claim を含む Payload 全体だけを署名検証済みの Claims Set として返すことを確かめる。値の一致は、署名や JWT の文字列が加わらないことも確かめる。
 //
 //trace:checks AC-OPS-009
@@ -607,7 +351,7 @@ func TestVerifierAuthenticate_ClaimsSet(t *testing.T) {
 	claims := claimsWith(map[string]any{"head_ref": "feature", "base_ref": "main", "repo_property_tier": "gold"})
 	token := signClaims(t, claims)
 
-	_, got, err := newTestVerifier(t).Authenticate(t.Context(), unverifiedIDToken(t, token))
+	_, got, err := newTestVerifier(t).Authenticate(t.Context(), unverifiedOIDCJWT(t, token))
 	if err != nil {
 		t.Fatalf("Authenticate returned error: %v", err)
 	}
@@ -667,7 +411,7 @@ func TestVerifierAuthenticate_ClaimsSetOfRejectedToken(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			payload := marshalClaims(t, tt.claims)
 
-			_, got, err := newTestVerifier(t).Authenticate(t.Context(), unverifiedIDToken(t, tt.token(t, payload)))
+			_, got, err := newTestVerifier(t).Authenticate(t.Context(), unverifiedOIDCJWT(t, tt.token(t, payload)))
 
 			if !errors.Is(err, ErrAuthenticationFailure) {
 				t.Fatalf("Authenticate error = %v, want ErrAuthenticationFailure", err)
@@ -692,11 +436,6 @@ func TestVerifierAuthenticate_ClaimsSetOfRejectedToken(t *testing.T) {
 	}
 }
 
-func signedByTestKey(t *testing.T, payload []byte) string {
-	t.Helper()
-	return signPayload(t, jose.RS256, testKey(t), payload)
-}
-
 // payloadKeySet は、署名の検証に成功したものとして、決まった Payload を返す公開鍵の集合である。
 type payloadKeySet struct {
 	payload []byte
@@ -718,4 +457,81 @@ func TestKeySetRecorder_RejectsPayloadThatIsNotClaimsSet(t *testing.T) {
 	if !recorder.claimsSet.IsZero() {
 		t.Errorf("claims set is not zero for a payload that is not a claims set")
 	}
+}
+
+func newTestVerifier(t *testing.T) *Verifier {
+	t.Helper()
+	keys := &oidc.StaticKeySet{PublicKeys: []crypto.PublicKey{testKey(t).Public()}}
+	return newVerifier(testIssuer, testAudience, keys, testClock)
+}
+
+// signPayload は Claim を JSON のまま受ける。重複したキーのように、map から作れない Payload にも署名するため。
+func signPayload(t *testing.T, algorithm jose.SignatureAlgorithm, key *rsa.PrivateKey, payload []byte) string {
+	t.Helper()
+	return signWithKeyID(t, algorithm, key, testKeyID, payload)
+}
+
+func signClaims(t *testing.T, claims map[string]any) string {
+	t.Helper()
+	return signPayload(t, jose.RS256, testKey(t), marshalClaims(t, claims))
+}
+
+// signLeadingClaims は leading の JSON のメンバーを先頭に固定して署名する。
+// go-oidc が読む値は別名との順序で変わり、map から作る JSON では順序を決められないため。
+func signLeadingClaims(t *testing.T, leading, omitted string) string {
+	t.Helper()
+	rest := marshalClaims(t, claimsWithout(omitted))[1:]
+	return signPayload(t, jose.RS256, testKey(t), append([]byte("{"+leading+","), rest...))
+}
+
+func unixAfter(d time.Duration) int64 {
+	return testNow.Add(d).Unix()
+}
+
+// parseObservedID は、実測の Payload の ID の文字列を、Caller と比べるために整数に変換する。
+func parseObservedID(t *testing.T, id string) int64 {
+	t.Helper()
+	n, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		t.Fatalf("ParseInt(%q) returned error: %v", id, err)
+	}
+	return n
+}
+
+func assertAuthenticationFailure(t *testing.T, token string, values ...string) {
+	t.Helper()
+	got, _, err := newTestVerifier(t).Authenticate(t.Context(), unverifiedOIDCJWT(t, token))
+	if !errors.Is(err, ErrAuthenticationFailure) {
+		t.Fatalf("Authenticate error = %v, want ErrAuthenticationFailure", err)
+	}
+	if got != (caller.Caller{}) {
+		t.Errorf("Authenticate = %+v, want zero Caller", got)
+	}
+
+	// oidc: は検証ライブラリの文言の接頭辞で、値を含まない文言が混ざったときにも検出するために入れる
+	forbidden := append(strings.Split(token, "."), "oidc:", testIssuer, "octo@", "other.example", "EXP", "IAT", "ISS", "AUD", "NBF", "ſ")
+	for _, value := range append(forbidden, values...) {
+		if strings.Contains(err.Error(), value) {
+			t.Errorf("error message %q contains %q", err.Error(), value)
+		}
+	}
+}
+
+// decodedClaimsSet は、署名検証済みの Claims Set の JSON を、Payload と比べられる値に復号する。
+func decodedClaimsSet(t *testing.T, claimsSet claimsset.SignatureVerified) map[string]any {
+	t.Helper()
+	b, err := claimsSet.MarshalJSON()
+	if err != nil {
+		t.Fatalf("MarshalJSON returned error: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("Unmarshal returned error: %v; claims set = %s", err, b)
+	}
+	return got
+}
+
+func signedByTestKey(t *testing.T, payload []byte) string {
+	t.Helper()
+	return signPayload(t, jose.RS256, testKey(t), payload)
 }

@@ -11,6 +11,17 @@ import (
 	"github.com/tmknom/gates/internal/repository"
 )
 
+// Config は、固定設定のうち GATES 運用者がデプロイ時に決める値である。
+// Client ID、Audience、KMS Key ARN を文字列のまま持つのは、それらの条件を OIDC Verifier と KMS Signer が作る時点の不変条件として持ち、規則を 2 か所に分けないため。
+// フィールドを非公開にし、ゼロ値以外は Load でしか作れないようにする。
+type Config struct {
+	allowedOwner        authz.AllowedOwner
+	clientID            string
+	audience            string
+	kmsKeyARN           string
+	issuablePermissions permission.IssuablePermissions
+}
+
 // 環境変数の名前は、AWS Infrastructure Design が定める Lambda と Terraform の間の契約である。
 const (
 	envAllowedOwnerID      = "GATES_ALLOWED_OWNER_ID"
@@ -22,15 +33,18 @@ const (
 	envIssuablePermissions = "GATES_ISSUABLE_PERMISSIONS"
 )
 
-// Config は、固定設定のうち GATES 運用者がデプロイ時に決める値である。
-// Client ID、Audience、KMS Key ARN を文字列のまま持つのは、それらの条件を OIDC Verifier と KMS Signer が作る時点の不変条件として持ち、規則を 2 か所に分けないため。
-// フィールドを非公開にし、ゼロ値以外は Load でしか作れないようにする。
-type Config struct {
-	allowedOwner        authz.AllowedOwner
-	clientID            string
-	audience            string
-	kmsKeyARN           string
-	issuablePermissions permission.IssuablePermissions
+// envValue は、読んだ環境変数の値である。
+// ok が偽の値は、欠落か空として報告済みで、以降の条件の判定に使わない。
+type envValue struct {
+	key   string
+	value string
+	ok    bool
+}
+
+// loader は、環境変数を読んで検証し、満たさなかった条件を環境変数の名前とともに集める。
+type loader struct {
+	lookupEnv func(key string) (string, bool)
+	errs      []error
 }
 
 // Load は、環境変数から固定設定を読み、INV-004 が定める許可オーナーの条件と INV-015 が定める発行上限の条件を検証する。
@@ -77,20 +91,6 @@ func (c Config) KMSKeyARN() string {
 // IssuablePermissions は、発行上限を返す。
 func (c Config) IssuablePermissions() permission.IssuablePermissions {
 	return c.issuablePermissions
-}
-
-// envValue は、読んだ環境変数の値である。
-// ok が偽の値は、欠落か空として報告済みで、以降の条件の判定に使わない。
-type envValue struct {
-	key   string
-	value string
-	ok    bool
-}
-
-// loader は、環境変数を読んで検証し、満たさなかった条件を環境変数の名前とともに集める。
-type loader struct {
-	lookupEnv func(key string) (string, bool)
-	errs      []error
 }
 
 // read は、欠落と空を分けて報告する。欠落は Terraform との契約の名前の不一致、空は値の誤りと、直す箇所が異なるため。

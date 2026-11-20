@@ -15,133 +15,15 @@ import (
 	"time"
 
 	"github.com/tmknom/gates/internal/authz"
-	"github.com/tmknom/gates/internal/caller"
 	"github.com/tmknom/gates/internal/github"
 	"github.com/tmknom/gates/internal/permission"
-	"github.com/tmknom/gates/internal/request"
 )
 
 const (
-	// tokenMarker は、トークンがエラー文言に漏れていないことを確かめる目印である。
-	tokenMarker = "ghs_token-marker" //nolint:gosec // 資格情報ではなく、漏れを探すための目印である
-
 	// issuanceSizeLimit と issuanceTimeout は Lambda Design の GitHub Client と Call Time Budget が定める値である。
 	issuanceSizeLimit = 16 * 1024 * 1024
 	issuanceTimeout   = 10 * time.Second
 )
-
-// requestedRepositories は、発行許可の対象である。表記と並びが要求のまま発行 API に渡ることを確かめるため、大文字を含め、名前の昇順にしない。
-var requestedRepositories = []string{allowedOwnerName + "/repo-b", allowedOwnerName + "/Example-Repo"}
-
-// recordedIssuance は、調査記録の発行応答を、ケースごとに書き換えられる形で返す。リポジトリの表現は照合に使うキーと一部のキーだけにする。
-func recordedIssuance() map[string]any {
-	return map[string]any{
-		"token":                tokenMarker,
-		"expires_at":           "2026-11-03T12:18:48Z",
-		"permissions":          map[string]any{"contents": "read", "metadata": "read"},
-		"repository_selection": "selected",
-		"repositories": []any{
-			map[string]any{
-				"id":        1234567890,
-				"name":      "example-repo",
-				"full_name": "octocat/example-repo",
-				"private":   true,
-				"owner":     map[string]any{"login": "octocat", "id": recordedAccountID, "type": "User"},
-			},
-			map[string]any{
-				"id":        1234567891,
-				"name":      "repo-b",
-				"full_name": "octocat/repo-b",
-				"private":   true,
-				"owner":     map[string]any{"login": "octocat", "id": recordedAccountID, "type": "User"},
-			},
-		},
-	}
-}
-
-func respondIssuance(body string) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("X-GitHub-Request-Id", requestID)
-		w.WriteHeader(http.StatusCreated)
-		_, _ = io.WriteString(w, body)
-	}
-}
-
-// contentsRead は、調査記録の発行応答を得た要求の Permissions である。
-var contentsRead = map[string]string{"contents": "read"}
-
-// tokenGrant は、TokenGrant を Grant でしか作れないため、Caller、形式検証を通した発行要求、許可オーナー、発行上限、Installation をそろえて Grant を通す。
-// 発行上限は、Grant が認可を判定し直しても通るよう、要求の Permissions と同じ組にする。
-func tokenGrant(t *testing.T, permissions map[string]string) authz.TokenGrant {
-	t.Helper()
-	c, err := caller.NewCaller(recordedAccountID, 1234567890, 4004, 1, caller.WorkflowTriggerAttributes{})
-	if err != nil {
-		t.Fatalf("NewCaller returned error: %v", err)
-	}
-	payload := marshal(t, map[string]any{
-		"version":      1,
-		"id_token":     "header.payload.signature",
-		"repositories": requestedRepositories,
-		"permissions":  permissions,
-	})
-	_, req, err := request.Validate([]byte(payload))
-	if err != nil {
-		t.Fatalf("Validate returned error: %v", err)
-	}
-	notations := make([]string, 0, len(permissions))
-	for name, level := range permissions {
-		notations = append(notations, name+":"+level)
-	}
-	issuablePermissions, err := permission.NewIssuablePermissions(notations)
-	if err != nil {
-		t.Fatalf("NewIssuablePermissions returned error: %v", err)
-	}
-	grant, err := authz.Grant(c, req, allowedOwner(t, authz.OwnerTypeUser), issuablePermissions, newInstallation(t, false))
-	if err != nil {
-		t.Fatalf("Grant returned error: %v", err)
-	}
-	return grant
-}
-
-func issue(t *testing.T, client *github.Client) (github.IssuanceResult, error) {
-	t.Helper()
-	return client.Issue(t.Context(), github.NewAppJWT(appJWTValue), tokenGrant(t, contentsRead))
-}
-
-func issueBody(t *testing.T, body string) github.IssuanceResult {
-	t.Helper()
-	got, err := issue(t, newAPIStub(t, respondIssuance(body)).client(t))
-	if err != nil {
-		t.Fatalf("Issue returned error: %v", err)
-	}
-	return got
-}
-
-// readFields は、発行結果の項目ごとに、応答から読み取れたかを返す。
-func readFields(result github.IssuanceResult) map[string]bool {
-	_, token := result.Token()
-	_, expiresAt := result.ExpiresAt()
-	_, permissions := result.EffectivePermissions()
-	_, selection := result.RepositorySelection()
-	_, repositories := result.EffectiveRepositories()
-	return map[string]bool{
-		"token":                token,
-		"expires_at":           expiresAt,
-		"permissions":          permissions,
-		"repository_selection": selection,
-		"repositories":         repositories,
-	}
-}
-
-// assertReadFields は、unreadable に挙げた項目だけを読み取れなかったことを確かめる。
-func assertReadFields(t *testing.T, result github.IssuanceResult, unreadable ...string) {
-	t.Helper()
-	for field, read := range readFields(result) {
-		if want := !slices.Contains(unreadable, field); read != want {
-			t.Errorf("field %s read = %t, want %t", field, read, want)
-		}
-	}
-}
 
 var allFields = []string{"token", "expires_at", "permissions", "repository_selection", "repositories"}
 
@@ -198,24 +80,6 @@ func TestIssue_SendsRequiredHeaders(t *testing.T) {
 			t.Errorf("request header %s = %q, want [%q]", name, got, want)
 		}
 	}
-}
-
-// sentIssuanceRequest は、既定の API Host のまま Issue を呼び、外へ送らずに受け取った要求を返す。
-func sentIssuanceRequest(t *testing.T) *http.Request {
-	t.Helper()
-	var sent *http.Request
-	transport := roundTripperFunc(func(request *http.Request) (*http.Response, error) {
-		sent = request
-		return &http.Response{
-			StatusCode: http.StatusCreated,
-			Header:     http.Header{},
-			Body:       io.NopCloser(strings.NewReader(marshal(t, recordedIssuance()))),
-		}, nil
-	})
-	if _, err := issue(t, github.NewClient(github.WithTransport(transport))); err != nil {
-		t.Fatalf("Issue returned error: %v", err)
-	}
-	return sent
 }
 
 func TestIssue_SendsToGitHubAPIHost(t *testing.T) {
@@ -365,25 +229,6 @@ func TestIssue_BodyAtTheLimitIsRead(t *testing.T) {
 	assertReadFields(t, issueBody(t, padded(marshal(t, recordedIssuance()), issuanceSizeLimit)))
 }
 
-// assertIssueFailed は失敗の種別と、発行結果にトークンがなく、エラー文言に GitHub App JWT、トークン、応答本文が入らないことを確かめる。
-func assertIssueFailed(t *testing.T, got github.IssuanceResult, err, want error) {
-	t.Helper()
-	if !errors.Is(err, want) {
-		t.Fatalf("Issue error = %v, want %v", err, want)
-	}
-	for _, other := range []error{github.ErrIssuanceRejected, github.ErrTransientFailure, authz.ErrInstallationUnavailable} {
-		if !errors.Is(other, want) && errors.Is(err, other) {
-			t.Errorf("Issue error = %v, also matches %v", err, other)
-		}
-	}
-	assertReadFields(t, got, allFields...)
-	for _, value := range []string{appJWTValue, tokenMarker, responseMarker} {
-		if strings.Contains(err.Error(), value) {
-			t.Errorf("error message %q contains %q", err.Error(), value)
-		}
-	}
-}
-
 //trace:checks AC-AUTHZ-003 AC-AUTHZ-006 AC-AUTHZ-008 AC-OPS-003 AC-OPS-008
 func TestIssue_StatusFailure(t *testing.T) {
 	tests := []struct {
@@ -513,4 +358,67 @@ func TestIssue_ZeroTokenGrantPanicsWithoutRequest(t *testing.T) {
 	}()
 
 	_, _ = client.Issue(t.Context(), github.NewAppJWT(appJWTValue), authz.TokenGrant{})
+}
+
+// assertReadFields は、unreadable に挙げた項目だけを読み取れなかったことを確かめる。
+func assertReadFields(t *testing.T, result github.IssuanceResult, unreadable ...string) {
+	t.Helper()
+	for field, read := range readFields(result) {
+		if want := !slices.Contains(unreadable, field); read != want {
+			t.Errorf("field %s read = %t, want %t", field, read, want)
+		}
+	}
+}
+
+// readFields は、発行結果の項目ごとに、応答から読み取れたかを返す。
+func readFields(result github.IssuanceResult) map[string]bool {
+	_, token := result.Token()
+	_, expiresAt := result.ExpiresAt()
+	_, permissions := result.EffectivePermissions()
+	_, selection := result.RepositorySelection()
+	_, repositories := result.EffectiveRepositories()
+	return map[string]bool{
+		"token":                token,
+		"expires_at":           expiresAt,
+		"permissions":          permissions,
+		"repository_selection": selection,
+		"repositories":         repositories,
+	}
+}
+
+// sentIssuanceRequest は、既定の API Host のまま Issue を呼び、外へ送らずに受け取った要求を返す。
+func sentIssuanceRequest(t *testing.T) *http.Request {
+	t.Helper()
+	var sent *http.Request
+	transport := roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		sent = request
+		return &http.Response{
+			StatusCode: http.StatusCreated,
+			Header:     http.Header{},
+			Body:       io.NopCloser(strings.NewReader(marshal(t, recordedIssuance()))),
+		}, nil
+	})
+	if _, err := issue(t, github.NewClient(github.WithTransport(transport))); err != nil {
+		t.Fatalf("Issue returned error: %v", err)
+	}
+	return sent
+}
+
+// assertIssueFailed は失敗の種別と、発行結果にトークンがなく、エラー文言に GitHub App JWT、トークン、応答本文が入らないことを確かめる。
+func assertIssueFailed(t *testing.T, got github.IssuanceResult, err, want error) {
+	t.Helper()
+	if !errors.Is(err, want) {
+		t.Fatalf("Issue error = %v, want %v", err, want)
+	}
+	for _, other := range []error{github.ErrIssuanceRejected, github.ErrTransientFailure, authz.ErrInstallationUnavailable} {
+		if !errors.Is(other, want) && errors.Is(err, other) {
+			t.Errorf("Issue error = %v, also matches %v", err, other)
+		}
+	}
+	assertReadFields(t, got, allFields...)
+	for _, value := range []string{appJWTValue, tokenMarker, responseMarker} {
+		if strings.Contains(err.Error(), value) {
+			t.Errorf("error message %q contains %q", err.Error(), value)
+		}
+	}
 }

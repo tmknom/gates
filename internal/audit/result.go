@@ -8,9 +8,6 @@ import (
 	"github.com/tmknom/gates/internal/revocation"
 )
 
-// success は、成功した発行処理の結果の値である。失敗の結果の値はエラーコードである。
-const success = "success"
-
 // Result は、発行処理の結果と、その結果で終わったときだけ持つ値（拒否の理由と失効の結果）である。
 // 結果に伴う値を結果と一緒に作り、成功の記録に拒否の理由や失効の結果が付かないようにする。
 // どのエラーコードが照合失敗かはエラーコードを定める側が知るため、照合失敗と失効の結果の対応は検査しない。
@@ -21,10 +18,8 @@ type Result struct {
 	revocation revocation.Outcome
 }
 
-// IsZero は、Succeeded と Failed を経ていないゼロ値かを返す。Failed はゼロ値のエラーコードを受け付けないため、成功でもなくエラーコードも持たない値はゼロ値に限る。
-func (r Result) IsZero() bool {
-	return !r.succeeded && r.code.IsZero()
-}
+// success は、成功した発行処理の結果の値である。失敗の結果の値はエラーコードである。
+const success = "success"
 
 // Succeeded は、成功の結果を返す。
 func Succeeded() Result {
@@ -45,6 +40,11 @@ func VerificationFailed(code errorcode.Code, reason string, outcome revocation.O
 	result := Failed(code, reason)
 	result.revocation = outcome
 	return result
+}
+
+// IsZero は、Succeeded と Failed を経ていないゼロ値かを返す。Failed はゼロ値のエラーコードを受け付けないため、成功でもなくエラーコードも持たない値はゼロ値に限る。
+func (r Result) IsZero() bool {
+	return !r.succeeded && r.code.IsZero()
 }
 
 func (r Result) attrs() []any {

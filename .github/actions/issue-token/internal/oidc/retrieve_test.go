@@ -36,7 +36,7 @@ func countRequests(handler http.Handler) (http.Handler, *atomic.Int32) {
 	}), &count
 }
 
-func TestRetrieve_ReturnsIDTokenValue(t *testing.T) {
+func TestRetrieve_ReturnsOIDCJWT(t *testing.T) {
 	t.Parallel()
 
 	t.Run("200 with value returns the JWT", func(t *testing.T) {

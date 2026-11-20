@@ -32,7 +32,7 @@ func (c *Client) Retrieve(ctx context.Context, audience string) (credential.OIDC
 	if response.StatusCode != http.StatusOK {
 		return credential.OIDCJWT{}, statusFailure(response.StatusCode, body)
 	}
-	return parseIDTokenValue(body)
+	return parseOIDCJWT(body)
 }
 
 // newRequest は、audience を既存のクエリの後ろに足した GET 要求を作る。
@@ -77,9 +77,9 @@ func statusFailure(status int, body []byte) error {
 	return fmt.Errorf("HTTP status %d: %s", status, body[:min(len(body), errorBodyLimit)])
 }
 
-// parseIDTokenValue は、200 の応答本文から OIDC JWT を取り出す。
+// parseOIDCJWT は、200 の応答本文から OIDC JWT を取り出す。
 // 1 行の値だけを受け付ける理由は、GitHub Actions Design の「OIDC JWT の取得」に記述する。
-func parseIDTokenValue(body []byte) (credential.OIDCJWT, error) {
+func parseOIDCJWT(body []byte) (credential.OIDCJWT, error) {
 	var parsed struct {
 		Value string `json:"value"`
 	}

@@ -20,8 +20,8 @@ Docker Action、AWS IAM、KMS の鍵管理は、発行の判定と語の意味�
 概念には英語名を併記します。
 英語名は概念の名前であり、複数の単語は空白で区切ります（Token Request など）。
 実装では空白を除いた形（TokenRequest など）を型名・関数名にし、実装と本ドキュメントの整合はこの対応で確かめます。
-package 名が概念名の前半を表すときは、型名からその部分を除きます（Revocation Outcome を revocation package の Outcome にするなど）。
-署名検証済みの Claims Set は、package 名が概念名の後半を表す例外で、claimsset package の SignatureVerified にします。
+package 名が概念名の一部を表すときは、型名からその部分を除きます（Revocation Outcome を revocation package の Outcome に、Signature-Verified Claims Set を claimsset package の SignatureVerified に、Success Response を response package の Success にするなど）。
+Lambda のコードに現れる OIDC JWT は GATES 用 OIDC JWT だけのため、型名から GATES を除きます（Unverified GATES OIDC JWT を UnverifiedOIDCJWT にするなど）。
 
 本ドキュメントは、GATES に必要な値を概念として定義し、GitHub や AWS がその値をどのフィールドや Claim で提供するかは書きません。
 提供のされ方は手段であり、概念の意味を変えないためです。
@@ -191,14 +191,16 @@ GATES の処理には 5 種類の **資格情報**（Credential）が現れ、�
 
 | 資格情報 | 英語名 | 発行元 | 用途 | 発行の判定に現れるか |
 |---|---|---|---|---|
-| **AWS 用 OIDC JWT** | Web Identity Token | GitHub OIDC Provider（Audience は AWS STS） | IAM Role の引き受け | 現れない。入口制御だけが扱う |
+| **AWS 用 OIDC JWT** | AWS OIDC JWT | GitHub OIDC Provider（Audience は AWS STS） | IAM Role の引き受け | 現れない。入口制御だけが扱う |
 | **AWS 一時認証情報** | AWS Credentials | AWS STS | Lambda Invoke の署名 | 現れない |
-| **GATES 用 OIDC JWT** | ID Token | GitHub OIDC Provider（Audience は GATES 用 Audience） | Caller の確定 | 現れる。認証の入力。名前は OIDC の応答名 |
+| **GATES 用 OIDC JWT** | GATES OIDC JWT | GitHub OIDC Provider（Audience は GATES 用 Audience） | Caller の確定 | 現れる。認証の入力 |
 | **GitHub App JWT** | App JWT | Lambda が組み立て、KMS が署名 | GitHub API の呼び出し | 現れる。内部でだけ使い、外に出さない |
 | **Installation Access Token** | Installation Access Token | GitHub API | 対象リポジトリの、実効権限が許す操作 | 現れる。発行結果の中心。返却可能な発行結果はこれに有効期限・対象・実効権限を添えたもの |
 
 GATES 用 OIDC JWT は、Payload から取り出した時点では未検証であり、認証を通って初めて Caller の根拠になります。
-認証を通る前の値を **未検証の GATES 用 OIDC JWT**（Unverified ID Token）と呼びます。
+認証を通る前の値を **未検証の GATES 用 OIDC JWT**（Unverified GATES OIDC JWT）と呼びます。
+GATES 用 OIDC JWT は OpenID Connect Core の ID Token ではありません（事実：GATES OIDC JWT Claims の「ID Token として扱わないこと」）。
+Invoke Payload の `id_token` やエラーコード `invalid_id_token` は Docker Action との契約上の名前で、概念名ではありません。
 GitHub App JWT を外に出さないのは、GitHub App の権限全体を行使できる、Constitution のいう強い資格情報だからです（事実：Constitution の Design Principles 2）。
 
 どの資格情報も、ログとエラー本文に記録しません（事実：Requirements QR-004）。

@@ -160,10 +160,6 @@ func hasDuplicate(values []string) bool {
 // oidKeyUsage は Key Usage の拡張の OID（RFC 5280 §4.2.1.3）である。
 var oidKeyUsage = asn1.ObjectIdentifier{2, 5, 29, 15}
 
-func hasKeyUsageExtension(certificate *x509.Certificate) bool {
-	return slices.ContainsFunc(certificate.Extensions, func(extension pkix.Extension) bool { return extension.Id.Equal(oidKeyUsage) })
-}
-
 // checkCertificateChain は、GOJ-X5C-KEY のうち go-jose が確かめない条件と、GOJ-X5C-CHAIN を判定する。
 // 発行者の関係を CheckSignatureFrom で確かめないのは、設計が求める署名の関係に加えて、発行者に CA の Basic Constraints と keyCertSign を要求するため。
 // 証明書を信頼の起点にはしないため、有効期間と認証パスの信頼性は確かめない。
@@ -182,4 +178,8 @@ func checkCertificateChain(certificates []*x509.Certificate) error {
 		}
 	}
 	return nil
+}
+
+func hasKeyUsageExtension(certificate *x509.Certificate) bool {
+	return slices.ContainsFunc(certificate.Extensions, func(extension pkix.Extension) bool { return extension.Id.Equal(oidKeyUsage) })
 }

@@ -1,7 +1,6 @@
 package authz_test
 
 import (
-	"encoding/json/v2"
 	"errors"
 	"strconv"
 	"strings"
@@ -9,19 +8,7 @@ import (
 
 	"github.com/tmknom/gates/internal/authz"
 	"github.com/tmknom/gates/internal/caller"
-	"github.com/tmknom/gates/internal/permission"
-	"github.com/tmknom/gates/internal/request"
 )
-
-const (
-	allowedOwnerID   = 1001
-	allowedOwnerName = "Example-Org"
-)
-
-var contentsRead = map[string]string{"contents": "read"}
-
-// issuablePermissionNotations は、テストの発行上限である。同じ権限名の高い水準だけを含む組（`issues:write`）と、付随権限の組を含む。
-var issuablePermissionNotations = []string{"contents:read", "contents:write", "issues:write", "metadata:read"}
 
 //trace:checks AC-ISSUANCE-002 AC-AUTHZ-009
 func TestAuthorize(t *testing.T) {
@@ -119,50 +106,4 @@ func TestAuthorize_ErrorDoesNotContainValues(t *testing.T) {
 			}
 		})
 	}
-}
-
-func mustNewAllowedOwner(t *testing.T, id int64, name string) authz.AllowedOwner {
-	t.Helper()
-	o, err := authz.NewAllowedOwner(id, name, authz.OwnerTypeOrganization)
-	if err != nil {
-		t.Fatalf("NewAllowedOwner returned error: %v", err)
-	}
-	return o
-}
-
-func mustNewIssuablePermissions(t *testing.T, notations ...string) permission.IssuablePermissions {
-	t.Helper()
-	issuablePermissions, err := permission.NewIssuablePermissions(notations)
-	if err != nil {
-		t.Fatalf("NewIssuablePermissions(%v) returned error: %v", notations, err)
-	}
-	return issuablePermissions
-}
-
-func mustNewCaller(t *testing.T, ownerID int64) caller.Caller {
-	t.Helper()
-	c, err := caller.NewCaller(ownerID, 3003, 4004, 1, caller.WorkflowTriggerAttributes{})
-	if err != nil {
-		t.Fatalf("NewCaller returned error: %v", err)
-	}
-	return c
-}
-
-// mustTokenRequest は、TokenRequest を Validate でしか作れないため、Payload を組み立てて形式検証を通す。
-func mustTokenRequest(t *testing.T, repositories []string, permissions map[string]string) request.TokenRequest {
-	t.Helper()
-	b, err := json.Marshal(map[string]any{
-		"version":      1,
-		"id_token":     "header.payload.signature",
-		"repositories": repositories,
-		"permissions":  permissions,
-	})
-	if err != nil {
-		t.Fatalf("json.Marshal returned error: %v", err)
-	}
-	_, req, err := request.Validate(b)
-	if err != nil {
-		t.Fatalf("Validate returned error: %v", err)
-	}
-	return req
 }
