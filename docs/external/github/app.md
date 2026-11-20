@@ -4,7 +4,7 @@
 GitHub の公式資料そのものではなく、GitHub の仕様が変更された場合は該当する公式資料を確認します。
 
 - **対象**：GitHub.com の GitHub App、GitHub App JWT、Installation、Installation Access Token、REST API の共通事項。GitHub Enterprise Server は対象外。
-- **取得した値の調査記録**：[GitHub App Installation](../../research/github/app-installation.md)、[GitHub Installation Access Token](../../research/github/installation-access-token.md)、[GitHub App Installation Changes](../../research/github/installation-changes.md)、[GitHub Docker Action Failure and Cancellation](../../research/github/docker-action-cancellation.md)。取得日、取得方法、記録した応答はこれらの記録にある。
+- **取得した値の調査記録**：[GitHub App Installation](../../research/github/app-installation.md)、[GitHub Installation Access Token](../../research/github/installation-access-token.md)、[GitHub App Installation Changes](../../research/github/installation-changes.md)、[GitHub App Permissions](../../research/github/app-permissions.md)、[GitHub Docker Action Failure and Cancellation](../../research/github/docker-action-cancellation.md)。取得日、取得方法、記録した応答はこれらの記録にある。
 
 各記述の先頭の太字は、記述の根拠の Evidence を表します。Documented は公式資料の記述、Published は GitHub が公開するエンドポイントから取得した値、Observed は実環境で観測した値、Inferred はそれらから導いた解釈、Unconfirmed は公式資料で確定できない事項です。
 
@@ -49,6 +49,7 @@ Organization オーナーがリポジトリ管理者によるインストール�
 **Observed（選択対象外の公開リポジトリ）**：インストール先のアカウントが所有し、Installation で選択していない公開リポジトリを含む発行の要求は、`422` で拒否されました（[GitHub Installation Access Token](../../research/github/installation-access-token.md#発行が拒否された要求)）。
 一方、対象を選択リポジトリに限って発行したトークンでは、その公開リポジトリの内容を読めました。
 同じトークンで、要求していない選択リポジトリと選択対象外の private リポジトリの内容は `404` でした（[GitHub Installation Access Token](../../research/github/installation-access-token.md#発行したトークンで呼んだ-api)）。
+`contents:write` で発行したトークンでは、要求した対象にブランチとファイルを作れましたが、既定のブランチへのファイルの作成は、選択対象外の公開リポジトリで `403`（`Resource not accessible by integration`）、要求していない選択リポジトリと選択対象外の private リポジトリで `404` でした（[GitHub App Permissions](../../research/github/app-permissions.md#contentswrite-のトークンで試した書き込み)）。
 
 **Documented**：GitHub App JWT で認証すると、次の API から Installation 情報を取得できます（[REST API — GitHub Apps](https://docs.github.com/en/rest/apps/apps?apiVersion=2026-03-10)）。資料に示された応答コードは、Organization と User の API が `200` だけ、Repository の API が `200`、`301`、`404` です。
 
@@ -84,7 +85,7 @@ Organization オーナーがリポジトリ管理者によるインストール�
 | `repositories` | リポジトリ**名**の配列。資料の例は `Hello-World` で、オーナー名を含まない |
 | `repository_ids` | Repository ID の配列。`repositories` と並ぶ対象の指定方法 |
 | 対象件数 | 一度に指定できる対象は最大500リポジトリ |
-| `permissions` | 権限名から権限水準へのオブジェクト。例：`{"contents":"read"}`。スキーマ「App Permissions」では、権限名と水準（`read`、`write`、`admin`）はどれも ASCII 小文字とアンダースコアで表される。選べる水準は権限ごとに異なる（`workflows` は `write` だけ、`organization_events` は `read` だけなど） |
+| `permissions` | 権限名から権限水準へのオブジェクト。例：`{"contents":"read"}`。スキーマ「App Permissions」では、権限名と水準（`read`、`write`、`admin`）はどれも ASCII 小文字とアンダースコアで表される。選べる水準は権限ごとに異なる（`organization_events` は `read` だけなど） |
 | 対象指定の省略 | Installation に許可された全リポジトリへのアクセスを持つ |
 | Permissions 指定の省略 | App に付与された全権限を持つ |
 | 付与できる範囲 | Installation に許可されていないリポジトリへのアクセスと、App に付与されていない権限は付与できない |
@@ -104,7 +105,8 @@ Organization オーナーがリポジトリ管理者によるインストール�
 
 **Documented**：発行 API の応答には `token`、`expires_at`、`permissions`、`repositories`（適用される場合）、`repository_selection` などが示されます。`repository_selection` は `all` / `selected` の区別です。応答例には `repositories[].id`、`repositories[].full_name`、`repositories[].owner.id` といったリポジトリ情報が含まれます（[REST API — GitHub Apps](https://docs.github.com/en/rest/apps/apps?apiVersion=2026-03-10)）。
 
-**Unconfirmed**：すべての発行で `metadata:read` が無条件に付与されるという保証は、参照した公式資料からは確定できません。
+**Unconfirmed**：`metadata:read` が付与される条件は、参照した公式資料からは確定できません。
+観測では、Repository permissions を一つ以上含む発行で加わり、指定した権限がすべて除かれて `permissions` が `{}` になった発行では加わりませんでした（[§4.4](#44-権限名と分類)）。
 
 **Documented（トークンの形式）**：2026年4月27日に始まった Installation Access Token の新形式（`ghs_APPID_JWT`）への移行は完了しており、新規発行のトークンは既定でこの形式です。
 長さは40文字から約520文字に増え、トークンに格納するデータによって変わります。
@@ -141,53 +143,73 @@ GitHub は、トークンを、中身を解釈しない文字列として扱う�
 スキーマは、権限名を Repository、Organization、Account、Enterprise の分類に分けて示していません（[REST API Description](https://github.com/github/rest-api-description)）。
 
 **Documented（分類と表示名）**：GitHub App の権限ごとに使える API をまとめた資料は、権限を Repository permissions、Organization permissions、User permissions、Enterprise permissions に分け、画面上の表示名（`Contents`、`Pull requests` など）で挙げています（[Permissions required for GitHub Apps](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps)）。
-この資料は、表示名とスキーマの権限名の対応を示していません。
+画面に表示される本文は表示名だけですが、ページに埋め込まれたデータは、権限ごとに権限名と表示名の組を持ちます（`"actions_variables":{"title":"Variables","displayTitle":"Repository permissions for \"Variables\"",...}` など）。
+このデータが Repository permissions に挙げる権限名は 33 で、そのうち 10（`actions_variables`、`agent_secrets`、`agent_variables`、`codespaces_lifecycle_admin`、`codespaces_metadata`、`codespaces_secrets`、`copilot_agent_settings`、`installation_repositories`、`repository_advisories`、`repository_creation`）はスキーマにない権限名です。
 
-**Inferred（Repository permissions に当たる権限名）**：スキーマの各権限名の説明文と、上の資料の表示名から、スキーマの 57 の権限名のうち次の 28 が Repository permissions に当たると読めます。
-「資料の表示名」が「なし」の権限名は、上の資料に対応する見出しがなく、スキーマの説明文だけから分類したものです。
+**Documented（分類ごとの権限が効く条件）**：Organization permissions は Organization にインストールした場合、Enterprise permissions は Enterprise にインストールした場合に効き、Account permissions はユーザーが GitHub App を認可した場合に、そのユーザーの資源に効きます。Account permissions は、インストールではなく、ユーザーの認可のときに付与されます（[Choosing permissions for a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app)）。
 
-| 権限名 | 水準 | 資料の表示名 |
+**Documented（分類ごとに使えるトークン）**：[Permissions required for GitHub Apps](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps) は、エンドポイントごとに、Installation Access Token とユーザーアクセストークンのどちらで使えるかを示しています。
+Repository permissions、Organization permissions、Enterprise permissions のエンドポイントは、ほとんどが Installation Access Token で使えます。
+Account permissions（資料の見出しは User permissions）のエンドポイントは、71 のうち 67 がユーザーアクセストークンだけで使え、Installation Access Token で使える 4 つは、ほかのユーザーの公開の情報（SSH の公開鍵、Star、Watch）の読み取りと、リポジトリの招待の一覧です。
+
+**Documented（ユーザーアクセストークンの取得）**：ユーザーアクセストークンは、Web アプリケーションフロー、デバイスフロー、インストール時の認可のいずれかで得ます。
+どの方法も、ユーザーが GitHub のページで GitHub App を認可するか、アプリが表示したコードをブラウザで入力する操作を含みます。
+期限付きのユーザーアクセストークンの有効期限は 8 時間で、一緒に発行されるリフレッシュトークン（有効期限 6 か月）で取り直せます。
+リフレッシュトークンが失効すると、ユーザーの操作からやり直します（[Generating a user access token for a GitHub App](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app)）。
+
+**Inferred**：Account permissions は Installation Access Token には付かず、ユーザーの認可を経たユーザーアクセストークンにだけ付きます。GitHub App JWT と Installation Access Token の発行 API だけでは、Account permissions を持つトークンは得られません。
+
+**Observed（Repository permissions の権限名と水準）**：個人アカウントの GitHub App に、設定画面のすべての権限を選べる最も高い水準で付与し、Installation の側で承認した記録では、次のとおりでした（[GitHub App Permissions](../../research/github/app-permissions.md)）。
+
+- **Installation に現れた権限名**：GitHub App の `permissions` には Organization permissions、Account permissions、Enterprise permissions を含む 137 の権限名があったが、Installation の `permissions` に現れたのは、設定画面の Repository permissions の 43 項目に当たる 43 の権限名だけだった
+- **スキーマとの関係**：スキーマの 57 の権限名のうち、Installation に現れたのは 28 だった。説明文がリポジトリに触れる `interaction_limits` は現れなかった。43 のうち 15 はスキーマにない権限名で、そのうち 5（`agent_tasks`、`license_compliance_alerts`、`repository_license_policy`、`repo_secret_scanning_dismissal_requests`、`secret_scanning_bypass_requests`）は上の資料のデータにもない
+- **水準**：43 の権限名を一つずつ、付与した水準と、それより低い水準で要求すると、どれも要求どおりに発行された。要求どおりに発行された水準は次の表のとおりである
+
+| 権限名 | 要求どおりに発行された水準 | スキーマ |
 |---|---|---|
-| `actions` | `read`、`write` | Actions |
-| `administration` | `read`、`write` | Administration |
-| `artifact_metadata` | `read`、`write` | Artifact metadata |
-| `attestations` | `read`、`write` | Attestations |
-| `checks` | `read`、`write` | Checks |
-| `code_quality` | `read`、`write` | Code quality |
-| `codespaces` | `read`、`write` | Codespaces |
-| `contents` | `read`、`write` | Contents |
-| `dependabot_secrets` | `read`、`write` | Dependabot secrets |
-| `deployments` | `read`、`write` | Deployments |
-| `discussions` | `read`、`write` | なし |
-| `environments` | `read`、`write` | Environments |
-| `issues` | `read`、`write` | Issues |
-| `merge_queues` | `read`、`write` | なし |
-| `metadata` | `read`、`write` | Metadata |
-| `packages` | `read`、`write` | なし |
-| `pages` | `read`、`write` | Pages |
-| `pull_requests` | `read`、`write` | Pull requests |
-| `repository_custom_properties` | `read`、`write` | Custom properties |
-| `repository_hooks` | `read`、`write` | Webhooks |
-| `repository_projects` | `read`、`write`、`admin` | なし |
-| `secret_scanning_alerts` | `read`、`write` | Secret scanning alerts |
-| `secrets` | `read`、`write` | Secrets |
-| `security_events` | `read`、`write` | Code scanning alerts |
-| `single_file` | `read`、`write` | なし |
-| `statuses` | `read`、`write` | Commit statuses |
-| `vulnerability_alerts` | `read`、`write` | Dependabot alerts |
-| `workflows` | `write` | Workflows |
+| `actions`、`administration`、`artifact_metadata`、`attestations`、`checks`、`code_quality`、`codespaces`、`contents`、`dependabot_secrets`、`deployments`、`discussions`、`environments`、`issues`、`merge_queues`、`packages`、`pages`、`pull_requests`、`repository_custom_properties`、`repository_hooks`、`secret_scanning_alerts`、`secrets`、`security_events`、`single_file`、`statuses`、`vulnerability_alerts` | `read`、`write` | あり（`read`、`write`） |
+| `workflows` | `read`、`write` | あり（`write` だけ） |
+| `repository_projects` | `read`、`write`、`admin` | あり（`read`、`write`、`admin`） |
+| `metadata` | `read` | あり（`read`、`write`） |
+| `actions_variables`、`agent_secrets`、`agent_tasks`、`agent_variables`、`codespaces_lifecycle_admin`、`codespaces_secrets`、`copilot_agent_settings`、`installation_repositories`、`license_compliance_alerts`、`repo_secret_scanning_dismissal_requests`、`repository_advisories`、`repository_creation`、`secret_scanning_bypass_requests` | `read`、`write` | なし |
+| `codespaces_metadata`、`repository_license_policy` | `read` | なし |
 
-残りの 29 の権限名は、説明文か上の資料の分類から、Organization permissions、User permissions、Enterprise permissions のいずれかに当たると読めます。
-このうち `interaction_limits` の説明文はリポジトリに触れていますが、上の資料は `Interaction limits` を User permissions に挙げています。
+設定画面で選べた最も高い水準は、表の最も高い水準と同じでした。
+`metadata`、`codespaces_metadata`、`repository_license_policy` は `Read-only` だけを選べ、`repository_projects`（設定画面の `Projects`）だけが `Admin` を選べました。
+`single_file` は、設定画面の項目のうちパスを指定する欄がある唯一の項目で（欄の説明は `The content paths to single files your app can access.`）、指定したファイルのパスと組で付与されました。
+`single_file` を含む要求の発行応答にだけ、`single_file`（パスの文字列）、`has_multiple_single_files`、`single_file_paths`（パスの配列）のキーが加わりました。
+OpenAPI 定義も、発行応答のスキーマ「Installation Token」にこの 3 つのキーを定めています（[REST API Description](https://github.com/github/rest-api-description)）。
+パスは GitHub App の設定で決まり、発行 API の要求で指定する項目はありません。
 
-**Unconfirmed**：次の事項は、参照した公式資料から確定できません。
+**Inferred**：Installation の `permissions` に現れた 43 の権限名は、Repository permissions に当たります。
+設定画面の項目と権限名の組は、上の資料のデータの表示名か、項目名と権限名の似かたで対応させたものです。
+`repository_projects` が `Projects` に当たることは、`admin` を選べた項目と権限名がそれぞれ一つだけだったことからも決まります。
 
-- 上の表の権限名と表示名の対応、および各権限名の分類。GitHub App の設定画面の Repository permissions と、その権限だけを付与した Installation の `permissions` を突き合わせれば確かめられる
-- 上の資料が Repository permissions に挙げる表示名のうち、スキーマに対応する権限名が見当たらないもの（`Variables`、`Repository security advisories`、`Codespaces secrets`、`Codespaces lifecycle admin`、`Codespaces metadata`、`Agent secrets`、`Agent variables`、`Copilot agent settings`、`GitHub App installation repository access`、`Repository creation`）を、発行 API の `permissions` に指定できるか
-- スキーマにない権限名、またはその権限に定められていない水準を指定したときの応答
-- GitHub App に付与されていない権限か、付与された水準より高い水準を指定したときの応答コード。発行 API は付与されていない権限を付与できないと定めるが（[§4.1](#41-発行-api-の呼び出しと有効期限)）、拒否するか、権限を除くか水準を下げて発行するかは示していない
-- `{"contents":"read"}` 以外の `permissions` を指定したときに、`metadata:read` のほかの権限が発行応答に加わるか
-- `repository_projects` の `admin` を付与した Installation に、同じ権限名の `write` と `read` を指定して発行できるか
+**Observed（スキーマと実際の権限名の食い違い）**：スキーマの `email_addresses` は、GitHub App にすべての権限を付与した後も `422` で拒否されました。GitHub App の `permissions` にあった権限名は `emails` でした。スキーマが `write` だけを定める `workflows` の `read` は、要求どおりに発行されました。
+
+**Observed（付随する権限）**：上の記録で `201` が返ったすべての発行では、`metadata:read` のほかに要求していない権限は加わらず、要求した水準と異なる水準で返った権限もありませんでした。
+`write`、複数の権限、`workflows:write`、`administration:write` の要求も同じでした。
+`{"metadata":"read"}` だけの要求の応答は `metadata:read` だけでした。
+
+**Observed（付与されていない権限と水準）**：GitHub App に付与されていない権限と、付与された水準より高い水準を指定した要求は、どれも `422` で拒否され、権限を除くか水準を下げた発行はありませんでした（[GitHub App Permissions](../../research/github/app-permissions.md#拒否された要求)）。
+
+| 要求 | `message` |
+|---|---|
+| 付与されていない権限、存在しない権限名、大文字を含む権限名 | `The permissions requested are not granted to this installation.` |
+| 付与された水準より高い水準、`contents` の `admin` | `The level of access for permissions requested are not granted to this installation.` |
+| `read`、`write`、`admin` 以外の水準（`READ`、`none`） | `There is at least one permission action that is not supported. It should be one of: "read", "write" or "admin".` |
+
+**Observed（Installation に現れない権限）**：GitHub App には付与され、個人アカウントの Installation には現れない権限（Organization permissions、Account permissions、Enterprise permissions の 94 の権限名）を指定した要求は、拒否されずに `201` が返り、指定した権限は除かれました。
+その権限だけの要求では、応答の `permissions` は `{}` で、`repositories` のキーがありませんでした。
+`{"contents":"read","members":"read"}` の応答は、`contents:read` と `metadata:read` でした。
+
+**Unconfirmed**：次の事項は、参照した公式資料と上の記録から確定できません。
+
+- 権限名の分類と水準が、GitHub が予告なく変えない仕様であるか。上の記録は、ある時点の個人アカウントの Installation での観測である
+- Organization の Installation に、どの権限名が現れるか
+- 設定画面の項目と権限名の対応。権限を一つずつ付与して確かめてはいない
+- GitHub App に追加し、Installation の側でまだ承認していない Repository permissions を指定したときの応答。拒否するか、権限を除いて発行するか
+- 付与されていない権限か水準への応答が、常に `422` の拒否であるか
 
 ## 5. Outstanding Verification
 
@@ -200,4 +222,4 @@ Published や Observed の記述で一部の条件を確かめた事項も、Git
 | Installation の取得 API | Organization の API の `200` 以外の応答（インストールされていない場合を含む）、User の API のアンインストール以外の `200` 以外の応答、Organization の API の応答の形、停止中の Installation の `suspended_at` の値の形、GitHub App とオーナーの組での一意性 |
 | トークン発行 API | 範囲外リポジトリへの要求、500件超の要求、停止中の Installation への要求、`422` の原因、`metadata:read` の付与条件、応答フィールドの有無、`repositories` の並び |
 | トークン失効 API | 新形式のトークンでの失効の動作、`204` の後に失効が効くまでの時間 |
-| 権限名と分類 | スキーマの権限名と表示名の対応、各権限名の分類、スキーマにない Repository permissions の指定、スキーマにない権限名か水準への応答、GitHub App に付与されていない権限への応答、`metadata:read` のほかに加わる権限、`admin` の水準が `write` と `read` を含むか |
+| 権限名と分類 | 分類と水準が変わらない保証、Organization の Installation に現れる権限名、設定画面の項目と権限名の一つずつの対応、Installation の側で承認する前の権限への応答、付与されていない権限か水準への応答が常に拒否であるか |

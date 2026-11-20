@@ -22,7 +22,7 @@ Action が失敗すると、ジョブのログとワークフロー実行のペ�
 | `error code "invalid_request"` を含む | 要求の形が正しくない（名前に使えない文字、500 を超える `repositories`、大文字の権限名など） | `repositories` は `owner/repo` の形で書く。`permissions` は `contents:read` と書く |
 | `error code "invalid_id_token"` を含む | `audience` が GATES の設定と一致しない | 運用者が登録した Variable を渡す。渡しているなら §2 に進む |
 | `error code "authorization_denied"` を含む | 許可オーナー以外のリポジトリか、`contents:read` 以外の権限を要求した | 許可オーナーのリポジトリと `contents:read` だけを要求する。一つでも許可されないと、要求全体が失敗する |
-| `error code "github_issuance_rejected"` を含む | インストール対象にないか、存在しないリポジトリを要求した | 綴りを確かめる。正しければ、インストール対象に加えるよう頼むか、要求から外す |
+| `error code "github_issuance_rejected"` を含む | インストール対象にないか、存在しないリポジトリを要求した。または GitHub App に `Contents` の権限がない | 綴りを確かめる。正しければ、インストール対象に加えるよう頼むか、要求から外す。インストール対象に入っているなら §2 に進む |
 | ジョブの `outputs` に置いたトークンが空になる | GitHub はマスクされた値をジョブの外に渡さない | トークンが要るジョブごとに Action のステップを置く |
 | トークンで呼んだ API が `403` か `404` を返す | `403` は `contents:read` でできない操作、`404` は要求に含めなかったリポジトリ | `403` の操作は GATES のトークンではできない。`404` のリポジトリは `repositories` に加える |
 
@@ -81,7 +81,7 @@ aws logs filter-log-events --log-group-name /aws/lambda/gates \
 | `signing_unavailable` | AWS KMS の署名が一時的に失敗した | 再実行で解消し得る。`reason` が `ThrottlingException` で繰り返すなら、KMS のクォータを確かめる |
 | `installation_unavailable` | GATES が Installation を使えない。GitHub App のアンインストール（`status 404`）、Installation の停止（`installation is suspended`）、`github_app_client_id` の誤り、使用中の鍵と GitHub App の鍵の不一致、GitHub からの鍵の削除 | アンインストールなら、`Only select repositories` で再インストールする。停止なら、悪用への対処で意図して停止したものでないかを確かめてから解く。鍵の不一致は下記で確かめる |
 | `github_api_unavailable` | GitHub API が一時的に失敗した | 再実行で解消し得る。繰り返すなら GitHub Status を見る |
-| `github_issuance_rejected` | インストール対象にないか、存在しないリポジトリの要求 | `request.repositories` を Installation の画面のリポジトリと比べる。入っているのに拒否されるなら、`reason` の GitHub の request ID を控えて GitHub に問い合わせる |
+| `github_issuance_rejected` | インストール対象にないか、存在しないリポジトリの要求。または GitHub App に `Contents` の権限がない | `request.repositories` を Installation の画面のリポジトリと比べる。入っているなら、GitHub App の Repository permissions で `Contents` が `Read-only` かを確かめる。どちらも正しいのに拒否されるなら、`reason` の GitHub の request ID を控えて GitHub に問い合わせる |
 | `issuance_verification_failed` | GitHub が返したトークンが要求と合わない | `reason` と GitHub の request ID を控え、GATES の開発者に報告する。`revocation` が `failed` なら、トークンは 1 時間まで残り得る |
 | `internal_error` | ほかに当たらない失敗。使用中の KMS Key が使えない（無効、削除の予約、鍵素材のインポート前）、Lambda の権限の不足、Lambda の panic など | 下記で KMS Key の状態を確かめる。`Disabled` なら、悪用への対処や鍵の更新で意図して無効にしたものでないかを確かめてから有効にする。`PendingDeletion` なら削除の予約を取り消す。`PendingImport` なら [Key Material Import](import-key-material.md) で鍵素材をインポートする。panic なら、同じ `request_id` の `panic recovered` の行を見る |
 

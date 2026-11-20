@@ -58,7 +58,7 @@ GitHub OIDC JWT の署名の検証では、GATES が対応しない JOSE Header 
 
 #### FR-AUTHZ-003 権限の Repository permissions への限定
 
-GitHub が Repository permissions に分類する権限のうち、発行 API が権限名を定めるものを、その権限に定められた水準で許可する。Organization permissions、Account permissions、Enterprise permissions と、GATES が Repository permissions に当たると確かめていない権限名、その権限に定められていない水準は拒否する。許可する権限名と水準は GATES が列挙して固定し、利用者の入力や GitHub の応答によって実行時に広げない。Caller や対象リポジトリごとに、要求できる権限を変えない。
+GitHub が Repository permissions に分類する権限を、GitHub が要求どおりに発行する水準で許可する。発行 API の定義に権限名が載っていることは条件にしない。GitHub App に付与された権限を利用者が明示して要求したとき、GitHub が発行する権限を GATES の判断で狭めないためである。Organization permissions、Account permissions、Enterprise permissions と、GATES が Repository permissions に当たると確かめていない権限名、要求どおりに発行されると確かめていない水準は拒否する。許可する権限名と水準は GATES が列挙して固定し、利用者の入力や GitHub の応答によって実行時に広げない。Caller や対象リポジトリごとに、要求できる権限を変えない。
 
 #### FR-AUTHZ-004 利用者の入力による Caller、Installation ID、認可の根拠、API Host の指定の禁止
 
