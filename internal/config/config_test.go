@@ -11,32 +11,6 @@ import (
 	"github.com/tmknom/gates/internal/permission"
 )
 
-// validEnv は、すべての環境変数が条件を満たす組である。
-func validEnv() map[string]string {
-	return map[string]string{
-		"GATES_ALLOWED_OWNER_ID":     "12345",
-		"GATES_ALLOWED_OWNER_NAME":   "Example-Org",
-		"GATES_ALLOWED_OWNER_TYPE":   "Organization",
-		"GATES_GITHUB_APP_CLIENT_ID": "Iv23liExample",
-		"GATES_AUDIENCE":             "https://gates.example.com",
-		"GATES_KMS_KEY_ARN":          "arn:aws:kms:ap-northeast-1:123456789012:key/11111111-2222-3333-4444-555555555555",
-		"GATES_ISSUABLE_PERMISSIONS": "contents:read,pull_requests:write",
-	}
-}
-
-func lookupEnv(env map[string]string) func(string) (string, bool) {
-	return func(key string) (string, bool) {
-		v, ok := env[key]
-		return v, ok
-	}
-}
-
-func withEnv(overrides map[string]string) map[string]string {
-	env := validEnv()
-	maps.Copy(env, overrides)
-	return env
-}
-
 func TestLoad(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -114,19 +88,6 @@ func TestLoad_IssuablePermissions(t *testing.T) {
 				t.Errorf("IssuablePermissions().Contains(%v) = %v, want %v", tt.levels, c, tt.contains)
 			}
 		})
-	}
-}
-
-func assertInvalid(t *testing.T, env map[string]string, want ...string) {
-	t.Helper()
-	_, err := config.Load(lookupEnv(env))
-	if !errors.Is(err, config.ErrInvalidConfig) {
-		t.Fatalf("Load() error = %v, want %v", err, config.ErrInvalidConfig)
-	}
-	for _, w := range want {
-		if !strings.Contains(err.Error(), w) {
-			t.Errorf("Load() error = %q, want it to contain %q", err, w)
-		}
 	}
 }
 
@@ -248,5 +209,44 @@ func TestLoad_ErrorsDoNotContainValues(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// validEnv は、すべての環境変数が条件を満たす組である。
+func validEnv() map[string]string {
+	return map[string]string{
+		"GATES_ALLOWED_OWNER_ID":     "12345",
+		"GATES_ALLOWED_OWNER_NAME":   "Example-Org",
+		"GATES_ALLOWED_OWNER_TYPE":   "Organization",
+		"GATES_GITHUB_APP_CLIENT_ID": "Iv23liExample",
+		"GATES_AUDIENCE":             "https://gates.example.com",
+		"GATES_KMS_KEY_ARN":          "arn:aws:kms:ap-northeast-1:123456789012:key/11111111-2222-3333-4444-555555555555",
+		"GATES_ISSUABLE_PERMISSIONS": "contents:read,pull_requests:write",
+	}
+}
+
+func lookupEnv(env map[string]string) func(string) (string, bool) {
+	return func(key string) (string, bool) {
+		v, ok := env[key]
+		return v, ok
+	}
+}
+
+func withEnv(overrides map[string]string) map[string]string {
+	env := validEnv()
+	maps.Copy(env, overrides)
+	return env
+}
+
+func assertInvalid(t *testing.T, env map[string]string, want ...string) {
+	t.Helper()
+	_, err := config.Load(lookupEnv(env))
+	if !errors.Is(err, config.ErrInvalidConfig) {
+		t.Fatalf("Load() error = %v, want %v", err, config.ErrInvalidConfig)
+	}
+	for _, w := range want {
+		if !strings.Contains(err.Error(), w) {
+			t.Errorf("Load() error = %q, want it to contain %q", err, w)
+		}
 	}
 }

@@ -6,20 +6,25 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"io"
 	"maps"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/kms/types"
 	"github.com/go-jose/go-jose/v4"
@@ -39,22 +44,11 @@ const (
 // testNow は、実時間に依存せず iat と exp の値を確かめるために固定する。
 var testNow = time.Unix(1700000000, 0)
 
-func testClock() time.Time { return testNow }
-
 // kmsStub は、テストの中で生成した RSA 鍵で、受け取ったダイジェストにそのまま署名する KMS のテストダブルである。
 // ダイジェストをそのまま署名するため、MessageType を誤って二重ハッシュになる誤りは検出できない。
 type kmsStub struct {
 	key *rsa.PrivateKey
 	got *kms.SignInput
-}
-
-func (s *kmsStub) Sign(_ context.Context, in *kms.SignInput, _ ...func(*kms.Options)) (*kms.SignOutput, error) {
-	s.got = in
-	signature, err := rsa.SignPKCS1v15(rand.Reader, s.key, crypto.SHA256, in.Message)
-	if err != nil {
-		return nil, err
-	}
-	return &kms.SignOutput{Signature: signature}, nil
 }
 
 func newKMSStub(t *testing.T) *kmsStub {
@@ -66,62 +60,19 @@ func newKMSStub(t *testing.T) *kmsStub {
 	return &kmsStub{key: key}
 }
 
-func newTestSigner(t *testing.T, client kmsClient) *Signer {
-	t.Helper()
-	s, err := NewSigner(testClientID, testKMSKeyARN, client, testClock)
+func (s *kmsStub) Sign(_ context.Context, in *kms.SignInput, _ ...func(*kms.Options)) (*kms.SignOutput, error) {
+	s.got = in
+	signature, err := rsa.SignPKCS1v15(rand.Reader, s.key, crypto.SHA256, in.Message)
 	if err != nil {
-		t.Fatalf("NewSigner returned error: %v", err)
+		return nil, err
 	}
-	return s
+	return &kms.SignOutput{Signature: signature}, nil
 }
 
 // doFunc は、AWS SDK の KMS のクライアントに差す HTTP クライアントで、AWS に接続せずに応答を返す。
 type doFunc func(*http.Request) (*http.Response, error)
 
 func (f doFunc) Do(r *http.Request) (*http.Response, error) { return f(r) }
-
-func respond(status int, header http.Header, body string) doFunc {
-	return func(*http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: status, Header: header, Body: io.NopCloser(strings.NewReader(body))}, nil
-	}
-}
-
-func respondKMSError(status int, code string) doFunc {
-	header := http.Header{"X-Amzn-Errortype": {code}, "X-Amzn-Requestid": {testRequestID}, "Content-Type": {"application/x-amz-json-1.1"}}
-	return respond(status, header, `{"__type":"`+code+`","message":"`+kmsMessageMarker+`"}`)
-}
-
-// cutOffBody は、本文の先頭だけを返した後に読み取りの error を返し、受信の途中で切れた本文を表す。
-type cutOffBody struct {
-	r   io.Reader
-	err error
-}
-
-func (b *cutOffBody) Read(p []byte) (int, error) {
-	n, err := b.r.Read(p)
-	if errors.Is(err, io.EOF) {
-		return n, b.err
-	}
-	return n, err
-}
-
-func respondCutOff(status int, readErr error) doFunc {
-	return func(*http.Request) (*http.Response, error) {
-		header := http.Header{"X-Amzn-Requestid": {testRequestID}, "Content-Type": {"application/x-amz-json-1.1"}}
-		body := &cutOffBody{r: strings.NewReader(`{"Signature":"` + kmsMessageMarker), err: readErr}
-		return &http.Response{StatusCode: status, Header: header, Body: io.NopCloser(body)}, nil
-	}
-}
-
-func respondSignature() doFunc {
-	return respond(http.StatusOK, http.Header{"X-Amzn-Requestid": {testRequestID}}, `{"KeyId":"`+testKMSKeyARN+`","Signature":"AQID","SigningAlgorithm":"RSASSA_PKCS1_V1_5_SHA_256"}`)
-}
-
-// newKMSClientSendingTo は、AWS SDK の KMS のクライアントを、認証情報なしで、HTTP の送信先を差し替えて作る。
-// 再試行の設定は SDK の既定のままにし、KMS Signer が再試行を止めることを確かめられるようにする。
-func newKMSClientSendingTo(do doFunc) *kms.Client {
-	return kms.New(kms.Options{Region: "ap-northeast-1", Credentials: aws.AnonymousCredentials{}, HTTPClient: do})
-}
 
 func TestNewSigner_RejectsInvalidFixedConfiguration(t *testing.T) {
 	tests := []struct {
@@ -320,6 +271,11 @@ func TestSigner_Sign_BoundsKMSCallTo5Seconds(t *testing.T) {
 	}
 }
 
+// roundTripperFunc は、GitHub Client の要求を、送らずに受け取る Transport である。
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
+
 // AppJWT は値を取り出す口を持たないため、Sign が署名した GitHub App JWT を AppJWT に包むことは、GitHub Client が送る Authorization で確かめる。
 // 署名の内容は sign のテストで確かめているため、ここでは送られた値が KMS のテストダブルの鍵で検証できることだけを確かめる。
 func TestSigner_Sign_ReturnsAppJWTThatGitHubClientSends(t *testing.T) {
@@ -354,10 +310,96 @@ func TestSigner_Sign_ReturnsAppJWTThatGitHubClientSends(t *testing.T) {
 	}
 }
 
-// roundTripperFunc は、GitHub Client の要求を、送らずに受け取る Transport である。
-type roundTripperFunc func(*http.Request) (*http.Response, error)
+func TestNewKMSClient_OpensConnectionForEachSign(t *testing.T) {
+	var newConnections atomic.Int32
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/x-amz-json-1.1")
+		_, _ = io.WriteString(w, `{"KeyId":"`+testKMSKeyARN+`","Signature":"AQID","SigningAlgorithm":"RSASSA_PKCS1_V1_5_SHA_256"}`)
+	}))
+	server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			newConnections.Add(1)
+		}
+	}
+	server.StartTLS()
+	t.Cleanup(server.Close)
+	rootCAs := x509.NewCertPool()
+	rootCAs.AddCert(server.Certificate())
 
-func (f roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
+	cfg := aws.Config{
+		Region:       "ap-northeast-1",
+		Credentials:  aws.AnonymousCredentials{},
+		BaseEndpoint: aws.String(server.URL),
+		// AWS SDK の既定の HTTP クライアントに、server の証明書の信頼だけを重ねる
+		HTTPClient: awshttp.NewBuildableClient().WithTransportOptions(func(transport *http.Transport) {
+			transport.TLSClientConfig.RootCAs = rootCAs
+		}),
+	}
+	s := newTestSigner(t, NewKMSClient(cfg))
+	for range 2 {
+		if _, err := s.sign(t.Context()); err != nil {
+			t.Fatalf("sign returned error: %v", err)
+		}
+	}
+
+	if got := newConnections.Load(); got != 2 {
+		t.Errorf("new connections = %d, want 2", got)
+	}
+}
+
+func testClock() time.Time { return testNow }
+
+func newTestSigner(t *testing.T, client kmsClient) *Signer {
+	t.Helper()
+	s, err := NewSigner(testClientID, testKMSKeyARN, client, testClock)
+	if err != nil {
+		t.Fatalf("NewSigner returned error: %v", err)
+	}
+	return s
+}
+
+func respond(status int, header http.Header, body string) doFunc {
+	return func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: status, Header: header, Body: io.NopCloser(strings.NewReader(body))}, nil
+	}
+}
+
+func respondKMSError(status int, code string) doFunc {
+	header := http.Header{"X-Amzn-Errortype": {code}, "X-Amzn-Requestid": {testRequestID}, "Content-Type": {"application/x-amz-json-1.1"}}
+	return respond(status, header, `{"__type":"`+code+`","message":"`+kmsMessageMarker+`"}`)
+}
+
+// cutOffBody は、本文の先頭だけを返した後に読み取りの error を返し、受信の途中で切れた本文を表す。
+type cutOffBody struct {
+	r   io.Reader
+	err error
+}
+
+func (b *cutOffBody) Read(p []byte) (int, error) {
+	n, err := b.r.Read(p)
+	if errors.Is(err, io.EOF) {
+		return n, b.err
+	}
+	return n, err
+}
+
+func respondCutOff(status int, readErr error) doFunc {
+	return func(*http.Request) (*http.Response, error) {
+		header := http.Header{"X-Amzn-Requestid": {testRequestID}, "Content-Type": {"application/x-amz-json-1.1"}}
+		body := &cutOffBody{r: strings.NewReader(`{"Signature":"` + kmsMessageMarker), err: readErr}
+		return &http.Response{StatusCode: status, Header: header, Body: io.NopCloser(body)}, nil
+	}
+}
+
+func respondSignature() doFunc {
+	return respond(http.StatusOK, http.Header{"X-Amzn-Requestid": {testRequestID}}, `{"KeyId":"`+testKMSKeyARN+`","Signature":"AQID","SigningAlgorithm":"RSASSA_PKCS1_V1_5_SHA_256"}`)
+}
+
+// newKMSClientSendingTo は、AWS SDK の KMS のクライアントを、認証情報なしで、HTTP の送信先を差し替えて作る。
+// 再試行の設定は SDK の既定のままにし、KMS Signer が再試行を止めることを確かめられるようにする。
+func newKMSClientSendingTo(do doFunc) *kms.Client {
+	return kms.New(kms.Options{Region: "ap-northeast-1", Credentials: aws.AnonymousCredentials{}, HTTPClient: do})
+}
 
 func decodeSegment(t *testing.T, segment string) []byte {
 	t.Helper()

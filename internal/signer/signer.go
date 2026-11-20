@@ -18,6 +18,15 @@ import (
 	"github.com/tmknom/gates/internal/github"
 )
 
+// Signer は、固定した GitHub App と KMS Key で GitHub App JWT を作る KMS Signer である。
+type Signer struct {
+	// encodedClientID は、Client ID を JSON の文字列にした値で、Payload の iss に置く
+	encodedClientID jsontext.Value
+	kmsKeyARN       string
+	client          kmsClient
+	now             func() time.Time
+}
+
 // signTimeout は、KMS の署名 1 回を待つ上限である。値の理由は Lambda Design の Call Time Budget にある。
 const signTimeout = 5 * time.Second
 
@@ -33,15 +42,6 @@ var encodedHeader = base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256",
 // kmsClient は、KMS の Sign だけを持つ。AWS SDK の KMS のクライアントがそのまま満たし、テストではテストダブルに差し替える。
 type kmsClient interface {
 	Sign(ctx context.Context, params *kms.SignInput, optFns ...func(*kms.Options)) (*kms.SignOutput, error)
-}
-
-// Signer は、固定した GitHub App と KMS Key で GitHub App JWT を作る KMS Signer である。
-type Signer struct {
-	// encodedClientID は、Client ID を JSON の文字列にした値で、Payload の iss に置く
-	encodedClientID jsontext.Value
-	kmsKeyARN       string
-	client          kmsClient
-	now             func() time.Time
 }
 
 // NewSigner は、署名の固定設定の不変条件（INV-006）を満たさなければ作らない。
@@ -95,12 +95,6 @@ func (s *Signer) sign(ctx context.Context) (string, error) {
 	return input + "." + base64.RawURLEncoding.EncodeToString(out.Signature), nil
 }
 
-// withoutRetry は、AWS SDK の既定の再試行を止める。
-// クライアントを作る側の設定に頼らず呼び出しごとに止めるのは、1 回の署名を待つ上限を KMS Signer だけで守るためである。
-func withoutRetry(o *kms.Options) {
-	o.Retryer = aws.NopRetryer{}
-}
-
 // NewKMSClient は、KMS Signer に渡す KMS のクライアントを、要求ごとに接続を張るように作る。理由は Lambda Design の Call Time Budget にある。
 // 接続を使い回すかは HTTP クライアントの Transport が決めるため、withoutRetry と違い、署名のたびではなくクライアントを作るときに設定する。
 // cfg の HTTPClient は、未設定か BuildableClient であることを前提にする。LoadDefaultConfig が読み込んだ設定はこれを満たす。
@@ -112,6 +106,12 @@ func NewKMSClient(cfg aws.Config) *kms.Client {
 			transport.DisableKeepAlives = true
 		})
 	})
+}
+
+// withoutRetry は、AWS SDK の既定の再試行を止める。
+// クライアントを作る側の設定に頼らず呼び出しごとに止めるのは、1 回の署名を待つ上限を KMS Signer だけで守るためである。
+func withoutRetry(o *kms.Options) {
+	o.Retryer = aws.NopRetryer{}
 }
 
 // signingInput は、JOSE Header と Payload を Base64URL にして連結した署名入力を返す。

@@ -18,16 +18,6 @@ import (
 	"github.com/tmknom/gates/internal/tokenissuer"
 )
 
-// oidcVerifier は、OIDC Verifier のうち Lambda Handler が使う操作である。
-type oidcVerifier interface {
-	Authenticate(ctx context.Context, unverifiedIDToken request.UnverifiedIDToken) (caller.Caller, claimsset.SignatureVerified, error)
-}
-
-// installationAccessTokenIssuer は、Token Issuer のうち Lambda Handler が使う操作である。
-type installationAccessTokenIssuer interface {
-	IssueInstallationAccessToken(ctx context.Context, grant tokenissuer.GrantFunc) (tokenissuer.ReturnableIssuanceResult, error)
-}
-
 // Handler は Lambda Handler である。
 type Handler struct {
 	verifier            oidcVerifier
@@ -36,6 +26,19 @@ type Handler struct {
 	issuablePermissions permission.IssuablePermissions
 	log                 *slog.Logger
 }
+
+// oidcVerifier は、OIDC Verifier のうち Lambda Handler が使う操作である。
+type oidcVerifier interface {
+	Authenticate(ctx context.Context, unverifiedOIDCJWT request.UnverifiedOIDCJWT) (caller.Caller, claimsset.SignatureVerified, error)
+}
+
+// installationAccessTokenIssuer は、Token Issuer のうち Lambda Handler が使う操作である。
+type installationAccessTokenIssuer interface {
+	IssueInstallationAccessToken(ctx context.Context, grant tokenissuer.GrantFunc) (tokenissuer.ReturnableIssuanceResult, error)
+}
+
+// reasonPanicRecovered は、panic を回復した発行処理の拒否の理由である。panic の値を含めないため、固定の文言にする。
+const reasonPanicRecovered = "panic recovered"
 
 // NewHandler は、Lambda Handler を作る。
 // log には、監査記録と回復した panic のログを書く。
@@ -85,12 +88,12 @@ func (h *Handler) process(ctx context.Context, requestID RequestID, payload []by
 
 // runProcessingFlow は、Processing Flow の手順を監査記録の出力の前まで順に行い、各手順で確定した値を監査記録に詰める。
 func (h *Handler) runProcessingFlow(ctx context.Context, payload []byte, record *audit.Record) (tokenissuer.ReturnableIssuanceResult, error) {
-	unverifiedIDToken, tokenRequest, err := request.Validate(payload)
+	unverifiedOIDCJWT, tokenRequest, err := request.Validate(payload)
 	if err != nil {
 		return tokenissuer.ReturnableIssuanceResult{}, err
 	}
 	record.SetTokenRequest(tokenRequest)
-	verified, claimsSet, err := h.verifier.Authenticate(ctx, unverifiedIDToken)
+	verified, claimsSet, err := h.verifier.Authenticate(ctx, unverifiedOIDCJWT)
 	// 署名検証の後の判定で認証に失敗しても、署名検証済みの Claims Set は監査記録に残す（Domain Model の「Audit Record」）
 	if !claimsSet.IsZero() {
 		record.SetClaimsSet(claimsSet)

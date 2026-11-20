@@ -66,11 +66,11 @@ linters:
       - path: ^internal/request/.*_test\.go$
         linters:
           - forbidigo
-        text: "only internal/authn may expose the unverified ID token"
+        text: "only internal/authn may expose the unverified GATES OIDC JWT"
       - path: ^internal/authn/
         linters:
           - forbidigo
-        text: "use of `(caller\\.NewCaller|claimsset\\.NewSignatureVerified)`|only internal/authn may expose the unverified ID token"
+        text: "use of `(caller\\.NewCaller|claimsset\\.NewSignatureVerified)`|only internal/authn may expose the unverified GATES OIDC JWT"
       - path: ^internal/signer/
         linters:
           - forbidigo
@@ -331,9 +331,9 @@ linters:
           pkg: ^github\.com/tmknom/gates/internal/github$
           msg: only internal/signer may create an AppJWT
         # 未検証の GATES 用 OIDC JWT の値を取り出せるのは OIDC Verifier だけ（Lambda Design の資格情報の表）。Expose は公開メソッドで、呼び出せる package を型で限定できないため
-        - pattern: ^request\.UnverifiedIDToken\.Expose$
+        - pattern: ^request\.UnverifiedOIDCJWT\.Expose$
           pkg: ^github\.com/tmknom/gates/internal/request$
-          msg: only internal/authn may expose the unverified ID token
+          msg: only internal/authn may expose the unverified GATES OIDC JWT
         # Installation Access Token の値を package の外で取り出せるのは、成功応答を書く Lambda Handler だけ（Lambda Design の資格情報の表）。Expose は公開メソッドで、呼び出せる package を型で限定できないため
         - pattern: ^github\.InstallationAccessToken\.Expose$
           pkg: ^github\.com/tmknom/gates/internal/github$

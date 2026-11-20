@@ -2,15 +2,9 @@ package github_test
 
 import (
 	"context"
-	"crypto/x509"
-	"encoding/json/v2"
 	"errors"
 	"io"
-	"log"
-	"net"
 	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"runtime"
 	"strconv"
 	"strings"
@@ -23,150 +17,10 @@ import (
 )
 
 const (
-	recordedInstallationID = 12345678
-	recordedAccountID      = 583231
-	allowedOwnerName       = "allowed-owner"
-	requestID              = "ABCD:1234:5678:9ABC:DEF0"
-	// labeledRequestID は、エラー文言の GitHub の request ID を、相関 ID と見分けるラベル付きで表す
-	labeledRequestID = `github request id "` + requestID + `"`
-
-	// responseMarker は、応答本文がエラー文言に漏れていないことを確かめる目印である。
-	responseMarker = "response-body-marker"
-
 	// installationSizeLimit と installationTimeout は Lambda Design の GitHub Client と Call Time Budget が定める値である。
 	installationSizeLimit = 64 * 1024
 	installationTimeout   = 5 * time.Second
 )
-
-// recordedInstallation は、調査記録の Installation の応答を、ケースごとに書き換えられる形で返す。
-func recordedInstallation() map[string]any {
-	return map[string]any{
-		"id":        recordedInstallationID,
-		"client_id": "Iv23liEXAMPLE0000000",
-		"account": map[string]any{
-			"login": "octocat",
-			"id":    recordedAccountID,
-			"type":  "User",
-		},
-		"repository_selection": "selected",
-		"app_id":               123456,
-		"target_id":            recordedAccountID,
-		"target_type":          "User",
-		"permissions":          map[string]any{"contents": "read", "metadata": "read"},
-		"events":               []any{},
-		"created_at":           "2026-10-28T04:32:35.000Z",
-		"suspended_by":         nil,
-		"suspended_at":         nil,
-	}
-}
-
-func marshal(t *testing.T, value any) string {
-	t.Helper()
-	b, err := json.Marshal(value)
-	if err != nil {
-		t.Fatalf("Marshal returned error: %v", err)
-	}
-	return string(b)
-}
-
-func respondBody(body string) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("X-GitHub-Request-Id", requestID)
-		_, _ = io.WriteString(w, body)
-	}
-}
-
-func respondStatus(status int, header map[string]string) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("X-GitHub-Request-Id", requestID)
-		for name, value := range header {
-			w.Header().Set(name, value)
-		}
-		w.WriteHeader(status)
-		_, _ = io.WriteString(w, responseMarker)
-	}
-}
-
-// apiStub は GitHub API の代わりに応答する TLS サーバーである。
-type apiStub struct {
-	server *httptest.Server
-	// サーバーの goroutine が書き、テストが読む
-	request        atomic.Pointer[http.Request]
-	newConnections atomic.Int32
-}
-
-func newAPIStub(t *testing.T, handler http.HandlerFunc) *apiStub {
-	t.Helper()
-	stub := &apiStub{}
-	stub.server = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		stub.request.Store(r)
-		handler(w, r)
-	}))
-	stub.server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
-		if state == http.StateNew {
-			stub.newConnections.Add(1)
-		}
-	}
-	// 切断を試すハンドラで、サーバーのログがテストの出力に混ざらないようにする
-	stub.server.Config.ErrorLog = log.New(io.Discard, "", 0)
-	stub.server.StartTLS()
-	t.Cleanup(stub.server.Close)
-	return stub
-}
-
-func (s *apiStub) client(t *testing.T) *github.Client {
-	t.Helper()
-	apiHost, err := url.Parse(s.server.URL)
-	if err != nil {
-		t.Fatalf("Parse returned error: %v", err)
-	}
-	rootCAs := x509.NewCertPool()
-	rootCAs.AddCert(s.server.Certificate())
-	return github.NewClient(github.WithAPIHost(apiHost), github.WithRootCAs(rootCAs))
-}
-
-func allowedOwner(t *testing.T, ownerType authz.OwnerType) authz.AllowedOwner {
-	t.Helper()
-	owner, err := authz.NewAllowedOwner(recordedAccountID, allowedOwnerName, ownerType)
-	if err != nil {
-		t.Fatalf("NewAllowedOwner returned error: %v", err)
-	}
-	return owner
-}
-
-func newInstallation(t *testing.T, suspended bool) authz.Installation {
-	t.Helper()
-	installation, err := authz.NewInstallation(recordedInstallationID, recordedAccountID, suspended)
-	if err != nil {
-		t.Fatalf("NewInstallation returned error: %v", err)
-	}
-	return installation
-}
-
-func resolve(t *testing.T, client *github.Client) (authz.Installation, error) {
-	t.Helper()
-	return client.ResolveInstallation(t.Context(), github.NewAppJWT(appJWTValue), allowedOwner(t, authz.OwnerTypeUser))
-}
-
-// assertRejected は失敗の種別と、どの失敗でも GitHub App JWT、応答本文、許可オーナー名がエラー文言に入らないことを確かめる。
-func assertRejected(t *testing.T, got authz.Installation, err, want error) {
-	t.Helper()
-	if !errors.Is(err, want) {
-		t.Fatalf("ResolveInstallation error = %v, want %v", err, want)
-	}
-	other := map[error]error{authz.ErrInstallationUnavailable: github.ErrTransientFailure, github.ErrTransientFailure: authz.ErrInstallationUnavailable}[want]
-	if errors.Is(err, other) {
-		t.Errorf("ResolveInstallation error = %v, also matches %v", err, other)
-	}
-	if got != (authz.Installation{}) {
-		t.Errorf("ResolveInstallation = %+v, want zero Installation", got)
-	}
-	for _, value := range []string{appJWTValue, responseMarker, allowedOwnerName} {
-		if strings.Contains(err.Error(), value) {
-			t.Errorf("error message %q contains %q", err.Error(), value)
-		}
-	}
-}
 
 //trace:checks AC-AUTHZ-007
 func TestResolveInstallation_RequestsOwnerTypeEndpoint(t *testing.T) {
@@ -205,29 +59,6 @@ func TestResolveInstallation_SendsRequiredHeaders(t *testing.T) {
 			t.Errorf("request header %s = %q, want [%q]", name, got, want)
 		}
 	}
-}
-
-// roundTripperFunc は、要求を外へ送らずに応答を返す Transport である。
-type roundTripperFunc func(*http.Request) (*http.Response, error)
-
-func (f roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
-
-// sentRequest は、既定の API Host のまま ResolveInstallation を呼び、外へ送らずに受け取った要求を返す。
-func sentRequest(t *testing.T) *http.Request {
-	t.Helper()
-	var sent *http.Request
-	transport := roundTripperFunc(func(request *http.Request) (*http.Response, error) {
-		sent = request
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Header:     http.Header{},
-			Body:       io.NopCloser(strings.NewReader(marshal(t, recordedInstallation()))),
-		}, nil
-	})
-	if _, err := resolve(t, github.NewClient(github.WithTransport(transport))); err != nil {
-		t.Fatalf("ResolveInstallation returned error: %v", err)
-	}
-	return sent
 }
 
 func TestResolveInstallation_SendsToGitHubAPIHost(t *testing.T) {
@@ -380,11 +211,6 @@ func TestResolveInstallation_CommunicationFailureReturnsErrTransientFailure(t *t
 	}
 }
 
-// padded は JSON の後ろに空白を足し、復号できる本文のまま大きさだけを size に揃える。
-func padded(body string, size int) string {
-	return body + strings.Repeat(" ", size-len(body))
-}
-
 func TestResolveInstallation_ResponseSizeLimit(t *testing.T) {
 	t.Run("body at the limit is accepted", func(t *testing.T) {
 		body := padded(marshal(t, recordedInstallation()), installationSizeLimit)
@@ -454,4 +280,53 @@ func TestResolveInstallation_ZeroAppJWTPanicsWithoutRequest(t *testing.T) {
 	}()
 
 	_, _ = client.ResolveInstallation(t.Context(), github.AppJWT{}, allowedOwner(t, authz.OwnerTypeOrganization))
+}
+
+func respondStatus(status int, header map[string]string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-GitHub-Request-Id", requestID)
+		for name, value := range header {
+			w.Header().Set(name, value)
+		}
+		w.WriteHeader(status)
+		_, _ = io.WriteString(w, responseMarker)
+	}
+}
+
+// assertRejected は失敗の種別と、どの失敗でも GitHub App JWT、応答本文、許可オーナー名がエラー文言に入らないことを確かめる。
+func assertRejected(t *testing.T, got authz.Installation, err, want error) {
+	t.Helper()
+	if !errors.Is(err, want) {
+		t.Fatalf("ResolveInstallation error = %v, want %v", err, want)
+	}
+	other := map[error]error{authz.ErrInstallationUnavailable: github.ErrTransientFailure, github.ErrTransientFailure: authz.ErrInstallationUnavailable}[want]
+	if errors.Is(err, other) {
+		t.Errorf("ResolveInstallation error = %v, also matches %v", err, other)
+	}
+	if got != (authz.Installation{}) {
+		t.Errorf("ResolveInstallation = %+v, want zero Installation", got)
+	}
+	for _, value := range []string{appJWTValue, responseMarker, allowedOwnerName} {
+		if strings.Contains(err.Error(), value) {
+			t.Errorf("error message %q contains %q", err.Error(), value)
+		}
+	}
+}
+
+// sentRequest は、既定の API Host のまま ResolveInstallation を呼び、外へ送らずに受け取った要求を返す。
+func sentRequest(t *testing.T) *http.Request {
+	t.Helper()
+	var sent *http.Request
+	transport := roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		sent = request
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{},
+			Body:       io.NopCloser(strings.NewReader(marshal(t, recordedInstallation()))),
+		}, nil
+	})
+	if _, err := resolve(t, github.NewClient(github.WithTransport(transport))); err != nil {
+		t.Fatalf("ResolveInstallation returned error: %v", err)
+	}
+	return sent
 }

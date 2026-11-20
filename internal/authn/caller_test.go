@@ -1,9 +1,7 @@
 package authn
 
 import (
-	"encoding/json/v2"
 	"errors"
-	"maps"
 	"strings"
 	"testing"
 
@@ -11,82 +9,6 @@ import (
 )
 
 const maxInt64 = "9223372036854775807"
-
-// validClaims は、実 JWT と同じく Caller の確定に読まない Claim も含む、正当な Claim の組を返す。
-func validClaims() map[string]any {
-	return map[string]any{
-		"iss":                 "https://token.actions.githubusercontent.com",
-		"aud":                 "gates",
-		"exp":                 1700000300,
-		"iat":                 1700000000,
-		"nbf":                 1699999700,
-		"jti":                 "example-jti",
-		"sub":                 "repo:octo@11/app@22:ref:refs/heads/main",
-		"repository_owner_id": "11",
-		"repository_id":       "22",
-		"run_id":              "33",
-		"run_attempt":         "2",
-		"actor":               "octocat",
-		"actor_id":            "583231",
-		"event_name":          "push",
-		"ref":                 "refs/heads/main",
-		"sha":                 "ffac537e6cbbf934b08745a378932722df287a53",
-		"workflow_ref":        "octo/app/.github/workflows/ci.yml@refs/heads/main",
-		"job_workflow_ref":    "octo/app/.github/workflows/job.yml@refs/heads/main",
-		"environment":         "production",
-	}
-}
-
-func validAttributes() caller.WorkflowTriggerAttributes {
-	return caller.WorkflowTriggerAttributes{
-		Actor:          "octocat",
-		ActorID:        "583231",
-		EventName:      "push",
-		Ref:            "refs/heads/main",
-		SHA:            "ffac537e6cbbf934b08745a378932722df287a53",
-		WorkflowRef:    "octo/app/.github/workflows/ci.yml@refs/heads/main",
-		JobWorkflowRef: "octo/app/.github/workflows/job.yml@refs/heads/main",
-		Environment:    "production",
-	}
-}
-
-func marshalClaims(t *testing.T, claims map[string]any) []byte {
-	t.Helper()
-	b, err := json.Marshal(claims)
-	if err != nil {
-		t.Fatalf("Marshal returned error: %v", err)
-	}
-	return b
-}
-
-func claimsWith(overrides map[string]any) map[string]any {
-	claims := validClaims()
-	maps.Copy(claims, overrides)
-	return claims
-}
-
-func claimsWithout(names ...string) map[string]any {
-	claims := validClaims()
-	for _, name := range names {
-		delete(claims, name)
-	}
-	return claims
-}
-
-func newCaller(t *testing.T, ownerID, repositoryID, runID, runAttempt int64, attributes caller.WorkflowTriggerAttributes) caller.Caller {
-	t.Helper()
-	c, err := caller.NewCaller(ownerID, repositoryID, runID, runAttempt, attributes)
-	if err != nil {
-		t.Fatalf("NewCaller returned error: %v", err)
-	}
-	return c
-}
-
-// subjectOfLength は、validClaims の ID と一致する不変形式の sub を、ref を伸ばして length 文字にする。
-func subjectOfLength(length int) string {
-	const prefix = "repo:octo@11/app@22:ref:refs/heads/"
-	return prefix + strings.Repeat("a", length-len(prefix))
-}
 
 //trace:checks AC-AUTHZ-001
 func TestCallerFromClaims(t *testing.T) {
@@ -247,12 +169,6 @@ func TestCallerFromClaims_InvalidClaims(t *testing.T) {
 	}
 }
 
-// validClaimsAnd は、正当な Claim の組の末尾に JSON のメンバーを足す。復号以外の規則で拒否されない状態で、復号の規則を確かめるため。
-func validClaimsAnd(t *testing.T, members string) string {
-	t.Helper()
-	return strings.TrimSuffix(string(marshalClaims(t, validClaims())), "}") + "," + members + "}"
-}
-
 func TestCallerFromClaims_AttributeOutOfNumberRangeIsTreatedAsMissing(t *testing.T) {
 	attributes := validAttributes()
 	attributes.Environment = ""
@@ -289,4 +205,10 @@ func TestCallerFromClaims_UndecodableClaims(t *testing.T) {
 			}
 		})
 	}
+}
+
+// subjectOfLength は、validClaims の ID と一致する不変形式の sub を、ref を伸ばして length 文字にする。
+func subjectOfLength(length int) string {
+	const prefix = "repo:octo@11/app@22:ref:refs/heads/"
+	return prefix + strings.Repeat("a", length-len(prefix))
 }

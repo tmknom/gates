@@ -4,15 +4,16 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/json/v2"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/tmknom/gates/internal/authz"
 	"github.com/tmknom/gates/internal/caller"
-	"github.com/tmknom/gates/internal/claimsset"
 	"github.com/tmknom/gates/internal/github"
 	"github.com/tmknom/gates/internal/permission"
 	"github.com/tmknom/gates/internal/request"
@@ -26,21 +27,17 @@ const (
 
 	// tokenMarker は、記録した発行応答のトークンで、成功応答に値がそのまま入ることを確かめる目印である。
 	tokenMarker = "ghs_token-marker" //nolint:gosec // 資格情報ではなく、値を確かめるための目印である
-	// idTokenMarker は、Payload の GATES 用 OIDC JWT で、応答と監査記録に現れないことを確かめる目印である。
-	idTokenMarker = "id-token-header.id-token-payload.id-token-signature"
+	// oidcJWTMarker は、Payload の GATES 用 OIDC JWT で、応答と監査記録に現れないことを確かめる目印である。
+	oidcJWTMarker = "id-token-header.id-token-payload.id-token-signature"
 	// claimsSetMarker は、署名検証済みの Claims Set の Claim の値で、監査記録にだけ現れ、応答に現れないことを確かめる目印である。
 	claimsSetMarker = "claims-set-marker"
 )
 
+// lambdaRequestID は、Lambda の request ID の形をした相関 ID である。
+const lambdaRequestID = "c6af9ac6-7b61-11e6-9a41-93e8deadbeef"
+
 // now は、記録した発行応答の有効期限の 1 時間前である。
 var now = time.Date(2026, 11, 3, 11, 18, 48, 0, time.UTC)
-
-// signerStub は KMS Signer のテストダブルである。
-type signerStub struct{}
-
-func (signerStub) Sign(context.Context) (github.AppJWT, error) {
-	return github.NewAppJWT("app-jwt"), nil
-}
 
 // recordedIssuance は、調査記録の発行応答の形を、ケースごとに書き換えられる形で返す。
 // 実効対象は要求と異なる順序で、一方は要求と大文字小文字だけが異なる表記にする。
@@ -65,6 +62,13 @@ func issueInstallationAccessToken(t *testing.T, issuance map[string]any, revocat
 	return newTokenIssuer(t, issuance, revocationStatus).IssueInstallationAccessToken(t.Context(), func(installation authz.Installation) (authz.TokenGrant, error) {
 		return authz.Grant(verifiedCaller(t), tokenRequest(t), owner, issuablePermissions, installation)
 	})
+}
+
+// signerStub は KMS Signer のテストダブルである。
+type signerStub struct{}
+
+func (signerStub) Sign(context.Context) (github.AppJWT, error) {
+	return github.NewAppJWT("app-jwt"), nil
 }
 
 // newTokenIssuer は、GitHub API の代わりのサーバーに接続する Token Issuer を作る。
@@ -140,21 +144,12 @@ func callerOf(t *testing.T, ownerID int64) caller.Caller {
 	return c
 }
 
-func signatureVerifiedClaimsSet(t *testing.T) claimsset.SignatureVerified {
-	t.Helper()
-	c, err := claimsset.NewSignatureVerified([]byte(`{"head_ref":"` + claimsSetMarker + `"}`))
-	if err != nil {
-		t.Fatalf("NewSignatureVerified returned error: %v", err)
-	}
-	return c
-}
-
 // validPayload は、記録した発行応答の実効対象と一致する対象を要求する Payload である。
 func validPayload(t *testing.T) []byte {
 	t.Helper()
 	return marshal(t, map[string]any{
 		"version":      1,
-		"id_token":     idTokenMarker,
+		"id_token":     oidcJWTMarker,
 		"repositories": []string{allowedOwnerName + "/repo-b", allowedOwnerName + "/Example-Repo"},
 		"permissions":  map[string]string{"contents": "read"},
 	})
@@ -167,4 +162,20 @@ func tokenRequest(t *testing.T) request.TokenRequest {
 		t.Fatalf("Validate returned error: %v", err)
 	}
 	return req
+}
+
+func decodeResponse(t *testing.T, b []byte) map[string]any {
+	t.Helper()
+	var decoded map[string]any
+	if err := json.Unmarshal(b, &decoded); err != nil {
+		t.Fatalf("response %s is not a JSON object: %v", b, err)
+	}
+	return decoded
+}
+
+func assertKeys(t *testing.T, name string, object map[string]any, want ...string) {
+	t.Helper()
+	if got := slices.Sorted(maps.Keys(object)); !slices.Equal(got, slices.Sorted(slices.Values(want))) {
+		t.Errorf("%s keys = %q, want %q", name, got, want)
+	}
 }

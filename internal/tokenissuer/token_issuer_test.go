@@ -41,14 +41,6 @@ type signerStub struct {
 	calls int
 }
 
-func (s *signerStub) Sign(context.Context) (github.AppJWT, error) {
-	s.calls++
-	if s.err != nil {
-		return github.AppJWT{}, s.err
-	}
-	return github.NewAppJWT(appJWTMarker), nil
-}
-
 // gitHubStub は GitHub API の代わりに応答する TLS サーバーで、受け取った要求の Authorization を経路ごとに記録する。
 type gitHubStub struct {
 	server *httptest.Server
@@ -59,110 +51,11 @@ type gitHubStub struct {
 	revocationContexts []context.Context
 }
 
-// roundTripperFunc は、GitHub Client の要求を、サーバーへ送る前に観測するための Transport である。
-type roundTripperFunc func(*http.Request) (*http.Response, error)
-
-func (f roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
-
-// newGitHubStub は、Installation の取得、発行、失効の経路に、記録した応答を返すハンドラを置く。handlers は経路ごとにハンドラを差し替える。
-func newGitHubStub(t *testing.T, handlers map[string]http.HandlerFunc) *gitHubStub {
-	t.Helper()
-	routes := map[string]http.HandlerFunc{
-		installationPath: respond(http.StatusOK, requestID, marshal(t, map[string]any{"id": installationID, "account": map[string]any{"id": allowedOwnerID}, "suspended_at": nil})),
-		issuancePath:     respond(http.StatusCreated, requestID, marshal(t, recordedIssuance())),
-		revocationPath:   respond(http.StatusNoContent, revocationRequestID, ""),
-	}
-	maps.Copy(routes, handlers)
-	stub := &gitHubStub{authorizations: map[string][]string{}}
-	mux := http.NewServeMux()
-	for pattern, handler := range routes {
-		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
-			stub.mu.Lock()
-			stub.authorizations[pattern] = append(stub.authorizations[pattern], r.Header.Get("Authorization"))
-			stub.mu.Unlock()
-			handler(w, r)
-		})
-	}
-	stub.server = httptest.NewUnstartedServer(mux)
-	// 応答を待つハンドラで、サーバーのログがテストの出力に混ざらないようにする
-	stub.server.Config.ErrorLog = log.New(io.Discard, "", 0)
-	stub.server.StartTLS()
-	t.Cleanup(stub.server.Close)
-	return stub
-}
-
-func (s *gitHubStub) client(t *testing.T) *github.Client {
-	t.Helper()
-	apiHost, err := url.Parse(s.server.URL)
-	if err != nil {
-		t.Fatalf("Parse returned error: %v", err)
-	}
-	base := s.server.Client().Transport
-	transport := roundTripperFunc(func(request *http.Request) (*http.Response, error) {
-		if request.Method == http.MethodDelete {
-			s.mu.Lock()
-			s.revocationContexts = append(s.revocationContexts, request.Context())
-			s.mu.Unlock()
-		}
-		return base.RoundTrip(request)
-	})
-	return github.NewClient(github.WithAPIHost(apiHost), github.WithTransport(transport))
-}
-
-// revocationContext は、GitHub Client が最初の失効の要求に付けた ctx を返す。
-func (s *gitHubStub) revocationContext(t *testing.T) context.Context {
-	t.Helper()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(s.revocationContexts) == 0 {
-		t.Fatal("GitHub Client did not try to send a revocation request")
-	}
-	return s.revocationContexts[0]
-}
-
-// received は、経路が受け取った要求の Authorization を返す。
-func (s *gitHubStub) received(pattern string) []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.authorizations[pattern]
-}
-
-func respond(status int, gitHubRequestID, body string) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("X-GitHub-Request-Id", gitHubRequestID)
-		w.WriteHeader(status)
-		_, _ = io.WriteString(w, body)
-	}
-}
-
 // grantRecorder は、Lambda Handler が渡す発行許可の確定の関数の代わりに、受け取った Installation を記録して grant を通す。
 type grantRecorder struct {
 	t       *testing.T
 	err     error
 	granted []authz.Installation
-}
-
-func (g *grantRecorder) grant(installation authz.Installation) (authz.TokenGrant, error) {
-	g.granted = append(g.granted, installation)
-	if g.err != nil {
-		return authz.TokenGrant{}, g.err
-	}
-	return grant(g.t, installation, contentsRead)
-}
-
-func newTestTokenIssuer(t *testing.T, signer *signerStub, stub *gitHubStub) *TokenIssuer {
-	t.Helper()
-	return NewTokenIssuer(signer, stub.client(t), allowedOwner(t), func() time.Time { return now })
-}
-
-// assertHidesValues は、エラー文言に GitHub App JWT、トークン、応答本文が入らないことを確かめる。
-func assertHidesValues(t *testing.T, err error) {
-	t.Helper()
-	for _, value := range []string{appJWTMarker, tokenMarker, responseMarker} {
-		if strings.Contains(err.Error(), value) {
-			t.Errorf("error message %q contains %q", err.Error(), value)
-		}
-	}
 }
 
 func TestTokenIssuer_IssueInstallationAccessToken_ReturnsReturnableIssuanceResult(t *testing.T) {
@@ -327,14 +220,6 @@ func TestTokenIssuer_IssueInstallationAccessToken_DoesNotRevokeWithoutToken(t *t
 	}
 }
 
-// unverifiedIssuance は、トークン文字列を持ち、repository_selection が all のため照合に失敗する発行応答を返す経路である。
-func unverifiedIssuance(t *testing.T) map[string]http.HandlerFunc {
-	t.Helper()
-	response := recordedIssuance()
-	response["repository_selection"] = "all"
-	return map[string]http.HandlerFunc{issuancePath: respond(http.StatusCreated, requestID, marshal(t, response))}
-}
-
 // 関数の残り時間は要求の ctx の期限から読み、失効は応答を書くための 1 秒を残して打ち切る（Lambda Design の Call Time Budget）。
 func TestTokenIssuer_IssueInstallationAccessToken_RevocationEndsOneSecondBeforeRequestDeadline(t *testing.T) {
 	stub := newGitHubStub(t, unverifiedIssuance(t))
@@ -376,37 +261,6 @@ func TestTokenIssuer_IssueInstallationAccessToken_DoesNotRevokeAfterIssuanceDead
 	}
 	if n := len(stub.received(revocationPath)); n != 0 {
 		t.Errorf("revocation received %d requests, want 0", n)
-	}
-}
-
-// 失効は要求の ctx の中断を引き継がない。入口から通すと、発行応答を受け取った後で要求の ctx を中断させる準備が要るため、段階の関数で確かめる。
-func TestRevocationContext_IgnoresCancellationOfRequestContext(t *testing.T) {
-	withDeadline := func(ctx context.Context) (context.Context, context.CancelFunc) {
-		return context.WithTimeout(ctx, 30*time.Second)
-	}
-	tests := []struct {
-		name         string
-		newContext   func(context.Context) (context.Context, context.CancelFunc)
-		withDeadline bool
-	}{
-		{name: "request context without deadline", newContext: context.WithCancel, withDeadline: false},
-		{name: "request context with deadline", newContext: withDeadline, withDeadline: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name+" is not done after cancellation", func(t *testing.T) {
-			ctx, cancel := tt.newContext(t.Context())
-			cancel()
-
-			got, cancelRevocation := revocationContext(ctx)
-			defer cancelRevocation()
-
-			if err := got.Err(); err != nil {
-				t.Errorf("revocation context Err() = %v, want nil", err)
-			}
-			if _, ok := got.Deadline(); ok != tt.withDeadline {
-				t.Errorf("revocation context has deadline = %v, want %v", ok, tt.withDeadline)
-			}
-		})
 	}
 }
 
@@ -477,4 +331,119 @@ func TestNewTokenIssuer_ZeroAllowedOwnerPanics(t *testing.T) {
 	}()
 
 	_ = NewTokenIssuer(&signerStub{}, github.NewClient(), authz.AllowedOwner{}, func() time.Time { return now })
+}
+
+func (s *signerStub) Sign(context.Context) (github.AppJWT, error) {
+	s.calls++
+	if s.err != nil {
+		return github.AppJWT{}, s.err
+	}
+	return github.NewAppJWT(appJWTMarker), nil
+}
+
+// newGitHubStub は、Installation の取得、発行、失効の経路に、記録した応答を返すハンドラを置く。handlers は経路ごとにハンドラを差し替える。
+func newGitHubStub(t *testing.T, handlers map[string]http.HandlerFunc) *gitHubStub {
+	t.Helper()
+	routes := map[string]http.HandlerFunc{
+		installationPath: respond(http.StatusOK, requestID, marshal(t, map[string]any{"id": installationID, "account": map[string]any{"id": allowedOwnerID}, "suspended_at": nil})),
+		issuancePath:     respond(http.StatusCreated, requestID, marshal(t, recordedIssuance())),
+		revocationPath:   respond(http.StatusNoContent, revocationRequestID, ""),
+	}
+	maps.Copy(routes, handlers)
+	stub := &gitHubStub{authorizations: map[string][]string{}}
+	mux := http.NewServeMux()
+	for pattern, handler := range routes {
+		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+			stub.mu.Lock()
+			stub.authorizations[pattern] = append(stub.authorizations[pattern], r.Header.Get("Authorization"))
+			stub.mu.Unlock()
+			handler(w, r)
+		})
+	}
+	stub.server = httptest.NewUnstartedServer(mux)
+	// 応答を待つハンドラで、サーバーのログがテストの出力に混ざらないようにする
+	stub.server.Config.ErrorLog = log.New(io.Discard, "", 0)
+	stub.server.StartTLS()
+	t.Cleanup(stub.server.Close)
+	return stub
+}
+
+// roundTripperFunc は、GitHub Client の要求を、サーバーへ送る前に観測するための Transport である。
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
+
+func (s *gitHubStub) client(t *testing.T) *github.Client {
+	t.Helper()
+	apiHost, err := url.Parse(s.server.URL)
+	if err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+	base := s.server.Client().Transport
+	transport := roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Method == http.MethodDelete {
+			s.mu.Lock()
+			s.revocationContexts = append(s.revocationContexts, request.Context())
+			s.mu.Unlock()
+		}
+		return base.RoundTrip(request)
+	})
+	return github.NewClient(github.WithAPIHost(apiHost), github.WithTransport(transport))
+}
+
+// revocationContext は、GitHub Client が最初の失効の要求に付けた ctx を返す。
+func (s *gitHubStub) revocationContext(t *testing.T) context.Context {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.revocationContexts) == 0 {
+		t.Fatal("GitHub Client did not try to send a revocation request")
+	}
+	return s.revocationContexts[0]
+}
+
+// received は、経路が受け取った要求の Authorization を返す。
+func (s *gitHubStub) received(pattern string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.authorizations[pattern]
+}
+
+func (g *grantRecorder) grant(installation authz.Installation) (authz.TokenGrant, error) {
+	g.granted = append(g.granted, installation)
+	if g.err != nil {
+		return authz.TokenGrant{}, g.err
+	}
+	return grant(g.t, installation, contentsRead)
+}
+
+func respond(status int, gitHubRequestID, body string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-GitHub-Request-Id", gitHubRequestID)
+		w.WriteHeader(status)
+		_, _ = io.WriteString(w, body)
+	}
+}
+
+func newTestTokenIssuer(t *testing.T, signer *signerStub, stub *gitHubStub) *TokenIssuer {
+	t.Helper()
+	return NewTokenIssuer(signer, stub.client(t), allowedOwner(t), func() time.Time { return now })
+}
+
+// assertHidesValues は、エラー文言に GitHub App JWT、トークン、応答本文が入らないことを確かめる。
+func assertHidesValues(t *testing.T, err error) {
+	t.Helper()
+	for _, value := range []string{appJWTMarker, tokenMarker, responseMarker} {
+		if strings.Contains(err.Error(), value) {
+			t.Errorf("error message %q contains %q", err.Error(), value)
+		}
+	}
+}
+
+// unverifiedIssuance は、トークン文字列を持ち、repository_selection が all のため照合に失敗する発行応答を返す経路である。
+func unverifiedIssuance(t *testing.T) map[string]http.HandlerFunc {
+	t.Helper()
+	response := recordedIssuance()
+	response["repository_selection"] = "all"
+	return map[string]http.HandlerFunc{issuancePath: respond(http.StatusCreated, requestID, marshal(t, response))}
 }

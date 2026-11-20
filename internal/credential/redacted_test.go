@@ -19,17 +19,6 @@ type sample struct {
 	Value string
 }
 
-// resolveLogValue は、slog が attribute の値として解決した文字列を返す。
-// slog の handler は LogValue がなくても MarshalJSON や Format で伏せた表記を出すため、handler の出力ではなく解決した値の種類で LogValue を確かめる。
-func resolveLogValue(t *testing.T, value any) string {
-	t.Helper()
-	resolved := slog.AnyValue(value).Resolve()
-	if resolved.Kind() != slog.KindString {
-		t.Errorf("slog value kind = %v, want %v", resolved.Kind(), slog.KindString)
-	}
-	return resolved.String()
-}
-
 //trace:checks AC-QUALITY-002
 func TestRedacted_HidesValueInOutput(t *testing.T) {
 	value := sample{Value: secretValue}
@@ -69,4 +58,15 @@ func TestRedacted_HidesValueInOutput(t *testing.T) {
 			}
 		})
 	}
+}
+
+// resolveLogValue は、slog が attribute の値として解決した文字列を返す。
+// slog の handler は LogValue がなくても MarshalJSON や Format で伏せた表記を出すため、handler の出力ではなく解決した値の種類で LogValue を確かめる。
+func resolveLogValue(t *testing.T, value any) string {
+	t.Helper()
+	resolved := slog.AnyValue(value).Resolve()
+	if resolved.Kind() != slog.KindString {
+		t.Errorf("slog value kind = %v, want %v", resolved.Kind(), slog.KindString)
+	}
+	return resolved.String()
 }

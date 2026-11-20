@@ -12,15 +12,15 @@ import (
 	"github.com/tmknom/gates/internal/request"
 )
 
-const secretIDToken = "secret.jwt.value"
+const secretOIDCJWT = "secret.jwt.value"
 
-// TestUnverifiedIDToken_IsRedactedInOutput は、credential.Redacted のメソッドが UnverifiedIDToken に昇格していることを確かめる。
+// TestUnverifiedOIDCJWT_IsRedactedInOutput は、credential.Redacted のメソッドが UnverifiedOIDCJWT に昇格していることを確かめる。
 // 書式指定や出力先ごとの網羅は credential package のテストが確かめる。
 //
 //trace:checks AC-QUALITY-002
-func TestUnverifiedIDToken_IsRedactedInOutput(t *testing.T) {
-	token := validateIDToken(t, secretIDToken)
-	holder := struct{ Token request.UnverifiedIDToken }{Token: token}
+func TestUnverifiedOIDCJWT_IsRedactedInOutput(t *testing.T) {
+	token := validateOIDCJWT(t, secretOIDCJWT)
+	holder := struct{ Token request.UnverifiedOIDCJWT }{Token: token}
 
 	tests := []struct {
 		name   string
@@ -46,8 +46,8 @@ func TestUnverifiedIDToken_IsRedactedInOutput(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := tt.output(t)
-			if strings.Contains(got, secretIDToken) {
-				t.Errorf("output %q contains the ID token", got)
+			if strings.Contains(got, secretOIDCJWT) {
+				t.Errorf("output %q contains the OIDC JWT", got)
 			}
 			if !strings.Contains(got, "[REDACTED]") {
 				t.Errorf("output %q does not contain the redacted notation", got)
@@ -56,37 +56,37 @@ func TestUnverifiedIDToken_IsRedactedInOutput(t *testing.T) {
 	}
 }
 
-// TestUnverifiedIDToken_UnexportedFieldDoesNotShowValue は、fmt が Format を呼べない非公開フィールドに置かれても、値が出ないことを確かめる。
-func TestUnverifiedIDToken_UnexportedFieldDoesNotShowValue(t *testing.T) {
-	holder := struct{ token request.UnverifiedIDToken }{token: validateIDToken(t, secretIDToken)}
+// TestUnverifiedOIDCJWT_UnexportedFieldDoesNotShowValue は、fmt が Format を呼べない非公開フィールドに置かれても、値が出ないことを確かめる。
+func TestUnverifiedOIDCJWT_UnexportedFieldDoesNotShowValue(t *testing.T) {
+	holder := struct{ token request.UnverifiedOIDCJWT }{token: validateOIDCJWT(t, secretOIDCJWT)}
 	for _, verb := range []string{"%v", "%+v", "%#v"} {
 		t.Run(verb+" does not show the value", func(t *testing.T) {
-			if got := fmt.Sprintf(verb, holder); strings.Contains(got, secretIDToken) {
-				t.Errorf("output %q contains the ID token", got)
+			if got := fmt.Sprintf(verb, holder); strings.Contains(got, secretOIDCJWT) {
+				t.Errorf("output %q contains the OIDC JWT", got)
 			}
 		})
 	}
 }
 
-// TestUnverifiedIDToken_ExposeZeroValuePanicsAsZeroValueGuard は、ゼロ値を nil の参照外しではなくゼロ値の検査で止めることを確かめる。
-func TestUnverifiedIDToken_ExposeZeroValuePanicsAsZeroValueGuard(t *testing.T) {
+// TestUnverifiedOIDCJWT_ExposeZeroValuePanicsAsZeroValueGuard は、ゼロ値を nil の参照外しではなくゼロ値の検査で止めることを確かめる。
+func TestUnverifiedOIDCJWT_ExposeZeroValuePanicsAsZeroValueGuard(t *testing.T) {
 	defer func() {
 		got := recover()
 		if got == nil {
-			t.Fatal("Expose did not panic for the zero UnverifiedIDToken")
+			t.Fatal("Expose did not panic for the zero UnverifiedOIDCJWT")
 		}
 		if _, ok := got.(runtime.Error); ok {
 			t.Errorf("Expose panicked with a runtime error: %v", got)
 		}
 	}()
 
-	_ = request.UnverifiedIDToken{}.Expose()
+	_ = request.UnverifiedOIDCJWT{}.Expose()
 }
 
-// validateIDToken は、UnverifiedIDToken を作れる唯一の経路である Validate を通して値を得る。
-func validateIDToken(t *testing.T, idToken string) request.UnverifiedIDToken {
+// validateOIDCJWT は、UnverifiedOIDCJWT を作れる唯一の経路である Validate を通して値を得る。
+func validateOIDCJWT(t *testing.T, oidcJWT string) request.UnverifiedOIDCJWT {
 	t.Helper()
-	token, _, err := request.Validate([]byte(payloadWith("id_token", strconv.Quote(idToken))))
+	token, _, err := request.Validate([]byte(payloadWith("id_token", strconv.Quote(oidcJWT))))
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}

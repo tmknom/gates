@@ -18,6 +18,13 @@ import (
 	"github.com/tmknom/gates/internal/request"
 )
 
+// Verifier は、固定設定と公開鍵の集合に照らして GATES 用 OIDC JWT を認証する。
+type Verifier struct {
+	issuer string
+	keys   oidc.KeySet
+	config *oidc.Config
+}
+
 // clockSkew は iat の判定に使う許容時計差である。go-oidc の nbf の猶予は固定値で、テストがこの値との一致を確かめる。
 const clockSkew = 5 * time.Minute
 
@@ -27,11 +34,13 @@ const awsAudience = "sts.amazonaws.com"
 // githubURL と、githubURL に "/" を続けた値で始まる値が、認証の固定設定（INV-005）が GATES 用 Audience に禁じる github.com の URL である。
 const githubURL = "https://github.com"
 
-// Verifier は、固定設定と公開鍵の集合に照らして GATES 用 OIDC JWT を認証する。
-type Verifier struct {
-	issuer string
-	keys   oidc.KeySet
-	config *oidc.Config
+// keySetRecorder は、公開鍵の取得の失敗と、署名を検証した Payload を、Verify の戻り値の外に持ち出す。
+// go-oidc の Verify は oidc.KeySet の error を %v で包むため、戻り値からは errors.Is で判定できない。
+// go-oidc は署名を検証してから iss、aud、exp、nbf を判定し、それらで拒否すると Payload を返さない。
+type keySetRecorder struct {
+	keys      oidc.KeySet
+	failure   error
+	claimsSet claimsset.SignatureVerified
 }
 
 // NewVerifier は固定設定を確かめ、Issuer の Discovery と JWKS から公開鍵を取得する Verifier を作る。
@@ -53,26 +62,6 @@ func NewVerifier(issuer, audience string, now func() time.Time, log *slog.Logger
 	return newVerifier(issuer, audience, newIssuerKeySet(issuerURL, now, log, opts...), now), nil
 }
 
-func isGitHubURL(audience string) bool {
-	prefix := githubURL + "/"
-	return repository.EqualFoldASCII(audience, githubURL) ||
-		len(audience) >= len(prefix) && repository.EqualFoldASCII(audience[:len(prefix)], prefix)
-}
-
-// parseIssuer は認証の固定設定（INV-005）の条件を Issuer について確かめる。
-// go-oidc は JWT の iss を設定の文字列と比べ、Discovery の照合は解析後の値と比べる。
-// 解析で変わる値を通すと、Discovery の照合を通ったまま、設定の誤りがすべての JWT の不正に見える。
-// Host から組み立て直して比べるのは、ほかの要素を列挙すると、列挙から漏れた表現 (空の Query など) を通すため。
-// 空のポートとホスト名のない値は組み立て直しても一致するため、別に判定する。
-func parseIssuer(issuer string) (*url.URL, error) {
-	issuerURL, err := url.Parse(issuer)
-	if err != nil || issuerURL.Hostname() == "" || strings.HasSuffix(issuerURL.Host, ":") ||
-		(&url.URL{Scheme: "https", Host: issuerURL.Host}).String() != issuer {
-		return nil, fmt.Errorf("%w: must be an https URL with only a host and an optional port", ErrInvalidIssuer)
-	}
-	return issuerURL, nil
-}
-
 // newVerifier は now を go-oidc の設定に渡し、go-oidc と Authenticate の判定を同じ時計で行う。
 func newVerifier(issuer, audience string, keys oidc.KeySet, now func() time.Time) *Verifier {
 	config := &oidc.Config{
@@ -81,15 +70,6 @@ func newVerifier(issuer, audience string, keys oidc.KeySet, now func() time.Time
 		Now:                  now,
 	}
 	return &Verifier{issuer: issuer, keys: keys, config: config}
-}
-
-// keySetRecorder は、公開鍵の取得の失敗と、署名を検証した Payload を、Verify の戻り値の外に持ち出す。
-// go-oidc の Verify は oidc.KeySet の error を %v で包むため、戻り値からは errors.Is で判定できない。
-// go-oidc は署名を検証してから iss、aud、exp、nbf を判定し、それらで拒否すると Payload を返さない。
-type keySetRecorder struct {
-	keys      oidc.KeySet
-	failure   error
-	claimsSet claimsset.SignatureVerified
 }
 
 func (r *keySetRecorder) VerifySignature(ctx context.Context, jwt string) ([]byte, error) {
@@ -111,8 +91,8 @@ func (r *keySetRecorder) VerifySignature(ctx context.Context, jwt string) ([]byt
 
 // Authenticate は、未検証の GATES 用 OIDC JWT から Caller を確定する。
 // 署名検証済みの Claims Set は、署名検証の後の判定で error を返すときにも返す。署名を検証しなかったときはゼロ値を返す。
-func (v *Verifier) Authenticate(ctx context.Context, unverifiedIDToken request.UnverifiedIDToken) (caller.Caller, claimsset.SignatureVerified, error) {
-	jwt := unverifiedIDToken.Expose()
+func (v *Verifier) Authenticate(ctx context.Context, unverifiedOIDCJWT request.UnverifiedOIDCJWT) (caller.Caller, claimsset.SignatureVerified, error) {
+	jwt := unverifiedOIDCJWT.Expose()
 
 	// Lambda Design の「取得前の拒否」に当たる条件を、公開鍵を取得する前に判定する
 	signature, err := parseCompact(jwt)
@@ -166,4 +146,24 @@ func (v *Verifier) verify(ctx context.Context, jwt string, recorder *keySetRecor
 	}
 
 	return callerFromClaims(raw)
+}
+
+func isGitHubURL(audience string) bool {
+	prefix := githubURL + "/"
+	return repository.EqualFoldASCII(audience, githubURL) ||
+		len(audience) >= len(prefix) && repository.EqualFoldASCII(audience[:len(prefix)], prefix)
+}
+
+// parseIssuer は認証の固定設定（INV-005）の条件を Issuer について確かめる。
+// go-oidc は JWT の iss を設定の文字列と比べ、Discovery の照合は解析後の値と比べる。
+// 解析で変わる値を通すと、Discovery の照合を通ったまま、設定の誤りがすべての JWT の不正に見える。
+// Host から組み立て直して比べるのは、ほかの要素を列挙すると、列挙から漏れた表現 (空の Query など) を通すため。
+// 空のポートとホスト名のない値は組み立て直しても一致するため、別に判定する。
+func parseIssuer(issuer string) (*url.URL, error) {
+	issuerURL, err := url.Parse(issuer)
+	if err != nil || issuerURL.Hostname() == "" || strings.HasSuffix(issuerURL.Host, ":") ||
+		(&url.URL{Scheme: "https", Host: issuerURL.Host}).String() != issuer {
+		return nil, fmt.Errorf("%w: must be an https URL with only a host and an optional port", ErrInvalidIssuer)
+	}
+	return issuerURL, nil
 }

@@ -32,14 +32,6 @@ type verifierStub struct {
 	calls     int
 }
 
-func (v *verifierStub) Authenticate(context.Context, request.UnverifiedIDToken) (caller.Caller, claimsset.SignatureVerified, error) {
-	v.calls++
-	if v.panics {
-		panicWithSecret()
-	}
-	return v.caller, v.claimsSet, v.err
-}
-
 // tokenIssuerStub は Token Issuer のテストダブルである。
 // installation があれば、受け取った GrantFunc にそれを渡し、Grant が拒否すればその error を返す。
 // 成功は照合を経た Token Issuer からしか起きないため、err も panics も持たない stub は、呼ばれないことを確かめる場合にだけ使う。成功は newTokenIssuer の Token Issuer で作る。
@@ -51,136 +43,10 @@ type tokenIssuerStub struct {
 	ctx          context.Context
 }
 
-func (i *tokenIssuerStub) IssueInstallationAccessToken(ctx context.Context, grant tokenissuer.GrantFunc) (tokenissuer.ReturnableIssuanceResult, error) {
-	i.calls++
-	i.ctx = ctx
-	if i.installation != nil {
-		if _, err := grant(*i.installation); err != nil {
-			return tokenissuer.ReturnableIssuanceResult{}, err
-		}
-	}
-	if i.panics {
-		panicWithSecret()
-	}
-	return tokenissuer.ReturnableIssuanceResult{}, i.err
-}
-
-// secretMarker は、nonzero.Require の panic の値に型名として入る目印である。
-// panic の値が応答、監査記録、ログのどれにも現れないことを、この名前が現れないことで確かめる。
-// forbidigo がテストでも panic を禁じるため、目印を値に入れるのは nonzero.Require の文言に頼る。頼れることは TestPanicWithSecret_ValueContainsMarker が確かめる。
-type secretMarker struct{}
-
-func (secretMarker) IsZero() bool {
-	return true
-}
-
-func panicWithSecret() {
-	nonzero.Require(secretMarker{})
-}
-
 // invocation は、Handle の応答と、Handle が書いたログの行である。
 type invocation struct {
 	response map[string]any
 	logs     []map[string]any
-}
-
-// handle は、発行上限を `contents:read` にした Handler で handleWith を呼ぶ。
-func handle(t *testing.T, verifier oidcVerifier, tokenIssuer installationAccessTokenIssuer, payload []byte) invocation {
-	t.Helper()
-	return handleWith(t, mustNewIssuablePermissions(t, "contents:read"), verifier, tokenIssuer, payload)
-}
-
-// handleWith は Handle を呼び、応答とログの行を返す。
-// どのケースでも、資格情報と panic の値が成功応答の token 以外に現れないことを確かめる。
-func handleWith(t *testing.T, issuablePermissions permission.IssuablePermissions, verifier oidcVerifier, tokenIssuer installationAccessTokenIssuer, payload []byte) invocation {
-	t.Helper()
-	var log bytes.Buffer
-	requestID, err := NewRequestID(lambdaRequestID)
-	if err != nil {
-		t.Fatalf("NewRequestID returned error: %v", err)
-	}
-	h := NewHandler(verifier, tokenIssuer, allowedOwner(t), issuablePermissions, slog.New(slog.NewJSONHandler(&log, nil)))
-
-	b := h.Handle(t.Context(), requestID, payload)
-
-	decoded := decodeResponse(t, b)
-	withoutToken := map[string]any{}
-	for key, value := range decoded {
-		if key != "token" {
-			withoutToken[key] = value
-		}
-	}
-	for name, output := range map[string]string{"response": string(marshal(t, withoutToken)), "log": log.String()} {
-		for _, marker := range []string{idTokenMarker, tokenMarker, "secretMarker"} {
-			if strings.Contains(output, marker) {
-				t.Errorf("%s contains %q: %s", name, marker, output)
-			}
-		}
-	}
-	// 署名検証済みの Claims Set は監査記録にだけ書き、Caller への応答には出さない
-	if response := string(b); strings.Contains(response, claimsSetMarker) {
-		t.Errorf("response contains the signature-verified claims set: %s", response)
-	}
-	var logs []map[string]any
-	for line := range strings.Lines(log.String()) {
-		var record map[string]any
-		if err := json.Unmarshal([]byte(line), &record); err != nil {
-			t.Fatalf("log line %q is not a JSON object: %v", line, err)
-		}
-		logs = append(logs, record)
-	}
-	return invocation{response: decoded, logs: logs}
-}
-
-// auditRecord は、ログの行のうち、ただ 1 行の監査記録を返す。
-func (inv invocation) auditRecord(t *testing.T) map[string]any {
-	t.Helper()
-	var records []map[string]any
-	for _, record := range inv.logs {
-		if record["msg"] == "audit record" {
-			records = append(records, record)
-		}
-	}
-	if len(records) != 1 {
-		t.Fatalf("audit records = %v, want exactly one", records)
-	}
-	if records[0]["request_id"] != lambdaRequestID {
-		t.Errorf("audit record request_id = %v, want %q", records[0]["request_id"], lambdaRequestID)
-	}
-	return records[0]
-}
-
-// assertFailed は、失敗応答のエラーコードと相関 ID、監査記録の結果を確かめ、監査記録を返す。
-func (inv invocation) assertFailed(t *testing.T, code string) map[string]any {
-	t.Helper()
-	if inv.response["ok"] != false {
-		t.Errorf("ok = %v, want false", inv.response["ok"])
-	}
-	if got, _ := inv.response["error"].(map[string]any); got["code"] != code {
-		t.Errorf("error = %v, want code %q", inv.response["error"], code)
-	}
-	if inv.response["request_id"] != lambdaRequestID {
-		t.Errorf("request_id = %v, want %q", inv.response["request_id"], lambdaRequestID)
-	}
-	record := inv.auditRecord(t)
-	if record["result"] != code {
-		t.Errorf("audit record result = %v, want %q", record["result"], code)
-	}
-	return record
-}
-
-// auditKeys は、常に記録する項目と slog のキーに、記録する条件を満たした項目のキーを加える。
-func auditKeys(keys ...string) []string {
-	return append([]string{"time", "level", "msg", "request_id", "result"}, keys...)
-}
-
-func installation(t *testing.T, installationOwnerID int64, suspended bool) *authz.Installation {
-	t.Helper()
-	inst, err := authz.NewInstallation(installationID, installationOwnerID, suspended)
-	if err != nil {
-		t.Fatalf("NewInstallation returned error: %v", err)
-	}
-	return &inst
 }
 
 //trace:checks AC-ISSUANCE-001 AC-OPS-004 AC-OPS-009
@@ -222,7 +88,7 @@ func TestHandle_IssuesTokenForMultiplePermissions(t *testing.T) {
 	issuance["permissions"] = map[string]any{"contents": "write", "issues": "read", "metadata": "read"}
 	payload := marshal(t, map[string]any{
 		"version":      1,
-		"id_token":     idTokenMarker,
+		"id_token":     oidcJWTMarker,
 		"repositories": []string{allowedOwnerName + "/repo-b", allowedOwnerName + "/Example-Repo"},
 		"permissions":  map[string]string{"contents": "write", "issues": "read"},
 	})
@@ -250,7 +116,7 @@ func TestHandle_InvalidRequestDoesNotAuthenticate(t *testing.T) {
 	// GATES 用 OIDC JWT は正しい形のまま、対象だけを不正にし、拒否の理由に JWT が入らないことも確かめる
 	inv := handle(t, verifier, tokenIssuer, marshal(t, map[string]any{
 		"version":      1,
-		"id_token":     idTokenMarker,
+		"id_token":     oidcJWTMarker,
 		"repositories": []string{},
 		"permissions":  map[string]string{"contents": "read"},
 	}))
@@ -269,7 +135,7 @@ func TestHandle_AuthenticationFailureStopsBeforeAuthorization(t *testing.T) {
 		err  error
 		code string
 	}{
-		{name: "rejected ID token returns invalid_id_token", err: fmt.Errorf("%w: signature mismatch", authn.ErrAuthenticationFailure), code: "invalid_id_token"},
+		{name: "rejected OIDC JWT returns invalid_id_token", err: fmt.Errorf("%w: signature mismatch", authn.ErrAuthenticationFailure), code: "invalid_id_token"},
 		{name: "transient key retrieval failure returns identity_verification_unavailable", err: fmt.Errorf("%w: JWKS timeout", authn.ErrTransientFailure), code: "identity_verification_unavailable"},
 		{name: "unexpected provider response returns internal_error", err: fmt.Errorf("%w: issuer mismatch", authn.ErrInternalFailure), code: "internal_error"},
 	} {
@@ -479,4 +345,147 @@ func TestNewHandler_ZeroIssuablePermissionsPanics(t *testing.T) {
 	}()
 
 	_ = NewHandler(&verifierStub{}, &tokenIssuerStub{}, allowedOwner(t), permission.IssuablePermissions{}, slog.New(slog.DiscardHandler))
+}
+
+func (v *verifierStub) Authenticate(context.Context, request.UnverifiedOIDCJWT) (caller.Caller, claimsset.SignatureVerified, error) {
+	v.calls++
+	if v.panics {
+		panicWithSecret()
+	}
+	return v.caller, v.claimsSet, v.err
+}
+
+func (i *tokenIssuerStub) IssueInstallationAccessToken(ctx context.Context, grant tokenissuer.GrantFunc) (tokenissuer.ReturnableIssuanceResult, error) {
+	i.calls++
+	i.ctx = ctx
+	if i.installation != nil {
+		if _, err := grant(*i.installation); err != nil {
+			return tokenissuer.ReturnableIssuanceResult{}, err
+		}
+	}
+	if i.panics {
+		panicWithSecret()
+	}
+	return tokenissuer.ReturnableIssuanceResult{}, i.err
+}
+
+// auditRecord は、ログの行のうち、ただ 1 行の監査記録を返す。
+func (inv invocation) auditRecord(t *testing.T) map[string]any {
+	t.Helper()
+	var records []map[string]any
+	for _, record := range inv.logs {
+		if record["msg"] == "audit record" {
+			records = append(records, record)
+		}
+	}
+	if len(records) != 1 {
+		t.Fatalf("audit records = %v, want exactly one", records)
+	}
+	if records[0]["request_id"] != lambdaRequestID {
+		t.Errorf("audit record request_id = %v, want %q", records[0]["request_id"], lambdaRequestID)
+	}
+	return records[0]
+}
+
+// assertFailed は、失敗応答のエラーコードと相関 ID、監査記録の結果を確かめ、監査記録を返す。
+func (inv invocation) assertFailed(t *testing.T, code string) map[string]any {
+	t.Helper()
+	if inv.response["ok"] != false {
+		t.Errorf("ok = %v, want false", inv.response["ok"])
+	}
+	if got, _ := inv.response["error"].(map[string]any); got["code"] != code {
+		t.Errorf("error = %v, want code %q", inv.response["error"], code)
+	}
+	if inv.response["request_id"] != lambdaRequestID {
+		t.Errorf("request_id = %v, want %q", inv.response["request_id"], lambdaRequestID)
+	}
+	record := inv.auditRecord(t)
+	if record["result"] != code {
+		t.Errorf("audit record result = %v, want %q", record["result"], code)
+	}
+	return record
+}
+
+// secretMarker は、nonzero.Require の panic の値に型名として入る目印である。
+// panic の値が応答、監査記録、ログのどれにも現れないことを、この名前が現れないことで確かめる。
+// forbidigo がテストでも panic を禁じるため、目印を値に入れるのは nonzero.Require の文言に頼る。頼れることは TestPanicWithSecret_ValueContainsMarker が確かめる。
+type secretMarker struct{}
+
+func (secretMarker) IsZero() bool {
+	return true
+}
+
+func panicWithSecret() {
+	nonzero.Require(secretMarker{})
+}
+
+// handle は、発行上限を `contents:read` にした Handler で handleWith を呼ぶ。
+func handle(t *testing.T, verifier oidcVerifier, tokenIssuer installationAccessTokenIssuer, payload []byte) invocation {
+	t.Helper()
+	return handleWith(t, mustNewIssuablePermissions(t, "contents:read"), verifier, tokenIssuer, payload)
+}
+
+// handleWith は Handle を呼び、応答とログの行を返す。
+// どのケースでも、資格情報と panic の値が成功応答の token 以外に現れないことを確かめる。
+func handleWith(t *testing.T, issuablePermissions permission.IssuablePermissions, verifier oidcVerifier, tokenIssuer installationAccessTokenIssuer, payload []byte) invocation {
+	t.Helper()
+	var log bytes.Buffer
+	requestID, err := NewRequestID(lambdaRequestID)
+	if err != nil {
+		t.Fatalf("NewRequestID returned error: %v", err)
+	}
+	h := NewHandler(verifier, tokenIssuer, allowedOwner(t), issuablePermissions, slog.New(slog.NewJSONHandler(&log, nil)))
+
+	b := h.Handle(t.Context(), requestID, payload)
+
+	decoded := decodeResponse(t, b)
+	withoutToken := map[string]any{}
+	for key, value := range decoded {
+		if key != "token" {
+			withoutToken[key] = value
+		}
+	}
+	for name, output := range map[string]string{"response": string(marshal(t, withoutToken)), "log": log.String()} {
+		for _, marker := range []string{oidcJWTMarker, tokenMarker, "secretMarker"} {
+			if strings.Contains(output, marker) {
+				t.Errorf("%s contains %q: %s", name, marker, output)
+			}
+		}
+	}
+	// 署名検証済みの Claims Set は監査記録にだけ書き、Caller への応答には出さない
+	if response := string(b); strings.Contains(response, claimsSetMarker) {
+		t.Errorf("response contains the signature-verified claims set: %s", response)
+	}
+	var logs []map[string]any
+	for line := range strings.Lines(log.String()) {
+		var record map[string]any
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			t.Fatalf("log line %q is not a JSON object: %v", line, err)
+		}
+		logs = append(logs, record)
+	}
+	return invocation{response: decoded, logs: logs}
+}
+
+// auditKeys は、常に記録する項目と slog のキーに、記録する条件を満たした項目のキーを加える。
+func auditKeys(keys ...string) []string {
+	return append([]string{"time", "level", "msg", "request_id", "result"}, keys...)
+}
+
+func installation(t *testing.T, installationOwnerID int64, suspended bool) *authz.Installation {
+	t.Helper()
+	inst, err := authz.NewInstallation(installationID, installationOwnerID, suspended)
+	if err != nil {
+		t.Fatalf("NewInstallation returned error: %v", err)
+	}
+	return &inst
+}
+
+func signatureVerifiedClaimsSet(t *testing.T) claimsset.SignatureVerified {
+	t.Helper()
+	c, err := claimsset.NewSignatureVerified([]byte(`{"head_ref":"` + claimsSetMarker + `"}`))
+	if err != nil {
+		t.Fatalf("NewSignatureVerified returned error: %v", err)
+	}
+	return c
 }

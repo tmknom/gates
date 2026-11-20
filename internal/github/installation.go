@@ -20,16 +20,6 @@ const (
 	installationSizeLimit = 64 * 1024
 )
 
-// installationResponse は、Installation の応答のうち authz.Installation に写すフィールドである。
-type installationResponse struct {
-	ID      int64 `json:"id"`
-	Account struct {
-		ID int64 `json:"id"`
-	} `json:"account"`
-	// キーの欠落と null を区別するため、復号前の値で受け取る
-	SuspendedAt jsontext.Value `json:"suspended_at"`
-}
-
 // ResolveInstallation は、許可オーナーの種別に応じたエンドポイントから、許可オーナーの Installation を取得する。
 func (c *Client) ResolveInstallation(ctx context.Context, appJWT AppJWT, allowedOwner authz.AllowedOwner) (authz.Installation, error) {
 	ctx, cancel := context.WithTimeout(ctx, installationTimeout)
@@ -83,6 +73,16 @@ func installationPath(allowedOwner authz.AllowedOwner) string {
 		accounts = "users"
 	}
 	return "/" + accounts + "/" + allowedOwner.Name().String() + "/installation"
+}
+
+// installationResponse は、Installation の応答のうち authz.Installation に写すフィールドである。
+type installationResponse struct {
+	ID      int64 `json:"id"`
+	Account struct {
+		ID int64 `json:"id"`
+	} `json:"account"`
+	// キーの欠落と null を区別するため、復号前の値で受け取る
+	SuspendedAt jsontext.Value `json:"suspended_at"`
 }
 
 func decodeInstallation(body []byte) (authz.Installation, error) {

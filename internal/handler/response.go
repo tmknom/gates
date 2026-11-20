@@ -11,6 +11,15 @@ import (
 
 // 応答の形は Lambda Design の「Responses」に従う。
 
+// response は、JSON に符号化した応答である。
+// 符号化できなかったことをゼロ値で表し、error を返さない。符号化の error の文言には応答の値（トークンを含む）が入り得るため、捨てる。
+type response []byte
+
+// IsZero は、符号化できなかった応答かを返す。
+func (r response) IsZero() bool {
+	return r == nil
+}
+
 type successResponse struct {
 	OK    bool   `json:"ok"`
 	Token string `json:"token"`
@@ -19,26 +28,6 @@ type successResponse struct {
 	Repositories []string          `json:"repositories"`
 	Permissions  map[string]string `json:"permissions"`
 	RequestID    string            `json:"request_id"`
-}
-
-type failureResponse struct {
-	OK        bool          `json:"ok"`
-	Error     failureDetail `json:"error"`
-	RequestID string        `json:"request_id"`
-}
-
-type failureDetail struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
-
-// response は、JSON に符号化した応答である。
-// 符号化できなかったことをゼロ値で表し、error を返さない。符号化の error の文言には応答の値（トークンを含む）が入り得るため、捨てる。
-type response []byte
-
-// IsZero は、符号化できなかった応答かを返す。
-func (r response) IsZero() bool {
-	return r == nil
 }
 
 // encodeSuccess は、返却可能な発行結果から成功応答を作る。
@@ -56,6 +45,17 @@ func encodeSuccess(requestID string, returnable tokenissuer.ReturnableIssuanceRe
 		Permissions:  maps.Collect(returnable.EffectivePermissions().Entries()),
 		RequestID:    requestID,
 	})
+}
+
+type failureResponse struct {
+	OK        bool          `json:"ok"`
+	Error     failureDetail `json:"error"`
+	RequestID string        `json:"request_id"`
+}
+
+type failureDetail struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 // encodeFailure は、エラーコードから失敗応答を作る。

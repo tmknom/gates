@@ -6,43 +6,9 @@ import (
 	"slices"
 	"time"
 
-	"github.com/tmknom/gates/internal/credential"
-	"github.com/tmknom/gates/internal/nonzero"
 	"github.com/tmknom/gates/internal/permission"
 	"github.com/tmknom/gates/internal/repository"
 )
-
-// InstallationAccessToken は、発行応答から読み取った Installation Access Token である。
-// 値を取り出せるコンポーネントは、Lambda Design の「Logical Components」の資格情報の表に従う。
-type InstallationAccessToken struct {
-	credential.Redacted
-	// credential.Redacted の規則に従い、ポインタで持つ
-	value *string
-}
-
-// IsZero は、発行応答から読み取っていないゼロ値かを返す。
-func (t InstallationAccessToken) IsZero() bool {
-	return t.value == nil
-}
-
-// Expose は、成功応答に入れる値を返す。成功応答を書くために Lambda Handler だけが呼ぶ。
-// bearer の expose と分けるのは、bearer のメソッドを公開すると GitHub App JWT の値まで package の外から読めるためである。
-func (t InstallationAccessToken) Expose() string {
-	return t.expose()
-}
-
-// expose は、GitHub API の認証に使う値を返す。
-func (t InstallationAccessToken) expose() string {
-	// ゼロ値は発行応答から読み取ったトークンではなく、送る値も応答に入れる値もない
-	nonzero.Require(t)
-	return *t.value
-}
-
-// RepositorySelection は、対象が選択したリポジトリに限られるか、全リポジトリかを表す対象の選び方である。
-type RepositorySelection string
-
-// RepositorySelectionSelected は、選択したリポジトリに限る対象の選び方である。
-const RepositorySelectionSelected RepositorySelection = "selected"
 
 // IssuanceResult は、発行応答から項目ごとに独立に読み取った発行結果である。照合の前の値で、不変条件を持たない。
 // 各アクセサの第 2 戻り値は、その項目を応答から読み取れたかを表す。
@@ -56,6 +22,12 @@ type IssuanceResult struct {
 	repositorySelection responseField[RepositorySelection]
 	repositories        responseField[[]EffectiveRepository]
 }
+
+// RepositorySelection は、対象が選択したリポジトリに限られるか、全リポジトリかを表す対象の選び方である。
+type RepositorySelection string
+
+// RepositorySelectionSelected は、選択したリポジトリに限る対象の選び方である。
+const RepositorySelectionSelected RepositorySelection = "selected"
 
 // responseField は、発行応答の項目の値と、その項目を読み取れたかの組である。
 // 値と読み取れたかを別々のフィールドに持つと、片方だけを代入し忘れても気付けないため、一組で代入する。
@@ -131,16 +103,6 @@ type issuanceResponse struct {
 	Repositories        jsontext.Value `json:"repositories"`
 }
 
-// effectiveRepositoryResponse は、発行応答の repositories の要素のうち実効対象に写すフィールドである。
-// キーの欠落と null をゼロ値と区別するため、ポインタで受け取る。
-type effectiveRepositoryResponse struct {
-	ID    *int64 `json:"id"`
-	Owner *struct {
-		ID *int64 `json:"id"`
-	} `json:"owner"`
-	FullName *string `json:"full_name"`
-}
-
 // decodeIssuanceResult は、Lambda Design の「GitHub Client」の発行応答の読み取りに従い、本文を発行結果にする。
 // 本文を JSON のオブジェクトとして解釈できなければ、どの項目も読み取らない。
 func decodeIssuanceResult(body []byte) IssuanceResult {
@@ -190,6 +152,16 @@ func readPermissions(value jsontext.Value) (permission.Permissions, bool) {
 		return permission.Permissions{}, false
 	}
 	return permissions, true
+}
+
+// effectiveRepositoryResponse は、発行応答の repositories の要素のうち実効対象に写すフィールドである。
+// キーの欠落と null をゼロ値と区別するため、ポインタで受け取る。
+type effectiveRepositoryResponse struct {
+	ID    *int64 `json:"id"`
+	Owner *struct {
+		ID *int64 `json:"id"`
+	} `json:"owner"`
+	FullName *string `json:"full_name"`
 }
 
 // readRepositories は、どれかの要素を実効対象として読めなければ、集合全体を読み取れなかったものとする。

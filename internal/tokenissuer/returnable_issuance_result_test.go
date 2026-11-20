@@ -10,15 +10,6 @@ import (
 	"testing"
 )
 
-func returnableResult(t *testing.T) ReturnableIssuanceResult {
-	t.Helper()
-	got, err := verifyResult(t, issue(t, marshal(t, recordedIssuance())), contentsRead)
-	if err != nil {
-		t.Fatalf("Verify returned error: %v", err)
-	}
-	return got
-}
-
 //trace:checks AC-QUALITY-002
 func TestReturnableIssuanceResult_OutputDoesNotContainToken(t *testing.T) {
 	result := returnableResult(t)
@@ -61,4 +52,13 @@ func TestReturnableIssuanceResult_EffectiveRepositoriesCopiesValue(t *testing.T)
 	if got := result.EffectiveRepositories()[0].RepositoryID(); got != repositoryIDA {
 		t.Errorf("EffectiveRepositories()[0].RepositoryID() = %d after modifying the returned slice, want %d", got, repositoryIDA)
 	}
+}
+
+func returnableResult(t *testing.T) ReturnableIssuanceResult {
+	t.Helper()
+	got, err := verifyResult(t, issue(t, marshal(t, recordedIssuance())), contentsRead)
+	if err != nil {
+		t.Fatalf("Verify returned error: %v", err)
+	}
+	return got
 }

@@ -3,7 +3,6 @@ package request_test
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"testing"
 
@@ -14,82 +13,16 @@ import (
 
 const maxPayloadBytes = 16 * 1024
 
-// payloadFields は、正当な Payload のフィールドを並び順どおりに持つ。値は JSON の断片である。
-var payloadFields = []struct{ name, value string }{
-	{name: "version", value: `1`},
-	{name: "id_token", value: `"header.payload.signature"`},
-	{name: "repositories", value: `["example-org/repo-a","example-org/repo-b"]`},
-	{name: "permissions", value: `{"contents":"read"}`},
-}
-
-// payloadWith は、正当な Payload の name の値を value に差し替える。name が既知のフィールドでなければ末尾に加える。
-func payloadWith(name, value string) string {
-	members := make([]string, 0, len(payloadFields)+1)
-	replaced := false
-	for _, f := range payloadFields {
-		if f.name == name {
-			members = append(members, member(name, value))
-			replaced = true
-			continue
-		}
-		members = append(members, member(f.name, f.value))
-	}
-	if !replaced {
-		members = append(members, member(name, value))
-	}
-	return "{" + strings.Join(members, ",") + "}"
-}
-
-// payloadWithout は、正当な Payload から name のフィールドを除く。
-func payloadWithout(name string) string {
-	members := make([]string, 0, len(payloadFields))
-	for _, f := range payloadFields {
-		if f.name != name {
-			members = append(members, member(f.name, f.value))
-		}
-	}
-	return "{" + strings.Join(members, ",") + "}"
-}
-
-func member(name, value string) string {
-	return fmt.Sprintf("%q:%s", name, value)
-}
-
-// repositoriesJSON は、org/repo-0 から始まる n 件の完全名の配列を返す。
-func repositoriesJSON(n int) string {
-	names := make([]string, n)
-	for i := range n {
-		names[i] = fmt.Sprintf(`"org/repo-%d"`, i)
-	}
-	return "[" + strings.Join(names, ",") + "]"
-}
-
-// payloadOfSize は、id_token の長さを調整して size バイトちょうどの正当な形の Payload を返す。
-func payloadOfSize(size int) string {
-	padding := size - len(payloadWith("id_token", `""`))
-	return payloadWith("id_token", `"`+strings.Repeat("a", padding)+`"`)
-}
-
 func TestValidate(t *testing.T) {
 	token, req, err := request.Validate([]byte(payloadWith("repositories", `["Example-Org/Repo-A","example-org/repo-b"]`)))
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
 	if got, want := token.Expose(), "header.payload.signature"; got != want {
-		t.Errorf("UnverifiedIDToken.Expose() = %q, want %q", got, want)
+		t.Errorf("UnverifiedOIDCJWT.Expose() = %q, want %q", got, want)
 	}
 	assertRepositories(t, req.Repositories(), []string{"Example-Org/Repo-A", "example-org/repo-b"})
 	assertPermissions(t, req.Permissions(), map[string]string{"contents": "read"})
-}
-
-func TestTokenRequest_RepositoriesCannotBeModifiedByCaller(t *testing.T) {
-	_, req, err := request.Validate([]byte(payloadWith("repositories", `["org/repo-a","org/repo-b"]`)))
-	if err != nil {
-		t.Fatalf("Validate returned error: %v", err)
-	}
-	got := req.Repositories()
-	got[0] = got[1]
-	assertRepositories(t, req.Repositories(), []string{"org/repo-a", "org/repo-b"})
 }
 
 // 許可権限と発行上限に含まれるかは事前認可が判定するため、形式検証は形式を満たす Permissions をそのまま保つ。
@@ -238,16 +171,30 @@ func TestValidate_ErrorDoesNotContainPayload(t *testing.T) {
 	}
 }
 
-func assertRepositories(t *testing.T, got []repository.FullName, want []string) {
-	t.Helper()
-	// FullName.Equal は大文字小文字を区別しないため、要求どおりの表記が保たれたかは String() の列で比べる
-	names := make([]string, len(got))
-	for i, f := range got {
-		names[i] = f.String()
+// payloadWithout は、正当な Payload から name のフィールドを除く。
+func payloadWithout(name string) string {
+	members := make([]string, 0, len(payloadFields))
+	for _, f := range payloadFields {
+		if f.name != name {
+			members = append(members, member(f.name, f.value))
+		}
 	}
-	if !slices.Equal(names, want) {
-		t.Errorf("Repositories() = %v, want %v", names, want)
+	return "{" + strings.Join(members, ",") + "}"
+}
+
+// repositoriesJSON は、org/repo-0 から始まる n 件の完全名の配列を返す。
+func repositoriesJSON(n int) string {
+	names := make([]string, n)
+	for i := range n {
+		names[i] = fmt.Sprintf(`"org/repo-%d"`, i)
 	}
+	return "[" + strings.Join(names, ",") + "]"
+}
+
+// payloadOfSize は、id_token の長さを調整して size バイトちょうどの正当な形の Payload を返す。
+func payloadOfSize(size int) string {
+	padding := size - len(payloadWith("id_token", `""`))
+	return payloadWith("id_token", `"`+strings.Repeat("a", padding)+`"`)
 }
 
 func assertPermissions(t *testing.T, got permission.Permissions, want map[string]string) {

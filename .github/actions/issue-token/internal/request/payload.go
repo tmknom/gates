@@ -27,11 +27,11 @@ type permissionEntry struct {
 // permissions を入力の順に出すため、map ではなく jsontext のトークンで書く。
 // トークンの書き込みが失敗するのは、トークンの並びの誤り、UTF-8 として正しくない文字列、オブジェクトの名前の重複の場合である。
 // 並びはこの関数が固定し、文字列と名前は TokenRequest と OIDCJWT の不変条件が満たすため、書き込みの失敗は不変条件の破れとして panic する。
-func (r TokenRequest) Payload(idToken credential.OIDCJWT) []byte {
+func (r TokenRequest) Payload(gatesOIDCJWT credential.OIDCJWT) []byte {
 	tokens := []jsontext.Token{
 		jsontext.BeginObject,
 		jsontext.String("version"), jsontext.Int(payloadVersion),
-		jsontext.String("id_token"), jsontext.String(idToken.Expose()),
+		jsontext.String("id_token"), jsontext.String(gatesOIDCJWT.Expose()),
 		jsontext.String("repositories"), jsontext.BeginArray,
 	}
 	for _, repository := range r.repositories {
