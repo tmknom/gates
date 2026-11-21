@@ -129,9 +129,9 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 | `alignment` | `FR-AUTHZ-005` | Functional Requirement |
 | `alignment` | `FR-AUTHZ-004` | Functional Requirement |
 
-### AC-AUTHZ-007 実行時の入力による許可オーナー、GitHub App、Installation、KMS Key、発行上限の指定の拒否
+### AC-AUTHZ-007 実行時の入力による許可オーナー、GitHub App、Installation、KMS Key、発行上限、保護対象の一覧の指定の拒否
 
-**条件**：実行時の要求やワークフロー側の入力で、許可オーナー・GitHub App・Installation・KMS Key・発行上限を指定しようとする
+**条件**：実行時の要求やワークフロー側の入力で、許可オーナー・GitHub App・Installation・KMS Key・発行上限・保護対象の一覧を指定しようとする
 
 **期待する結果**：指定を受け付けず、デプロイ時の設定と、そこから導出した Installation が使われる
 
@@ -151,11 +151,11 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 | `alignment` | `FR-AUTHZ-007` | Functional Requirement |
 | `alignment` | `FR-ISSUANCE-004` | Functional Requirement |
 
-### AC-AUTHZ-009 発行上限に含まれない権限を含む要求の全件拒否
+### AC-AUTHZ-009 発行上限の水準による要求の発行と全件拒否
 
-**条件**：GATES が許可する権限のうち、発行上限に含まれない権限名と水準の組を、単独で、あるいは発行上限に含まれる権限とともに要求する。その組は GitHub App の Installation に付与されている。発行上限に高い水準だけを含めた権限名の、低い水準の要求を含む
+**条件**：GATES が許可する権限のうち GitHub App の Installation に付与された権限を、次のように要求する。発行上限に含まれる権限だけを、発行上限と同じ水準で要求する。発行上限に高い水準だけを含めた権限名の、低い水準を要求する。発行上限に低い水準だけを含めた権限名の高い水準か、発行上限にない権限名を、単独で、あるいは発行上限に含まれる権限とともに要求する
 
-**期待する結果**：発行を拒否し、発行上限に含まれる権限だけに縮小して発行しない。発行上限に含まれる権限だけの要求は発行する
+**期待する結果**：発行上限に高い水準だけを含めた権限名の低い水準の要求と、発行上限に含まれる権限だけを同じ水準で求める要求は、要求した水準で発行し、発行上限の水準に上げない。発行上限に低い水準だけを含めた権限名の高い水準か、発行上限にない権限名を含む要求は、発行を拒否し、発行上限に含まれる権限だけに縮小して発行しない
 
 | Relationship | Target | Target Type |
 |---|---|---|
@@ -172,6 +172,41 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 |---|---|---|
 | `alignment` | `FR-AUTHZ-008` | Functional Requirement |
 | `alignment` | `FR-OPS-001` | Functional Requirement |
+| `alignment` | `QR-003` | Quality Requirement |
+
+### AC-AUTHZ-011 保護対象への要求の許可と拒否
+
+**条件**：空でない保護対象の一覧でデプロイし、GATES が許可し、発行上限に含まれ、GitHub App の Installation に付与された権限で、次の要求をする。許可 Caller に当たる Caller が、その許可 Caller の権限の上限と同じかより低い水準だけで保護対象を要求する。許可 Caller に当たらない Caller（Repository ID が一致してリポジトリ名が一致しない Caller と、リポジトリ名が一致して Repository ID が一致しない Caller を含む）が保護対象を要求する。許可 Caller に当たる Caller が、権限の上限より高い水準か、権限の上限にない権限名を含めて保護対象を要求する。許可 Caller のない保護対象を要求する。これらの保護対象への要求は、保護対象でない対象を混ぜない形と混ぜた形の両方で行う。保護対象を含まない要求をする
+
+**期待する結果**：許可 Caller に当たる Caller の、権限の上限と同じかより低い水準だけの要求は、保護対象でない対象を混ぜていても、要求した水準で発行する。それ以外の保護対象を含む要求は、保護対象でない対象を混ぜていても全体を認可拒否とし、発行 API を呼ばない。保護対象を含まない要求の結果は、空の保護対象の一覧でデプロイした場合と同じである
+
+| Relationship | Target | Target Type |
+|---|---|---|
+| `alignment` | `FR-AUTHZ-009` | Functional Requirement |
+| `alignment` | `FR-AUTHZ-004` | Functional Requirement |
+| `alignment` | `FR-AUTHN-001` | Functional Requirement |
+
+### AC-AUTHZ-012 リポジトリ名と Repository ID の対応が食い違う保護対象を含む要求へのトークンの不返却
+
+**条件**：保護対象を改名した後に、保護対象の一覧を直さずに、許可 Caller に当たる Caller からも当たらない Caller からも、新しい名前で要求する。保護対象を削除して同じ名前で作り直した後に、保護対象の一覧を直さずに、許可 Caller に当たる Caller からその名前で要求する
+
+**期待する結果**：トークンを返さない。空でないトークン文字列を取得した場合は失効 API を試み、成否を監査する。失効成功は保証しない
+
+| Relationship | Target | Target Type |
+|---|---|---|
+| `alignment` | `FR-AUTHZ-010` | Functional Requirement |
+| `alignment` | `FR-ISSUANCE-004` | Functional Requirement |
+
+### AC-AUTHZ-013 不正な保護対象の一覧の設定の拒否
+
+**条件**：保護対象の一覧が欠落した設定、書式の誤った一覧、保護対象の Repository ID かリポジトリ名が重複した一覧、同じ保護対象の中で許可 Caller の Repository ID かリポジトリ名が重複した一覧、空の権限の上限を持つ許可 Caller を含む一覧、GATES が許可しない権限名と水準の組を含む権限の上限を持つ許可 Caller を含む一覧のいずれかでデプロイし、発行を要求する
+
+**期待する結果**：どの要求にもトークンを返さない。設定の誤りは、値を記録せずに、どの設定の誤りかを運用者が特定できる形で残る
+
+| Relationship | Target | Target Type |
+|---|---|---|
+| `alignment` | `FR-OPS-001` | Functional Requirement |
+| `alignment` | `FR-AUTHZ-009` | Functional Requirement |
 | `alignment` | `QR-003` | Quality Requirement |
 
 ## Token Issuance

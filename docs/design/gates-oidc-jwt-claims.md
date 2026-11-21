@@ -91,7 +91,7 @@ Condition を持たない OpenID Connect の条項（文字列の比較など）
 
 | ID | Claim | 受理の分類 | GATES での用途 |
 |---|---|---|---|
-| GOJ-SUB-FORMAT、GOJ-SUB-LENGTH | `sub` | 必須 | 不変形式を解析し ID Claim と照合 |
+| GOJ-SUB-FORMAT、GOJ-SUB-LENGTH | `sub` | 必須 | 不変形式を解析し ID Claim と照合。リポジトリ部の名前を Caller のリポジトリ名にする |
 | GOJ-AUD | `aud` | 必須 | GATES 用 Audience のみ |
 | GOJ-EXP | `exp` | 必須 | 期限切れ拒否、猶予なし |
 | GOJ-IAT | `iat` | 必須 | 未来時刻の上限を検証 |
@@ -101,7 +101,7 @@ Condition を持たない OpenID Connect の条項（文字列の比較など）
 | GOJ-REF | `ref` | 任意・監査 | ワークフロー起動属性 |
 | GOJ-SHA | `sha` | 任意・監査 | ワークフロー起動属性 |
 | GOJ-REPOSITORY | `repository` | 未使用 | なし |
-| GOJ-REPOSITORY-ID | `repository_id` | 必須 | `sub` と照合、Caller 識別・監査 |
+| GOJ-REPOSITORY-ID | `repository_id` | 必須 | `sub` と照合、Caller 識別・監査・保護対象の認可 |
 | GOJ-REPOSITORY-OWNER | `repository_owner` | 未使用 | なし |
 | GOJ-REPOSITORY-OWNER-ID | `repository_owner_id` | 必須 | `sub` と照合、認可 |
 | GOJ-ENTERPRISE | `enterprise` | 未使用 | なし |
@@ -159,9 +159,13 @@ Condition を持たない OpenID Connect の条項（文字列の比較など）
 - リポジトリ部は最初の `:` までとし、`:` がなければ拒否する。オーナー部・リポジトリ部はそれぞれ非空の `NAME@ID` で、`@` は各部にちょうど1個とする。
 - 両方の ID は [GOJ-ID-FORMAT](#goj-id-format-id-の表記) の正の整数の文字列表現に合致する。`repository_owner_id`・`repository_id` との一致は [GOJ-ID-MATCH](#goj-id-match-subject-と識別子の一致) で判定する。
 - 名前部分は ID の認可根拠とせず、Claim の名前部分と他の名前の一致を認証条件にしない。`:` 以降のコンテキストは解釈・認可に使用しない。
+- リポジトリ部の名前部分は、Caller のリポジトリ名として取り出す。取り出しても受理条件は加わらず、文字種もリポジトリ名の規則で確かめない。Caller のリポジトリ名は、発行 Context が保護対象の認可で、Repository ID の一致に重ねて許可 Caller の名前と照合する（[Domain Model](domain.md) の RULE-015）。
 - 旧形式、`repo` を含まないカスタマイズ形式、末尾の `:` がない形式は拒否する。
 
 **理由**：`sub` の名前部分だけを信頼すると、名前の再利用で別の主体を許す危険があります。不変 ID と個別 Claim の両方を確認し、主体の取り違えを防ぎます。`sub` はワークフロー実行 ID ではなく、Caller の不変な識別子を得るための根拠です。
+Caller のリポジトリ名を `sub` から得るのは、`sub` が署名と形式の検証を経ており、しかも同じ文字列の中で名前が Repository ID と組になっているためです。`repository` の Claim を使うと、`sub` との一致を別に確かめる受理条件が要ります。
+名前の文字種を確かめないのは、照合する相手である許可 Caller の名前が固定設定の不変条件で文字種を満たし、文字種の外の名前はどの許可 Caller にも当たらず拒否に倒れるためです。文字種の外の名前を認証で拒否すると、保護対象と関係のない要求まで認証失敗になり得ます。
+記録した JWT では、リポジトリ部の名前は REST API の `name` と大文字小文字まで一致し、改名の後は新しい名前でしたが（GH-OIDC-REPOSITORY-NAME-OBSERVED）、GitHub はこれを定めていません（GH-OIDC-REPOSITORY-NAME）。名前が GitHub 上の名前と異なっても、保護対象の認可が拒否に倒れるだけで、受理する JWT の範囲は変わりません。
 
 ### GOJ-SUB-LENGTH `sub` の文字種と長さ
 
@@ -279,7 +283,7 @@ JWT の `iss` の値は照合だけに使い、Discovery / JWKS の取得先に�
 |---|---|---|
 | Accepts | GH-OIDC-CLAIMS-TOKEN-TABLE | なし |
 
-**GATES の設計**：未使用。`repository_id` の代用として Caller を確定しません。名前変更・移管・再利用があり得る名前に基づく認可をしないためです。存在・値を検証する独立した要件は設けません。
+**GATES の設計**：未使用。`repository_id` の代用として Caller を確定しません。名前変更・移管・再利用があり得る名前だけに基づく認可をしないためです。Caller のリポジトリ名は `sub` から得るため（[GOJ-SUB-FORMAT](#goj-sub-format-sub-の形式)）、この Claim は使いません。存在・値を検証する独立した要件は設けません。
 
 ### GOJ-REPOSITORY-ID `repository_id`
 
@@ -288,7 +292,7 @@ JWT の `iss` の値は照合だけに使い、Discovery / JWKS の取得先に�
 | Accepts | GH-OIDC-REPOSITORY-ID | なし |
 | Possibly Rejects | GH-OIDC-CLAIM-PRESENCE | `repository_id` がない JWT を拒否する。`sub` の Repository ID と照合して Caller を確定するため |
 
-**GATES の受理条件**：必須。[GOJ-ID-FORMAT](#goj-id-format-id-の表記) の形式を満たす正の整数の **JSON 文字列**。`sub` 内の Repository ID と一致すること。Caller の識別・監査に用いますが、現在のオーナー単位の発行認可には使いません（[Requirements](../spec/requirements.md) の FR-AUTHN-001）。
+**GATES の受理条件**：必須。[GOJ-ID-FORMAT](#goj-id-format-id-の表記) の形式を満たす正の整数の **JSON 文字列**。`sub` 内の Repository ID と一致すること。Caller の識別・監査と、保護対象への要求の認可（Caller が許可 Caller に当たるかの照合）に用います。保護対象の一覧にないリポジトリへの要求の認可には使いません（[Requirements](../spec/requirements.md) の FR-AUTHN-001、FR-AUTHZ-009）。
 
 ### GOJ-REPOSITORY-OWNER `repository_owner`
 
@@ -673,7 +677,7 @@ GATES の役割に当たる強い規範の条項のうち、Claims Set を扱い
 | 必須 Claim、Issuer、Audience、時間、ID の整合 | [Requirements](../spec/requirements.md) の FR-AUTHN-001、FR-AUTHN-002、[Domain Model](domain.md) の INV-009 |
 | Claim 名の別名の拒否と、時刻の値の表記 | [Requirements](../spec/requirements.md) の FR-AUTHN-004 |
 | 不変形式 `sub` | [Requirements](../spec/requirements.md) の FR-AUTHN-003、FR-OPS-002 |
-| Caller の Owner ID による認可と Repository ID の監査利用 | [Requirements](../spec/requirements.md) の FR-AUTHN-001、FR-AUTHZ-001 |
+| Caller の Owner ID による認可、Repository ID の監査利用、保護対象の認可での Repository ID とリポジトリ名の利用 | [Requirements](../spec/requirements.md) の FR-AUTHN-001、FR-AUTHZ-001、FR-AUTHZ-009 |
 | 起動属性のベストエフォート監査と、署名検証を通った Claims Set の調査用の記録 | [Requirements](../spec/requirements.md) の FR-OPS-003 |
 
 ## Verification Cases
