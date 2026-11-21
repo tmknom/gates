@@ -25,6 +25,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -863,6 +864,31 @@ func TestAuthenticate_RetrievalIntervalCountsFromRetrievalStart(t *testing.T) {
 	}
 }
 
+// 公開 API では単調時計と壁時計の読みが食い違う時刻を作れず、比べ方の違いが振る舞いに現れないため、保持した取得の開始時刻を確かめる。
+func TestIssuerKeySet_RetrievalIntervalUsesWallClock(t *testing.T) {
+	stub := newIssuerStub(t, testKey(t), testKeyID)
+	reading := time.Now()
+	now := reading.Add(testNow.Sub(reading))
+	if !hasMonotonicReading(now) {
+		t.Fatalf("clock time %v has no monotonic reading", now)
+	}
+	issuer, err := url.Parse(stub.issuer())
+	if err != nil {
+		t.Fatalf("url.Parse returned error: %v", err)
+	}
+	rootCAs := x509.NewCertPool()
+	rootCAs.AddCert(stub.server.Certificate())
+	keySet := newIssuerKeySet(issuer, func() time.Time { return now }, slog.New(slog.DiscardHandler), WithRootCAs(rootCAs))
+
+	if _, err := keySet.VerifySignature(t.Context(), stub.token(t, testKey(t), testKeyID)); err != nil {
+		t.Fatalf("VerifySignature returned error: %v", err)
+	}
+
+	if got := keySet.retrievalStartedAt; !got.Equal(now) || hasMonotonicReading(got) {
+		t.Errorf("retrieval start = %v, want %v without a monotonic reading", got, now)
+	}
+}
+
 func TestAuthenticate_RetrievalIntervalAfterFailureWithKeys(t *testing.T) {
 	for _, failure := range retrievalFailures {
 		t.Run(failure.name+" is returned without retrieval and retrieved again after the interval", func(t *testing.T) {
@@ -1250,6 +1276,9 @@ func (s *issuerStub) tokenWithHeader(t *testing.T, key *rsa.PrivateKey, header s
 func (c *movableClock) now() time.Time { return testNow.Add(time.Duration(c.elapsed.Load())) }
 
 func (c *movableClock) advance(d time.Duration) { c.elapsed.Add(int64(d)) }
+
+// hasMonotonicReading は、time.Time の String が単調時計の読みを「m=」で示すことを使う。
+func hasMonotonicReading(t time.Time) bool { return strings.Contains(t.String(), " m=") }
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
