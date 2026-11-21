@@ -1,12 +1,12 @@
 # Acceptance Criteria
 
-## 1. Purpose
+## Purpose
 
 本ドキュメントは、[Requirements](requirements.md) に定めた要求に対する受け入れ条件を定め、各 AC を受け入れ条件の正本とします。
 各 AC の Relationship の表は、その AC が適合を判定する要求を `alignment` で示します。
 Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を指します。
 
-## 2. Authentication
+## Authentication
 
 ### AC-AUTHN-001 未認証か許可されない呼び出し元の要求の拒否
 
@@ -65,7 +65,7 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 | `alignment` | `FR-OPS-004` | Functional Requirement |
 | `alignment` | `FR-AUTHN-005` | Functional Requirement |
 
-## 3. Authorization
+## Authorization
 
 ### AC-AUTHZ-001 オーナー名が一致して Owner ID が異なる JWT の拒否
 
@@ -174,7 +174,7 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 | `alignment` | `FR-OPS-001` | Functional Requirement |
 | `alignment` | `QR-003` | Quality Requirement |
 
-## 4. Token Issuance
+## Token Issuance
 
 ### AC-ISSUANCE-001 許可オーナーの正当な要求に対するトークンの発行
 
@@ -287,7 +287,7 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 | `alignment` | `FR-ISSUANCE-003` | Functional Requirement |
 | `alignment` | `FR-ISSUANCE-004` | Functional Requirement |
 
-## 5. Usability and Operations
+## Usability and Operations
 
 ### AC-OPS-001 対象、権限、接続情報だけを利用者接点に渡したときのトークンの取得
 
@@ -395,7 +395,7 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 |---|---|---|
 | `alignment` | `FR-OPS-006` | Functional Requirement |
 
-## 6. Quality and Security
+## Quality and Security
 
 ### AC-QUALITY-001 OIDC 公開鍵、KMS、GitHub API の障害での Fail Closed
 

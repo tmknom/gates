@@ -17,7 +17,7 @@ Terraform の State / Plan、Git、CI の成果物、Lambda の環境変数に G
 | Lambda 実行 IAM Role | Go アプリケーションから必要な AWS API を呼び出す | 対象 KMS Key への `kms:Sign` と必要な CloudWatch Logs 操作のみを基本とする。`kms:ImportKeyMaterial` 等の鍵管理操作は付与しない |
 | Lambda Function | JWT 検証、発行認可、KMS 署名依頼、GitHub API 通信 | Go の `provided.al2023` と ZIP 形式で配布し、IAM 認証付き Lambda Invoke API からだけ呼び出す。Function URL、API Gateway などの別の呼び出し口を設けず、他アカウントや匿名主体を許可するリソースベースポリシーを付与しない。利用者管理 VPC には接続しない |
 | Permissions Boundary | 2 つの IAM Role の権限の上限を示す | GATES の Terraform で管理し、Role の権限に必要な操作だけを許可する。名前は `gates-permissions-boundary` に固定する |
-| KMS Key | GitHub App Private Key（RSA）の鍵素材を外部からインポートするための署名鍵のメタデータを管理 | `origin=EXTERNAL`、`key_usage=SIGN_VERIFY`、実鍵長に一致する `key_spec=RSA_*`。インポート処理は Terraform の対象外。鍵の更新の間は新旧 2 つを置き、Lambda はそのうち使用中の鍵だけを参照する（§4.3） |
+| KMS Key | GitHub App Private Key（RSA）の鍵素材を外部からインポートするための署名鍵のメタデータを管理 | `origin=EXTERNAL`、`key_usage=SIGN_VERIFY`、実鍵長に一致する `key_spec=RSA_*`。インポート処理は Terraform の対象外。鍵の更新の間は新旧 2 つを置き、Lambda はそのうち使用中の鍵だけを参照する |
 | KMS Key Policy | 鍵の管理・利用主体を制限 | 署名権限と鍵管理権限を分離。Lambda 実行 Role に署名権限のみ許可し、鍵の管理権限は運用者の管理主体に残す |
 | CloudWatch Logs | Lambda の実行結果と監査記録を保管 | 保持期間とアクセス制限を設定。JWT、App JWT、Installation Access Token、AWS 一時認証情報は記録しない |
 
@@ -50,7 +50,7 @@ IAM はオーナー単位の入口制御です。Lambda での Caller 識別は�
 
 ### 3.2 Lambda Execution Role
 
-Lambda 実行 Role には、使用中の鍵（§4.3）の KMS Key ARN に対する `kms:Sign` のみを暗号操作として許可します。ログ記録に必要な CloudWatch Logs 権限は対象 Log Group に限定できる範囲で制約します。
+Lambda 実行 Role には、使用中の鍵の KMS Key ARN に対する `kms:Sign` のみを暗号操作として許可します。ログ記録に必要な CloudWatch Logs 権限は対象 Log Group に限定できる範囲で制約します。
 
 KMS Key Policy の変更権限と、鍵素材のインポート・削除権限は Lambda 実行 Role へ付与しません。鍵管理を担う主体は Lambda と分離します。
 
@@ -61,7 +61,7 @@ KMS Key Policy では、実行 Role に `kms:Sign` だけを許可し、署名�
 署名の可否を決めるのはこの Key Policy です。
 Key Policy が実行 Role を直接許可するため、署名の成立に IAM ポリシーは要らず、root の管理操作に `kms:Sign` がないため、IAM ポリシーだけでも署名できません。
 実行 Role の IAM ポリシーは、Role の権限を IAM からも確認できるように明示するものです。
-ただし、Key Policy が Role の ARN で許可していても、Permissions Boundary が許可しない操作は拒否されるため、Boundary には `kms:Sign` の許可が要ります（§3.3）。
+ただし、Key Policy が Role の ARN で許可していても、Permissions Boundary が許可しない操作は拒否されるため、Boundary には `kms:Sign` の許可が要ります。
 鍵の管理操作の Principal にはアカウントの root を置き、操作を列挙します。
 root の Principal は IAM ポリシーへの委任を意味するため、特定の Role を失っても鍵を管理できなくなりません。
 管理操作に `kms:*` を使わず `kms:Sign` を含めないのは、IAM の管理権限を持つ主体が Key Policy を変更せずに署名できる状態を避けるためです。
@@ -129,8 +129,8 @@ KMS Key の `key_spec` は、RSA_2048 / RSA_3072 / RSA_4096 のうち GitHub App
 - 秘密鍵の取得、PKCS#8 への変換、インポート用ラッピング、`ImportKeyMaterial` は独立した手順で行う。インポート後、インポート前の秘密鍵のコピーは運用者の手元から削除する。
 - 秘密鍵の平文、暗号化途中の鍵素材、インポート用トークンは Terraform の State / Plan に渡さない。
 - 鍵素材のインポートで鍵の状態が `PendingImport` から `Enabled` に変わっても、Terraform の変更で鍵を意図せず再作成・無効化しない。
-- 既存の KMS Key の置換・削除を避けるため `prevent_destroy` を設定する。`prevent_destroy` は鍵の削除・置換を含む Plan をエラーで拒否し、鍵の集合（§4.3）から鍵を除いた Plan も拒否するが、リソースの設定自体を取り除いた場合の削除は防がない。Plan に鍵削除が現れた場合は適用を中止して確認する。
-- インポートした非対称 KMS Key の鍵素材は別の鍵素材に交換できない。更新時は新しい KMS Key を追加し、Lambda が参照する Key ARN を切り替える（§4.3）。
+- 既存の KMS Key の置換・削除を避けるため `prevent_destroy` を設定する。`prevent_destroy` は鍵の削除・置換を含む Plan をエラーで拒否し、鍵の集合から鍵を除いた Plan も拒否するが、リソースの設定自体を取り除いた場合の削除は防がない。Plan に鍵削除が現れた場合は適用を中止して確認する。
+- インポートした非対称 KMS Key の鍵素材は別の鍵素材に交換できない。更新時は新しい KMS Key を追加し、Lambda が参照する Key ARN を切り替える。
 
 Terraform への入力には、Key ID / ARN、GitHub App の Client ID、オーナー名と不変 Owner ID、オーナーの種別（Organization またはユーザーアカウント）、GATES 用 Audience、発行上限などの非秘密値を使用できます。GitHub App の Private Key は一切渡しません。
 
@@ -145,7 +145,7 @@ KMS の鍵の状態の有効（`Enabled`）と無効とは別の概念で、使�
 - 鍵の集合に置ける鍵は 1 つか 2 つに限る。どの鍵の Key Policy も実行 Role に `kms:Sign` を許可するため、実行 Role が署名できる鍵を、切り替えの前後の 2 つまでにする
 - 使用中の鍵は、鍵の集合の名前を 1 つ指す入力で選ぶ。鍵の集合にない名前は、変数の検証で Plan の時点で拒否する
 - Lambda の環境変数 `GATES_KMS_KEY_ARN` と、実行 Role の IAM ポリシーは、使用中の鍵だけを参照する。切り替えは、この 2 つの更新になる
-- どの鍵にも同じ Key Policy（§3.2）を付け、使用中かどうかで Key Policy を変えない。変えると、切り替えと切り戻しのたびに 2 つの Key Policy を書き換えることになり、Key Policy を変更する操作（`kms:PutKeyPolicy`）の回数が増えるためである。実行 Role が 2 つの鍵で署名できる期間のリスクは [Security Design](security.md#51-kms-signing-key-risks) に定める
+- どの鍵にも同じ Key Policy を付け、使用中かどうかで Key Policy を変えない。変えると、切り替えと切り戻しのたびに 2 つの Key Policy を書き換えることになり、Key Policy を変更する操作（`kms:PutKeyPolicy`）の回数が増えるためである。実行 Role が 2 つの鍵で署名できる期間のリスクは [Security Design](security.md#51-kms-signing-key-risks) に定める
 - 鍵の集合を導入する前に 1 つだけ定義していた鍵は、`moved` ブロックで `key-1` に移す。鍵の属性は変わらず、適用は State の中のアドレスの移動だけになる
 
 鍵の集合から鍵を除くと、Terraform はその鍵を削除しようとし、`prevent_destroy` が Plan を拒否します。
@@ -193,8 +193,8 @@ Lambda の設定では次を扱います。
 | `GATES_ALLOWED_OWNER_TYPE` | オーナーの種別（`Organization` または `User`） |
 | `GATES_GITHUB_APP_CLIENT_ID` | GitHub App の Client ID |
 | `GATES_AUDIENCE` | GATES 用 Audience |
-| `GATES_KMS_KEY_ARN` | 使用中の鍵（§4.3）の KMS Key ARN |
-| `GATES_ISSUABLE_PERMISSIONS` | 発行上限（[Security Design](security.md#33-permission-boundary)）。権限名と水準を `:` でつないだ組を、カンマで区切って並べる（`contents:read,pull_requests:write`）。書式は [Lambda Design](lambda.md#41-runtime-entry) に定める |
+| `GATES_KMS_KEY_ARN` | 使用中の鍵の KMS Key ARN |
+| `GATES_ISSUABLE_PERMISSIONS` | 発行上限。権限名と水準を `:` でつないだ組を、カンマで区切って並べる（`contents:read,pull_requests:write`）。書式は [Lambda Design](lambda.md#41-runtime-entry) に定める |
 
 発行上限は、既定値のない Terraform の変数で、組の文字列のリストとして受け取り、カンマで連結して環境変数に渡します。
 既定値を置かないのは、ほかの固定設定の変数と同じく、発行してよい権限を運用者に明示して決めさせるためです。
@@ -222,7 +222,7 @@ Issuer と GitHub API Host は環境変数にしません。
 | FR-ISSUANCE-001、QR-008、AC-OPS-005 | `EXTERNAL` origin の非対称署名 KMS Key、Lambda 実行 Role への `kms:Sign` のみの許可、Key Policy による署名権限と管理権限の分離 |
 | FR-OPS-005、AC-ISSUANCE-005 | 鍵の集合への新 KMS Key の追加と使用中の鍵の切り替えによる鍵更新、`prevent_destroy` と Plan の確認による置換・削除の防止、退役させる鍵の State からの除外 |
 | QR-008、AC-OPS-006 | 鍵素材インポートおよびインポート前コピー削除の Terraform からの分離 |
-| FR-OPS-001、FR-AUTHZ-008、AC-AUTHZ-007、AC-AUTHZ-010 | 許可オーナー、GitHub App、KMS Key、発行上限を Terraform 入力と Lambda 環境変数で固定。発行上限の書式は Plan の時点で、許可権限の一部であることは Lambda の初期化で確かめる。Installation は固定した GitHub App と不変 Owner ID から一意に導出する（[Security Design](security.md#32-installation-scope-as-authorization-boundary)） |
+| FR-OPS-001、FR-AUTHZ-008、AC-AUTHZ-007、AC-AUTHZ-010 | 許可オーナー、GitHub App、KMS Key、発行上限を Terraform 入力と Lambda 環境変数で固定。発行上限の書式は Plan の時点で、許可権限の一部であることは Lambda の初期化で確かめる。Installation は固定した GitHub App と不変 Owner ID から一意に導出する |
 | FR-OPS-003、QR-004 | CloudWatch Logs の保持期間・アクセス制限と資格情報の非記録 |
 
 受け入れ条件の正本は [Acceptance Criteria](../spec/acceptance-criteria.md) です。

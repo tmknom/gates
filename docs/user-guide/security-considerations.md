@@ -5,7 +5,7 @@ GATES の導入を判断する人と運用者に向けて、利用者の側で�
 GATES は、リスクをなくすのではなく、漏えいしたときの被害を小さくする仕組みです。
 GitHub App Private Key をワークフローから離し、渡すトークンの対象、権限、期限を絞ります。
 一方、トークンを受け取ったジョブの中と、GATES を動かす AWS アカウントの中には、GATES の制限が及びません。
-その部分は、次の §1 のとおり利用者が守ります。
+その部分は、利用者が守ります。
 
 ## 1. 利用者が守ること
 
@@ -74,7 +74,7 @@ GitHub App の権限は GitHub の画面だけで変えられ、レビューを�
 GitHub App に誤って広い権限を付与しても、発行上限に含まれない権限を GATES は発行しません。
 
 **発行上限は、GATES を経ない署名には効きません。**
-§1.5 のように KMS Key で署名されると、GitHub App の権限がそのまま上限になります。
+KMS Key で署名されると、GitHub App の権限がそのまま上限になります。
 そのため、発行上限を狭くしていても、GitHub App にも必要な権限だけを付与します。
 
 Organization permissions、Account permissions、Enterprise permissions は付与しません。

@@ -17,13 +17,15 @@ App ID または Client ID を `iss` にすることは、`iss` を文字列と�
 | GAJ-IAT | `iat` | 発行時刻。60秒過去への設定を推奨 | 生成時刻から60秒前の NumericDate |
 | GAJ-EXP | `exp` | 失効時刻。現在から最大10分先 | 生成時刻の5分後の NumericDate |
 
-## GAJ-ISS `iss`
+## Generation Conditions
+
+### GAJ-ISS `iss`
 
 **GitHub 公式仕様**：GitHub App の App ID または Client ID を指定できます。GitHub は Client ID を推奨しています。
 
 **GATES の生成条件**：デプロイ時の固定設定にある GitHub App Client ID を設定します。Installation ID、Owner ID、ワークフローの値を `iss` に使いません。GitHub API はこの発行者情報と署名鍵から App を検証します。
 
-## GAJ-IAT `iat`
+### GAJ-IAT `iat`
 
 **標準仕様**：RFC 7519 §4.1.6 の NumericDate。
 
@@ -31,7 +33,7 @@ App ID または Client ID を `iss` にすることは、`iss` を文字列と�
 
 **GATES の生成条件**：生成時刻の60秒前を JSON 数値の整数として設定します。UTC の秒単位の値を用います。
 
-## GAJ-EXP `exp`
+### GAJ-EXP `exp`
 
 **標準仕様**：RFC 7519 §4.1.4 の NumericDate。
 
@@ -41,7 +43,7 @@ App ID または Client ID を `iss` にすることは、`iss` を文字列と�
 
 5分は GitHub の上限の10分より短い値です。Lambda の時計が GitHub の時計より進んでいると、GitHub からは `exp` が5分より先に見えて10分の上限に近づき、遅れていると期限が早く来ます。5分はどちらの向きにも数分のずれを許します。生成から使い終えるまでの時間がこれより短いことは、GitHub App JWT を使うコンポーネントの設計が確かめます。
 
-## GAJ-HEADER Header と署名
+### GAJ-HEADER Header と署名
 
 JOSE Header は `alg` と `typ` の2つだけとし、`alg` は `RS256`、`typ` は `JWT` に固定します。Base64URL（paddingなし）の JWS Compact Serialization として生成します。`RS256` は SHA-256 と RSA PKCS#1 v1.5 署名の組です。
 

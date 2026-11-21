@@ -296,7 +296,7 @@ JWT の `iss` の値は照合だけに使い、Discovery / JWKS の取得先に�
 |---|---|---|
 | Accepts | GH-OIDC-CLAIMS-TOKEN-TABLE | なし |
 
-**GATES の設計**：未使用。認証・認可で使用する Owner ID を名前で代用しません。オーナーの名前変更で失敗する箇所（要求対象の完全名のオーナー部分と許可オーナー名の照合、オーナー名を含む IAM の `sub` 条件）は、この Claim を使わず、それぞれ別の設計の責務です（[Domain Model §4.4](domain.md#44-events-outside-gates-that-change-the-outcome)）。
+**GATES の設計**：未使用。認証・認可で使用する Owner ID を名前で代用しません。オーナーの名前変更で失敗する箇所（要求対象の完全名のオーナー部分と許可オーナー名の照合、オーナー名を含む IAM の `sub` 条件）は、この Claim を使わず、それぞれ別の設計の責務です。
 
 ### GOJ-REPOSITORY-OWNER-ID `repository_owner_id`
 

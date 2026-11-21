@@ -1,0 +1,272 @@
+definitions:
+  FR:
+    declarations:
+      - file: docs/spec/requirements.md
+        sections:
+          - "Authentication"
+          - "Authorization"
+          - "Token Issuance"
+          - "Usability and Operations"
+    id_format: name
+  QR:
+    declarations:
+      - file: docs/spec/requirements.md
+        sections:
+          - "Quality and Security Requirements"
+  AC:
+    declarations:
+      - file: docs/spec/acceptance-criteria.md
+        sections:
+          - "Authentication"
+          - "Authorization"
+          - "Token Issuance"
+          - "Usability and Operations"
+          - "Quality and Security"
+    id_format: name
+  RULE:
+    declarations:
+      - file: docs/design/domain.md
+        sections:
+          - "Identity Rules"
+          - "Rules"
+  INV:
+    declarations:
+      - file: docs/design/domain.md
+        sections:
+          - "Invariants"
+  GOJ:
+    declarations:
+      - file: docs/design/gates-oidc-jwt-claims.md
+        sections:
+          - "Claims"
+          - "Time"
+          - "Cross-Claim Invariants"
+      - file: docs/design/gates-oidc-jwt-signature.md
+        sections:
+          - "Serialization"
+          - "JOSE Header"
+          - "Discovery"
+          - "JWK"
+          - "JWK Set"
+    target_type: "GATES OIDC JWT Acceptance Rule"
+    id_format: name
+  AOJ:
+    declarations:
+      - file: docs/design/aws-oidc-jwt.md
+        sections:
+          - "Claim Conditions"
+    target_type: "AWS OIDC JWT Claim Condition"
+    id_format: name
+  GAJ:
+    declarations:
+      - file: docs/design/github-app-jwt.md
+        sections:
+          - "Generation Conditions"
+    target_type: "GitHub App JWT Generation Rule"
+    id_format: name
+  RFC7159:
+    declarations:
+      - file: docs/external/standards/rfc7159.md
+        sections:
+          - "String Comparison"
+    target_type: "RFC 7159 Clause"
+    id_format: name
+  RFC7515:
+    declarations:
+      - file: docs/external/standards/rfc7515.md
+        sections:
+          - "Serialization and Encoding"
+          - "JOSE Header"
+          - "alg"
+          - "Key Identification"
+          - "Key-Related Header Parameters"
+          - "typ and cty"
+          - "crit"
+          - "String Comparison"
+    target_type: "RFC 7515 Clause"
+    id_format: name
+  RFC7517:
+    declarations:
+      - file: docs/external/standards/rfc7517.md
+        sections:
+          - "JWK Format"
+          - "kty"
+          - "use and key_ops"
+          - "alg and kid"
+          - "Certificate Members"
+          - "JWK Set"
+          - "String Comparison and Non-Public Key Information"
+    target_type: "RFC 7517 Clause"
+    id_format: name
+  RFC7518:
+    declarations:
+      - file: docs/external/standards/rfc7518.md
+        sections:
+          - "Base64urlUInt"
+          - "RSASSA-PKCS1-v1_5 and RSASSA-PSS"
+          - "none"
+          - "Key Parameters"
+    target_type: "RFC 7518 Clause"
+    id_format: name
+  RFC7519:
+    declarations:
+      - file: docs/external/standards/rfc7519.md
+        sections:
+          - "Serialization"
+          - "StringOrURI and NumericDate"
+          - "JWT Claims Set"
+          - "iss"
+          - "sub"
+          - "aud"
+          - "exp"
+          - "nbf"
+          - "iat"
+          - "jti"
+          - "JOSE Header"
+          - "Unsecured JWTs"
+          - "JWT Validation"
+          - "JWT String Comparison"
+    target_type: "RFC 7519 Clause"
+    id_format: name
+  RFC7797:
+    declarations:
+      - file: docs/external/standards/rfc7797.md
+        sections:
+          - "b64"
+    target_type: "RFC 7797 Clause"
+    id_format: name
+  RFC8725:
+    declarations:
+      - file: docs/external/standards/rfc8725.md
+        sections:
+          - "Algorithms"
+          - "Cryptographic Operations"
+          - "UTF-8"
+          - "Issuer and Subject"
+          - "Audience"
+          - "Received Header Parameters"
+          - "Explicit Typing and Kinds of JWT"
+    target_type: "RFC 8725 Clause"
+    id_format: name
+  RFC9964:
+    declarations:
+      - file: docs/external/standards/rfc9964.md
+        sections:
+          - "AKP Key Type"
+    target_type: "RFC 9964 Clause"
+    id_format: name
+  OIDCC:
+    declarations:
+      - file: docs/external/standards/oidc-core.md
+        sections:
+          - "ID Token Claims"
+          - "ID Token Validation in the Authorization Code Flow"
+          - "ID Token Validation in the Implicit and Hybrid Flows"
+          - "Signing"
+          - "String Operations"
+    target_type: "OpenID Connect Core Clause"
+    id_format: name
+  OIDCD:
+    declarations:
+      - file: docs/external/standards/oidc-discovery.md
+        sections:
+          - "OpenID Provider Metadata"
+          - "Obtaining and Validating the Configuration"
+          - "String Operations"
+          - "TLS and Impersonation"
+    target_type: "OpenID Connect Discovery Clause"
+    id_format: name
+  GH-OIDC:
+    declarations:
+      - file: docs/external/github/oidc.md
+        sections:
+          - "Issuer and Discovery"
+          - "JWKS"
+          - "JOSE Header"
+          - "Claims"
+          - "Time Claims"
+          - "Audience"
+          - "Subject"
+          - "Subject Customization"
+    target_type: "GitHub Actions OIDC Clause"
+    id_format: name
+scan:
+  markdown:
+    - "docs/**/*.md"
+  go:
+    - "main.go"
+    - "internal/**/*.go"
+    - "formal/**/*.go"
+    - ".github/**/*.go"
+  line_comment_declarations:
+    - paths:
+        - "formal/alloy/**/*.als"
+      comments:
+        - "//"
+        - "--"
+    - paths:
+        - "formal/z3/checks/**/*.smt2"
+      comments:
+        - ";"
+    - paths:
+        - "terraform/tests/**/*.tftest.hcl"
+      comments:
+        - "#"
+allowed_dependencies:
+  - from: "docs/CONSTITUTION.md"
+    to: []
+  - from: "docs/research/**"
+    to: []
+  - from: "docs/spec/requirements.md"
+    to:
+      - "docs/CONSTITUTION.md"
+      - "docs/research/**"
+      - "!docs/**/README.md"
+  - from: "docs/spec/acceptance-criteria.md"
+    to:
+      - "docs/spec/requirements.md"
+  - from: "docs/spec/scope.md"
+    to:
+      - "docs/CONSTITUTION.md"
+      - "docs/spec/requirements.md"
+  - from: "docs/design/architecture.md"
+    to:
+      - "docs/CONSTITUTION.md"
+      - "docs/spec/**"
+      - "docs/external/**"
+      - "docs/research/**"
+      - "!docs/spec/scope.md"
+      - "!docs/**/README.md"
+  - from: "docs/design/**"
+    to:
+      - "docs/CONSTITUTION.md"
+      - "docs/spec/**"
+      - "docs/design/**"
+      - "docs/external/**"
+      - "docs/research/**"
+      - "!docs/**/README.md"
+  - from: "docs/external/standards/**"
+    to: []
+  - from: "docs/external/github/**"
+    to:
+      - "docs/research/github/**"
+      - "!docs/**/README.md"
+  - from: "docs/user-guide/overview.md"
+    to:
+      - "docs/**"
+      - ".github/actions/issue-token/README.md"
+      - "formal/README.md"
+      - "!docs/contributing/**"
+      - "!docs/**/README.md"
+  - from: "docs/user-guide/security-considerations.md"
+    to:
+      - "docs/**"
+      - ".github/actions/issue-token/README.md"
+      - "formal/README.md"
+      - "!docs/contributing/**"
+      - "!docs/**/README.md"
+  - from: "docs/user-guide/**"
+    to:
+      - "docs/user-guide/**"
+      - ".github/actions/issue-token/README.md"
+      - "!docs/**/README.md"

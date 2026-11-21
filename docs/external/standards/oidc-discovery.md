@@ -12,7 +12,7 @@ Actor は、[OpenID Connect Core 1.0](oidc-core.md) と同じく、OpenID Connec
 
 OpenID Connect Discovery の規定は、OpenID Provider Metadata とその取得に対する要件で、ID Token の `iss` と `issuer` の一致（OIDCD-ISSUER-ID-TOKEN-ISS、OIDCD-CONFIG-ISSUER-ID-TOKEN）を除き、JWT の署名と Claim の検証の規則は定めません。必須の Metadata が欠けていれば Discovery の要件を満たしませんが、その OpenID Provider が発行した JWT の署名と Claim の検証は、JWS、JWK、JWT の標準仕様（[RFC 7515 JSON Web Signature](rfc7515.md)、[RFC 7519 JSON Web Token](rfc7519.md) など）の規則と、ID Token であれば [OpenID Connect Core 1.0](oidc-core.md) の規則に従います。
 
-## 1. OpenID Provider Metadata
+## OpenID Provider Metadata
 
 OpenID Connect Discovery §3 は、OpenID Provider が自身の設定を表す Metadata を定めています。この節の条項は Metadata の値の要件で、Actor は Metadata を公開する OpenID Provider です。原文の多くは値に課す要件として書かれ、主体を書いていません。
 
@@ -234,7 +234,7 @@ Dynamic OpenID Provider は、事前の関係なしに Relying Party が動的�
 - **Level**：MAY
 - **Actor**：OpenID Provider
 
-## 2. Obtaining and Validating the Configuration
+## Obtaining and Validating the Configuration
 
 ### OIDCD-CONFIG-PATH OpenID Provider の設定の文書の場所
 
@@ -341,7 +341,7 @@ Issuer が `https://example.com/issuer1` なら、要求のパスは `/issuer1/.
 
 §7.2 の Relying Party への MUST（OIDCD-CONFIG-ISSUER-MATCH に引用）が、同じ規範を言い換えています。発行の側の規定は OIDCD-ISSUER-ID-TOKEN-ISS です。
 
-## 3. String Operations
+## String Operations
 
 OpenID Connect Discovery §5 は、OpenID Connect Core §14 と同じ比較の手順を定めています。原文は比較の主体を書いていません。Discovery §6 は、Discovery を実装する Relying Party と OpenID Provider の両方が機能を実装するとし、§7.1 はその主体を「Implementations」と呼ぶため、この節の条項の Actor を Implementation とします。
 
@@ -366,7 +366,7 @@ OpenID Connect Discovery §5 は、OpenID Connect Core §14 と同じ比較の�
 - **Level**：MUST
 - **Actor**：Implementation
 
-## 4. TLS and Impersonation
+## TLS and Impersonation
 
 ### OIDCD-TLS-SUPPORT TLS への対応
 
@@ -409,7 +409,7 @@ OpenID Connect Discovery §5 は、OpenID Connect Core §14 と同じ比較の�
 
 サーバー証明書が Issuer の URL に対して有効であることを確かめると、中間者攻撃と DNS を使った攻撃を防げます。防げないと、Relying Party が攻撃者の鍵とエンドポイントを使わされ、正規の Issuer に成りすまされるおそれがあります（原文）。
 
-## 5. References
+## References
 
 - [RFC 2119 — Key words for use in RFCs to Indicate Requirement Levels](https://www.rfc-editor.org/rfc/rfc2119.html)（1997）
 - [OpenID Connect Core 1.0 incorporating errata set 2](https://openid.net/specs/openid-connect-core-1_0.html)（2023、§1.2、§14、§15）

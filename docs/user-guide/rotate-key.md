@@ -28,7 +28,7 @@
 
 - `kms_keys` に旧鍵だけがあり、`active_kms_key` が旧鍵を指している
 - `make tf-plan` が `No changes` を示す
-- 許可オーナーのリポジトリで、GATES からトークンを受け取るワークフローが成功する。§6 以降の確認で、このワークフローを使う
+- 許可オーナーのリポジトリで、GATES からトークンを受け取るワークフローが成功する
 - [Deployment](deployment.md) の §2.1 と §2.2 の前提を満たしている
 - 一時認証情報に、`kms:GetPublicKey`、`kms:DisableKey`、`kms:EnableKey`、`kms:ScheduleKeyDeletion`、`kms:CancelKeyDeletion`、`cloudtrail:LookupEvents` の権限もある
 
@@ -127,7 +127,7 @@ aws cloudtrail lookup-events --region <KMS Key のリージョン> \
 
 ## 7. Disabling the Old KMS Key
 
-§8 で GitHub の鍵を見分けるため、旧鍵の公開鍵のフィンガープリントを控えます。
+GitHub の鍵を見分けるため、旧鍵の公開鍵のフィンガープリントを控えます。
 出力は、`Key pairs` に表示される値の `SHA256:` の後の部分にあたります。
 
 ```bash
