@@ -2,7 +2,7 @@
 
 デプロイした GATES を Docker Action から呼び、発行、後続ステップでの利用、失効、失敗時の挙動、資格情報の非出力を確かめる E2E テストです。
 Action の入力の検証が止める Payload を GATES がどう拒否するかは、Lambda を直接 Invoke する E2E テストで確かめます。
-GitHub と AWS の挙動に依存する事項は、許可オーナーのリポジトリのワークフローでしか確かめられません（[GitHub Actions Design](../design/github-actions.md#62-tests-on-github-actions)）。
+GitHub と AWS の挙動に依存する事項は、許可オーナーのリポジトリのワークフローでしか確かめられません（[GitHub Actions Design](../design/github-actions.md)）。
 E2E テストのワークフローは本リポジトリの `.github/workflows/` に置き、試験用のリポジトリに写して実行します。
 本リポジトリには接続情報を登録しないため、ワークフローは `workflow_dispatch` だけで起動するようにしています。
 
@@ -46,7 +46,7 @@ Output の `permissions` は、GitHub が発行したトークンの権限で、
 
 大文字にした要求が通るのは、GATES が名前を ASCII の範囲で大文字小文字を区別せずに比べ（[Lambda Design](../design/lambda.md#名前の文字種と比較規則)）、GitHub の発行 API も大文字小文字の違う名前を受け付けるためです（[GitHub Installation Access Token](../research/github/installation-access-token.md#名前の大文字小文字を変えた発行)）。
 区切りは `,` だけで、改行は区切りになりません。
-前後の空白は Action が除きます（[GitHub Actions Design](../design/github-actions.md#22-list-syntax)）。
+前後の空白は Action が除きます（[GitHub Actions Design](../design/github-actions.md)）。
 
 どの事例でも、発行したトークンで次を確かめます。
 書き込みの試験のパスと ref の名前は実行ごとに一意にし、想定に反して作られた場合はジョブを失敗させて、パスか ref を注釈に示します。
@@ -75,7 +75,7 @@ Output の `repositories` は GitHub の応答の並びのため、並びは判�
 ジョブは `contents:read` と `contents:write` の 2 つの権限で動き、書き込みを許すトークンも失効の後に使えないことを確かめます。
 post-entrypoint はジョブの最後に動くため、後続ステップからは失効の後のトークンを試せません。
 そこで、Docker Action のステップより前に、post を持つ試験用の JavaScript の Action（[_e2e-revoked-token](../../.github/actions/_e2e-revoked-token/action.yml)）を置きます。
-Runner は post をメインの処理と逆の順で動かすため、この Action の post は Docker Action の post-entrypoint の後に動きます（[GitHub Actions Design](../design/github-actions.md#62-tests-on-github-actions)）。
+Runner は post をメインの処理と逆の順で動かすため、この Action の post は Docker Action の post-entrypoint の後に動きます（[GitHub Actions Design](../design/github-actions.md)）。
 
 1. 試験用の Action のメインの処理が、`RUNNER_TEMP` の下に、ほかのユーザーが読めないディレクトリを作る
 2. Docker Action がトークンを発行する
@@ -189,7 +189,7 @@ AWS CLI の再試行は止め、1 つの事例で 1 回だけ Invoke します�
 GATES はどの名前も未知のフィールドとして同じ経路で拒否するため、項目の種類ごとに 1 件ずつとしています。
 許可オーナー以外のオーナーのリポジトリは、GATES がオーナー名の照合で GitHub API を呼ぶ前に拒否するため、公開か非公開か、実在するかで結果は変わりません。
 許可権限か発行上限から外れた権限を含む要求は、外れた権限を除いて発行せず、要求の全体を `authorization_denied` で拒否します。
-GitHub App に付与されていない権限と水準を含む要求は、GitHub の発行 API が `422` で拒否し、GATES は権限を除いて発行し直さずに `github_issuance_rejected` を返します（[GitHub App Constraints](../external/github/app.md#44-権限名と分類)）。
+GitHub App に付与されていない権限と水準を含む要求は、GitHub の発行 API が `422` で拒否し、GATES は権限を除いて発行し直さずに `github_issuance_rejected` を返します（[GitHub App Constraints](../external/github/app.md)）。
 `not-issuable` から `level-not-granted` までの事例は、発行上限と GitHub App の権限が [Testing Environment Setup](setup-environment.md) のとおりであることを前提とします。
 期限切れの事例は `exp` まで 5 分ほど待つため、最後に置きます。
 

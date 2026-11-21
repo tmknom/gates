@@ -1,7 +1,7 @@
 # Release Verification
 
 運用者に向けて、GitHub Releases の配布物が GATES のリリースのワークフローでビルドされたものかを確かめる手順と、デプロイした関数のコードが配布物と同じかを確かめる手順を示します。
-配布物を信頼してよいかは、運用者自身が §3 の Attestation で確かめます。
+配布物を信頼してよいかは、運用者自身が Attestation で確かめます。
 
 ## 1. Release Assets
 

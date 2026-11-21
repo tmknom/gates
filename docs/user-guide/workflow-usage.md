@@ -6,7 +6,7 @@
 ## 1. Minimal Workflow
 
 次のワークフローは、許可オーナー `example-owner` のリポジトリ `example-owner/repo-a` を読みます。
-`<コミット>` と、`secrets.` と `vars.` の名前は、運用者から受け取ったものにします（§2）。
+`<コミット>` と、`secrets.` と `vars.` の名前は、運用者から受け取ったものにします。
 
 ```yaml
 name: Read another repository

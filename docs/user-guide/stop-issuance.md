@@ -11,10 +11,10 @@
 
 | 手段 | 止まるもの | 戻せる主体 |
 |---|---|---|
-| Reserved Concurrency を 0 にする（§2） | GATES の発行だけ。KMS Key での署名は止まらない | Lambda の設定を変えられる主体 |
-| KMS Key を無効にする（§3） | 使用中の鍵での署名と、GATES の発行 | `kms:EnableKey` を持つ主体 |
-| Installation を停止する（§4） | GitHub App による許可オーナーのリソースへのアクセスと、GATES の発行 | 停止した側だけ |
-| GitHub で秘密鍵を削除する（§5） | 削除した鍵での認証と、GATES の発行 | 戻せない。鍵の更新で再開する |
+| Reserved Concurrency を 0 にする | GATES の発行だけ。KMS Key での署名は止まらない | Lambda の設定を変えられる主体 |
+| KMS Key を無効にする | 使用中の鍵での署名と、GATES の発行 | `kms:EnableKey` を持つ主体 |
+| Installation を停止する | GitHub App による許可オーナーのリソースへのアクセスと、GATES の発行 | 停止した側だけ |
+| GitHub で秘密鍵を削除する | 削除した鍵での認証と、GATES の発行 | 戻せない。鍵の更新で再開する |
 
 KMS Key の無効化は、AWS の権限を持つ主体が元に戻せます。
 **署名の悪用を AWS の権限に左右されずに止められるのは、GitHub での秘密鍵の削除です。**

@@ -2,7 +2,7 @@
 
 要求や受理条件のように、ほかのドキュメント、コード、`formal/` から個別に参照される種類の定義には ID を付けます。
 参照元は ID で定義を指すため、ID と意味の対応が崩れると、参照元の記述は変わらないまま、別の意味を指すようになります。
-本ドキュメントは、ID を付ける定義の種類、ID の振り方と変え方、定義と参照の書き方、外部仕様の条項の書式、GOJ と条項の関係の書き方、テストと `formal/` から定義を参照する注釈、それらを確かめる追跡の検査を定めます。
+本ドキュメントは、ID を付ける定義の種類、ID の振り方と変え方、定義と参照の書き方、外部仕様の条項の書式、GOJ と条項の関係の書き方、テストと `formal/` から定義を参照する注釈、それらを確かめる追跡の検査と sdlc の検査を定めます。
 
 ## 1. ID Kinds
 
@@ -35,12 +35,12 @@ ID を付ける種類は次のとおりです。
 
 定めるドキュメントをファイル名だけで書いたものは、`docs/spec/` か `docs/design/` の直下にある、その名前のファイルを指します。
 それ以外の場所のドキュメントは、リポジトリのルートからのパスで書きます。
-追跡の検査（[§8](#8-trace-check)）は、ID の定義がこの表の定めるドキュメントにあることを確かめるためです。
+追跡の検査は、ID の定義がこの表の定めるドキュメントにあることを確かめるためです。
 
 これらの種類の定義には、重要度にかかわらず、すべて ID を付けます。
 一部の定義だけに ID がないと、その定義を参照元から指せず、付与漏れも機械的に確かめられないためです。
 
-外部仕様の条項（[§5](#5-external-specification-clauses)）の ID は、出典の資料を表す接頭辞と、条項の内容を表す名前でできています。
+外部仕様の条項の ID は、出典の資料を表す接頭辞と、条項の内容を表す名前でできています。
 
 - 接頭辞は出典の資料を表す。ID を見ただけで、条項を確かめるときに開く資料が決まるようにするためである
 - 名前は英大文字、数字、`-` で書き、規範が扱う要素（Claim 名、Header Parameter 名など）を先に、規範の内容を後に置く（`RFC7519-AUD-REJECT`）。同じ要素の条項が ID の順に並び、grep で集められるようにするためである
@@ -56,7 +56,7 @@ ID は定義の意味を指し、定義の書き方や置き場所を指しま�
 - 連番の ID では、新しい定義に、種類ごと（`FR-` と `AC-` はカテゴリごと）にこれまでに振った最大の番号の次を振る。削除した定義の番号を新しい定義に振らない。古い意味のまま残った参照が、知らないうちに新しい意味を指すためである
 - 定義を分割または統合したときは、できた定義のすべてに新しい ID を振り、旧 ID は使わない。旧 ID の参照元は一括で置換せず、参照元ごとに、どの定義が旧 ID の意味を引き継ぐかを判断して付け替える
 - ID を変えずに意味を変えたときは、その ID を参照する設計、`formal/`、コード、テストが新しい意味に合うかを確かめる
-- 一つの ID は一つの判定を表す。受理条件と生成条件（`GOJ-`、`AOJ-`、`GAJ-`）の定義に、関係する外部仕様の条項の組、`formal/` の述語、検査のいずれかが異なる複数の判定を含めない（`sub` の形式の判定と、`sub` の長さの上限の判定は別の ID にする）。一つの判定が複数の条項に関係することはあってよい。一つの ID に複数の判定を含めると、関係（[§6](#6-relations-between-goj-and-clauses)）や注釈（[§7](#7-trace-annotations)）が ID 全体を指すことになり、どの判定を確かめたのかが ID から決まらないためである
+- 一つの ID は一つの判定を表す。受理条件と生成条件（`GOJ-`、`AOJ-`、`GAJ-`）の定義に、関係する外部仕様の条項の組、`formal/` の述語、検査のいずれかが異なる複数の判定を含めない（`sub` の形式の判定と、`sub` の長さの上限の判定は別の ID にする）。一つの判定が複数の条項に関係することはあってよい。一つの ID に複数の判定を含めると、関係や注釈が ID 全体を指すことになり、どの判定を確かめたのかが ID から決まらないためである
 
 これらの規則では、新しい定義の番号はファイルの中の位置にかかわらず末尾に続き、削除した番号は欠けたまま残るため、運用を続けると、番号の欠けや、番号の順とファイルの中の並び順が一致しない定義が増えます。
 コードのリファクタリングと同じく、これらは番号を振り直して時々整理します。
@@ -71,9 +71,10 @@ ID は定義の意味を指し、定義の書き方や置き場所を指しま�
 ## 3. Writing Definitions
 
 - 定義ごとに見出しを置き、見出しは ID、半角スペース、タイトルの順に書く（例：`#### FR-AUTHZ-001 許可オーナーの Owner ID による認可`）
-- 定義を並べる節の直下の見出しは、定義の見出しだけにする
-- 文書の直下は、定義を並べる節に当たらない。定義の見出しを、定義でない節の見出しと同じ階層に並べてよい（例：`github-app-jwt.md` の `## GAJ-ISS` と `## Traceability`）。定義でない節は見出しで区切られ、直前の定義の本文として読まれないためである
-- 定義を分類するときは、分類ごとに節を設け、その節の直下に定義の見出しを並べる（例：`requirements.md` の `### 3.2 Authorization` の直下に `#### FR-AUTHZ-001 …`）
+- 定義を並べる節の直下の見出しは、定義の見出しだけにする。文書の題名の直下に定義を並べず、定義だけを並べる節を設ける（例：`github-app-jwt.md` の `## Generation Conditions` の直下に `### GAJ-ISS …`）
+- 定義を並べる節は、リポジトリのルートの `sdlc.yaml` の `definitions` に、見出しのテキストで登録する。節を加える、見出しを変えるときは、`sdlc.yaml` を同じ変更で直す。直さないと、`sdlc validate` が定義を見つけられず違反を報告し、`sdlc trace` が止まるためである
+- 定義を分類するときは、分類ごとに節を設け、その節の直下に定義の見出しを並べる（例：`requirements.md` の `### Authorization` の直下に `#### FR-AUTHZ-001 …`）
+- 定義を並べる節を持つファイルでは、見出しに節番号を付けない。節番号を付けると、節を加えるか並べ替えるだけで、番号の変わった見出しを `sdlc.yaml` で直すことになるためである
 - 定義を並べる節の説明は、最初の定義の見出しより前に書く。最後の定義の後に書くと、その定義の本文として読まれるためである
 - 定義を一覧する表を索引として置いてもよい。その場合も、定義の見出しとその下の本文を正とする
 
@@ -82,7 +83,7 @@ ID は定義の意味を指し、定義の書き方や置き場所を指しま�
 - ほかのファイルの定義を参照するときは、本文に ID を書き、リンクはファイル単位にする（例：`[Requirements](../spec/requirements.md) の FR-AUTHZ-001`）。見出しのアンカーは見出しの文字列から作られ、タイトルを変えると切れるためである
 - 同じファイルの中では、見出しのアンカーでリンクしてよい。タイトルを変えた差分の中で、切れたリンクを確かめられるためである
 - 地の文、表、インラインコードに書く ID は、定義された ID に限る。まだ定義されていない ID を書式の例に使うときは、フェンスで囲んだコードブロックの中に書く。追跡の検査は、コードブロックの外に現れる ID がすべて定義されていることを確かめ、コードブロックの中は例として扱うためである
-- コード、テスト、`formal/` からは、文書名を添えず ID だけで定義を参照する。ID の接頭辞から定めるドキュメントが決まり（[§1](#1-id-kinds)）、grep で定義を探せるためである
+- コード、テスト、`formal/` からは、文書名を添えず ID だけで定義を参照する。ID の接頭辞から定めるドキュメントが決まり、grep で定義を探せるためである
 - 定義の一部を、番号付きの条件（「ある GOJ の条件 6」）のように定義の中の位置で参照しない。条件を足したり並べ替えたりすると、同じ番号が別の条件を指すようになるためである。一部だけを参照する必要があるなら、その部分を別の ID の定義に分ける（[§2](#2-assigning-and-changing-ids)）
 
 ## 5. External Specification Clauses
@@ -98,7 +99,7 @@ GOJ と `formal/` のモデルが、外部仕様の規定を一つずつ ID で�
 - 同じ主体に、値の検証と、検証に失敗したときの拒否を求める文（RFC 8725 §3.8 の、鍵が Issuer に属することを検証する MUST と、属さなければ拒否する MUST）は、一つの受理の判定を表すため、一つの条項にまとめる。検証の義務は、拒否と切り離して確かめられる効果を持たないためである
 - RFC 2119 の語を含まず、Definition（後述）にも当たらない説明の文は、条項にしない。関係する条項の本文か、ファイルの冒頭の対象の説明に書く
 
-条項の項目名、Level と Evidence の値、関係の表の列名と Relation の値（[§6](#6-relations-between-goj-and-clauses)）は英語で書きます。
+条項の項目名、Level と Evidence の値、関係の表の列名と Relation の値は英語で書きます。
 これらの語は、本ドキュメントが定める意味だけを持ちます。
 英語で書くのは、日本語の文書の中で、同じ意味の普通の語（「定義」「推論」「満たす」など）と見分けられるようにするためです。
 地の文でこれらの意味を指すときも、訳さず、バッククォートで囲まずに英語のまま書きます。
@@ -107,7 +108,7 @@ GOJ と `formal/` のモデルが、外部仕様の規定を一つずつ ID で�
 箇条書きの後の本文には、原文で読み取りにくい点の説明だけを書きます。
 ほかの条項を緩めたり限定したりする条項（`exp` の判定に猶予を認める MAY など）は、緩める相手の条項の ID を本文に書きます。
 条項は一つずつ独立に読まれるため、書かないと、緩められる側の条項だけを読んだ読者やモデルが、標準仕様より厳しい規範として扱うためです。
-GATES がその規定をどう扱うかは、条項には書かず、GOJ の側に書きます（[§6](#6-relations-between-goj-and-clauses)）。
+GATES がその規定をどう扱うかは、条項には書かず、GOJ の側に書きます。
 
 ### Standard Clauses
 
@@ -163,7 +164,7 @@ Unconfirmed の条項は、「GitHub は X を定めていない」「X の条�
 
 GOJ の定義には、外部仕様の条項との **関係** を、見出しの直下に表で書きます。
 関係は GOJ の側にだけ書き、条項の側にはどの GOJ と関係するかを書きません。
-`docs/external/` は `docs/design/` に依存しないためです（[Documentation Policy](docs-policy.md) の §2.9）。
+`docs/external/` は `docs/design/` に依存しないためです。
 
 ```markdown
 ### GOJ-AUD `aud`
@@ -215,7 +216,7 @@ GATES の役割に当たる強い規範の条項は、いずれかの GOJ の Sa
 ### Tests
 
 AC の判定の証拠にするテストには、そのテストが検査対象とする AC を `trace:checks` で宣言します。
-AC の意味を変えたときに確かめ直すテスト（[§2](#2-assigning-and-changing-ids)）を、宣言の grep で探せるためです。
+AC の意味を変えたときに確かめ直すテストを、宣言の grep で探せるためです。
 
 - 宣言は、テストの直前の行コメントに書く。Go のテスト関数では `//trace:checks AC-AUTHN-002 AC-AUTHZ-001`、Terraform の試験の `run` ブロックでは `# trace:checks AC-OPS-005` とする
 - Go では `//` の直後に空白を置かない。Go はこの形の行をディレクティブとして扱い、doc comment の本文に含めないためである。doc comment を持つテスト関数では、本文の後に空行の `//` を挟んで最後の行に置く。gofmt が整える形である
@@ -246,7 +247,7 @@ AC の意味を変えたときに確かめ直すテスト（[§2](#2-assigning-a
 形式化しない理由を条項や GOJ の定義に書かないのは、`docs/external/` と `docs/design/` が `formal/` に依存しないようにするためです。
 Evidence が Unconfirmed の条項は、モデルが制約しないことで表すため、どちらも書きません。
 
-関係（[§6](#6-relations-between-goj-and-clauses)）は、次の検査で確かめます。
+関係は、次の検査で確かめます。
 
 - Relation が Satisfies の行ごとに、GOJ と条項の両方の ID を挙げた `trace:checks` を持ち、反例のないことを期待する検査（`; expect:` がすべて `unsat` の Z3 の検査か、`expect 0` の Alloy の `check`）を置く。GOJ が受理するすべての JWT が条項に従うことは、反例のないことでしか示せないためである
 - Relation が Accepts の行ごとに、GOJ と条項の両方の ID を挙げた `trace:checks` を持つ `formal/` の検査を置く
@@ -261,22 +262,28 @@ Evidence が Unconfirmed の条項は、モデルが制約しないことで表�
 リポジトリのルートで `make trace` を実行すると、規則を満たさない箇所をファイルと行とともに出力し、一つでもあれば失敗します。
 確かめる規則は、§1 の表の接頭辞と追跡の検査が読む接頭辞の一致、ID の定義が接頭辞の定めるドキュメントに一つだけあること、§4 の参照、§6 の関係の表の書式と強い規範の網羅、§7 の注釈の書式と位置、形式化の有無、関係ごとの検査です。
 
+追跡の検査とあわせて、リポジトリのルートで `sdlc validate` も実行します。
+sdlc は、`sdlc.yaml` に登録した節の定義、`trace:checks` の注釈、Relationship テーブル（`alignment`・`grounding`）を読みます。
+定義が登録した節の直下にあること、ID の定義が一つだけあること、`trace:checks` と Relationship テーブルの ID が定義に解決すること、Relationship テーブルの依存が `sdlc.yaml` の `allowed_dependencies` に沿うことを確かめ、一つでも満たさなければ失敗します。
+§4 の地の文や表の ID、関係の表、`trace:formalizes` と `trace:unformalized` は sdlc が読まないため、追跡の検査だけが確かめます。
+定義を変えたときに見直すドキュメントと確かめ直すテストは、`sdlc trace --id <ID>` で探します。
+
 報告ごとの直し方は次のとおりです。
 報告が規則の誤りを示していると考えたときは、規則を変える変更と、検査を変える変更を同じ変更で行います。
 
 | 報告 | 直し方 |
 |---|---|
-| `undefined ID` | ID の誤記を直すか、定義を加える。書式の例に使う ID はフェンスの中に移す（§4） |
+| `undefined ID` | ID の誤記を直すか、定義を加える。書式の例に使う ID はフェンスの中に移す |
 | `is also defined at`、`is defined outside the documents for` | 定義を一つにまとめ、§1 の表が定めるドキュメントに置く |
-| `the table of ID kinds`、`in the table of ID kinds` | 接頭辞を加えるか除くときは、§1 の表と、追跡の検査（`formal/trace/`）の接頭辞の一覧を同じ変更で直す |
+| `the table of ID kinds`、`in the table of ID kinds` | 接頭辞を加えるか除くときは、§1 の表と、追跡の検査（`formal/trace/`）の接頭辞の一覧と、`sdlc.yaml` の `definitions` を同じ変更で直す。`sdlc.yaml` には、定義を並べる節があるときに登録する |
 | `no table of ID kinds` | §1 の表の見出しの列（接頭辞、定めるドキュメント）を戻す |
 | `has no relation table`、`relation row has`、`None row`、`want a standard clause`、`want a GitHub clause`、`Clause "…" is not an ID`、`both Accepts and Possibly Rejects`、`table header`、`unknown Relation`、`relation table is not under a definition heading` | §6 の書式に合わせて関係の表を直す |
-| `is a strong norm of a GATES role`、`in the table of standard clauses not applied` | 条項を GOJ の Satisfies か Narrows の行に挙げるか、「適用しない標準の条項」の表に理由とともに挙げる。両方には挙げない（§6） |
-| `no list of the Actors that are GATES roles` | GATES OIDC JWT Claims の「GATES の役割に当たる Actor」の見出しと、「**Actor**：説明」の箇条書きを戻す（§6） |
-| `has neither trace:formalizes nor trace:unformalized`、`has both`、`is Unconfirmed` | 条項か GOJ を形式化して `trace:formalizes` を置くか、`trace:unformalized` と理由を書く。Evidence が Unconfirmed の条項からは注釈を除く（§7） |
+| `is a strong norm of a GATES role`、`in the table of standard clauses not applied` | 条項を GOJ の Satisfies か Narrows の行に挙げるか、「適用しない標準の条項」の表に理由とともに挙げる。両方には挙げない |
+| `no list of the Actors that are GATES roles` | GATES OIDC JWT Claims の「GATES の役割に当たる Actor」の見出しと、「**Actor**：説明」の箇条書きを戻す |
+| `has neither trace:formalizes nor trace:unformalized`、`has both`、`is Unconfirmed` | 条項か GOJ を形式化して `trace:formalizes` を置くか、`trace:unformalized` と理由を書く。Evidence が Unconfirmed の条項からは注釈を除く |
 | `has no trace:checks listing both IDs on …` | 報告が示す種類の検査（形式化しない GOJ か条項では Go のテストでもよい）に、GOJ と条項の両方の ID を挙げた `trace:checks` を置く。既にあるなら、期待する判定が関係の種類に合っているかを確かめる |
 | `which no relation row of … links`、`which is not a Possibly Rejects relation` | 関係の行を削除したか種類を変えたなら、検査の `trace:checks` から ID を外すか、検査を直す。関係の行を書き忘れたなら、行を加える |
 | `must be on the line`、`unknown annotation`、`is not an ID`、`lists no ID`、`needs one ID and a reason` | §7 の書式と位置に合わせて注釈を直す |
 
 条項と GOJ のそれぞれを、どの述語が形式化し、どの検査とテストが確かめているかは、`make trace-map` が Markdown の表として標準出力に書きます。
-対応は注釈の側だけにあるため（§7）、この表は必要なときに生成し、コミットしません。
+対応は注釈の側だけにあるため、この表は必要なときに生成し、コミットしません。

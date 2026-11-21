@@ -17,6 +17,12 @@ B のファイル名、節、記述の変更によって A の修正が必要に
 
 個別に許可していない依存は禁止します。
 
+依存のうち、sdlc の Relationship テーブル（`alignment`・`grounding`）で書いたものは、`sdlc validate` が、リポジトリのルートの `sdlc.yaml` の `allowed_dependencies` と照合します。
+`allowed_dependencies` は、本ドキュメントの依存の規則のうち、参照元と参照先のファイルの組で決まる部分を写したものです。
+依存の規則を変えるときは、`allowed_dependencies` も同じ変更で直します。
+直さないと、規則に反する Relationship テーブルを `sdlc validate` が見逃すか、規則に沿うものを違反と報告するためです。
+リンクや文書名による参照と、付録や末尾の案内に限るといった、ドキュメントの中の位置による条件は照合されないため、レビューで確かめます。
+
 ## 2. Dependency Rules by Document
 
 依存の主な向きは次のとおりで、依存してよい範囲は各節に定めます。
@@ -110,7 +116,7 @@ GATES の開発で従う規約と手順を記述します。
 `docs/contributing/` は他のドキュメントに依存してよく、`docs/spec/` と `docs/design/` は `docs/contributing/` に依存しません。
 手順の変更が仕様や設計の変更を求めないようにするためです。
 
-GATES の開発に固有でない運用者の手順は、`docs/user-guide/`（[§2.8](#28-docsuser-guide)）を参照し、`docs/contributing/` に重ねて書きません。
+GATES の開発に固有でない運用者の手順は、`docs/user-guide/` を参照し、`docs/contributing/` に重ねて書きません。
 `docs/contributing/` に書くのは、検証用の GitHub App の設定や E2E テストのような、開発に固有の差分だけです。
 
 ### 2.5 README.md
@@ -153,7 +159,7 @@ GATES の開発に固有でない運用者の手順は、`docs/user-guide/`（[�
 
 依存は次の範囲に限ります。
 
-- 依存してよいのは、`docs/user-guide/` の他のドキュメント、Docker Action の `README.md`（[§2.7](#27-docker-action-readme)）、GitHub や AWS などの公式ドキュメントである。Action のリファレンスは Docker Action の `README.md` を参照させ、転記しない
+- 依存してよいのは、`docs/user-guide/` の他のドキュメント、Docker Action の `README.md`、GitHub や AWS などの公式ドキュメントである。Action のリファレンスは Docker Action の `README.md` を参照させ、転記しない
 - `CONSTITUTION.md`、`docs/spec/`、`docs/design/`、`docs/external/`、`docs/research/`、`formal/` の `README.md` への依存は、`overview.md` と `security-considerations.md` の末尾に置く、根拠や内部の設計を知りたい読者への案内に限る。本文から参照すると、読者が根拠をたどって本筋を見失い、設計の変更も利用者向けの文書に波及するためである
 - `docs/contributing/` に依存しない。開発の都合で変わる手順や規約の変更が、利用者向けの文書に波及しないようにするためである
 - `docs/spec/`、`docs/design/`、`docs/external/`、`docs/research/` は `docs/user-guide/` に依存しない
@@ -161,7 +167,7 @@ GATES の開発に固有でない運用者の手順は、`docs/user-guide/`（[�
 書き方は次の規則に従います。
 
 - **主題から始める**：各ドキュメントは、読者とそのドキュメントで得られることを一、二文で述べて始める。GATES とは何かは `overview.md` に一度だけ書き、他のドキュメントで繰り返さない
-- **用語の説明は一か所**：概念名の平易な説明は `overview.md` の用語の節に一度だけ置き、他のドキュメントは説明を繰り返さずに概念名を使う。概念名を使うことは、`overview.md` への依存に数えない。概念名が変わるときは、[§4](#4-concept-names-and-domainmd) のとおり `domain.md` に合わせてすべてのドキュメントを直すことになり、依存に数えても確かめる範囲は変わらないためである
+- **用語の説明は一か所**：概念名の平易な説明は `overview.md` の用語の節に一度だけ置き、他のドキュメントは説明を繰り返さずに概念名を使う。概念名を使うことは、`overview.md` への依存に数えない。概念名が変わるときは、`domain.md` に合わせてすべてのドキュメントを直すことになり、依存に数えても確かめる範囲は変わらないためである
 - **本筋と例外を分ける**：多くの読者が通る作業は、リンク先を読まずに完了できるように書く。一部の読者だけが通る作業（環境によって要る作業、途中で止まったときの扱い）は、ドキュメントの末尾の節か `troubleshooting.md` に置き、本筋には案内の一文だけを残す
 - **一つの話題は一つのドキュメント**：同じ話題を複数のドキュメントで説明しない。説明するドキュメントを一つに決め、他のドキュメントは案内だけを置く
 - **安全に関わる注意は目立たせる**：トークンで操作できる範囲と権限を決めるもの、トークンを受け取るジョブの分け方、Action の参照の仕方のように、守らないと被害につながる注意は、但し書きに埋めず、見出しか箇条書きで示す
@@ -221,7 +227,7 @@ GATES が従う外部仕様を、規定として整理して保持します。
 
 - `docs/external/` は、GATES の他のドキュメントに依存しない。`docs/spec/` や `docs/design/` に依存すると、規定を GATES の都合で選んだり読んだりできるようになるためである
 - `github/` は、標準仕様との差分を説明するためにも `standards/` に依存しない。GitHub の仕様と標準仕様を比べた結論は、`docs/design/` の側に書く
-- `docs/external/` に依存してよいのは、`docs/design/`、`docs/user-guide/`、`formal/` と、他のドキュメントへの依存を一般に認めた `docs/contributing/`（[§2.4](#24-docscontributing)）、`README.md`（[§2.5](#25-readmemd)）、Docker Action の `README.md`（[§2.7](#27-docker-action-readme)）に限る。`docs/spec/` からの依存は、必要が生じるまで許可しない
+- `docs/external/` に依存してよいのは、`docs/design/`、`docs/user-guide/`、`formal/` と、他のドキュメントへの依存を一般に認めた `docs/contributing/`、`README.md`、Docker Action の `README.md` に限る。`docs/spec/` からの依存は、必要が生じるまで許可しない
 
 ## 3. Dependencies within docs/design
 
@@ -280,7 +286,7 @@ flowchart TD
 
 外部仕様の用語と概念名の対応は、`docs/design/` の側に書きます。
 
-概念名の変更に伴う `CONSTITUTION.md`、`architecture.md`、`requirements.md`、`acceptance-criteria.md`、`scope.md` の語の置き換えは、`CONSTITUTION.md` が他のドキュメントに依存しないという [§2.6](#26-constitutionmd) の規則と、`docs/spec/` が `docs/design/` に依存しないという [§2.2](#22-docsspec) の規則と、`architecture.md` が `docs/design/` の他のドキュメントに依存しないという [§2.3](#23-docsdesign) の規則の例外です。
+概念名の変更に伴う `CONSTITUTION.md`、`architecture.md`、`requirements.md`、`acceptance-criteria.md`、`scope.md` の語の置き換えは、`CONSTITUTION.md` が他のドキュメントに依存しないという規則と、`docs/spec/` が `docs/design/` に依存しないという規則と、`architecture.md` が `docs/design/` の他のドキュメントに依存しないという規則の例外です。
 例外は語を揃えるだけの変更に限ります。
 要求や受け入れ条件の内容まで変わるなら、`domain.md` の都合でそれらを変えることになるため、`requirements.md` や `acceptance-criteria.md` の変更として別に判断します。
 

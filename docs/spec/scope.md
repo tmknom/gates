@@ -19,10 +19,10 @@ GATES が満たす要求は [Requirements](requirements.md) に定めるため�
 この組み合わせでは、許可オーナーのどのワークフローも、Installation に含まれるどのリポジトリに対しても、GitHub App に付与され、発行上限に含まれる Repository permissions のすべてを要求できます。
 アクセスされる側のリポジトリは、自身に対する操作を GATES の認可では制限できません。
 GATES が発行する権限の上限を決めるのは、GitHub App に付与する権限、Installation の対象、発行上限です。
-前の 2 つは GitHub 側の設定（[Requirements](requirements.md) §2 の GitHub App / オーナーの管理者の責任）、発行上限は GATES のデプロイ時の設定（同じく GATES 運用者の責任）です。
+前の 2 つは GitHub 側の設定（GitHub App / オーナーの管理者の責任）、発行上限は GATES のデプロイ時の設定（同じく GATES 運用者の責任）です。
 発行上限は、どのワークフローに対しても同じ範囲を狭めるだけで、オーナー内の横断的な操作そのものは防ぎません。
 オーナー内の横断的な操作は、現在のスコープに伴う残留リスクとして受容します。
-恒久的に受け入れたものではなく、細粒度の認可（[§3](#3-deferred-capabilities)）を取り込むときに見直します。
+恒久的に受け入れたものではなく、細粒度の認可を取り込むときに見直します。
 
 ## 3. Deferred Capabilities
 

@@ -10,7 +10,9 @@ GATES は IAM Role の Trust Policy と許可する操作を設計します。
 
 各条件には、AWS 用 OIDC JWT を表す `AOJ-` で始まる ID を付けます。
 
-## AOJ-ISS `iss`
+## Claim Conditions
+
+### AOJ-ISS `iss`
 
 **外部仕様**：GitHub Actions OIDC の固定 Issuer
 
@@ -18,7 +20,7 @@ GATES は IAM Role の Trust Policy と許可する操作を設計します。
 
 **保証しないこと**：Lambda 内で AWS 用 JWT を検査すること
 
-## AOJ-AUD `aud`
+### AOJ-AUD `aud`
 
 **外部仕様**：GitHub で要求時に指定可能
 
@@ -26,7 +28,7 @@ GATES は IAM Role の Trust Policy と許可する操作を設計します。
 
 **保証しないこと**：GATES 用 JWT の Audience まで保証すること
 
-## AOJ-SUB `sub`
+### AOJ-SUB `sub`
 
 **外部仕様**：GitHub の旧形式と不変形式が混在
 
@@ -34,7 +36,7 @@ GATES は IAM Role の Trust Policy と許可する操作を設計します。
 
 **保証しないこと**：Repository ID とコンテキストの完全な構文検証。起動イベント、ref、Environment による制限。同じリポジトリのブランチからの Pull Request の `pull_request` と `pull_request_target`、Environment を使うジョブ、`workflow_run` のどれも引き受けられ、`pull_request_target` の `sub` は `pull_request` と同じ形のため、2 つを `sub` で区別することもできない（[GitHub Workflow Event Contexts](../research/github/workflow-event-contexts.md)）
 
-## AOJ-OTHER-CLAIMS その他の Claim
+### AOJ-OTHER-CLAIMS その他の Claim
 
 **外部仕様**：GitHub が追加 Claim を提供し得る
 

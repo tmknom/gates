@@ -107,18 +107,17 @@ Organization なら、Organization の `Settings` の `Developer settings` か�
 | Enterprise permissions | 何も選ばない |
 | Where can this GitHub App be installed? | `Only on this account` |
 
-**GitHub App に付与した権限は、§5.4 の発行上限に含めると、許可オーナーのすべてのワークフローが要求できるようになります。**
+**GitHub App に付与した権限は、発行上限に含めると、許可オーナーのすべてのワークフローが要求できるようになります。**
 付与する権限の決め方と、付与を避ける権限は、[Security Considerations](security-considerations.md) の §1.4 にあります。
 Organization permissions、Account permissions、Enterprise permissions は、GATES が発行しないため付与しません。
 
 `Create GitHub App` をクリックし、設定ページの `General` に表示される **Client ID** を控えます。
-§5 で使います。
 
 ### 3.2 Installing the GitHub App
 
 設定ページの `Install App` から、許可オーナーの `Install` をクリックします。
 **`Only select repositories` を選び、トークンを発行してよいリポジトリだけを加えます。**
-許可オーナーのどのワークフローも、ここで選んだインストール対象を、§3.1 で付与し §5.4 の発行上限に含めた権限で操作できます。
+許可オーナーのどのワークフローも、ここで選んだインストール対象を、§3.1 で付与し発行上限に含めた権限で操作できます。
 §9 の確認に、インストール対象のリポジトリが一つ要ります。
 
 ## 4. Getting and Verifying the Source
@@ -192,13 +191,13 @@ kms_keys = {
 active_kms_key = "key-1"
 ```
 
-鍵の種類は、§7 でインポートする秘密鍵の鍵長に合わせます。
+鍵の種類は、インポートする秘密鍵の鍵長に合わせます。
 秘密鍵はこの後で生成するため、GitHub が生成する鍵の鍵長として観測されている `RSA_2048` にします。
 鍵長が違ったときは、§10.5 で扱います。
 
 ### 5.4 Issuable Permissions
 
-`issuable_permissions` には、§3.1 で GitHub App に付与した Repository permissions のうち、ワークフローが要求する権限名と水準の組を、`権限名:水準` のリストで書きます。
+`issuable_permissions` には、GitHub App に付与した Repository permissions のうち、ワークフローが要求する権限名と水準の組を、`権限名:水準` のリストで書きます。
 書ける組は [Issue Token](../../.github/actions/issue-token/README.md) の「要求できる権限」にあります。
 GitHub App の設定画面の表示名ではなく、そこにある権限名で書きます。
 
@@ -217,7 +216,7 @@ issuable_permissions = [
 書式の誤り（大文字、`:` のない要素、重複）は、`make tf-plan` が止めます。
 **`members:read` のような Repository permissions でない組や、「要求できる権限」にない組は、`make tf-plan` が止めません。**
 適用すると、Lambda の関数が初期化に失敗し、どの要求にもトークンを返さなくなります。
-この失敗は、§9.1 のワークフローで `the Lambda function returned FunctionError` として現れます。
+この失敗は、`the Lambda function returned FunctionError` として現れます。
 ログの読み方は [Troubleshooting](troubleshooting.md) の §5.3 にあります。
 
 ## 6. Plan and Apply
@@ -250,7 +249,6 @@ make tf-plan
 ### 6.2 Checking the Created Resources
 
 Terraform の Output を表示します。
-§8 で、`github_actions_role_name` と `lambda_function_name` を使います。
 
 ```bash
 make -C terraform output
@@ -266,7 +264,7 @@ lambda_function_name = "gates"
 ```
 
 KMS Key は、鍵素材を持たない `PendingImport` の状態で作られます。
-§7 でインポートするまで、GATES はトークンを発行できません。
+インポートするまで、GATES はトークンを発行できません。
 
 ```bash
 aws kms describe-key --key-id <kms_key_arn> \
@@ -414,7 +412,7 @@ Provider はあるが Client ID に `sts.amazonaws.com` がないときは、`aw
 GATES の Terraform は、作る IAM Role に、自身が作る Permissions Boundary の `gates-permissions-boundary` を付けます。
 IAM Role の作成に特定の Permissions Boundary を求めるアカウントでは、`arn:aws:iam::<AWS アカウント ID>:policy/gates-permissions-boundary` を許可の対象に加えてから適用します。
 許可の対象に加えてから適用するまでは、別の主体が同じ名前のポリシーを任意の内容で作れます。
-§6.1 の適用が `EntityAlreadyExists` で失敗したら、先に作られたポリシーと、そのポリシーを付けた Role を調べます。
+適用が `EntityAlreadyExists` で失敗したら、先に作られたポリシーと、そのポリシーを付けた Role を調べます。
 
 ### 10.3 Organization as the Allowed Owner
 

@@ -16,7 +16,7 @@ Observed の条項が根拠にする JWT は、どれも個人アカウントの
 [GitHub OIDC JWT](../../research/github/oidc-jwt.md) の 6 件は Audience を指定せずに取得し、起動イベント、再利用ワークフロー、Environment の条件を変えて記録しています。
 [GitHub OIDC Custom Audience](../../research/github/custom-audience.md) の 2 件は、workflow_dispatch で起動したワークフローから、URL でない文字列を Audience に指定して取得し、値ではなく型だけを記録しています。
 
-## 1. Issuer and Discovery
+## Issuer and Discovery
 
 ### GH-OIDC-ISS Issuer
 
@@ -60,7 +60,7 @@ Observed の条項が根拠にする JWT は、どれも個人アカウントの
 - **Source**：[GitHub OIDC Discovery](../../research/github/oidc-discovery.md)
 - **Statement**：Discovery の応答の Metadata は、`issuer`、`jwks_uri`、`subject_types_supported`（`public`、`pairwise`）、`response_types_supported`（`id_token`）、`claims_supported`、`id_token_signing_alg_values_supported`、`scopes_supported`（`openid`）の 7 個だけで、`authorization_endpoint` と `token_endpoint` はない
 
-## 2. JWKS
+## JWKS
 
 ### GH-OIDC-JWKS-RSA-MEMBERS 鍵のメンバー
 
@@ -108,7 +108,7 @@ Observed の条項が根拠にする JWT は、どれも個人アカウントの
 公式資料は JWKS の内容を説明していません。
 記録した JWKS の `x5c` は、どれも証明書が 1 個だけでした（GH-OIDC-JWKS-X5C）。
 
-## 3. JOSE Header
+## JOSE Header
 
 ### GH-OIDC-HEADER-DOCUMENTED 公式資料が説明する Header Parameter
 
@@ -144,7 +144,7 @@ Observed の条項が根拠にする JWT は、どれも個人アカウントの
 公式資料が説明する Header Parameter（GH-OIDC-HEADER-DOCUMENTED）は `alg`、`kid`、`typ` だけですが、公式の例と記録した JWT には `x5t` もあります。
 公式資料は、説明した Header Parameter がすべてであるとは書いていません。
 
-## 4. Claims
+## Claims
 
 ### GH-OIDC-CLAIMS-TOKEN-TABLE 公式資料が説明する Claim
 
@@ -362,7 +362,7 @@ Audience を指定した 2 件は、ここに挙げた Claim と `aud` の型だ
 
 Observed の条項は、どれも個人アカウントが所有するリポジトリの記録です。
 
-## 5. Time Claims
+## Time Claims
 
 ### GH-OIDC-TIME-EXAMPLE 公式の JWT の例の時刻の差
 
@@ -385,7 +385,7 @@ Observed の条項は、どれも個人アカウントが所有するリポジ�
 
 公式の例（GH-OIDC-TIME-EXAMPLE）と記録した JWT（GH-OIDC-TIME-OBSERVED）では、`nbf` と `iat` の差が異なります。
 
-## 6. Audience
+## Audience
 
 ### GH-OIDC-AUD-DEFAULT Audience の既定値
 
@@ -431,7 +431,7 @@ api.github.com の URL は、別のリポジトリを指すものだけを試し
 
 GH-OIDC-AUD-CUSTOM-ISSUANCE の拒否は、公式資料には記載がありません。
 
-## 7. Subject
+## Subject
 
 ### GH-OIDC-SUB-IMMUTABLE-REASON 不変形式の導入の理由
 
@@ -512,7 +512,7 @@ Environment を使うジョブ:  repo:octocat@583231/example-repo@1234567890:env
 - **Statement**：GitHub は、`sub` の長さの上限と、`sub` に含まれ得る文字を定めていない
 - **Confirmation**：公式資料に `sub` の長さと文字の記述があるかを確かめる。長いブランチ名や Environment の名前、ASCII でない文字を含む名前を使うジョブで JWT を取得し、`sub` の長さと文字を記録する
 
-## 8. Subject Customization
+## Subject Customization
 
 ### GH-OIDC-SUB-CUSTOM-REPLACE カスタマイズによる `sub` の置き換え
 

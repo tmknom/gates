@@ -12,7 +12,7 @@ OpenID Connect Core §1.2 は、Relying Party（RP）を、OpenID Provider に E
 
 OpenID Connect Core の規定の多くは、ID Token か特定の認証フローに限られます。それらの条項は、Condition に「ID Token」や認証フローの名前を書きます。ID Token でない JWT には、それらの条項は適用されず、JWT 一般の規則（[RFC 7519 JSON Web Token](rfc7519.md)、[RFC 8725 JWT Best Current Practices](rfc8725.md)、[RFC 7515 JSON Web Signature](rfc7515.md) など）が適用されます。たとえば、`aud` に Relying Party の `client_id` を含める要件（OIDCC-AUD-CLIENT-ID）は ID Token の規定です。`aud` がある JWT で受信者が自身を識別できなければ拒否すること（[RFC 7519 JSON Web Token](rfc7519.md) の RFC7519-AUD-REJECT）、鍵が Issuer に属することを検証すること（[RFC 8725 JWT Best Current Practices](rfc8725.md) の RFC8725-ISS-KEY-VALIDATE）は、JWT 一般の規定です。
 
-## 1. ID Token Claims
+## ID Token Claims
 
 OpenID Connect Core §2 は、ID Token を、End-User の認証についての Claim を含む JWT と定め、すべての OAuth 2.0 のフローで ID Token に使う Claim を挙げています。OpenID Connect Core は `nbf` を定めていません。この節の条項の Actor は、ID Token を作る OpenID Provider か、ID Token を受け取る Relying Party です。原文は多くの規定を ID Token に課す要件として書き、主体を書いていないため、値を決める規定の Actor を OpenID Provider とします。
 
@@ -332,7 +332,7 @@ OIDCC-EXP-LEEWAY が、この判定に猶予を認めます。
 
 使う鍵の参照は、Discovery と登録のパラメーターで事前に伝えます（原文）。
 
-## 2. ID Token Validation in the Authorization Code Flow
+## ID Token Validation in the Authorization Code Flow
 
 OpenID Connect Core §3.1.3.7 は、Authorization Code Flow で Token Response に含まれる ID Token を Client が検証する手順を定めています。手順の多くの文は主語を「The Client」と書き、主体を書かない文（`iss`、TLS、`alg`、`exp`、`nonce` の手順）も手順を行うのは Client なので、この節の条項の Actor を Relying Party とします。
 手順 1（暗号化された ID Token の復号）は JWE を扱うため対象外です。手順 8 は、`alg` が HMAC を使うアルゴリズムの場合に、`aud` の `client_id` に対応する `client_secret` の UTF-8 表現を検証の鍵に使うとし、`aud` が複数の値を持つ場合の振る舞いを定めていません（RFC 2119 の語を使っていません）。
@@ -487,7 +487,7 @@ OIDCC-EXP-LEEWAY が、この判定に猶予を認めます。
 - **Actor**：Relying Party
 - **Condition**：Authorization Code Flow の Token Response に含まれる ID Token で、`auth_time` を求めた
 
-## 3. ID Token Validation in the Implicit and Hybrid Flows
+## ID Token Validation in the Implicit and Hybrid Flows
 
 Implicit Flow では、すべてのトークンを Authorization Endpoint から返し、Token Endpoint を使いません。Hybrid Flow では、ID Token を Authorization Endpoint と Token Endpoint のどちらからも返し得ます。
 
@@ -548,7 +548,7 @@ Implicit Flow の認証要求では `nonce` が REQUIRED なので（§3.2.2.1�
 - **Actor**：Relying Party
 - **Condition**：Hybrid Flow で Token Endpoint から返る ID Token である
 
-## 4. Signing
+## Signing
 
 OpenID Connect Core §10.1 の署名の規定は、ID Token に限らず、UserInfo Response、Request Object、Client 認証の JWT にも適用されます（§10）。原文は署名する主体を「The signing party」「the sender」「The signer」と呼ぶため、Actor を Signer に統一します。
 
@@ -626,7 +626,7 @@ MAC の鍵は、`client_secret` の値の UTF-8 表現のオクテット列で�
 §10.1.1 の見出しは「Rotation of Asymmetric Signing Keys」で、この推奨は非対称鍵の署名鍵の更新を扱います。
 §10.1.1 は鍵の更新の方法として、Signer が JWK Set に新しい鍵を加えて `kid` で切り替えを伝え、検証する側は知らない `kid` を見たら `jwks_uri` から鍵を取得し直すことを述べています（RFC 2119 の語を使っていません）。
 
-## 5. String Operations
+## String Operations
 
 OpenID Connect Core §14 は、Unicode の文字列の比較がセキュリティに大きく影響するとし、JSON の文字列とほかの Unicode の文字列の比較の手順を定めています。原文は比較の主体を書いていません。OpenID Connect のメッセージを処理する Relying Party と OpenID Provider の両方が比較を行い、§2 の `azp` の説明は処理する主体を「implementations」と呼ぶため、この節の条項の Actor を Implementation とします。
 
@@ -662,7 +662,7 @@ RFC 7159 §8.3 の比較（[RFC 7159 JSON](rfc7159.md) の RFC7159-STRING-COMPAR
 - **Level**：MUST
 - **Actor**：Implementation
 
-## 6. References
+## References
 
 - [RFC 2119 — Key words for use in RFCs to Indicate Requirement Levels](https://www.rfc-editor.org/rfc/rfc2119.html)（1997）
 - [OpenID Connect Core 1.0 incorporating errata set 2](https://openid.net/specs/openid-connect-core-1_0.html)（2023、§1.2、§2、§3.1.3.7、§3.2.2.1、§3.2.2.11、§3.3.2.12、§3.3.3.7、§10、§10.1、§10.1.1、§14、§15）
