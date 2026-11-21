@@ -23,6 +23,8 @@ type Client struct {
 	requestURL   *url.URL
 	requestToken credential.OIDCRequestToken
 	httpClient   *http.Client
+	// dialer は Transport が接続に使う Dialer で、テストが接続の期限を確かめるために持つ
+	dialer *net.Dialer
 }
 
 // Option は Client の設定を変える。
@@ -46,8 +48,9 @@ func NewClient(requestURL string, requestToken credential.OIDCRequestToken, opts
 	}
 
 	// DefaultTransport の複製に、接続の期限だけを足す
+	dialer := &net.Dialer{Timeout: connectTimeout}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.DialContext = (&net.Dialer{Timeout: connectTimeout}).DialContext
+	transport.DialContext = dialer.DialContext
 	c := &Client{
 		requestURL:   parsed,
 		requestToken: requestToken,
@@ -56,6 +59,7 @@ func NewClient(requestURL string, requestToken credential.OIDCRequestToken, opts
 			// 3xx を成功として扱わず、応答のステータスで失敗にする
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
+		dialer: dialer,
 	}
 	for _, opt := range opts {
 		opt(c)

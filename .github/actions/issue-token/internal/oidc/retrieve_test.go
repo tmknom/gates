@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -315,6 +316,34 @@ func TestRetrieve_SetsRetrievalTimeout(t *testing.T) {
 	}
 	if got := recorder.deadline.Sub(start); got < 29*time.Second || got > 31*time.Second {
 		t.Errorf("deadline is %v after the start, want about 30s", got)
+	}
+}
+
+func TestRetrieve_SetsConnectTimeout(t *testing.T) {
+	t.Parallel()
+
+	var deadline time.Time
+	var ok bool
+	errAborted := errors.New("aborted before connecting")
+	client, err := oidc.NewClient("https://127.0.0.1:1/token?api-version=2.0", credential.NewOIDCRequestToken(requestToken),
+		oidc.WithDialControl(func(ctx context.Context, _, _ string, _ syscall.RawConn) error {
+			deadline, ok = ctx.Deadline()
+			return errAborted
+		}))
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	start := time.Now()
+	if _, err := client.Retrieve(t.Context(), audience); err == nil {
+		t.Fatal("Retrieve() error = nil, want the aborted connection")
+	}
+
+	if !ok {
+		t.Fatal("the connection has no deadline")
+	}
+	if got := deadline.Sub(start); got < 9*time.Second || got > 11*time.Second {
+		t.Errorf("connection deadline is %v after the start, want about 10s", got)
 	}
 }
 
