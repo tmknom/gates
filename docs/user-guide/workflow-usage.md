@@ -22,7 +22,7 @@ jobs:
     steps:
       - name: Issue token
         id: gates
-        uses: tmknom/gates/.github/actions/issue-token@<コミット>
+        uses: tmknom/gates/actions/issue-token@<コミット>
         with:
           repositories: example-owner/repo-a
           permissions: contents:read
@@ -39,7 +39,7 @@ jobs:
 
 - **`id-token: write`**：Action が OIDC JWT を受け取るために要る。Action を置くジョブにだけ与える
 - **`repositories`**：トークンで操作するリポジトリ。複数ならカンマ区切りで並べる
-- **`permissions`**：トークンの権限。`権限名:水準` をカンマ区切りで並べる（例：`contents:write,pull_requests:read`）。書ける権限名と水準は [Issue Token](../../.github/actions/issue-token/README.md) の「要求できる権限」にある
+- **`permissions`**：トークンの権限。`権限名:水準` をカンマ区切りで並べる（例：`contents:write,pull_requests:read`）。書ける権限名と水準は [Issue Token](../../actions/issue-token/README.md) の「要求できる権限」にある
 - **`role-arn` から `audience`**：接続情報。値を直接書かず、Secrets と Variables を参照する
 - **`steps.gates.outputs.token`**：トークン。同じジョブの後続のステップで使う
 
@@ -107,7 +107,7 @@ jobs:
     steps:
       - name: Issue token
         id: gates
-        uses: tmknom/gates/.github/actions/issue-token@<コミット>
+        uses: tmknom/gates/actions/issue-token@<コミット>
         with:
           repositories: example-owner/repo-a
           permissions: contents:read
@@ -252,7 +252,7 @@ Windows と macOS の Runner では、Action は動きません。
 
 ## 7. References
 
-- [Issue Token](../../.github/actions/issue-token/README.md)：Action の入力と出力の書式、注釈の一覧
+- [Issue Token](../../actions/issue-token/README.md)：Action の入力と出力の書式、注釈の一覧
 - [Security Considerations](security-considerations.md)：トークンを受け取るジョブで信頼できないコードを動かさない理由
 - [GitHub — OpenID Connect reference](https://docs.github.com/en/actions/reference/security/oidc)
 - [GitHub — Workflow syntax: permissions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions)

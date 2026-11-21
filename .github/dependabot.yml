@@ -4,7 +4,7 @@ updates:
   - package-ecosystem: gomod
     directories:
       - /
-      - /.github/actions/issue-token
+      - /actions/issue-token
     schedule:
       interval: weekly
     cooldown:
@@ -34,7 +34,7 @@ updates:
       - dependency-name: tmknom/gates/*
 
   - package-ecosystem: docker
-    directory: /.github/actions/issue-token
+    directory: /actions/issue-token
     schedule:
       interval: monthly
     cooldown:

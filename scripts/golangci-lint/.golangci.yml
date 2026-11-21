@@ -120,8 +120,8 @@ linters:
         text: "use of `(os\\.(Args|Exit|Getenv)|panic)`"
   settings:
     depguard:
-      # 規則はルートのモジュールと Docker Action のモジュール（.github/actions/issue-token）で分ける。
-      # 両者は internal/request と internal/credential の名前が重なり、また否定だけの files は全ファイルに効くため、ルートの規則から .github/ を外す
+      # 規則はルートのモジュールと Docker Action のモジュール（actions/issue-token）で分ける。
+      # 両者は internal/request と internal/credential の名前が重なり、また否定だけの files は全ファイルに効くため、ルートの規則から actions/issue-token/ を外す
       rules:
         archived:
           list-mode: lax
@@ -140,7 +140,7 @@ linters:
             - "**/internal/repository/**"
             - "**/internal/request/**"
             - "**/internal/revocation/**"
-            - "!**/.github/**"
+            - "!**/actions/issue-token/**"
           allow:
             - github.com/tmknom/gates/internal
           deny:
@@ -178,7 +178,7 @@ linters:
           files:
             - "!**/internal/signer/**"
             - "!**/main.go"
-            - "!**/.github/**"
+            - "!**/actions/issue-token/**"
           deny:
             - pkg: github.com/aws/aws-sdk-go-v2
               desc: only internal/signer and main may use the AWS SDK
@@ -189,7 +189,7 @@ linters:
           list-mode: lax
           files:
             - "**/internal/**"
-            - "!**/.github/**"
+            - "!**/actions/issue-token/**"
           deny:
             - pkg: github.com/aws/aws-lambda-go
               desc: only main may use the Lambda Runtime library
@@ -198,7 +198,7 @@ linters:
           list-mode: strict
           files:
             - "**/internal/credential/**"
-            - "!**/.github/**"
+            - "!**/actions/issue-token/**"
           allow:
             - $gostd
             - github.com/tmknom/gates/internal/credential
@@ -216,13 +216,13 @@ linters:
         action-no-communication:
           list-mode: lax
           files:
-            - "**/.github/actions/issue-token/internal/credential/**"
-            - "**/.github/actions/issue-token/internal/request/**"
-            - "**/.github/actions/issue-token/internal/response/**"
-            - "**/.github/actions/issue-token/internal/supervise/**"
-            - "**/.github/actions/issue-token/internal/workflow/**"
+            - "**/actions/issue-token/internal/credential/**"
+            - "**/actions/issue-token/internal/request/**"
+            - "**/actions/issue-token/internal/response/**"
+            - "**/actions/issue-token/internal/supervise/**"
+            - "**/actions/issue-token/internal/workflow/**"
           allow:
-            - github.com/tmknom/gates/.github/actions/issue-token/internal
+            - github.com/tmknom/gates/actions/issue-token/internal
           deny:
             - pkg: net
               desc: the docker action's input, response, workflow command, credential, and parent packages must not communicate
@@ -234,8 +234,8 @@ linters:
         action-aws-sdk:
           list-mode: lax
           files:
-            - "**/.github/actions/issue-token/**"
-            - "!**/.github/actions/issue-token/internal/awsapi/**"
+            - "**/actions/issue-token/**"
+            - "!**/actions/issue-token/internal/awsapi/**"
           deny:
             - pkg: github.com/aws/aws-sdk-go-v2
               desc: only internal/awsapi may use the AWS SDK in the docker action
@@ -245,7 +245,7 @@ linters:
         action-no-aws-config:
           list-mode: lax
           files:
-            - "**/.github/actions/issue-token/**"
+            - "**/actions/issue-token/**"
           deny:
             - pkg: github.com/aws/aws-sdk-go-v2/config
               desc: the docker action builds the AWS SDK options itself and must not load configuration from the environment or shared files
@@ -255,10 +255,10 @@ linters:
         action-credential-standard-library-only:
           list-mode: strict
           files:
-            - "**/.github/actions/issue-token/internal/credential/**"
+            - "**/actions/issue-token/internal/credential/**"
           allow:
             - $gostd
-            - github.com/tmknom/gates/.github/actions/issue-token/internal/credential
+            - github.com/tmknom/gates/actions/issue-token/internal/credential
         # 署名検証済みの Claims Set は監査記録のためだけの値で、認証、認可、ワークフロー起動属性の判断に使わない（FR-OPS-003）。
         # 作る OIDC Verifier、運ぶ Lambda Handler、書く監査記録のほかは import できなくし、Authorization が受け取れないようにする
         claimsset-consumers:
@@ -270,7 +270,7 @@ linters:
             - "!**/internal/audit/**"
             - "!**/internal/claimsset/**"
             - "!**/internal/handler/**"
-            - "!**/.github/**"
+            - "!**/actions/issue-token/**"
           deny:
             - pkg: github.com/tmknom/gates/internal/claimsset
               desc: only internal/authn, internal/handler, and internal/audit may use the signature-verified Claims Set
@@ -279,7 +279,7 @@ linters:
           list-mode: strict
           files:
             - "**/internal/claimsset/**"
-            - "!**/.github/**"
+            - "!**/actions/issue-token/**"
           allow:
             - $gostd
             - github.com/tmknom/gates/internal/claimsset$
@@ -342,23 +342,23 @@ linters:
         # internal/workflow はマスクのために Expose を持つ値を interface で受けて呼び、この規則の対象にならない
         # Docker Action：要求用トークンの値を取り出せるのは、OIDC JWT の要求に付ける internal/oidc だけ（GitHub Actions Design の Packages）。Expose は公開メソッドで、呼び出せる package を型で限定できないため
         - pattern: ^credential\.OIDCRequestToken\.Expose$
-          pkg: ^github\.com/tmknom/gates/\.github/actions/issue-token/internal/credential$
+          pkg: ^github\.com/tmknom/gates/actions/issue-token/internal/credential$
           msg: only internal/oidc may expose the OIDC request token
         # Docker Action：OIDC JWT の値を取り出せるのは、Payload に入れる internal/request と、AssumeRoleWithWebIdentity に渡す internal/awsapi だけ。Expose は公開メソッドで、呼び出せる package を型で限定できないため
         - pattern: ^credential\.OIDCJWT\.Expose$
-          pkg: ^github\.com/tmknom/gates/\.github/actions/issue-token/internal/credential$
+          pkg: ^github\.com/tmknom/gates/actions/issue-token/internal/credential$
           msg: only internal/request and internal/awsapi may expose the OIDC JWT
         # Docker Action：AWS 一時認証情報の値を取り出せるのは、Lambda Invoke に署名する internal/awsapi だけ。Expose は公開メソッドで、呼び出せる package を型で限定できないため
         - pattern: ^credential\.AWS(AccessKeyID|SecretAccessKey|SessionToken)\.Expose$
-          pkg: ^github\.com/tmknom/gates/\.github/actions/issue-token/internal/credential$
+          pkg: ^github\.com/tmknom/gates/actions/issue-token/internal/credential$
           msg: only internal/awsapi may expose the AWS credentials
         # Docker Action：Installation Access Token の値を取り出せるのは、GITHUB_STATE と Output に書く internal/issue と、失効の要求に付ける internal/githubapi だけ。Expose は公開メソッドで、呼び出せる package を型で限定できないため
         - pattern: ^credential\.InstallationAccessToken\.Expose$
-          pkg: ^github\.com/tmknom/gates/\.github/actions/issue-token/internal/credential$
+          pkg: ^github\.com/tmknom/gates/actions/issue-token/internal/credential$
           msg: only internal/issue and internal/githubapi may expose the installation access token
         # Docker Action：OIDC JWT を作れるのは、応答の JSON を復号した文字列から作る internal/oidc だけ。Payload の符号化は、OIDC JWT が UTF-8 として正しいことを前提にする。NewOIDCJWT は公開関数で、呼び出せる package を型で限定できないため
         - pattern: ^credential\.NewOIDCJWT$
-          pkg: ^github\.com/tmknom/gates/\.github/actions/issue-token/internal/credential$
+          pkg: ^github\.com/tmknom/gates/actions/issue-token/internal/credential$
           msg: only internal/oidc may create an OIDC JWT
     gocritic:
       disable-all: true

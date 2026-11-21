@@ -72,7 +72,7 @@ jobs:
     steps:
       - name: Issue token
         id: gates
-        uses: tmknom/gates/.github/actions/issue-token@<PINNED_COMMIT_SHA>
+        uses: tmknom/gates/actions/issue-token@<PINNED_COMMIT_SHA>
         with:
           repositories: example-org/repo-a,example-org/repo-b
           permissions: contents:read
@@ -97,7 +97,7 @@ All inputs are required.
 | Input | Description |
 |---|---|
 | `repositories` | Comma-separated `owner/repo` list of the repositories the token can access (up to 500) |
-| `permissions` | Comma-separated `permission:level` list of repository permissions, such as `contents:read,pull_requests:write`. The accepted names and levels are listed in the [Issue Token action](.github/actions/issue-token/README.md) |
+| `permissions` | Comma-separated `permission:level` list of repository permissions, such as `contents:read,pull_requests:write`. The accepted names and levels are listed in the [Issue Token action](actions/issue-token/README.md) |
 | `role-arn` | ARN of the IAM role to assume. Build it from the operator's Secrets and Variables as in the example |
 | `function-name` | Name of the GATES Lambda function |
 | `aws-region` | AWS region of the GATES Lambda function |
@@ -145,7 +145,7 @@ Finer-grained authorization per caller or team, and organization, account, and e
 
 - [User Guide](docs/user-guide/README.md) (in Japanese): For people who evaluate, deploy, operate, or use GATES from workflows. Overview, security considerations, a deployment tutorial, key material import and rotation, release verification, writing workflows, operations, and troubleshooting
 - [Docs](docs/README.md): For people who develop GATES. Purpose and design principles, requirements, design, research on GitHub and AWS behavior, and development procedures such as testing and releases
-- [Issue Token action](.github/actions/issue-token/README.md): Detailed reference for the action, including input validation and every failure annotation
+- [Issue Token action](actions/issue-token/README.md): Detailed reference for the action, including input validation and every failure annotation
 - [Formal models](formal/README.md): Models that check the authorization and token issuance rules
 - [llms.txt](llms.txt): Index of the repository for coding agents
 

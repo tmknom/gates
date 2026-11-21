@@ -52,7 +52,7 @@ jobs:
           GOFLAGS: -mod=readonly
         run: |
           set -euo pipefail
-          for dir in . .github/actions/issue-token; do
+          for dir in . actions/issue-token; do
             echo "::group::${dir}"
             go -C "${dir}" mod download
             go -C "${dir}" mod verify

@@ -14,7 +14,7 @@ Go のコードを静的解析する golangci-lint を、隔離したコンテ�
 このため、同じバージョンの golangci-lint を Docker Action のビルドと同じ Go でソースからビルドし、公式イメージの実行ファイルと Go をそれで差し替えます。
 公式イメージの OS のパッケージは、ビルド時に上げます。
 バージョンを変えるときは、`go install` のバージョンと公式イメージのタグと digest を一緒に書き換えます。
-`make lint` と `make -C .github/actions/issue-token lint` は実行のたびにイメージをビルドします。
+`make lint` と `make -C actions/issue-token lint` は実行のたびにイメージをビルドします。
 
 ## 使い方
 
@@ -39,13 +39,13 @@ LINT_MODULE="$PWD" LINT_GOMODCACHE="$(go env GOMODCACHE)" \
   lint golangci-lint run --config=/config/.golangci.yml ./internal/...
 ```
 
-Docker Action のモジュール（`.github/actions/issue-token`）は、リポジトリのルートをマウントしたまま、作業ディレクトリをそのモジュールに移して lint します（`make -C .github/actions/issue-token lint`）。
+Docker Action のモジュール（`actions/issue-token`）は、リポジトリのルートをマウントしたまま、作業ディレクトリをそのモジュールに移して lint します（`make -C actions/issue-token lint`）。
 隠すパスはルートを渡すときと同じで、モジュールのディレクトリにマウントポイントを用意する必要がありません。
 
 ```sh
 LINT_MODULE="$PWD" LINT_GOMODCACHE="$(go env GOMODCACHE)" \
   docker compose -f scripts/golangci-lint/compose.yaml run --rm -T --interactive=false \
-  --workdir /src/.github/actions/issue-token lint
+  --workdir /src/actions/issue-token lint
 ```
 
 ## 環境変数
