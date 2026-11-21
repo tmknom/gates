@@ -66,17 +66,14 @@ GATES は、呼び出し元を許可オーナー単位でしか区別しませ�
 
 ### 4.2 そのほかの制約
 
-- **許可オーナーは一つ**：一つの GATES がトークンを発行するのは、一つのオーナーのワークフローと、そのオーナーのリポジトリに対してだけである。複数のオーナーを扱う予定はない
-- **権限は Repository permissions だけ**：Organization permissions、Account permissions、Enterprise permissions は発行しない。Organization、Enterprise、ユーザーアカウントの資源の操作には使えない
 - **GitHub.com の GitHub Actions だけ**：GitHub Enterprise Server や、GitHub Actions 以外の実行環境には対応しない
-- **リポジトリの OIDC JWT は不変の ID を含む形式に限る**：新しいリポジトリは既定でこの形式になる。古いリポジトリは、リポジトリか Organization の設定で切り替える
+- **権限は Repository permissions だけ**：Organization permissions、Account permissions、Enterprise permissions は発行しない
 - **Runner は Linux で Docker を使えるもの**：GitHub がホストする `ubuntu-latest` はこれを満たす
-- **Organization を許可オーナーにした構成は未検証**：GATES の検証環境で動作を確かめたのは、ユーザーアカウントを許可オーナーにした構成だけである
+- **リポジトリの OIDC JWT は不変の ID を含む形式に限る**：古いリポジトリは、リポジトリか Organization の設定で切り替える
 
 ## 5. 役割と責任
 
 GATES は、次の 3 つの役割がそれぞれの責任を果たすことを前提に動きます。
-ユーザーアカウントを許可オーナーにする構成では、同じ人が 3 つを兼ねることが多くなります。
 
 | 役割 | 担うこと |
 |---|---|

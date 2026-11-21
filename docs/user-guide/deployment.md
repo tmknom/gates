@@ -2,27 +2,11 @@
 
 運用者に向けて、GATES を初めてデプロイし、最初のトークンの発行を確かめるまでの手順を示します。
 上から順に進めると、許可オーナーのワークフローが Action でトークンを受け取れるようになります。
-GATES の仕組みと用語は [GATES Overview](overview.md) にあります。
+一部の環境でだけ要る作業は、末尾の §10 にあります。
 
-## 1. Order of the Work
+## 1. Prerequisites
 
-| 節 | 作業 | 場所 |
-|---|---|---|
-| §2 | 前提を確かめる | 手元、AWS、GitHub |
-| §3 | GitHub App を作成し、許可オーナーにインストールする | GitHub |
-| §4 | GATES のソースを取得し、配布物を検証する | 手元 |
-| §5 | `terraform.tfvars` を設定する | 手元 |
-| §6 | Terraform で AWS リソースを作る | 手元、AWS |
-| §7 | GitHub App Private Key を生成し、KMS Key にインポートする | GitHub、手元、AWS |
-| §8 | 接続情報を GitHub に登録する | GitHub |
-| §9 | 最初の発行を確かめる | GitHub、AWS |
-
-一部の環境でだけ要る作業は §10 にあります。
-§4 以降のコマンドは、GATES のリポジトリのルートで、同じシェルから実行します。
-
-## 2. Prerequisites
-
-### 2.1 Local Tools
+### 1.1 Local Tools
 
 | ツール | 使う場面 |
 |---|---|
@@ -34,11 +18,11 @@ GATES の仕組みと用語は [GATES Overview](overview.md) にあります。
 | AWS CLI、`jq`、`xxd`、OpenSSL 3 以降 | 鍵素材をインポートし、結果を確かめる。macOS 標準の LibreSSL では動かない |
 | GitHub CLI | 配布物を検証し、接続情報を登録する。`gh auth login` でログインしておく |
 
-### 2.2 AWS Credentials
+### 1.2 AWS Credentials
 
 AWS の一時認証情報（`AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY`、`AWS_SESSION_TOKEN`）をシェルの環境変数に設定します。
-`make tf-plan`、`make tf-apply`、`make kms-import-key-material` は、`AWS_SESSION_TOKEN` のない長期のアクセスキーでは動きません。
-AWS CLI のリージョン（`AWS_REGION`）は、§5 で `region` に設定するリージョンにします。
+`AWS_SESSION_TOKEN` のない長期のアクセスキーでは、`make tf-plan` などのコマンドが動きません。
+`AWS_REGION` は、GATES をデプロイするリージョンにします。
 
 一時認証情報の主体には、次の権限が要ります。
 
@@ -46,11 +30,10 @@ AWS CLI のリージョン（`AWS_REGION`）は、§5 で `region` に設定す�
 - KMS Key への鍵素材のインポート
 - 確認に使う読み取り（`iam:GetOpenIDConnectProvider`、`kms:DescribeKey`、`lambda:GetFunction`、`logs:FilterLogEvents`）
 
-### 2.3 IAM OIDC Provider
+### 1.3 IAM OIDC Provider
 
 AWS アカウントに、GitHub Actions の OIDC JWT を信頼する IAM OIDC Provider が要ります。
-GATES の Terraform は Provider を作らず、アカウントにあるものを使います。
-次のコマンドで確かめます。
+GATES の Terraform は Provider を作らないため、あることを確かめます。
 
 ```bash
 aws iam get-open-id-connect-provider \
@@ -61,9 +44,9 @@ aws iam get-open-id-connect-provider \
 出力の配列に `sts.amazonaws.com` があれば、満たしています。
 `NoSuchEntity` のエラーになったときは、§10.1 で作ります。
 
-### 2.4 OIDC JWT of the Repositories
+### 1.4 OIDC JWT of the Repositories
 
-GATES を呼び出すリポジトリの OIDC JWT は、呼び出し元を示す `sub` が、`repo:<オーナー名>@<Owner ID>/<リポジトリ名>@<Repository ID>:...` のように不変の ID を含む形式でなければなりません。
+GATES を呼び出すリポジトリの OIDC JWT は、`sub` が不変の ID を含む形式（`repo:<オーナー名>@<Owner ID>/<リポジトリ名>@<Repository ID>:...`）でなければなりません。
 名前だけの形式のリポジトリからの呼び出しは、AWS が拒否します。
 新しいリポジトリは既定でこの形式ですが、古いリポジトリは名前だけの形式のことがあります。
 
@@ -74,24 +57,11 @@ gh api repos/<オーナー名>/<リポジトリ名>/actions/oidc/customization/s
 ```
 
 出力の `use_immutable_subject` が `false` で、`sub_claim_prefix` に `@` がなければ、名前だけの形式です。
+その場合は §10.2 で切り替えます。
 
-```json
-{"use_default":true,"use_immutable_subject":false,"sub_claim_prefix":"repo:octocat/example-legacy-repo"}
-```
+## 2. Creating and Installing the GitHub App
 
-その場合は、リポジトリの管理者が次のコマンドで切り替えます。
-許可オーナーが Organization なら、Organization の設定（REST API の `use_immutable_subject`）でまとめて切り替えられます。
-
-```bash
-gh api --method PUT repos/<オーナー名>/<リポジトリ名>/actions/oidc/customization/sub \
-  -F use_default=true -F use_immutable_subject=true
-```
-
-`sub` の形式をカスタマイズして、先頭がこの形式でなくなったリポジトリからも呼び出せません。
-
-## 3. Creating and Installing the GitHub App
-
-### 3.1 Creating the GitHub App
+### 2.1 Creating the GitHub App
 
 許可オーナーがユーザーアカウントなら、`Settings` → `Developer settings` → `GitHub Apps` → `New GitHub App` を開きます。
 Organization なら、Organization の `Settings` の `Developer settings` から同じ操作で作ります。
@@ -108,19 +78,16 @@ Organization なら、Organization の `Settings` の `Developer settings` か�
 | Where can this GitHub App be installed? | `Only on this account` |
 
 **GitHub App に付与した権限は、発行上限に含めると、許可オーナーのすべてのワークフローが要求できるようになります。**
-付与する権限の決め方と、付与を避ける権限は、[Security Considerations](security-considerations.md) の §1.4 にあります。
-Organization permissions、Account permissions、Enterprise permissions は、GATES が発行しないため付与しません。
+付与を避けるべき権限は、[Security Considerations](security-considerations.md) にあります。
 
 `Create GitHub App` をクリックし、設定ページの `General` に表示される **Client ID** を控えます。
 
-### 3.2 Installing the GitHub App
+### 2.2 Installing the GitHub App
 
 設定ページの `Install App` から、許可オーナーの `Install` をクリックします。
-**`Only select repositories` を選び、トークンを発行してよいリポジトリだけを加えます。**
-許可オーナーのどのワークフローも、ここで選んだインストール対象を、§3.1 で付与し発行上限に含めた権限で操作できます。
-§9 の確認に、インストール対象のリポジトリが一つ要ります。
+**`Only select repositories` を選び、許可オーナーのどのワークフローから操作されてもよいリポジトリだけを加えます。**
 
-## 4. Getting and Verifying the Source
+## 3. Getting and Verifying the Source
 
 GATES のリポジトリを取得し、デプロイするリリースのタグをチェックアウトします。
 `<バージョン>` には、`vX.Y.Z` の形のタグを入れます。
@@ -132,10 +99,12 @@ cd gates
 git switch --detach <バージョン>
 ```
 
-続けて、同じバージョンの配布物をダウンロードし、[Release Verification](verify-release.md) の §2 と §3 の手順で検証します。
-配布物は、§6.3 で関数のコードと照合するまで残しておきます。
+続けて、同じバージョンの配布物をダウンロードし、[Release Verification](verify-release.md) の手順でチェックサムと Attestation を検証します。
+配布物は、デプロイした関数のコードとの照合に使うため、残しておきます。
 
-## 5. Setting terraform.tfvars
+以降のコマンドは、このリポジトリのルートで、同じシェルから実行します。
+
+## 4. Setting terraform.tfvars
 
 Terraform を初期化し、例のファイルをコピーします。
 初期化は、`terraform.tfvars` と Terraform の State を置く `terraform/local/` も作ります。
@@ -145,26 +114,14 @@ make -C terraform init
 cp terraform/terraform.tfvars.example terraform/local/terraform.tfvars
 ```
 
-`terraform/local/terraform.tfvars` に、次の値を設定します。
+`terraform/local/terraform.tfvars` に、以下の値を設定します。
 値が条件を満たさないと、`make tf-plan` が変数名と理由を表示して止まります。
 
-| 変数 | 意味 | 決め方 |
-|---|---|---|
-| `region` | AWS リソースを作るリージョン | 既定は `ap-northeast-1`。変えるときは、Terraform のコンテナが通信してよい宛先の一覧（`scripts/terraform/proxy/allow-aws.txt`）のリージョンも変える |
-| `allowed_owner_id` | 許可オーナーの不変 Owner ID | §5.1。文字列として書く |
-| `allowed_owner_name` | 許可オーナーの名前 | §5.1。GitHub 上の表記のまま書く |
-| `allowed_owner_type` | 許可オーナーの種別 | §5.1。`User` か `Organization` |
-| `github_app_client_id` | GitHub App の Client ID | §3.1 で控えた値 |
-| `gates_audience` | GATES が受け付ける Audience | §5.2 |
-| `issuable_permissions` | 発行上限 | §5.4 |
-| `kms_keys` | KMS Key の名前から鍵の種類への Map | §5.3 |
-| `active_kms_key` | 使用中の鍵の名前 | §5.3 |
-| `lambda_reserved_concurrency` | Lambda の関数の同時実行数の予約 | 既定の `-1`（予約しない）のままでよい。予約するなら、アカウントの未予約の同時実行数が 100 を下回らない値にする |
-| `log_retention_in_days` | ログと監査記録の保持期間（日） | 既定は 7。監査の方針に合わせ、CloudWatch Logs が受け付ける日数（14、30、90、365 など）にする |
+### 4.1 Allowed Owner
 
-### 5.1 Owner ID, Name, and Type
-
-許可オーナーの名前から、`allowed_owner_id`、`allowed_owner_name`、`allowed_owner_type` の順に値を調べます。
+`allowed_owner_id`、`allowed_owner_name`、`allowed_owner_type` には、許可オーナーの不変 Owner ID、名前、種別を設定します。
+次のコマンドが、この順に出力します。
+`allowed_owner_id` は文字列として書きます。
 
 ```bash
 gh api users/<オーナー名> --jq '[.id, .login, .type] | @tsv'
@@ -174,15 +131,18 @@ gh api users/<オーナー名> --jq '[.id, .login, .type] | @tsv'
 583231	octocat	User
 ```
 
-### 5.2 Audience
+### 4.2 GitHub App and Audience
+
+`github_app_client_id` には、GitHub App を作ったときに控えた Client ID を設定します。
 
 `gates_audience` には、GATES 専用の、URL でない文字列を決めます（例：`<オーナー名>-gates`）。
 ほかのサービスに向けた OIDC JWT で GATES を呼び出せないようにするためです。
 `sts.amazonaws.com` と、`https://github.com` で始まる値は拒否されます。
 
-### 5.3 KMS Keys
+### 4.3 KMS Keys
 
 最初は、`key-1` という名前の KMS Key を一つだけ置き、使用中の鍵にします。
+鍵の種類は、GitHub が生成する秘密鍵の鍵長に合わせて `RSA_2048` にします。
 
 ```hcl
 kms_keys = {
@@ -191,15 +151,10 @@ kms_keys = {
 active_kms_key = "key-1"
 ```
 
-鍵の種類は、インポートする秘密鍵の鍵長に合わせます。
-秘密鍵はこの後で生成するため、GitHub が生成する鍵の鍵長として観測されている `RSA_2048` にします。
-鍵長が違ったときは、§10.5 で扱います。
-
-### 5.4 Issuable Permissions
+### 4.4 Issuable Permissions
 
 `issuable_permissions` には、GitHub App に付与した Repository permissions のうち、ワークフローが要求する権限名と水準の組を、`権限名:水準` のリストで書きます。
-書ける組は [Issue Token](../../.github/actions/issue-token/README.md) の「要求できる権限」にあります。
-GitHub App の設定画面の表示名ではなく、そこにある権限名で書きます。
+権限名は、GitHub App の設定画面の表示名ではなく、[Issue Token](../../.github/actions/issue-token/README.md) の「要求できる権限」にある名前で書きます。
 
 ```hcl
 issuable_permissions = [
@@ -209,19 +164,23 @@ issuable_permissions = [
 ]
 ```
 
-- **GitHub App にない権限を含めない**：含めても GitHub が拒否するため発行されないが、後で GitHub App の権限を広げたときに、`terraform.tfvars` のレビューを経ずに発行されるようになる
-- **読み取りだけの要求も通すなら、`read` も書く**：`contents:write` だけを書くと、`contents:read` の要求は拒否される。GitHub App に `Read and write` で付与した権限を読み取りだけで使うワークフローがあるなら、`read` と `write` の両方を書く
-- **`metadata:read` は、明示して要求するワークフローがあるときだけ書く**：GitHub が加えることがある `metadata:read` のためには要らない
+- **GitHub App にない権限を含めない**：後で GitHub App の権限を広げたときに、`terraform.tfvars` のレビューを経ずに発行されるようになる
+- **読み取りだけの要求も通すなら、`read` も書く**：`contents:write` だけを書くと、`contents:read` の要求は拒否される
 
-書式の誤り（大文字、`:` のない要素、重複）は、`make tf-plan` が止めます。
-**`members:read` のような Repository permissions でない組や、「要求できる権限」にない組は、`make tf-plan` が止めません。**
-適用すると、Lambda の関数が初期化に失敗し、どの要求にもトークンを返さなくなります。
-この失敗は、`the Lambda function returned FunctionError` として現れます。
-ログの読み方は [Troubleshooting](troubleshooting.md) の §5.3 にあります。
+**`make tf-plan` が止めるのは書式の誤りだけです。**
+「要求できる権限」にない組（`members:read` など）を含めて適用すると、Lambda の関数が初期化に失敗し、どの要求にもトークンを返さなくなります。
 
-## 6. Plan and Apply
+### 4.5 Other Variables
 
-### 6.1 Applying
+次の変数は、既定のままでかまいません。
+
+- **`region`**：既定は `ap-northeast-1`。変えるときは、Terraform のコンテナが通信してよい宛先の一覧（`scripts/terraform/proxy/allow-aws.txt`）のリージョンも変える
+- **`lambda_reserved_concurrency`**：既定は `-1`（予約しない）
+- **`log_retention_in_days`**：ログと監査記録の保持期間。既定は 7 日。監査の方針に合わせ、CloudWatch Logs が受け付ける日数（14、30、90、365 など）にする
+
+## 5. Plan and Apply
+
+### 5.1 Applying
 
 `make tf-plan` を実行します。
 デプロイパッケージ（`dist/lambda.zip`）をビルドしてから Plan を作ります。
@@ -238,17 +197,17 @@ Plan: 12 to add, 0 to change, 0 to destroy.
 ```
 
 問題がなければ適用し、もう一度 `make tf-plan` を実行して `No changes` を確かめます。
+`make tf-apply` が失敗したら、`make tf-plan` からやり直します。
 
 ```bash
 make tf-apply
 make tf-plan
 ```
 
-`make tf-apply` が失敗したら、`make tf-plan` からやり直します。
-
-### 6.2 Checking the Created Resources
+### 5.2 Checking the Output
 
 Terraform の Output を表示します。
+値は、接続情報の登録に使います。
 
 ```bash
 make -C terraform output
@@ -263,21 +222,11 @@ kms_key_arns = {
 lambda_function_name = "gates"
 ```
 
-KMS Key は、鍵素材を持たない `PendingImport` の状態で作られます。
-インポートするまで、GATES はトークンを発行できません。
+KMS Key は鍵素材を持たない状態で作られるため、鍵素材をインポートするまで、GATES はトークンを発行できません。
 
-```bash
-aws kms describe-key --key-id <kms_key_arn> \
-  --query 'KeyMetadata.[KeyState,Origin,KeyUsage,KeySpec]' --output text
-```
+### 5.3 Checking the Deployed Function Code
 
-```text
-PendingImport	EXTERNAL	SIGN_VERIFY	RSA_2048
-```
-
-### 6.3 Checking the Deployed Function Code
-
-デプロイした関数のコードが、§4 で検証した配布物と同じであることを確かめます。
+デプロイした関数のコードが、検証した配布物と同じであることを確かめます。
 `<配布物のパス>` には、`gates-lambda-linux-arm64.zip` のパスを入れます。
 2 つの出力が一致すれば、同じです。
 
@@ -286,14 +235,14 @@ aws lambda get-function --function-name gates --query Configuration.CodeSha256 -
 openssl dgst -sha256 -binary <配布物のパス> | openssl base64
 ```
 
-一致しないときは、§7 に進まず、[Release Verification](verify-release.md) の §4 で原因を調べます。
+一致しないときは、鍵素材をインポートせず、[Release Verification](verify-release.md) で原因を調べます。
 
-### 6.4 Keeping terraform/local/
+### 5.4 Keeping terraform/local/
 
 `terraform/local/` は消さずに保管します。
 State を失うと、Terraform は作ったリソースを管理できなくなり、以後の変更や更新ができません。
 
-## 7. Importing the Key Material
+## 6. Importing the Key Material
 
 GitHub App の設定ページの `Credentials` → `Key pairs` → `New key` で、秘密鍵をダウンロードします。
 秘密鍵が手元にある時間を短くするため、すぐに次のコマンドを実行します。
@@ -313,28 +262,22 @@ Fingerprint: SHA256:...
 `Key state` が `Enabled` で、`Fingerprint` が `Key pairs` に表示された鍵のフィンガープリントと一致すれば成功です。
 最後に `make tf-plan` が `No changes` を示すことを確かめます。
 
-インポートが途中で止まったときは [Key Material Import](import-key-material.md) の §3 を、鍵長が `key_spec` と違って止まったときは §10.5 を見ます。
+鍵長が `key_spec` と違って止まったときは §10.6 を、ほかの理由で止まったときは [Key Material Import](import-key-material.md) を見ます。
 
-## 8. Registering the Connection Information
+## 7. Registering the Connection Information
 
 接続情報を、GitHub の Secrets と Variables に登録します。
 
 | 名前 | 種類 | 値 |
 |---|---|---|
-| `GATES_AWS_ACCOUNT_ID` | Secret | GATES を適用した AWS アカウントの ID |
+| `GATES_AWS_ACCOUNT_ID` | Secret | GATES を適用した AWS アカウントの ID（`aws sts get-caller-identity --query Account --output text`） |
 | `GATES_ROLE_NAME` | Variable | Output の `github_actions_role_name` |
 | `GATES_FUNCTION_NAME` | Variable | Output の `lambda_function_name` |
 | `GATES_AWS_REGION` | Variable | `terraform.tfvars` の `region` |
 | `GATES_AUDIENCE` | Variable | `terraform.tfvars` の `gates_audience` |
 
-AWS アカウント ID は、次のコマンドで確かめます。
-
-```bash
-aws sts get-caller-identity --query Account --output text
-```
-
 許可オーナーがユーザーアカウントなら、GATES を呼び出すリポジトリごとに登録します。
-Organization なら §10.3 で、Dependabot のワークフローで使うなら §10.4 で登録します。
+`gh secret set` は値の入力を求めるため、AWS アカウント ID がシェルの履歴に残りません。
 
 ```bash
 gh secret set GATES_AWS_ACCOUNT_ID --repo <オーナー名>/<リポジトリ名>
@@ -344,16 +287,18 @@ gh variable set GATES_AWS_REGION --repo <オーナー名>/<リポジトリ名> -
 gh variable set GATES_AUDIENCE --repo <オーナー名>/<リポジトリ名> --body <gates_audience>
 ```
 
-`gh secret set` は値の入力を求めるため、AWS アカウント ID がシェルの履歴に残りません。
+許可オーナーが Organization なら §10.4 で、Dependabot のワークフローで使うなら §10.5 で登録します。
 
-## 9. Checking the First Issuance
+## 8. Checking the First Issuance
 
-### 9.1 Running a Workflow
+### 8.1 Running a Workflow
 
-§8 で登録したリポジトリに、[Using GATES in Workflows](workflow-usage.md) の §1 のワークフローを置きます。
-`example-owner/repo-a` は、インストール対象のリポジトリの完全名に置き換えます。
-`permissions` の `contents:read` が GitHub App の権限か発行上限にないなら、両方に含まれる `read` の権限に置き換えます。
-`<コミット>` には、§4 でチェックアウトしたタグのコミットの SHA（`git rev-parse HEAD` の出力）を入れます。
+接続情報を登録したリポジトリに、[Using GATES in Workflows](workflow-usage.md) の最小のワークフローを置きます。
+次の値を置き換えます。
+
+- **`example-owner/repo-a`**：インストール対象のリポジトリの完全名
+- **`<コミット>`**：チェックアウトしたタグのコミットの SHA（`git rev-parse HEAD` の出力）
+- **`contents:read`**：GitHub App の権限か発行上限にないなら、両方に含まれる `read` の権限
 
 ワークフローを既定のブランチに置いて実行します。
 
@@ -363,11 +308,9 @@ gh workflow run "<ワークフローの名前>" --repo <オーナー名>/<リポ
 
 `Read repository` のステップがリポジトリの完全名を出力すれば成功です。
 `Issue token` のステップのログに出る `Issued the token:` の行の `request_id` を控えます。
+失敗したときは、注釈をもとに [Troubleshooting](troubleshooting.md) で原因を調べます。
 
-失敗したときは、注釈から [Troubleshooting](troubleshooting.md) で原因を引きます。
-デプロイの直後に多いのは、`AssumeRoleWithWebIdentity failed`（§2.3、§2.4、§5.1 の値）と、`error code "invalid_id_token"`（`GATES_AUDIENCE` と `gates_audience` の食い違い）です。
-
-### 9.2 Checking the Audit Record
+### 8.2 Checking the Audit Record
 
 控えた `request_id` で、監査記録を探します。
 
@@ -385,17 +328,17 @@ aws logs filter-log-events --log-group-name /aws/lambda/gates \
 
 `result` が `success` で、`owner_id` が `allowed_owner_id` なら、デプロイは完了です。
 
-### 9.3 Next Steps
+## 9. Next Steps
 
 ワークフロー利用者に、接続情報の名前、インストール対象、使える権限（GitHub App に付与し、発行上限に含めた権限）、Action のコミットの SHA を伝えます。
-ほかのリポジトリで GATES を使うときは、そのリポジトリにも §8 の接続情報を登録します。
+ほかのリポジトリで GATES を使うときは、そのリポジトリにも接続情報を登録します。
 デプロイの後の作業は [Operations](operations.md) にあります。
 
 ## 10. Environment-Specific Tasks
 
 ### 10.1 Creating the IAM OIDC Provider
 
-§2.3 で Provider がなかったときは作ります。
+Provider がなかったときは作ります。
 この Provider はアカウントに一つだけ置け、ほかの用途と共有します。
 作るには `iam:CreateOpenIDConnectProvider` の権限が要ります。
 
@@ -407,14 +350,26 @@ aws iam create-open-id-connect-provider \
 
 Provider はあるが Client ID に `sts.amazonaws.com` がないときは、`aws iam add-client-id-to-open-id-connect-provider` で加えます。
 
-### 10.2 Accounts that Require a Permissions Boundary
+### 10.2 Switching to the Immutable sub Format
+
+名前だけの形式のリポジトリは、リポジトリの管理者が次のコマンドで切り替えます。
+許可オーナーが Organization なら、Organization の設定（REST API の `use_immutable_subject`）でまとめて切り替えられます。
+
+```bash
+gh api --method PUT repos/<オーナー名>/<リポジトリ名>/actions/oidc/customization/sub \
+  -F use_default=true -F use_immutable_subject=true
+```
+
+`sub` の形式をカスタマイズして、先頭がこの形式でなくなったリポジトリからも呼び出せません。
+
+### 10.3 Accounts that Require a Permissions Boundary
 
 GATES の Terraform は、作る IAM Role に、自身が作る Permissions Boundary の `gates-permissions-boundary` を付けます。
 IAM Role の作成に特定の Permissions Boundary を求めるアカウントでは、`arn:aws:iam::<AWS アカウント ID>:policy/gates-permissions-boundary` を許可の対象に加えてから適用します。
 許可の対象に加えてから適用するまでは、別の主体が同じ名前のポリシーを任意の内容で作れます。
 適用が `EntityAlreadyExists` で失敗したら、先に作られたポリシーと、そのポリシーを付けた Role を調べます。
 
-### 10.3 Organization as the Allowed Owner
+### 10.4 Organization as the Allowed Owner
 
 接続情報を、Organization 単位で一度だけ登録できます。
 
@@ -428,9 +383,9 @@ gh variable set GATES_AUDIENCE --org <オーナー名> --body <gates_audience>
 
 `--visibility` を付けないと、private リポジトリからだけ参照できます。
 対象を絞るときは `--visibility selected` と `--repos` を付けます。
-GitHub Free の private リポジトリと、ポリシーで Organization の値の参照を制限したリポジトリには、§8 のとおりリポジトリごとに登録します。
+GitHub Free の private リポジトリと、ポリシーで Organization の値の参照を制限したリポジトリには、リポジトリごとに登録します。
 
-### 10.4 Dependabot Workflows
+### 10.5 Dependabot Workflows
 
 Dependabot が起動したワークフローは、GitHub Actions の Secrets を参照できません。
 Dependabot のワークフローで GATES を使うときは、Secret を Dependabot の Secrets にも登録します。
@@ -439,16 +394,16 @@ Dependabot のワークフローで GATES を使うときは、Secret を Depend
 gh secret set GATES_AWS_ACCOUNT_ID --app dependabot --repo <オーナー名>/<リポジトリ名>
 ```
 
-### 10.5 When the Key Length Differs from key_spec
+### 10.6 When the Key Length Differs from key_spec
 
 KMS Key の鍵の種類は後から変えられないため、`key-1` は使えません。
 鍵長に合わせた `key-2` を加えて使用中の鍵にし、`key-1` は削除を予約します。
 削除の予約には `kms:ScheduleKeyDeletion` の権限が要ります。
-インポートが止まったときの出力で、鍵長を確かめます。
+鍵長は、インポートが止まったときの出力で確かめます。
 例では 4096 bit だったとします。
 
 1. `kms_keys` に `key-2 = "RSA_4096"` を加える。`active_kms_key` は `key-1` のままにする。`make tf-plan` が `aws_kms_external_key.signing["key-2"]` の作成と Output の変更だけを示すことを確かめ、`make tf-apply` で適用する
-2. GitHub App で新しい秘密鍵を生成し、`KMS_KEY_NAME=key-2` で §7 のコマンドを実行する
+2. GitHub App で新しい秘密鍵を生成し、`KMS_KEY_NAME=key-2` で鍵素材をインポートする
 3. GitHub App の `Key pairs` から、最初に生成した使えない鍵を削除する
 4. `active_kms_key` を `key-2` にする。`make tf-plan` が、Lambda の環境変数 `GATES_KMS_KEY_ARN`、`aws_iam_policy.lambda_sign`、Output の `kms_key_arn` の変更だけを示すことを確かめ、適用する
 5. `key-1` の ARN を控えてから、`kms_keys` から `key-1` を除き、State から外す。`make tf-plan` が Output の `kms_key_arns` の変更だけを示すことを確かめ、適用する
@@ -470,6 +425,9 @@ aws kms describe-key --key-id "$OLD_KMS_KEY_ARN" --query 'KeyMetadata.KeyState' 
 
 ## 11. References
 
+- [GATES Overview](overview.md)：GATES の仕組みと、本文書で使う用語
+- [Security Considerations](security-considerations.md)：GitHub App に付与する権限とインストール対象の決め方
+- [Troubleshooting](troubleshooting.md)：デプロイの直後に多い `AssumeRoleWithWebIdentity failed` と `invalid_id_token` を含む、失敗の原因と直し方
 - [GitHub — Registering a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app)
 - [GitHub — Installing your own GitHub App](https://docs.github.com/en/apps/using-github-apps/installing-your-own-github-app)
 - [GitHub — REST API endpoints for GitHub Actions OIDC](https://docs.github.com/en/rest/actions/oidc)

@@ -11,14 +11,14 @@
 
 | 順 | 操作 | 切り戻し |
 |---|---|---|
-| 1 | 新しい KMS Key を加える（§3） | 要らない |
-| 2 | 新しい秘密鍵を生成してインポートする（§4） | 要らない |
-| 3 | 使用中の鍵を新しい KMS Key に切り替える（§5） | `active_kms_key` を旧鍵に戻して適用する |
-| 4 | 新しい鍵での発行を確かめる（§6） | 確認だけ |
-| 5 | 旧 KMS Key を無効にする（§7） | `aws kms enable-key` で有効に戻す |
-| 6 | GitHub App から旧秘密鍵を削除する（§8） | **切り戻せない** |
-| 7 | 削除の後の発行を確かめる（§9） | 確認だけ |
-| 8 | 旧 KMS Key を退役させる（§10） | 7 日のあいだは `aws kms cancel-key-deletion` で取り消せる |
+| 1 | 新しい KMS Key を加える | 要らない |
+| 2 | 新しい秘密鍵を生成してインポートする | 要らない |
+| 3 | 使用中の鍵を新しい KMS Key に切り替える | `active_kms_key` を旧鍵に戻して適用する |
+| 4 | 新しい鍵での発行を確かめる | 確認だけ |
+| 5 | 旧 KMS Key を無効にする | `aws kms enable-key` で有効に戻す |
+| 6 | GitHub App から旧秘密鍵を削除する | **切り戻せない** |
+| 7 | 削除の後の発行を確かめる | 確認だけ |
+| 8 | 旧 KMS Key を退役させる | 7 日のあいだは `aws kms cancel-key-deletion` で取り消せる |
 
 **順 6 は、順 4 と順 5 の確認がそろってから行います。**
 順 6 の後に問題が見つかったら、次の番号の鍵でこの手順をもう一度行います。
@@ -29,7 +29,7 @@
 - `kms_keys` に旧鍵だけがあり、`active_kms_key` が旧鍵を指している
 - `make tf-plan` が `No changes` を示す
 - 許可オーナーのリポジトリで、GATES からトークンを受け取るワークフローが成功する
-- [Deployment](deployment.md) の §2.1 と §2.2 の前提を満たしている
+- デプロイしたときと同じツールと AWS の一時認証情報がある
 - 一時認証情報に、`kms:GetPublicKey`、`kms:DisableKey`、`kms:EnableKey`、`kms:ScheduleKeyDeletion`、`kms:CancelKeyDeletion`、`cloudtrail:LookupEvents` の権限もある
 
 コマンドは、リポジトリのルートで同じシェルから実行します。
@@ -83,10 +83,10 @@ make kms-import-key-material KMS_KEY_NAME=key-2 GITHUB_PRIVATE_KEY_PATH=<ダウ�
 出力の `Fingerprint` が、`Key pairs` に新しく加わった鍵と一致することを確かめます。
 インポートの後の `make tf-plan` が `No changes` を示すことを確かめます。
 
-鍵長が `key_spec` と違って止まったときは、GitHub App から生成した鍵を削除し、`key-2` を §10 の手順で退役させます。
+鍵長が `key_spec` と違って止まったときは、`key-2` は使えません。
+GitHub App から生成した鍵を削除し、`key-2` を §10 と同じ手順で退役させます。
 そのとき、`kms_keys` から除くのは `key-2`、`active_kms_key` は `key-1` のままにし、`KMS_KEY_NAME=key-2` と `NEW_KMS_KEY_ARN` を使います。
-`key-2` は署名に使えないため、§7 の無効化は要りません。
-続けて、鍵長に合わせた鍵の種類で、`key-3` を §3 から加えます。
+続けて、鍵長に合わせた鍵の種類で `key-3` を加え、この手順を最初からやり直します。
 
 ## 5. Switching the Active Key
 
@@ -110,7 +110,7 @@ make tf-plan
 
 ## 6. Checking Issuance with the New Key
 
-§2 のワークフローを実行し、成功することを確かめます。
+GATES からトークンを受け取るワークフローを実行し、成功することを確かめます。
 続けて、その時間帯の KMS の署名の記録を CloudTrail から引き、署名に使われた鍵がすべて新しい鍵であることを確かめます。
 `<開始>` と `<終了>` は `YYYY-MM-DDThh:mm:ssZ` の形の時刻です。
 
@@ -141,14 +141,14 @@ aws kms disable-key --key-id "$OLD_KMS_KEY_ARN"
 aws kms describe-key --key-id "$OLD_KMS_KEY_ARN" --query 'KeyMetadata.KeyState' --output text
 ```
 
-`make tf-plan` が `No changes` を示し、§2 のワークフローが成功することを確かめます。
-失敗したら、`aws kms enable-key --key-id "$OLD_KMS_KEY_ARN"` で旧鍵を有効に戻し、§6 の切り戻しを行います。
+`make tf-plan` が `No changes` を示し、ワークフローが成功することを確かめます。
+失敗したら、`aws kms enable-key --key-id "$OLD_KMS_KEY_ARN"` で旧鍵を有効に戻し、`active_kms_key` を旧鍵に戻して適用します。
 
 ## 8. Deleting the Old Private Key from GitHub
 
 **この操作の後は、旧鍵に切り戻せません。**
 
-GitHub App の設定ページで `Credentials` → `Key pairs` を開き、§7 で控えたフィンガープリントの鍵を `Delete` します。
+GitHub App の設定ページで `Credentials` → `Key pairs` を開き、控えておいた旧鍵のフィンガープリントの鍵を `Delete` します。
 残った鍵のフィンガープリントが、新しい鍵のものと一致することを確かめます。
 
 ```bash
@@ -157,7 +157,7 @@ aws kms get-public-key --key-id "$NEW_KMS_KEY_ARN" --query PublicKey --output te
 
 ## 9. Checking Issuance after Deleting the Old Private Key
 
-§2 のワークフローをもう一度実行し、成功することを確かめます。
+ワークフローをもう一度実行し、成功することを確かめます。
 
 ## 10. Retiring the Old KMS Key
 

@@ -124,7 +124,6 @@ jobs:
 
 **`pull_request_target` と `workflow_run` で起動するジョブは、fork からの Pull Request が起点でもトークンを受け取れます。**
 これらのジョブでは、Pull Request の head のコードも、起点のワークフローの成果物も実行しません。
-理由は [Security Considerations](security-considerations.md) の §1.2 にあります。
 
 ### 3.3 ジョブに必要な権限だけを要求する
 
@@ -157,8 +156,8 @@ jobs:
 
 `path` で、ワークフローのリポジトリと重ならないディレクトリを指定します。
 `persist-credentials: false` にして、トークンを Runner のファイルに残さないようにします。
-取得の後に push するときも `false` のままにし、§4.4 のように `gh auth setup-git` を使います。
-既定の `true` でも push できますが、トークンが Runner のファイルに書かれ、ジョブの後続のステップの Git がどれもトークンを使えるようになります。
+既定の `true` では、トークンが Runner のファイルに書かれ、後続のステップの Git がどれもトークンを使えるようになります。
+push するときも `false` のままにし、次の `gh auth setup-git` を使います。
 
 ```yaml
       - name: Check out repo-a
@@ -237,10 +236,7 @@ Action の Output の `permissions` は、要求した `contents:write,pull_requ
 ## 5. When the Action Fails
 
 Action は、`::error::` の注釈で失敗の段階と原因を示します。
-注釈から原因と直し方を引く表は、[Troubleshooting](troubleshooting.md) の §1 にあります。
-そこで直せない失敗は、Troubleshooting の §2 にある情報を添えて運用者に伝えます。
-
-入力の書式と、注釈の一覧は [Issue Token](../../.github/actions/issue-token/README.md) にあります。
+注釈をもとに [Troubleshooting](troubleshooting.md) で直し方を引き、直せなければ運用者に伝えます。
 
 ## 6. Self-Hosted Runners
 
@@ -256,6 +252,8 @@ Windows と macOS の Runner では、Action は動きません。
 
 ## 7. References
 
+- [Issue Token](../../.github/actions/issue-token/README.md)：Action の入力と出力の書式、注釈の一覧
+- [Security Considerations](security-considerations.md)：トークンを受け取るジョブで信頼できないコードを動かさない理由
 - [GitHub — OpenID Connect reference](https://docs.github.com/en/actions/reference/security/oidc)
 - [GitHub — Workflow syntax: permissions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions)
 - [GitHub CLI — gh auth setup-git](https://cli.github.com/manual/gh_auth_setup-git)
