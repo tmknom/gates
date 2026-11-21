@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/json/v2"
+	"io"
 	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -75,9 +77,26 @@ func (signerStub) Sign(context.Context) (github.AppJWT, error) {
 // サーバーは許可オーナーの停止していない Installation を返し、issuance を発行応答として返し、失効の要求に revocationStatus で応答する。
 func newTokenIssuer(t *testing.T, issuance map[string]any, revocationStatus int) *tokenissuer.TokenIssuer {
 	t.Helper()
+	tokenIssuer, _ := newTokenIssuerRecordingIssuance(t, issuance, revocationStatus)
+	return tokenIssuer
+}
+
+// newTokenIssuerRecordingIssuance は、newTokenIssuer と同じ Token Issuer を作り、発行 API が受け取った本文の記録を返す。
+// サーバーのハンドラは別の goroutine で動くため、記録を atomic.Pointer で持つ。
+func newTokenIssuerRecordingIssuance(t *testing.T, issuance map[string]any, revocationStatus int) (*tokenissuer.TokenIssuer, *atomic.Pointer[[]byte]) {
+	t.Helper()
+	var issuanceBody atomic.Pointer[[]byte]
+	respondIssuance := respond(t, http.StatusCreated, issuance)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /users/"+allowedOwnerName+"/installation", respond(t, http.StatusOK, map[string]any{"id": installationID, "account": map[string]any{"id": allowedOwnerID}, "suspended_at": nil}))
-	mux.HandleFunc("POST /app/installations/12345678/access_tokens", respond(t, http.StatusCreated, issuance))
+	mux.HandleFunc("POST /app/installations/12345678/access_tokens", func(w http.ResponseWriter, r *http.Request) {
+		b, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("reading the issuance request body returned error: %v", err)
+		}
+		issuanceBody.Store(&b)
+		respondIssuance(w, r)
+	})
 	mux.HandleFunc("DELETE /installation/token", respond(t, revocationStatus, nil))
 	server := httptest.NewTLSServer(mux)
 	t.Cleanup(server.Close)
@@ -88,7 +107,7 @@ func newTokenIssuer(t *testing.T, issuance map[string]any, revocationStatus int)
 	rootCAs := x509.NewCertPool()
 	rootCAs.AddCert(server.Certificate())
 	client := github.NewClient(github.WithAPIHost(apiHost), github.WithRootCAs(rootCAs))
-	return tokenissuer.NewTokenIssuer(signerStub{}, client, allowedOwner(t), func() time.Time { return now })
+	return tokenissuer.NewTokenIssuer(signerStub{}, client, allowedOwner(t), func() time.Time { return now }), &issuanceBody
 }
 
 func respond(t *testing.T, status int, body any) http.HandlerFunc {

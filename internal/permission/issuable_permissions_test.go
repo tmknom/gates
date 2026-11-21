@@ -117,7 +117,8 @@ func TestIssuablePermissions_Contains(t *testing.T) {
 		{name: "all entries in issuable permissions return true", issuablePermissions: []string{"contents:read", "issues:write"}, levels: map[string]string{"contents": "read", "issues": "write"}, contains: true},
 		{name: "one of two levels of the same permission name returns true", issuablePermissions: []string{"contents:read", "contents:write"}, levels: map[string]string{"contents": "read"}, contains: true},
 		{name: "entry outside issuable permissions mixed with entry inside returns false", issuablePermissions: []string{"contents:read"}, levels: map[string]string{"contents": "read", "issues": "read"}, contains: false},
-		{name: "lower level than issuable level returns false", issuablePermissions: []string{"contents:write"}, levels: map[string]string{"contents": "read"}, contains: false},
+		{name: "lower level than the only issuable level returns true", issuablePermissions: []string{"contents:write"}, levels: map[string]string{"contents": "read"}, contains: true},
+		{name: "higher level than the only issuable level returns false", issuablePermissions: []string{"contents:read"}, levels: map[string]string{"contents": "write"}, contains: false},
 		{name: "implied permission entry outside issuable permissions returns false", issuablePermissions: []string{"contents:read"}, levels: map[string]string{"contents": "read", "metadata": "read"}, contains: false},
 	}
 	for _, tt := range tests {

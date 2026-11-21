@@ -192,11 +192,48 @@ func TestHandle_AuthorizationDeniedDoesNotCallTokenIssuer(t *testing.T) {
 func TestHandle_RequestOutsideIssuablePermissionsDoesNotCallTokenIssuer(t *testing.T) {
 	tokenIssuer := &tokenIssuerStub{}
 
-	inv := handleWith(t, mustNewIssuablePermissions(t, "contents:write"), &verifierStub{caller: verifiedCaller(t)}, tokenIssuer, validPayload(t))
+	inv := handleWith(t, mustNewIssuablePermissions(t, "issues:write"), &verifierStub{caller: verifiedCaller(t)}, tokenIssuer, validPayload(t))
 
 	inv.assertFailed(t, "authorization_denied")
 	if tokenIssuer.calls != 0 {
 		t.Errorf("Token Issuer was called %d times, want 0", tokenIssuer.calls)
+	}
+}
+
+// 発行上限が高い水準だけを含む権限名の低い水準の要求で、発行 API に要求した水準を送り、上限の水準に上げないことを確かめる。
+//
+//trace:checks AC-AUTHZ-009
+func TestHandle_LowerLevelThanIssuableLevelIsIssuedAtRequestedLevel(t *testing.T) {
+	tokenIssuer, issuanceBody := newTokenIssuerRecordingIssuance(t, recordedIssuance(), http.StatusNoContent)
+
+	inv := handleWith(t, mustNewIssuablePermissions(t, "contents:write"), &verifierStub{caller: verifiedCaller(t)}, tokenIssuer, validPayload(t))
+
+	if inv.response["ok"] != true {
+		t.Fatalf("response = %v, want the success response", inv.response)
+	}
+	var sent struct {
+		Permissions map[string]string `json:"permissions"`
+	}
+	if err := json.Unmarshal(*issuanceBody.Load(), &sent); err != nil {
+		t.Fatalf("issuance request body is not a JSON object: %v", err)
+	}
+	if want := map[string]string{"contents": "read"}; !reflect.DeepEqual(sent.Permissions, want) {
+		t.Errorf("issuance request permissions = %v, want %v", sent.Permissions, want)
+	}
+}
+
+// 発行上限の水準で発行された応答は、要求した水準と一致しないため、照合失敗にすることを確かめる。
+//
+//trace:checks AC-AUTHZ-009
+func TestHandle_IssuanceAtIssuableLevelAboveRequestedLevelFailsVerification(t *testing.T) {
+	issuance := recordedIssuance()
+	issuance["permissions"] = map[string]any{"contents": "write", "metadata": "read"}
+
+	inv := handleWith(t, mustNewIssuablePermissions(t, "contents:write"), &verifierStub{caller: verifiedCaller(t)}, newTokenIssuer(t, issuance, http.StatusNoContent), validPayload(t))
+
+	record := inv.assertFailed(t, "issuance_verification_failed")
+	if record["revocation"] != "succeeded" {
+		t.Errorf("revocation = %v, want %q", record["revocation"], "succeeded")
 	}
 }
 

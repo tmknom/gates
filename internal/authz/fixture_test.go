@@ -21,8 +21,9 @@ const installationID = 5005
 
 var contentsRead = map[string]string{"contents": "read"}
 
-// issuablePermissionNotations は、テストの発行上限である。同じ権限名の高い水準だけを含む組（`issues:write`）と、付随権限の組を含む。
-var issuablePermissionNotations = []string{"contents:read", "contents:write", "issues:write", "metadata:read"}
+// issuablePermissionNotations は、テストの発行上限である。同じ権限名の複数の水準（`contents`）、高い水準だけを含む権限名（`issues:write`）、
+// 低い水準だけを含む権限名（`pull_requests:read`）、付随権限の組を含む。
+var issuablePermissionNotations = []string{"contents:read", "contents:write", "issues:write", "pull_requests:read", "metadata:read"}
 
 func mustNewAllowedOwner(t *testing.T, id int64, name string) authz.AllowedOwner {
 	t.Helper()
