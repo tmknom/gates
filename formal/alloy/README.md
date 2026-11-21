@@ -30,12 +30,21 @@ flowchart TB
     Result -->|発行結果の照合| Token[返却可能な発行結果]
 ```
 
-調べる範囲は、各要素が最大 3 個、Owner とオーナー名が最大 2 個です。
+調べる範囲は、各要素（リポジトリ名、保護対象、許可 Caller を含む）が最大 3 個、Owner とオーナー名が最大 2 個です。
 権限は、`metadata` を含む 4 つまでの権限名と、`read` と `write` の 2 つの水準を調べます。
+`admin` は加えていません。
+水準の包含は、要求の水準 1 つと上限の水準 1 つを順序で比べる規則で、3 つ目の水準を加えても規則が別に扱う場合は増えないためです。
 権限名は、GATES が許可権限に列挙するものと列挙しないものに分けます。
 列挙するものは Repository permissions に当たり、列挙しないものの分類は決めずに調べます。
-許可権限が権限名ごとに含める水準も決めずに調べるため、許可権限がその権限名に含めない水準を含む要求も現れます。
-発行上限は、空でなく許可権限の一部である Permission Entry の集合として、中身を決めずに調べます。
+許可権限が権限名ごとに含める水準も決めずに調べるため、許可権限がその権限名に含めない水準を含む要求も、`write` だけを許可権限に含む権限名も現れます。
+発行上限は、空でなく許可権限の一部である Permission Entry の集合として、中身を決めずに調べ、要求をその発行上限に水準の包含で照合します。
+
+リポジトリは Repository ID ごとに一つの要素で、GitHub での現在の名前を持ちます。
+保護対象の一覧は、保護対象（Repository ID、リポジトリ名、許可 Caller）の集合として、空の場合も含めて中身を決めずに調べます。
+一覧の ID と名前の組も、許可 Caller の ID と名前の組も、GitHub の現在の状態と一致するとは限らないものとして扱います。
+こうして、改名（ID が同じで現在の名前が異なる）、作り直し（名前が同じで現在の ID が異なる）、ID や名前の書き誤りが現れます。
+Caller のリポジトリ名も、Caller の Repository ID の現在の名前と独立に決めずに調べます。
+名前は大文字小文字を区別しない比較の結果として、一致するかどうかだけを表します。
 
 ### 反例がないことを確かめる規則
 
@@ -48,13 +57,15 @@ flowchart TB
 | `NoForeignOwnerGrant` | 許可オーナー以外の Caller に発行許可を作らない | FR-AUTHZ-001 |
 | `NoOtherInstallationGrant` | 発行許可の Installation はどれも同じで、許可オーナーのものであり、停止していない | FR-OPS-001 |
 | `OnlyAllowedPermissionsGranted` | 発行許可の権限は要求した Permissions のままで、どの Permission Entry も許可権限に含まれる。許可権限に含まれないものを除いて成立させない | FR-AUTHZ-006, FR-AUTHZ-003 |
-| `OnlyIssuablePermissionsGranted` | 発行許可の権限は、どの Permission Entry も発行上限に含まれる | FR-AUTHZ-008 |
+| `OnlyIssuablePermissionsGranted` | 発行許可の権限は、どの Permission Entry も発行上限に水準の包含で含まれる | FR-AUTHZ-008 |
 | `AllOrNothingGrant` | 発行許可の対象は要求した対象の全件と一致し、一部だけにならない | FR-AUTHZ-004 |
 | `AllIssueCallsExplicit` | 発行 API の呼び出しは、要求された対象と Permissions を明示する | FR-ISSUANCE-003 |
 | `NoOverbroadTokenReturned` | 返却可能な発行結果の権限は、要求した Permissions と任意の `metadata:read` だけで、対象は `selected` である | FR-AUTHZ-003, FR-ISSUANCE-004 |
 | `NoNarrowedTokenReturned` | 返却可能な発行結果の権限は、要求した Permission Entry を同じ水準ですべて含む。権限が欠けた発行も、水準を下げた発行も返却しない | FR-AUTHZ-007, FR-ISSUANCE-004 |
 | `UnrequestedAllowedPermissionsNotReturned` | GitHub App と Installation の権限が要求より広くても、返却可能な発行結果の権限は、要求していない許可権限を `metadata:read` のほかに含まない | FR-ISSUANCE-003, FR-ISSUANCE-004 |
-| `NoTokenBeyondIssuablePermissions` | 返却可能な発行結果の権限は、発行上限と任意の `metadata:read` だけである | FR-AUTHZ-008, FR-ISSUANCE-004 |
+| `NoTokenBeyondIssuablePermissions` | 返却可能な発行結果の権限は、発行上限が水準の包含で含むものと任意の `metadata:read` だけである | FR-AUTHZ-008, FR-ISSUANCE-004 |
+| `ReturnedLevelsEqualRequestedLevels` | 返却可能な発行結果の権限は、要求した権限名について要求した水準のままで、発行上限や権限の上限の高い水準に上がらない | FR-AUTHZ-008, FR-ISSUANCE-004 |
+| `IssuableWriteAdmitsNoReadOutsideAllowedPermissions` | 発行上限が同じ権限名の `write` を含んでも、許可権限にない `read` の権限を含むトークンを返却しない | FR-AUTHZ-006, FR-AUTHZ-008 |
 | `OnlyRepositoryPermissionsReturned` | 返却可能な発行結果の権限は、どれも Repository permissions である | FR-AUTHZ-006 |
 | `ExactNamesReturned` | 返却可能な発行結果の対象の完全名と件数は、要求と一致する | FR-ISSUANCE-004 |
 | `NoDuplicateEffectiveRepositoriesReturned` | 返却可能な発行結果の実効対象に、同じ Repository ID や同じ完全名の要素はない | FR-ISSUANCE-004 |
@@ -62,6 +73,11 @@ flowchart TB
 | `CoverageHoldsWhenGitHubEnforces` | GitHub が Installation の対象を強制するなら、要求した名前はすべて、その Installation に含まれる許可オーナーのリポジトリである | FR-AUTHZ-005 |
 | `RequestedPermissionsHeldWhenGitHubEnforces` | GitHub が Installation の権限を強制するなら、要求した Permission Entry はすべて、その Installation に同じかより高い水準で付与されているか、`metadata:read` である | FR-AUTHZ-007 |
 | `ReturnedResultsHaveValidTokenAndExpiry` | 返却可能な発行結果のトークンは空でなく、有効期限は将来である | FR-ISSUANCE-005 |
+| `ProtectedTokenNeedsIdAndNameOfAllowedCaller` | 実効対象の Repository ID が保護対象の ID であるトークンを受け取る Caller は、Repository ID とリポジトリ名の両方が、その保護対象のある許可 Caller と一致する。どの許可 Caller とも ID だけ、名前だけが一致する Caller は受け取らない | FR-AUTHZ-009, FR-AUTHZ-010 |
+| `ProtectedTokenWithinPermissionLimit` | 実効対象の Repository ID が保護対象の ID であるトークンの権限は、Caller が当たる許可 Caller の権限の上限が水準の包含で含むものと、任意の `metadata:read` だけである | FR-AUTHZ-009, FR-AUTHZ-010 |
+| `NoProtectedNameWithOtherIdReturned` | 返却可能な発行結果の実効対象に、リポジトリ名が保護対象の名前で、Repository ID がその保護対象の ID と異なるものはない | FR-AUTHZ-010 |
+| `ProtectedRepositoriesAddNothingWhenNotTargeted` | 保護対象に当たる対象を含まない要求には、保護対象の条件がどの Caller にも成り立つ。保護対象の一覧が空なら、発行結果の照合は保護対象の条件のない照合と同じである | FR-AUTHZ-009 |
+| `ProtectedRepositoriesKeepPermissionBoundary` | 許可 Caller の権限の上限が発行上限の外の組を含んでも、返却可能な発行結果の権限は、許可権限に含まれ発行上限が水準の包含で含むものと、任意の `metadata:read` だけである | FR-AUTHZ-009 |
 
 表の「返却可能な発行結果」の権限と対象は GitHub の応答が示す値を指し、実際のトークンの権限を GitHub に問い合わせて確かめたものではありません。
 
@@ -71,30 +87,41 @@ UNSAT で分かるのは、規則を満たす範囲に主張の反例がない�
 
 ### 照合の規則が必要なことを確かめる変種
 
-発行許可の確定のうち許可権限と発行上限の判定と、発行結果の照合のうち Owner ID、完全名、権限の超過、権限の欠落、件数の規則を外すと、対応する主張に反例が出ることを確かめます。
+発行許可の確定のうち許可権限、発行上限、保護対象の名前、許可 Caller の名前、権限の上限の判定と、発行結果の照合のうち Owner ID、完全名、権限の超過、権限の欠落、件数、保護対象の Repository ID の規則を外すと、対応する主張に反例が出ることを確かめます。
 その他の照合の規則（トークンの有無、有効期限など）の必要性は確かめていません。
 これらの変種は、規則を外したモデルであり、実際の GATES の設定を表すものではありません。
 
 返却するトークンを許可権限の中に保つ守りは 2 つあります。
-発行許可の確定での許可権限の判定と、発行上限が許可権限の一部であるという固定設定の不変条件（INV-015）です。
+発行許可の確定での許可権限の判定と、水準の包含が要求の組に許可権限に含まれることを求める条件です。
 片方だけを外しても、もう片方が守るため反例は出ず、両方を外すと反例が出ます。
+発行上限が許可権限の一部であるという固定設定の不変条件（INV-015）は、この守りになりません。
+包含の規則では、発行上限が許可権限の中にあっても、発行上限の `write` が、許可権限にない同じ権限名の `read` を許し得るためです。
 
 | コマンド | 外す規則 | 期待する判定 |
 |---|---|---|
-| `WithoutAllowedPermissionCheckKeepsAllowedPermissions` | 要求の Permissions が許可権限に含まれることの判定 | UNSAT。発行上限の不変条件が守るため、許可権限に含まれない権限のトークンを返却しない |
-| `WithoutIssuableSubsetInvariantKeepsAllowedPermissions` | 発行上限が許可権限の一部であるという不変条件 | UNSAT。許可権限の判定が守るため、許可権限に含まれない権限のトークンを返却しない |
+| `WithoutAllowedPermissionCheckKeepsAllowedPermissions` | 要求の Permissions が許可権限に含まれることの判定 | UNSAT。水準の包含の条件が守るため、許可権限に含まれない権限のトークンを返却しない |
+| `WithoutInclusionAllowedConditionKeepsAllowedPermissions` | 水準の包含のうち、要求の組が許可権限に含まれることの条件 | UNSAT。許可権限の判定が守るため、許可権限に含まれない権限のトークンを返却しない |
+| `WithoutIssuableSubsetInvariantKeepsAllowedPermissions` | 発行上限が許可権限の一部であるという不変条件 | UNSAT。2 つの守りがどちらも残るため、許可権限に含まれない権限のトークンを返却しない |
+| `WithoutAllowedPermissionCheckAndIssuableSubsetInvariantKeepsAllowedPermissions` | 許可権限の判定と、発行上限の不変条件の両方 | UNSAT。水準の包含の条件が守るため、発行上限が許可権限の外の組を含んでも、その組のトークンを返却しない |
 
 次のコマンドでは、反例が出るのが正しい結果です。
 
 | コマンド | 外す規則 | 出ることを期待する反例 |
 |---|---|---|
-| `WithoutBothAllowedPermissionGuardsPreservesAllowedPermissions` | 許可権限の判定と、発行上限の不変条件の両方 | 許可権限に含まれない権限を含むトークンを返却する |
-| `WithoutIssuablePermissionCheckPreservesIssuablePermissions` | 要求の Permissions が発行上限に含まれることの判定 | 発行上限に含まれない権限を含むトークンを返却する |
+| `WithoutBothAllowedPermissionGuardsPreservesAllowedPermissions` | 許可権限の判定と、水準の包含の条件の両方 | 発行上限の不変条件が成り立ったまま、発行上限の `write` が許した、許可権限にない `read` の権限を含むトークンを返却する |
+| `WithoutIssuablePermissionCheckPreservesIssuablePermissions` | 要求の Permissions が発行上限に水準の包含で含まれることの判定 | 発行上限が含まない権限を含むトークンを返却する |
 | `WithoutOwnerCheckPreservesOwnerBoundary` | 実効対象の Owner ID の照合 | 許可オーナー以外のリポジトリを含むトークンを返却する |
 | `WithoutNameCheckPreservesExactNames` | 実効対象の完全名の照合 | 対象の完全名の集合が要求と一致しないトークンを返却する |
 | `WithoutExcessPermissionCheckPreservesPermissionBoundary` | 実効権限が発行許可の Permissions と付随権限の範囲内であることの照合 | 要求していない権限を含むトークンを返却する |
 | `WithoutMissingPermissionCheckPreservesRequestedPermissions` | 実効権限が発行許可の Permissions をすべて含むことの照合 | 要求した権限が欠けたか、水準が下がったトークンを返却する |
 | `WithoutCountCheckPreservesUniqueEffectiveRepositories` | 実効対象の件数の照合 | 実効対象に重複した要素を含むトークンを返却する |
+| `WithoutAllowedCallerNameCheckPreservesAllowedCallers` | 許可 Caller のリポジトリ名と Caller のリポジトリ名の照合 | 一覧の名前が示すリポジトリとは別のリポジトリ（Repository ID の誤記が指すもの）が、保護対象のトークンを受け取る |
+| `WithoutProtectedNameCheckPreservesAllowedCallers` | 発行前に、要求のリポジトリ名で保護対象を見分けて判定すること | 許可 Caller でない Caller に、名前と ID が一覧どおりの保護対象のトークンを返却する |
+| `WithoutProtectedIdCheckPreservesAllowedCallers` | 発行後に、実効対象の名前の一致と ID の一致が同値であることの照合 | 許可 Caller でない Caller に、改名した保護対象を新しい名前で要求したトークンを返却する |
+| `WithoutPermissionLimitCheckPreservesPermissionLimit` | 要求の Permissions が許可 Caller の権限の上限に水準の包含で含まれることの判定 | 許可 Caller に、権限の上限が含まない権限を含む保護対象のトークンを返却する |
+
+発行前の名前の判定と発行後の ID の照合は、片方を外すとどちらも反例が出ます。
+発行前の判定だけでは改名した保護対象を新しい名前で要求した場合を、発行後の照合だけでは名前と ID が一覧どおりの保護対象を許可 Caller でない Caller が要求した場合を、拒否できないためです。
 
 ### 存在することを確かめる状態
 
@@ -103,9 +130,17 @@ UNSAT で分かるのは、規則を満たす範囲に主張の反例がない�
 | `SuccessfulReturn` | 正常な発行と返却が成立する |
 | `WriteAndMultiplePermissionsReturned` | `write` の水準を含む複数の権限を要求したトークンを返却できる |
 | `IssuableNarrowerThanInstallation` | Installation が発行上限の外の許可権限を持っていても、発行上限の中の要求にトークンを返却できる |
-| `ImpliedPermissionOutsideIssuableReturned` | 発行上限が `metadata:read` を含まなくても、GitHub が付与した `metadata:read` を含むトークンを返却できる |
-| `ReturnWithoutAllowedPermissionCheck`、`ReturnWithoutIssuableSubsetInvariant` | 守りを片方だけ外した変種でもトークンを返却でき、その変種の UNSAT が素通りでない。不変条件を外した変種では、発行上限が許可権限の外に及ぶ |
+| `IssuableWriteAdmitsRead` | 同じ権限名の `write` だけを含めた発行上限で、`read` の要求に `read` のトークンを返却できる |
+| `ImpliedPermissionOutsideIssuableReturned` | 発行上限が水準の包含で `metadata:read` を含まなくても、GitHub が付与した `metadata:read` を含むトークンを返却できる |
+| `ReturnWithoutAllowedPermissionCheck`、`ReturnWithoutInclusionAllowedCondition`、`ReturnWithoutIssuableSubsetInvariant`、`ReturnWithoutAllowedPermissionCheckAndIssuableSubsetInvariant` | 反例のないことを期待する変種でもトークンを返却でき、その変種の UNSAT が素通りでない。不変条件を外した変種では、発行上限が許可権限の外に及ぶ |
 | `CrossRepositoryWithinOwner` | 同じオーナー内なら、実行元とは別の名前のリポジトリを対象にしたトークンを返却できる。現在のスコープで意図した動作である |
+| `AllowedCallerReceivesProtectedToken` | 許可 Caller が保護対象のトークンを受け取る |
+| `WriteLimitAdmitsReadToken` | 権限の上限が同じ権限名の `write` だけを含む許可 Caller が、`read` のトークンを受け取る |
+| `PermissionLimitBeyondIssuableReturnsWithinIssuable` | 発行上限の外の組を権限の上限に含む許可 Caller も、発行上限の中の要求で保護対象のトークンを受け取る |
+| `UnlistedRepositoryTokenToAnyCaller` | 保護対象の一覧が空でなくても、一覧にないリポジトリのトークンを、どの保護対象の許可 Caller でもない Caller が受け取る。現在のスコープで意図した動作である |
+| `RenamedProtectedRepositoryIssuedButNotReturned` | 改名した保護対象を新しい名前で要求すると、発行許可の確定を通って発行 API の呼び出しまで進み、GitHub 側で発行され得る。その発行結果は、保護対象の ID の照合のほかの照合をすべて通っても返却されない |
+| `MixedTargetsReturnedToAllowedCaller` | 保護対象とそうでない対象を混ぜた要求で、許可 Caller が両方を対象にしたトークンを受け取る |
+| `SharedAllowedCallerIdWithDifferentNames` | 異なる保護対象の間で、同じ Repository ID の許可 Caller が異なる名前を持つ一覧でも、片方の保護対象のトークンを返却できる。INV-016 が禁じていない組み合わせである |
 | `IssueCallMayContainUncoveredNames` | Installation の対象外の名前を発行 API に送る場合がある。発行前には対象に含まれるかを確認しないためである |
 | `IssueCallMayContainUnheldPermissions` | Installation に付与されていない権限か水準を発行 API に送る場合がある。発行前には付与されているかを確認しないためである |
 | `ResultWithoutUnheldPermissionNotReturned` | Installation に付与されていない権限を GitHub が除いて発行した結果を受け取る状態を表現でき、その発行結果は返却されない |
@@ -235,14 +270,16 @@ SAT は、モデル上でその事象が起こりうることを意味し、GitH
 - **処理の進行**：確かめるのは「起きたなら、その前に〜を経ている」という性質だけである。処理が必ず完了することは確かめていない。無効な応答でトークン文字列を得た呼び出しが、失効を試みる前に中断する場合もある
 - **認証と署名の段階**：認可と発行処理のモデルは JWT の署名検証を扱わず、Caller は検証済みの前提で表す。発行処理のモデルに JWT 検証、対象解決、KMS 署名の段階はなく、これらの失敗時に返却しないことは確かめていない
 - **監査とエラーの種別**：監査はどのモデルも扱わない。エラーの種別は、署名の検証鍵のモデルの認証失敗と内部障害の区別だけを扱う
-- **文字列と件数の規則**：大文字小文字の扱いや要求の件数の上限は扱わない
+- **文字列と件数の規則**：大文字小文字の扱い（名前は比較した結果の一致だけを表す）や要求の件数の上限は扱わない
 - **対象の並び**：発行要求と発行許可の対象を完全名の集合で表し、並びは扱わない。発行許可が要求の並びと表記を保つことは確かめていない
 - **権限名と水準の具体的な値**：権限名は `metadata` のほかを具体的な名前で表さず、水準は `read` と `write` だけを扱う（`repository_projects` の `admin` は扱わない）。許可権限に列挙する権限名が Repository permissions に当たることは、ユーザーアカウントの Installation に現れたことで確かめる運用を規則として仮定しており、モデルでは確かめていない
 - **権限の付与の上限**：GitHub App と Installation に付与された権限が、より低い水準の発行を許すことは、`write` が `read` を含むという順序として仮定している。付与されていない権限への GitHub の応答（拒否か、権限を除くか水準を下げた発行か）は区別しない。`RequestedPermissionsHeldWhenGitHubEnforces` は、GitHub が付与の上限を超えて発行しない場合の帰結だけを確かめる
 - **`metadata:read` のほかに加わる権限**：要求にかかわらず `metadata:read` のほかの権限が発行結果に加わる GitHub の振る舞いは、照合で返却しない発行結果の一つとして扱うだけで、正当な要求が照合に失敗するかは確かめていない
 - **2 つのモデルの接続**：発行処理のモデルは、発行許可の確定と発行結果の照合を「通ったかどうか」だけで表す。認可のモデルの規則とつなげて検証してはいない
 - **Installation の変更**：変更そのものは表さない。変更で起きうる発行の拒否や無効な応答は、原因を区別せず遷移に含まれる。発行済みのトークンへの影響は表さない
-- **発行上限の読み込み**：環境変数の書式、初期化の失敗、発行上限の変更は表さない。発行上限が空でなく許可権限の一部であることは、固定設定を読めた状態の規則として仮定する。高い水準が低い水準を含まないことは、Permission Entry の集合の包含で表す
+- **発行上限と保護対象の一覧の読み込み**：環境変数の書式、YAML の受理条件、初期化の失敗、発行上限と一覧の変更は表さない。発行上限が空でなく許可権限の一部であること（INV-015）と、保護対象の一覧の重複と権限の上限の条件（INV-016）は、固定設定を読めた状態の規則として仮定する。INV-016 のうち ID と名前の形式は扱わない
+- **Repository ID の再割り当て**：リポジトリの要素は Repository ID ごとに一つで、同じ ID を別のリポジトリが持つ状態は表さない。再び割り当てられた ID を持ち、許可 Caller と同じ名前のリポジトリは、モデルでは許可 Caller と区別できない。Security Design が受容したリスクとして扱う
+- **Caller の名前と ID の出どころ**：Caller のリポジトリ名を `sub` から得ることと、その名前が GitHub の現在の名前と一致するかは扱わない。名前は ID の現在の名前と独立に調べ、どちらであっても主張が成り立つことを確かめる
 - **認可の逆方向**：発行許可があるなら条件を満たすことは確かめるが、条件を満たす要求に必ず発行許可が作られることは確かめていない
 - **2 回以上の再試行**：呼び出しは最初と再試行の 2 つだけを扱う
 
