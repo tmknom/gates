@@ -192,6 +192,10 @@ assert NoUnverifiedReturn {
     (has[i, ResultVerified] and has[i, TokenKnown] and
      has[i, GrantOk] and has[i, IssueCallSent]))
 }
+// `GrantOk` stands for every condition of the Token Grant, those of the
+// protected repositories included. A renamed protected repository requested
+// by its new name meets them, so GitHub may issue only after `GrantOk`; its
+// result then fails verification, which `ReceivedInvalidKnown` covers.
 assert NoIssueBeforeExplicitGrant {
   always (all i: Invocation |
     has[i, Issued] implies (has[i, GrantOk] and has[i, IssueCallSent]))
