@@ -6,14 +6,42 @@ updates:
       - /
       - /.github/actions/issue-token
     schedule:
-      interval: daily
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: build
+    groups:
+      gomod:
+        patterns: ["*"]
+        update-types: [minor, patch]
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: daily
+      interval: monthly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: build
+    groups:
+      github-actions:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    # 自リポジトリの Action の参照は、main に commit が入るたびに更新対象になるため対象外にする
+    ignore:
+      - dependency-name: tmknom/gates
+      - dependency-name: tmknom/gates/*
 
   - package-ecosystem: docker
     directory: /.github/actions/issue-token
     schedule:
-      interval: daily
+      interval: monthly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: build
+    groups:
+      docker:
+        patterns: ["*"]
+        update-types: [minor, patch]
