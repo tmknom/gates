@@ -45,7 +45,7 @@ Docker Action は、AWS STS から AWS 一時認証情報を取得し、AWS Lamb
 | GitHub Actions / Docker Action | 利用者の要求を受け付け、OIDC JWT の取得、AWS 認証、Lambda Invoke、発行結果の受け取り、受け取ったトークンの失効（失敗時の失効、ジョブの終了時の失効）を行う | 対象リポジトリ・権限・接続情報 → GitHub OIDC JWT、AWS 一時認証情報、Installation Access Token |
 | GitHub OIDC Provider | GitHub Actions のワークフロー実行を表す OIDC JWT を発行し、検証用の公開鍵情報を提供する | Audience → OIDC JWT、Discovery / JWKS |
 | AWS STS | AWS 用 OIDC JWT を受け、Lambda 呼び出しに使う AWS 一時認証情報を発行する | OIDC JWT → AWS 一時認証情報 |
-| AWS Lambda / Go アプリケーション | GATES 用 OIDC JWT と要求を受け、Caller の識別、対象と権限の確認、Installation Access Token の発行を行う | Invoke Payload → 発行結果またはエラー |
+| AWS Lambda / Go アプリケーション | GATES 用 OIDC JWT と要求を受け、Caller の識別、対象と権限の確認（保護対象の一覧の許可 Caller と権限の上限で、保護対象ごとに要求できる Caller と権限を制限することを含む）、Installation Access Token の発行を行う | Invoke Payload → 発行結果またはエラー |
 | AWS KMS | インポート済み GitHub App Private Key による署名を実行する | 署名対象のダイジェスト → 署名 |
 | GitHub API | GitHub App のオーナーに対する Installation を返し、指定した対象・権限で Installation Access Token を発行し、失効の要求を受けたトークンを失効させる | GitHub App JWT、対象・権限 → Installation 情報、Installation Access Token。失効では Installation Access Token → 失効の結果 |
 
@@ -91,7 +91,7 @@ sequenceDiagram
   Note over L: Installation の account.id を照合し、発行範囲を確定
   L->>G: App JWT で対象と権限を指定して Token 発行
   G-->>L: Installation Access Token と発行範囲
-  Note over L: 発行結果を認可した対象・権限と照合
+  Note over L: 発行結果を認可した対象・権限と保護対象の一覧に照合
   L-->>A: Installation Access Token、有効期限、対象・権限
   Note over A: 同一ジョブ内の後続ステップがトークンを使う
   A->>G: ジョブの終了時にトークンで失効を要求

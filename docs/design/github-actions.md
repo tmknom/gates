@@ -25,7 +25,7 @@ IAM Role と Lambda の AWS リソース設定は [AWS Infrastructure Design](aw
 | Input | 必須 | 意味 |
 |---|---|---|
 | `repositories` | はい | カンマ区切りの `owner/repo` リスト |
-| `permissions` | はい | カンマ区切りの `permission:level`。`contents:read,pull_requests:write` のように、ジョブの処理に必要な権限だけを書く。書けるのは許可権限と発行上限の両方に含まれる組である |
+| `permissions` | はい | カンマ区切りの `permission:level`。`contents:read,pull_requests:write` のように、ジョブの処理に必要な権限だけを書く。書けるのは、許可権限に含まれ、発行上限に水準の包含で含まれる組（発行上限が同じ権限名の同じかより高い水準を含む組）である。保護対象に当たる対象を含む要求では、Caller が当たる許可 Caller の権限の上限にも同じ規則で含まれる必要がある |
 | `role-arn` | はい | 引き受ける IAM Role の ARN |
 | `function-name` | はい | 呼び出す Lambda の関数名 |
 | `aws-region` | はい | 呼び出す Lambda を置く AWS リージョン。AWS STS の呼び出しにも使う |
