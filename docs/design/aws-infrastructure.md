@@ -132,7 +132,7 @@ KMS Key の `key_spec` は、RSA_2048 / RSA_3072 / RSA_4096 のうち GitHub App
 - 既存の KMS Key の置換・削除を避けるため `prevent_destroy` を設定する。`prevent_destroy` は鍵の削除・置換を含む Plan をエラーで拒否し、鍵の集合から鍵を除いた Plan も拒否するが、リソースの設定自体を取り除いた場合の削除は防がない。Plan に鍵削除が現れた場合は適用を中止して確認する。
 - インポートした非対称 KMS Key の鍵素材は別の鍵素材に交換できない。更新時は新しい KMS Key を追加し、Lambda が参照する Key ARN を切り替える。
 
-Terraform への入力には、Key ID / ARN、GitHub App の Client ID、オーナー名と不変 Owner ID、オーナーの種別（Organization またはユーザーアカウント）、GATES 用 Audience、発行上限などの非秘密値を使用できます。GitHub App の Private Key は一切渡しません。
+Terraform への入力には、Key ID / ARN、GitHub App の Client ID、オーナー名と不変 Owner ID、オーナーの種別（Organization またはユーザーアカウント）、GATES 用 Audience、発行上限、保護対象の一覧などの非秘密値を使用できます。GitHub App の Private Key は一切渡しません。
 
 ### 4.3 Key Set and Rotation
 
@@ -194,16 +194,51 @@ Lambda の設定では次を扱います。
 | `GATES_GITHUB_APP_CLIENT_ID` | GitHub App の Client ID |
 | `GATES_AUDIENCE` | GATES 用 Audience |
 | `GATES_KMS_KEY_ARN` | 使用中の鍵の KMS Key ARN |
-| `GATES_ISSUABLE_PERMISSIONS` | 発行上限。権限名と水準を `:` でつないだ組を、カンマで区切って並べる（`contents:read,pull_requests:write`）。書式は [Lambda Design](lambda.md#41-runtime-entry) に定める |
+| `GATES_ISSUABLE_PERMISSIONS` | 発行上限。権限名と水準を `:` でつないだ組を、カンマで区切って並べる（`contents:read,pull_requests:write`）。要求は水準の包含で照合し、`contents:write` は `contents:read` の要求も許す。書式は [Lambda Design](lambda.md#41-runtime-entry) に定める |
+| `GATES_PROTECTED_REPOSITORIES` | 保護対象の一覧。YAML の文書 1 件。保護対象を置かないデプロイは `repositories: []` を書く。書式は [Lambda Design](lambda.md#保護対象の一覧の書式) に定める |
 
 発行上限は、既定値のない Terraform の変数で、組の文字列のリストとして受け取り、カンマで連結して環境変数に渡します。
 既定値を置かないのは、ほかの固定設定の変数と同じく、発行してよい権限を運用者に明示して決めさせるためです。
 
+保護対象の一覧は、既定値のない文字列の Terraform の変数で受け取ります。
+運用者は `terraform.tfvars` にヒアドキュメントで YAML を書きます。
+値はコメントを含めてそのまま環境変数に入ります。
+既定値を置かないのは、保護対象を置くかどうかを運用者に明示して決めさせるためです。
+既定値を空の一覧にすると、変数を書き忘れたデプロイが、保護のないまま Plan と Apply を通ります。
+
 Terraform の変数の検証は、環境変数の値のうち Lambda が初期化で拒否する値を Plan の時点で拒否します。
-例外は、発行上限が許可権限の一部であることで、Terraform では確かめず、Lambda の初期化だけが確かめます。
-Terraform で確かめるには、Go のコードが列挙する許可権限を Terraform にも写すことになり、列挙が 2 か所になって、一致を確かめる仕組みが別に要るためです。
-許可権限に含まれない組を含む発行上限は、適用した後の最初の Invoke で初期化の失敗になり、どの要求にもトークンを返しません。
-発行上限の書式（要素が 1 つ以上あること、各要素の形と文字種、重複がないこと）は、Terraform でも確かめます。
+例外は次のとおりで、どれも Terraform では確かめず、Lambda の初期化だけが確かめます。
+
+- **許可権限に含まれること**：発行上限の組と、許可 Caller の権限の上限の組が、どれも許可権限に含まれること。Terraform で確かめるには、Go のコードが列挙する許可権限を Terraform にも写すことになり、列挙が 2 か所になって、一致を確かめる仕組みが別に要るためである。発行上限の書式（要素が 1 つ以上あること、各要素の形と文字種、重複がないこと）は、Terraform でも確かめる
+- **復号した値から見分けられない YAML の誤り**：保護対象の一覧の誤りのうち、Terraform の `yamldecode` で復号した値から見分けられないもの（後述）
+
+保護対象の一覧の検証は、`yamldecode` で復号した値に対して行います。
+`yamldecode` は Lambda より多くの YAML を受け付けます（アンカーとエイリアスを展開し、引用符のない ID を数値に復号するなど。[Terraform — yamldecode](https://developer.hashicorp.com/terraform/language/functions/yamldecode)）。
+そのため Plan の時点で確かめられるのは、次の条件までです。
+
+- YAML として読める文書 1 件であること
+- 復号した値の形：トップレベルが `repositories` だけを持つこと、各保護対象と各許可 Caller が必須のキーだけを持つこと、`permissions` が 1 組以上であること
+- 表記と文字種：ID の 10 進表記、リポジトリ名の文字種と長さ、権限名と水準の文字種
+- 重複のないこと：保護対象の間と、同じ保護対象の許可 Caller の間の、Repository ID とリポジトリ名
+
+[Lambda Design](lambda.md#保護対象の一覧の書式) の不正な値のうち、重複したキー、アンカー、エイリアス、マージキー、明示的なタグ、ディレクティブ、引用符のない ID、文字列以外に解決される引用符のないキーと値などは、Lambda の初期化だけが拒否します。
+
+どの例外の誤りを含む設定も Plan と Apply を通り、適用した後の最初の Invoke で初期化の失敗になり、どの要求にもトークンを返しません。
+Terraform の変数の説明に、Plan を通っても Lambda が拒否する誤りがあることを書きます。
+
+Lambda は、環境変数の合計が 4096 バイトを超える設定を、Apply の時点で拒否します（[AWS Lambda Environment Size](../research/aws/lambda-environment-size.md)）。
+保護対象の一覧は保護対象と許可 Caller の数に比例して長くなり、コメントも合計に数えられるため、Plan の時点で合計を確かめます。
+数え方は AWS の資料のとおり、キー名、値、引用符、カンマ、括弧を含めた JSON のバイト数で、ASCII 以外の文字は 1 文字 2 バイトから 4 バイトになります（日本語のコメントは UTF-8 で 1 文字 3 バイト）。
+値の改行と二重引用符を JSON のエスケープの後の長さで数えるかは資料にないため、多めに見積もる側（エスケープの後）で数えます。
+Plan の時点で値の決まらない KMS Key ARN は、ARN の形式から決まる長さで数えます。
+
+保護対象の一覧を変えると、Lambda の設定の更新が完了するまでの呼び出しは更新前の一覧で、完了した後の発行要求は新しい一覧で認可し、照合します。
+発行済みのトークンは失効せず、発行したときの対象と権限のまま有効期限まで残ります（[Security Design](security.md#36-protected-repositories)）。
+発行上限を変えた場合も同じです（[Security Design](security.md#33-permission-boundary)）。
+
+保護対象の一覧は、保護対象と許可 Caller の Repository ID とリポジトリ名、権限の上限を含む非秘密値です。
+この値は Terraform の State と Plan、Lambda の関数の設定に残り、関数の設定を読める主体は、どのリポジトリが保護対象で、どのリポジトリが許可 Caller かを読めます。
+許可 Caller を知った主体は、許可 Caller を経由した到達（[Security Design](security.md#36-protected-repositories)）の標的を選べます。
 
 Terraform の検証は、次の点で Lambda より狭い値だけを通します。
 
@@ -222,7 +257,7 @@ Issuer と GitHub API Host は環境変数にしません。
 | FR-ISSUANCE-001、QR-008、AC-OPS-005 | `EXTERNAL` origin の非対称署名 KMS Key、Lambda 実行 Role への `kms:Sign` のみの許可、Key Policy による署名権限と管理権限の分離 |
 | FR-OPS-005、AC-ISSUANCE-005 | 鍵の集合への新 KMS Key の追加と使用中の鍵の切り替えによる鍵更新、`prevent_destroy` と Plan の確認による置換・削除の防止、退役させる鍵の State からの除外 |
 | QR-008、AC-OPS-006 | 鍵素材インポートおよびインポート前コピー削除の Terraform からの分離 |
-| FR-OPS-001、FR-AUTHZ-008、AC-AUTHZ-007、AC-AUTHZ-010 | 許可オーナー、GitHub App、KMS Key、発行上限を Terraform 入力と Lambda 環境変数で固定。発行上限の書式は Plan の時点で、許可権限の一部であることは Lambda の初期化で確かめる。Installation は固定した GitHub App と不変 Owner ID から一意に導出する |
+| FR-OPS-001、FR-AUTHZ-008、FR-AUTHZ-009、AC-AUTHZ-007、AC-AUTHZ-010、AC-AUTHZ-013 | 許可オーナー、GitHub App、KMS Key、発行上限、保護対象の一覧を Terraform 入力と Lambda 環境変数で固定。発行上限の書式と、保護対象の一覧の復号した値の形、文字種、重複は Plan の時点で、発行上限と許可 Caller の権限の上限が許可権限の一部であることと、復号した値から見分けられない YAML の誤りは Lambda の初期化で確かめる。環境変数の合計の上限は Plan の時点で確かめる。Installation は固定した GitHub App と不変 Owner ID から一意に導出する |
 | FR-OPS-003、QR-004 | CloudWatch Logs の保持期間・アクセス制限と資格情報の非記録 |
 
 受け入れ条件の正本は [Acceptance Criteria](../spec/acceptance-criteria.md) です。
@@ -245,6 +280,9 @@ Issuer と GitHub API Host は環境変数にしません。
 - [Terraform — AWS KMS External Key](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/kms_external_key)
 - [Terraform AWS Provider — CHANGELOG（v6.11.0）](https://github.com/hashicorp/terraform-provider-aws/blob/main/CHANGELOG.md)
 - [Terraform — Managing sensitive data](https://developer.hashicorp.com/terraform/language/manage-sensitive-data)
+- [Terraform — yamldecode](https://developer.hashicorp.com/terraform/language/functions/yamldecode)
+- [AWS Lambda Environment Size](../research/aws/lambda-environment-size.md)
+- [AWS — Lambda quotas](https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html)
 - [Terraform — Lifecycle](https://developer.hashicorp.com/terraform/language/meta-arguments/lifecycle)
 - [Terraform — Refactor modules](https://developer.hashicorp.com/terraform/language/modules/develop/refactoring)
 - [Terraform — Remove a resource from state](https://developer.hashicorp.com/terraform/language/state/remove)
