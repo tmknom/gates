@@ -4,7 +4,7 @@
 GitHub の公式資料そのものではなく、GitHub の仕様が変更された場合は該当する公式資料を確認します。
 
 - **対象**：GitHub.com の GitHub App、GitHub App JWT、Installation、Installation Access Token、REST API の共通事項。GitHub Enterprise Server は対象外。
-- **取得した値の調査記録**：[GitHub App Installation](../../research/github/app-installation.md)、[GitHub Installation Access Token](../../research/github/installation-access-token.md)、[GitHub App Installation Changes](../../research/github/installation-changes.md)、[GitHub App Permissions](../../research/github/app-permissions.md)、[GitHub Docker Action Failure and Cancellation](../../research/github/docker-action-cancellation.md)。取得日、取得方法、記録した応答はこれらの記録にある。
+- **取得した値の調査記録**：[GitHub App Installation](../../research/github/app-installation.md)、[GitHub Installation Access Token](../../research/github/installation-access-token.md)、[GitHub App Installation Changes](../../research/github/installation-changes.md)、[GitHub App Permissions](../../research/github/app-permissions.md)、[GitHub Docker Action Failure and Cancellation](../../research/github/docker-action-cancellation.md)、[GitHub Repository Identity](../../research/github/repository-identity.md)。取得日、取得方法、記録した応答はこれらの記録にある。
 
 各記述の先頭の太字は、記述の根拠の Evidence を表します。Documented は公式資料の記述、Published は GitHub が公開するエンドポイントから取得した値、Observed は実環境で観測した値、Inferred はそれらから導いた解釈、Unconfirmed は公式資料で確定できない事項です。
 
@@ -123,6 +123,12 @@ GitHub は、トークンを、中身を解釈しない文字列として扱う�
 - **本文の大きさ**：対象1件ごとにリポジトリの完全な表現が入り、1件あたり数 KB だった
 - **拒否**：Installation で選択していない同じアカウントの公開リポジトリ、存在しない名前、`.`、`..` のどれかを含む要求は、同じ本文の `422` で、どのリポジトリが原因かを示さなかった。Installation で選択していない同じアカウントの private リポジトリを含む要求も `422` だった（本文は記録していない）。対象を縮小した応答はなかった
 
+**Observed（改名したリポジトリへの発行）**：Installation の対象のリポジトリを改名した後に、GATES を通して対象 1 件と `{"contents":"read"}` で発行を要求した記録では、次のとおりでした（[GitHub Repository Identity](../../research/github/repository-identity.md#改名した-installation-の対象への発行)）。
+発行の応答本文は記録しておらず、応答コードと、発行したトークンで呼んだ API の応答から読んでいます。
+
+- **新しい名前**：`201` だった。トークンの `GET /installation/repositories` は 1 件で、`id` は改名の前と同じ、`full_name` は新しい名前だった
+- **旧名**：`422` だった。改名したリポジトリに読み替えた発行はなかった。旧名を指定した `GET /repos/{owner}/{repo}` は改名したリポジトリを返した（[GitHub Repository Identity](../../research/github/repository-identity.md#改名と作り直しでの-repository-id)）一方、発行 API の `repositories` は旧名を受け付けなかった
+
 **Unconfirmed**：次の振る舞いは、参照した公式資料に記述がありません。
 
 - Installation 範囲外のリポジトリを要求したとき、発行を拒否するか、対象を縮小した応答を返すか。実測したのは Installation で選択していない同じアカウントの公開リポジトリと private リポジトリだけで、別のアカウントのもの、archived のものは試していない
@@ -130,6 +136,7 @@ GitHub は、トークンを、中身を解釈しない文字列として扱う�
 - 停止中の Installation に対する発行 API の応答。App 停止の API の説明は、停止するとそのアカウントに対する App の API アクセスが遮断されるとするが、発行 API の応答コードは示していない（[REST API — GitHub Apps](https://docs.github.com/en/rest/apps/apps?apiVersion=2026-03-10)）
 - 発行応答の各フィールドの存在条件。OpenAPI 定義で必須なのは `token` と `expires_at` だけで、`permissions`、`repositories`、`repository_selection` は必須ではない（[REST API Description](https://github.com/github/rest-api-description)）
 - 発行応答の `repositories` の並び
+- 改名したリポジトリを旧名で要求したときの応答。実測したのは、改名の直後に個人アカウントの private リポジトリを要求した場合だけである
 
 ### 4.3 失効
 
@@ -220,6 +227,6 @@ Published や Observed の記述で一部の条件を確かめた事項も、Git
 |---|---|
 | GitHub App の鍵 | 新規生成される RSA 鍵のビット長 |
 | Installation の取得 API | Organization の API の `200` 以外の応答（インストールされていない場合を含む）、User の API のアンインストール以外の `200` 以外の応答、Organization の API の応答の形、停止中の Installation の `suspended_at` の値の形、GitHub App とオーナーの組での一意性 |
-| トークン発行 API | 範囲外リポジトリへの要求、500件超の要求、停止中の Installation への要求、`422` の原因、`metadata:read` の付与条件、応答フィールドの有無、`repositories` の並び |
+| トークン発行 API | 範囲外リポジトリへの要求、500件超の要求、停止中の Installation への要求、`422` の原因、`metadata:read` の付与条件、応答フィールドの有無、`repositories` の並び、改名したリポジトリの旧名での要求 |
 | トークン失効 API | 新形式のトークンでの失効の動作、`204` の後に失効が効くまでの時間 |
 | 権限名と分類 | 分類と水準が変わらない保証、Organization の Installation に現れる権限名、設定画面の項目と権限名の一つずつの対応、Installation の側で承認する前の権限への応答、付与されていない権限か水準への応答が常に拒否であるか |
