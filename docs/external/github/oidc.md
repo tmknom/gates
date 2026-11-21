@@ -5,7 +5,7 @@ GitHub の公式資料そのものではなく、GitHub の仕様が変更され
 
 - **対象**：GitHub.com の GitHub Actions OIDC の Issuer、Discovery、JWKS、JOSE Header、Claim、時刻、Audience、`sub` とそのカスタマイズ
 - **対象外**：GitHub Enterprise Server。OIDC JWT を取得するワークフローの権限と取得の手段は [GitHub Actions Integration Constraints](actions.md) が扱う
-- **取得した値の調査記録**：[GitHub OIDC Discovery](../../research/github/oidc-discovery.md)、[GitHub OIDC JWKS](../../research/github/oidc-jwks.md)、[GitHub OIDC JWT](../../research/github/oidc-jwt.md)、[GitHub OIDC Custom Audience](../../research/github/custom-audience.md)。取得日、取得方法、記録した応答はこれらの記録にある
+- **取得した値の調査記録**：[GitHub OIDC Discovery](../../research/github/oidc-discovery.md)、[GitHub OIDC JWKS](../../research/github/oidc-jwks.md)、[GitHub OIDC JWT](../../research/github/oidc-jwt.md)、[GitHub OIDC Custom Audience](../../research/github/custom-audience.md)、[GitHub Repository Identity](../../research/github/repository-identity.md)。取得日、取得方法、記録した応答はこれらの記録にある
 
 各条項の Evidence は、Statement がどのように知られたかを表します。
 Documented は公式資料の記述、Published は GitHub が公開するエンドポイントから取得した値、Observed は実環境で観測した値、Inferred はそれらの条項から導いた解釈、Unconfirmed は公式資料で確定できない事項です。
@@ -15,6 +15,7 @@ Unconfirmed の条項には、確定に要る確認を Confirmation に書きま
 Observed の条項が根拠にする JWT は、どれも個人アカウントの private リポジトリで発行されたものです。
 [GitHub OIDC JWT](../../research/github/oidc-jwt.md) の 6 件は Audience を指定せずに取得し、起動イベント、再利用ワークフロー、Environment の条件を変えて記録しています。
 [GitHub OIDC Custom Audience](../../research/github/custom-audience.md) の 2 件は、workflow_dispatch で起動したワークフローから、URL でない文字列を Audience に指定して取得し、値ではなく型だけを記録しています。
+[GitHub Repository Identity](../../research/github/repository-identity.md) は、push で起動したワークフローから、リポジトリの改名の前と後に取得した 2 件と、GATES の監査記録に残った 1 件について、リポジトリを示す Claim だけを記録しています。
 
 ## Issuer and Discovery
 
@@ -165,6 +166,15 @@ Observed の条項が根拠にする JWT は、どれも個人アカウントの
 - **Evidence**：Documented
 - **Source**：[OIDC reference — OIDC token claims](https://docs.github.com/en/actions/reference/security/oidc#oidc-token-claims)
 - **Statement**：`repository_id` は、ワークフローを実行するリポジトリの ID である
+
+### GH-OIDC-REPOSITORY-ID-RENAME 改名での `repository_id`
+
+- **Evidence**：Documented
+- **Source**：[OIDC reference — Example: Using system-generated GUIDs](https://docs.github.com/en/actions/reference/security/oidc#example-using-system-generated-guids)
+- **Statement**：`repository_id` は、リポジトリの名前を変更しても変わらない
+
+公式資料は、`repository_id` を含めるテンプレートの例を「system-generated GUIDs that do not change between renames of entities (such as renaming a repository)」と説明しています。
+移管で変わらないことと、ほかのリポジトリに再び割り当てられないことは、この資料には書かれていません。
 
 ### GH-OIDC-REPOSITORY-OWNER-ID `repository_owner_id` の意味
 
@@ -319,6 +329,37 @@ Audience を指定した 2 件は、ここに挙げた Claim と `aud` の型だ
 
 公式資料の説明は Organization の ID です（GH-OIDC-REPOSITORY-OWNER-ID）。
 環境変数 `GITHUB_REPOSITORY_OWNER_ID` はリポジトリのオーナーのアカウント ID と説明されていますが、この Claim と同じ値になるとは書かれていません。
+
+### GH-OIDC-REPOSITORY-ID-REST-OBSERVED 記録した JWT の `repository_id` と REST API の `id`
+
+- **Evidence**：Observed
+- **Source**：[GitHub Repository Identity](../../research/github/repository-identity.md#oidc-jwt-と-rest-api-の値)
+- **Statement**：個人アカウントが所有する private リポジトリ 2 件で発行された JWT の `repository_id` は、同じリポジトリの REST API の `GET /repos/{owner}/{repo}` の `id`（JSON の数値）を 10 進で表した文字列と同じである。リポジトリの名前を変更した後に発行された JWT でも同じである
+
+### GH-OIDC-REPOSITORY-ID-REST `repository_id` と REST API の `id` の関係
+
+- **Evidence**：Unconfirmed
+- **Source**：[OIDC reference — OIDC token claims](https://docs.github.com/en/actions/reference/security/oidc#oidc-token-claims)、[REST API — Repositories](https://docs.github.com/en/rest/repos/repos?apiVersion=2026-03-10)
+- **Statement**：GitHub は、`repository_id` の値が、同じリポジトリの REST API のリポジトリ表現の `id` と同じ値であることを定めていない
+- **Confirmation**：公式資料に、`repository_id` と REST API の `id` の対応の記述があるかを確かめる
+
+公式資料は、`repository_id` を「The ID of the repository」と説明するだけです（GH-OIDC-REPOSITORY-ID）。
+記録した値は GH-OIDC-REPOSITORY-ID-REST-OBSERVED にあります。
+
+### GH-OIDC-REPOSITORY-NAME-OBSERVED 記録した JWT のリポジトリ名
+
+- **Evidence**：Observed
+- **Source**：[GitHub Repository Identity](../../research/github/repository-identity.md#oidc-jwt-と-rest-api-の値)
+- **Statement**：大文字を含む名前の個人アカウントの private リポジトリで発行された JWT の、`sub` のリポジトリ部の名前と、`repository` の `/` より後の部分は、どちらも REST API の `name` と大文字小文字を含めて同じである。名前を変更した後に発行された JWT では、どちらも新しい名前である
+
+### GH-OIDC-REPOSITORY-NAME JWT が示すリポジトリ名
+
+- **Evidence**：Unconfirmed
+- **Source**：[OIDC reference — OIDC token claims](https://docs.github.com/en/actions/reference/security/oidc#oidc-token-claims)、[OIDC reference — Immutable subject claims](https://docs.github.com/en/actions/reference/security/oidc#immutable-subject-claims)
+- **Statement**：GitHub は、`sub` と `repository` が示すリポジトリ名が、JWT を発行した時点の GitHub 上の名前であることと、その大文字小文字が REST API の `name` と同じであることを定めていない
+- **Confirmation**：公式資料に、JWT が示す名前の時点と表記の記述があるかを確かめる
+
+記録した値は GH-OIDC-REPOSITORY-NAME-OBSERVED にあります。
 
 ### GH-OIDC-RUN-ID-RERUN 再実行での `run_id`
 

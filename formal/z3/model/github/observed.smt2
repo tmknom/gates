@@ -93,6 +93,8 @@
 (define-fun gh-repository-owner-id-observed ((c Claims)) Bool
   (and ((_ is Present) (get-member c "repository_owner_id"))
        (= (get-member c "repository_owner_id") (get-member c "actor_id"))))
+; trace:unformalized GH-OIDC-REPOSITORY-ID-REST-OBSERVED REST API の応答の値との関係で、一つの Claims Set の値の制約ではない
+; trace:unformalized GH-OIDC-REPOSITORY-NAME-OBSERVED REST API の応答の値と、改名の前と後の Claims Set との関係で、一つの Claims Set の値の制約ではない
 ; trace:formalizes GH-OIDC-RUN-ATTEMPT-OBSERVED
 (define-fun gh-run-attempt-observed ((c Claims)) Bool
   (= (get-member c "run_attempt") (Present (JString "1"))))

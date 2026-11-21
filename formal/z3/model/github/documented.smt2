@@ -60,6 +60,7 @@
 ; trace:unformalized GH-OIDC-REF Claim の意味だけを定め、値の型と形式を定めない
 ; trace:unformalized GH-OIDC-WORKFLOW-REF Claim の意味だけを定め、値の型と形式を定めない
 ; trace:unformalized GH-OIDC-ENVIRONMENT Claim の意味だけを定め、値の型と形式を定めない
+; trace:unformalized GH-OIDC-REPOSITORY-ID-RENAME 改名の前と後に発行された二つの Claims Set の関係で、一つの Claims Set の値の制約ではない
 ; dependabot tells that a Dependabot update job requested the JWT.
 ; trace:formalizes GH-OIDC-EVENT-NAME-DEPENDABOT
 (define-fun gh-event-name-dependabot ((c Claims) (dependabot Bool)) Bool
