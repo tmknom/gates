@@ -254,19 +254,19 @@ allowed_dependencies:
   - from: "docs/user-guide/overview.md"
     to:
       - "docs/**"
-      - ".github/actions/issue-token/README.md"
+      - "actions/issue-token/README.md"
       - "formal/README.md"
       - "!docs/contributing/**"
       - "!docs/**/README.md"
   - from: "docs/user-guide/security-considerations.md"
     to:
       - "docs/**"
-      - ".github/actions/issue-token/README.md"
+      - "actions/issue-token/README.md"
       - "formal/README.md"
       - "!docs/contributing/**"
       - "!docs/**/README.md"
   - from: "docs/user-guide/**"
     to:
       - "docs/user-guide/**"
-      - ".github/actions/issue-token/README.md"
+      - "actions/issue-token/README.md"
       - "!docs/**/README.md"

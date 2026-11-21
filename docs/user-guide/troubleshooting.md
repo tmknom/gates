@@ -196,4 +196,4 @@ GitHub がホストする Runner で繰り返し出るときは、注釈の全�
 
 ## 7. References
 
-- [Issue Token](../../.github/actions/issue-token/README.md)：注釈の文言と失敗した段階の一覧、要求できる権限
+- [Issue Token](../../actions/issue-token/README.md)：注釈の文言と失敗した段階の一覧、要求できる権限

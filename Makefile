@@ -8,7 +8,7 @@ MAKEFLAGS += --no-builtin-rules
 # 特定のディレクトリだけを扱う操作は、そのディレクトリの Makefile に置く。ここには、よく使うものだけを委譲する
 TERRAFORM_DIR := terraform
 FORMAL_DIR := formal
-ACTION_DIR := .github/actions/issue-token
+ACTION_DIR := actions/issue-token
 
 # Variables: Go
 MODULE := $(shell go list -m)

@@ -9,8 +9,9 @@ GATES 用 OIDC JWT、AWS 用 OIDC JWT、AWS 一時認証情報、Payload、応�
 
 Docker Action は GATES 運用者が提供し、利用者向けの安定した境界とします。利用者に求めるのは、ワークフローでの `permissions: id-token: write` の宣言、対象リポジトリおよび権限の指定、運用者が用意した接続情報の参照だけです（セルフホストの Runner では、[5.4 Runner Requirements](#54-runner-requirements) の Linux と Docker の用意と、通信の許可も求めます）。
 
-Docker Action は、Lambda と同じこのリポジトリの `.github/actions/issue-token/` に置きます。
+Docker Action は、Lambda と同じこのリポジトリの `actions/issue-token/` に置きます。
 Lambda の入出力契約と Docker Action を同じ PR で変更でき、両者の食い違いを防げるためです。
+`.github/` の下に置かないのは、Dependabot が `github-actions` 以外の ecosystem では `.github/` の下のファイルを変える PR を作れず、Docker Action の Go の依存とビルド用のイメージが更新されなくなるためです（[dependabot-core#15237](https://github.com/dependabot/dependabot-core/issues/15237)）。
 Docker Action はデプロイ固有の値を持たないため、公開リポジトリに置いても AWS アカウント ID は公開されません。
 公開リポジトリであることから、許可オーナーのワークフローもこの Docker Action を参照できます。
 名前の `issue` は、Docker Action が起動する処理が [Domain Model](domain.md) の発行であることを表します。
@@ -165,10 +166,10 @@ JWS Compact Serialization の構成要素は改行を含められないため（
 
 ### 3.1 Packages
 
-Docker Action は、`.github/actions/issue-token/` を独立した Go モジュールとし、`main.go` をその直下に、ほかの package を `internal/` に置きます。
-ルートの Go モジュールと分けるのは、Go の `./...` がドットで始まる `.github` を対象にせず、ルートのモジュールに置くとビルド、試験、lint から黙って外れるためです。
+Docker Action は、`actions/issue-token/` を独立した Go モジュールとし、`main.go` をその直下に、ほかの package を `internal/` に置きます。
 `action.yml`、`Dockerfile`、`.dockerignore`、利用者向けの README も同じディレクトリに置きます。
 Runner は `Dockerfile` のあるディレクトリをビルドコンテキストにし、その外のファイルを `Dockerfile` から参照できないためです（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#runner-source)）。
+ルートの Go モジュールと分けるのも同じ理由で、イメージのビルドに要る `go.mod` と `go.sum` をこのディレクトリに置く必要があるためです。
 
 通信する package と、値を受けて値を返すだけの package を分けます。
 入力の検証、Payload の組み立て、応答の判定、Output への変換の試験に通信を要らなくするためです。
@@ -414,7 +415,7 @@ jobs:
     steps:
       - name: Issue token
         id: gates
-        uses: tmknom/gates/.github/actions/issue-token@<PINNED_COMMIT>
+        uses: tmknom/gates/actions/issue-token@<PINNED_COMMIT>
         with:
           repositories: example-org/repo-a,example-org/repo-b
           permissions: contents:read
@@ -452,7 +453,7 @@ Docker Action の Go のコードは、Go コーディングルールが既定�
 
 ### 5.2 Image
 
-- マルチステージビルドとし、ビルド用のイメージは `docker.io/library/golang` の Debian 版（`<版>-trixie`）を、タグと digest で固定する。Go の版は、Docker Action の Go モジュールの `go.mod`（`.github/actions/issue-token/go.mod`）の `go` の版と同じマイナー版の、最新のパッチ版とする。`go` の版は言語の最低の版で、パッチ版は標準ライブラリの脆弱性の修正を含むため。`GOTOOLCHAIN=local` ではビルド用のイメージの Go が `go.mod` の版より古いとビルドが失敗するため、`go.mod` の版を上げるときはビルド用のイメージも合わせて上げる
+- マルチステージビルドとし、ビルド用のイメージは `docker.io/library/golang` の Debian 版（`<版>-trixie`）を、タグと digest で固定する。Go の版は、Docker Action の Go モジュールの `go.mod`（`actions/issue-token/go.mod`）の `go` の版と同じマイナー版の、最新のパッチ版とする。`go` の版は言語の最低の版で、パッチ版は標準ライブラリの脆弱性の修正を含むため。`GOTOOLCHAIN=local` ではビルド用のイメージの Go が `go.mod` の版より古いとビルドが失敗するため、`go.mod` の版を上げるときはビルド用のイメージも合わせて上げる
 - `CGO_ENABLED=0`、`-trimpath`、`-buildvcs=false`、`GOTOOLCHAIN=local` でビルドする。`go build` は既定で `go.mod` と `go.sum` を書き換えず、`go.sum` にない依存を取り込まない
 - 実行用のイメージは `scratch` に、実行ファイル（`/issue-token` と、それを指すシンボリックリンクの `/revoke-token`）と、ビルド用のイメージから複製した CA 証明書（`/etc/ssl/certs/ca-certificates.crt`）だけを置く。GitHub と AWS への HTTPS に CA 証明書が要る
 - `ENTRYPOINT` は exec 形式と絶対パスで書き、`WORKDIR` を使わない
