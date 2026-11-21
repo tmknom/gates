@@ -94,6 +94,15 @@ func TestAllowedPermissions_ExcludesNonRepositoryPermissions(t *testing.T) {
 	}
 }
 
+// TestAllowedPermissions_LevelsAreInLevelOrder は、許可権限のどの組の水準も水準の順序を持ち、水準の包含で比べられることを確かめる。
+func TestAllowedPermissions_LevelsAreInLevelOrder(t *testing.T) {
+	for e := range allowedPermissions {
+		if !slices.Contains(levelOrder, e.level) {
+			t.Errorf("%s:%s has a level outside the level order", e.name, e.level)
+		}
+	}
+}
+
 // TestAllowedPermissions_TermsAreWellFormed は、許可権限のどの組も権限名と水準の文字種を満たし、形式検証を通る要求で表せることを確かめる。
 func TestAllowedPermissions_TermsAreWellFormed(t *testing.T) {
 	for _, e := range slices.Collect(maps.Keys(allowedPermissions)) {

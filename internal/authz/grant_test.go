@@ -35,6 +35,26 @@ func TestGrant(t *testing.T) {
 	}
 }
 
+// 発行上限が高い水準だけを含む権限名の低い水準の要求で、発行許可の Permissions が上限の水準に上がらないことを確かめる。
+//
+//trace:checks AC-AUTHZ-009
+func TestGrant_KeepsRequestedLevelBelowIssuableLevel(t *testing.T) {
+	requested := map[string]string{"issues": "read"}
+	req := mustTokenRequest(t, []string{"Example-Org/app"}, requested)
+
+	grant, err := authz.Grant(mustNewCaller(t, allowedOwnerID), req, mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName), mustNewIssuablePermissions(t, issuablePermissionNotations...), mustNewInstallation(t, allowedOwnerID, false))
+	if err != nil {
+		t.Fatalf("Grant() returned error: %v", err)
+	}
+	want, err := permission.NewPermissions(requested)
+	if err != nil {
+		t.Fatalf("NewPermissions returned error: %v", err)
+	}
+	if !grant.Permissions().Equal(want) {
+		t.Error("Permissions() is not equal to the requested permissions")
+	}
+}
+
 //trace:checks AC-AUTHZ-004 AC-AUTHZ-009
 func TestGrant_Denied(t *testing.T) {
 	tests := []struct {
@@ -68,7 +88,7 @@ func TestGrant_Denied(t *testing.T) {
 		{
 			name:          "permission outside issuable permissions with usable installation returns ErrAuthorizationDenied",
 			callerOwnerID: allowedOwnerID,
-			permissions:   map[string]string{"pull_requests": "read"},
+			permissions:   map[string]string{"deployments": "read"},
 			installation:  func(t *testing.T) authz.Installation { return mustNewInstallation(t, allowedOwnerID, false) },
 			want:          authz.ErrAuthorizationDenied,
 			notWant:       authz.ErrInstallationUnavailable,

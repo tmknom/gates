@@ -45,15 +45,14 @@ func (i IssuablePermissions) IsZero() bool {
 	return i.entries == nil
 }
 
-// Contains は、Permissions の Permission Entry がどれも発行上限に含まれるかを返す。
-// 組で照合し、発行上限が同じ権限名の高い水準を含んでも、低い水準の組は含まれない。
+// Contains は、Permissions の Permission Entry がどれも発行上限に水準の包含で含まれるかを返す。
 // ゼロ値の Permissions は許可する要求を表さないため、含まれないとする。
 func (i IssuablePermissions) Contains(p Permissions) bool {
 	if len(p.levels) == 0 {
 		return false
 	}
 	for name, level := range p.levels {
-		if !i.entries[entry{name: name, level: level}] {
+		if !includesByLevel(i.entries, entry{name: name, level: level}) {
 			return false
 		}
 	}
