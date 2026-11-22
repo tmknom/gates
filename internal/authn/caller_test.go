@@ -12,11 +12,11 @@ const maxInt64 = "9223372036854775807"
 
 //trace:checks AC-AUTHZ-001
 func TestCallerFromClaims(t *testing.T) {
-	defaultCaller := newCaller(t, 11, 22, 33, 2, validAttributes())
+	defaultCaller := newCaller(t, 11, 22, "app", 33, 2, validAttributes())
 	withAttributes := func(change func(*caller.WorkflowTriggerAttributes)) caller.Caller {
 		attributes := validAttributes()
 		change(&attributes)
-		return newCaller(t, 11, 22, 33, 2, attributes)
+		return newCaller(t, 11, 22, "app", 33, 2, attributes)
 	}
 	tests := []struct {
 		name   string
@@ -44,21 +44,27 @@ func TestCallerFromClaims(t *testing.T) {
 			want:   defaultCaller,
 		},
 		{
-			name:   "names in sub are not compared",
+			// repository の Claim は octo/app のまま、リポジトリ名は sub のリポジトリ部から取る
+			name:   "names in sub are not compared and repository name is taken from sub",
 			claims: claimsWith(map[string]any{"sub": "repo:other@11/another@22:ref:refs/heads/main"}),
-			want:   defaultCaller,
+			want:   newCaller(t, 11, 22, "another", 33, 2, validAttributes()),
 		},
 		{
 			// 名前を照合しないため、区切りは最初の / と、その後の最初の : で決まる
 			name:   "colon in owner name and slash in repository name return caller",
 			claims: claimsWith(map[string]any{"sub": "repo:oc:to@11/ap/p@22:pull_request"}),
-			want:   defaultCaller,
+			want:   newCaller(t, 11, 22, "ap/p", 33, 2, validAttributes()),
+		},
+		{
+			name:   "repository name keeps its letter case",
+			claims: claimsWith(map[string]any{"sub": "repo:octo@11/App-Repo@22:pull_request"}),
+			want:   newCaller(t, 11, 22, "App-Repo", 33, 2, validAttributes()),
 		},
 		{
 			name: "all workflow trigger attributes missing return caller",
 			claims: claimsWithout("actor", "actor_id", "event_name", "ref", "sha",
 				"workflow_ref", "job_workflow_ref", "environment"),
-			want: newCaller(t, 11, 22, 33, 2, caller.WorkflowTriggerAttributes{}),
+			want: newCaller(t, 11, 22, "app", 33, 2, caller.WorkflowTriggerAttributes{}),
 		},
 		{
 			name:   "null workflow trigger attribute is treated as missing",
@@ -89,7 +95,7 @@ func TestCallerFromClaims(t *testing.T) {
 				"run_id":              maxInt64,
 				"run_attempt":         maxInt64,
 			}),
-			want: newCaller(t, 1<<63-1, 1<<63-1, 1<<63-1, 1<<63-1, validAttributes()),
+			want: newCaller(t, 1<<63-1, 1<<63-1, "app", 1<<63-1, 1<<63-1, validAttributes()),
 		},
 	}
 	for _, tt := range tests {
@@ -172,7 +178,7 @@ func TestCallerFromClaims_InvalidClaims(t *testing.T) {
 func TestCallerFromClaims_AttributeOutOfNumberRangeIsTreatedAsMissing(t *testing.T) {
 	attributes := validAttributes()
 	attributes.Environment = ""
-	want := newCaller(t, 11, 22, 33, 2, attributes)
+	want := newCaller(t, 11, 22, "app", 33, 2, attributes)
 	raw := strings.Replace(string(marshalClaims(t, validClaims())), `"environment":"production"`, `"environment":1e999`, 1)
 	got, err := callerFromClaims([]byte(raw))
 	if err != nil {

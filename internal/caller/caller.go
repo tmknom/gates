@@ -30,6 +30,7 @@ type WorkflowTriggerAttributes struct {
 type Caller struct {
 	ownerID           githubid.OwnerID
 	repositoryID      githubid.RepositoryID
+	repositoryName    string
 	runID             githubid.RunID
 	runAttempt        githubid.RunAttempt
 	triggerAttributes WorkflowTriggerAttributes
@@ -37,7 +38,8 @@ type Caller struct {
 
 // NewCaller は、INV-009 が定める Caller の条件のうち、値だけで判定できるものを検証する。
 // 欠落した Claim を 0 として受け取っても Caller にしないため。ワークフロー起動属性はベストエフォートのため検証しない。
-func NewCaller(ownerID, repositoryID, runID, runAttempt int64, triggerAttributes WorkflowTriggerAttributes) (Caller, error) {
+// リポジトリ名は、INV-009 が文字種を求めないため、空でないことだけを確かめる。
+func NewCaller(ownerID, repositoryID int64, repositoryName string, runID, runAttempt int64, triggerAttributes WorkflowTriggerAttributes) (Caller, error) {
 	validOwnerID, err := githubid.NewOwnerID(ownerID)
 	if err != nil {
 		return Caller{}, fmt.Errorf("%w: owner id %w", ErrInvalidCaller, err)
@@ -45,6 +47,9 @@ func NewCaller(ownerID, repositoryID, runID, runAttempt int64, triggerAttributes
 	validRepositoryID, err := githubid.NewRepositoryID(repositoryID)
 	if err != nil {
 		return Caller{}, fmt.Errorf("%w: repository id %w", ErrInvalidCaller, err)
+	}
+	if repositoryName == "" {
+		return Caller{}, fmt.Errorf("%w: repository name must not be empty", ErrInvalidCaller)
 	}
 	validRunID, err := githubid.NewRunID(runID)
 	if err != nil {
@@ -57,6 +62,7 @@ func NewCaller(ownerID, repositoryID, runID, runAttempt int64, triggerAttributes
 	return Caller{
 		ownerID:           validOwnerID,
 		repositoryID:      validRepositoryID,
+		repositoryName:    repositoryName,
 		runID:             validRunID,
 		runAttempt:        validRunAttempt,
 		triggerAttributes: triggerAttributes,
@@ -71,6 +77,11 @@ func (c Caller) OwnerID() githubid.OwnerID {
 // RepositoryID は、不変 Repository ID を返す。
 func (c Caller) RepositoryID() githubid.RepositoryID {
 	return c.repositoryID
+}
+
+// RepositoryName は、オーナー名を含まないリポジトリ名を返す。Caller の同一性には含めず、同一性は Repository ID で判断する。
+func (c Caller) RepositoryName() string {
+	return c.repositoryName
 }
 
 // RunID は、ワークフロー実行 ID を返す。

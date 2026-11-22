@@ -8,15 +8,17 @@ import (
 	"github.com/tmknom/gates/internal/authz"
 	"github.com/tmknom/gates/internal/github"
 	"github.com/tmknom/gates/internal/nonzero"
+	"github.com/tmknom/gates/internal/protected"
 )
 
 // TokenIssuer は、KMS Signer と GitHub Client を使って Installation Access Token を発行する Token Issuer である。
-// 入口を struct のメソッドにするのは、KMS Signer、GitHub Client、許可オーナーを要求をまたいで保持するためである。
+// 入口を struct のメソッドにするのは、KMS Signer、GitHub Client、許可オーナー、保護対象の一覧を要求をまたいで保持するためである。
 type TokenIssuer struct {
-	signer       kmsSigner
-	client       *github.Client
-	allowedOwner authz.AllowedOwner
-	now          func() time.Time
+	signer                kmsSigner
+	client                *github.Client
+	allowedOwner          authz.AllowedOwner
+	protectedRepositories protected.Repositories
+	now                   func() time.Time
 }
 
 // kmsSigner は、KMS Signer のうち Token Issuer が使う操作である。
@@ -31,10 +33,12 @@ type kmsSigner interface {
 type GrantFunc func(installation authz.Installation) (authz.TokenGrant, error)
 
 // NewTokenIssuer は Token Issuer を作る。
-func NewTokenIssuer(signer kmsSigner, client *github.Client, allowedOwner authz.AllowedOwner, now func() time.Time) *TokenIssuer {
+func NewTokenIssuer(signer kmsSigner, client *github.Client, allowedOwner authz.AllowedOwner, protectedRepositories protected.Repositories, now func() time.Time) *TokenIssuer {
 	// ゼロ値は Installation の取得先を決められず、照合でも Owner ID 0 の実効対象と一致し得るため作らない
 	nonzero.Require(allowedOwner)
-	return &TokenIssuer{signer: signer, client: client, allowedOwner: allowedOwner, now: now}
+	// ゼロ値の一覧は照合で拒否されるが、どの発行結果も返せない Token Issuer を作らない
+	nonzero.Require(protectedRepositories)
+	return &TokenIssuer{signer: signer, client: client, allowedOwner: allowedOwner, protectedRepositories: protectedRepositories, now: now}
 }
 
 // IssueInstallationAccessToken は、署名、Installation の解決、発行許可の確定、発行、発行結果の照合を一つの操作として行い、返却可能な発行結果だけを返す。
@@ -59,7 +63,7 @@ func (i *TokenIssuer) IssueInstallationAccessToken(ctx context.Context, grant Gr
 	if err != nil {
 		return ReturnableIssuanceResult{}, fmt.Errorf("issue: %w", err)
 	}
-	returnable, err := verify(result, tokenGrant, i.allowedOwner, i.now())
+	returnable, err := verify(result, tokenGrant, i.allowedOwner, i.protectedRepositories, i.now())
 	if err != nil {
 		return ReturnableIssuanceResult{}, i.revokeAfterVerificationFailure(ctx, result, err)
 	}

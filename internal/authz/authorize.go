@@ -5,13 +5,15 @@ import (
 
 	"github.com/tmknom/gates/internal/caller"
 	"github.com/tmknom/gates/internal/permission"
+	"github.com/tmknom/gates/internal/protected"
 	"github.com/tmknom/gates/internal/request"
 )
 
 // Authorize は、Security Design の認可条件を番号順に判定する。
 // 最初に満たさなかった条件で返す。ほかの条件の成否は、監査記録が別の項目として持つ Caller と要求から判定できるため。
 // 水準の包含は許可権限に含まれることを条件に持つため発行上限の判定だけで足りるが、許可権限も別の条件として判定する。理由は RULE-010 の根拠に記述する。
-func Authorize(c caller.Caller, req request.TokenRequest, allowedOwner AllowedOwner, issuablePermissions permission.IssuablePermissions) error {
+// 保護対象の一覧はリポジトリ名だけで保護対象を見分けるため、オーナー名の条件を通った要求だけを渡す。
+func Authorize(c caller.Caller, req request.TokenRequest, allowedOwner AllowedOwner, issuablePermissions permission.IssuablePermissions, protectedRepositories protected.Repositories) error {
 	if c.OwnerID() != allowedOwner.ID() {
 		return fmt.Errorf("%w: caller owner id does not match allowed owner id", ErrAuthorizationDenied)
 	}
@@ -25,6 +27,9 @@ func Authorize(c caller.Caller, req request.TokenRequest, allowedOwner AllowedOw
 	}
 	if !issuablePermissions.Contains(req.Permissions()) {
 		return fmt.Errorf("%w: permissions are not within issuable permissions", ErrAuthorizationDenied)
+	}
+	if err := protectedRepositories.Authorize(c.RepositoryID(), c.RepositoryName(), req.Repositories(), req.Permissions()); err != nil {
+		return fmt.Errorf("%w: %w", ErrAuthorizationDenied, err)
 	}
 	return nil
 }

@@ -87,6 +87,7 @@ func TestValidate_Invalid(t *testing.T) {
 		{name: "unknown owner_id field returns ErrUnknownField", payload: payloadWith("owner_id", `1`), want: []error{request.ErrUnknownField}},
 		{name: "unknown installation_id field returns ErrUnknownField", payload: payloadWith("installation_id", `1`), want: []error{request.ErrUnknownField}},
 		{name: "unknown api_host field returns ErrUnknownField", payload: payloadWith("api_host", `"https://api.example.com"`), want: []error{request.ErrUnknownField}},
+		{name: "unknown protected_repositories field returns ErrUnknownField", payload: payloadWith("protected_repositories", `"repositories: []\n"`), want: []error{request.ErrUnknownField}},
 		{name: "repository_selection for all repositories returns ErrUnknownField", payload: payloadWith("repository_selection", `"all"`), want: []error{request.ErrUnknownField}},
 		{name: "field name in different case returns ErrUnknownField", payload: payloadWith("Version", `1`), want: []error{request.ErrUnknownField}},
 

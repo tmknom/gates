@@ -5,6 +5,13 @@ mock_provider "aws" {
     }
   }
 
+  # 環境変数の合計の検査が数える KMS Key ARN の長さを、パーティションの名前で変えない
+  mock_data "aws_partition" {
+    defaults = {
+      partition = "aws"
+    }
+  }
+
   mock_resource "aws_cloudwatch_log_group" {
     defaults = {
       arn = "arn:aws:logs:ap-northeast-1:123456789012:log-group:/aws/lambda/gates"
@@ -38,15 +45,34 @@ override_resource {
 }
 
 variables {
-  allowed_owner_id     = "12345678"
-  allowed_owner_name   = "Example-Owner"
-  allowed_owner_type   = "Organization"
-  github_app_client_id = "Iv23example"
-  gates_audience       = "gates-test"
-  kms_keys             = { key-1 = "RSA_2048" }
-  active_kms_key       = "key-1"
-  lambda_package_path  = "tests/testdata/package.txt"
-  issuable_permissions = ["contents:read", "contents:write", "pull_requests:write"]
+  allowed_owner_id       = "12345678"
+  allowed_owner_name     = "Example-Owner"
+  allowed_owner_type     = "Organization"
+  github_app_client_id   = "Iv23example"
+  gates_audience         = "gates-test"
+  kms_keys               = { key-1 = "RSA_2048" }
+  active_kms_key         = "key-1"
+  lambda_package_path    = "tests/testdata/package.txt"
+  issuable_permissions   = ["contents:read", "contents:write", "pull_requests:write"]
+  protected_repositories = "repositories: []\n"
+
+  # 拒否の試験の基準にする、受理される一覧
+  accepted_protected_repositories = <<-EOT
+    repositories:
+      # 共通基盤
+      - id: "200"
+        name: platform-infra
+        callers:
+          - repository_id: "100"
+            repository_name: deploy-tools
+            permissions:
+              contents: write
+              pull_requests: read
+      # どの Caller にも許可しない
+      - id: "201"
+        name: audit-records
+        callers: []
+  EOT
 }
 
 # trace:checks AC-QUALITY-003
@@ -83,13 +109,14 @@ run "function_configuration" {
 
   assert {
     condition = aws_lambda_function.gates.environment[0].variables == tomap({
-      GATES_ALLOWED_OWNER_ID     = "12345678"
-      GATES_ALLOWED_OWNER_NAME   = "Example-Owner"
-      GATES_ALLOWED_OWNER_TYPE   = "Organization"
-      GATES_GITHUB_APP_CLIENT_ID = "Iv23example"
-      GATES_AUDIENCE             = "gates-test"
-      GATES_KMS_KEY_ARN          = "arn:aws:kms:ap-northeast-1:123456789012:key/11111111-2222-3333-4444-555555555555"
-      GATES_ISSUABLE_PERMISSIONS = "contents:read,contents:write,pull_requests:write"
+      GATES_ALLOWED_OWNER_ID       = "12345678"
+      GATES_ALLOWED_OWNER_NAME     = "Example-Owner"
+      GATES_ALLOWED_OWNER_TYPE     = "Organization"
+      GATES_GITHUB_APP_CLIENT_ID   = "Iv23example"
+      GATES_AUDIENCE               = "gates-test"
+      GATES_KMS_KEY_ARN            = "arn:aws:kms:ap-northeast-1:123456789012:key/11111111-2222-3333-4444-555555555555"
+      GATES_ISSUABLE_PERMISSIONS   = "contents:read,contents:write,pull_requests:write"
+      GATES_PROTECTED_REPOSITORIES = "repositories: []\n"
     })
     error_message = "the environment variables must carry the input values"
   }
@@ -481,4 +508,299 @@ run "rejects_duplicate_issuable_permissions" {
   }
 
   expect_failures = [var.issuable_permissions]
+}
+
+run "protected_repositories_is_passed_as_written" {
+  command = plan
+
+  variables {
+    protected_repositories = var.accepted_protected_repositories
+  }
+
+  assert {
+    condition     = aws_lambda_function.gates.environment[0].variables["GATES_PROTECTED_REPOSITORIES"] == "repositories:\n  # 共通基盤\n  - id: \"200\"\n    name: platform-infra\n    callers:\n      - repository_id: \"100\"\n        repository_name: deploy-tools\n        permissions:\n          contents: write\n          pull_requests: read\n  # どの Caller にも許可しない\n  - id: \"201\"\n    name: audit-records\n    callers: []\n"
+    error_message = "the protected repositories must be passed to the function as written, including the comments"
+  }
+}
+
+run "accepts_same_caller_for_different_protected_repositories" {
+  command = plan
+
+  variables {
+    protected_repositories = replace(var.accepted_protected_repositories, "    callers: []\n", "    callers:\n      - repository_id: \"100\"\n        repository_name: deploy-tools\n        permissions:\n          contents: read\n")
+  }
+
+  assert {
+    condition     = strcontains(aws_lambda_function.gates.environment[0].variables["GATES_PROTECTED_REPOSITORIES"], "contents: read")
+    error_message = "the protected repositories must be passed to the function"
+  }
+}
+
+run "accepts_longest_protected_repository_id_and_name" {
+  command = plan
+
+  variables {
+    protected_repositories = replace(replace(var.accepted_protected_repositories, "\"201\"", "\"999999999999999999\""), "audit-records", join("", [for i in range(100) : "a"]))
+  }
+
+  assert {
+    condition     = strcontains(aws_lambda_function.gates.environment[0].variables["GATES_PROTECTED_REPOSITORIES"], "999999999999999999")
+    error_message = "the protected repositories must be passed to the function"
+  }
+}
+
+# trace:checks AC-AUTHZ-013
+run "rejects_protected_repositories_that_is_not_yaml" {
+  command = plan
+
+  variables {
+    protected_repositories = replace(var.accepted_protected_repositories, "callers: []", "callers: [")
+  }
+
+  expect_failures = [var.protected_repositories]
+}
+
+run "rejects_empty_protected_repositories" {
+  command = plan
+
+  variables {
+    protected_repositories = ""
+  }
+
+  expect_failures = [var.protected_repositories]
+}
+
+run "rejects_protected_repositories_with_two_documents" {
+  command = plan
+
+  variables {
+    protected_repositories = "${var.accepted_protected_repositories}---\nrepositories: []\n"
+  }
+
+  expect_failures = [var.protected_repositories]
+}
+
+run "rejects_protected_repositories_with_unknown_top_level_key" {
+  command = plan
+
+  variables {
+    protected_repositories = "version: \"1\"\n${var.accepted_protected_repositories}"
+  }
+
+  expect_failures = [var.protected_repositories]
+}
+
+run "rejects_protected_repositories_that_is_a_mapping" {
+  command = plan
+
+  variables {
+    protected_repositories = replace(var.accepted_protected_repositories, "repositories:\n", "repositories:\n  platform:\n")
+  }
+
+  expect_failures = [var.protected_repositories]
+}
+
+run "rejects_protected_repository_without_name" {
+  command = plan
+
+  variables {
+    protected_repositories = replace(var.accepted_protected_repositories, "    name: audit-records\n", "")
+  }
+
+  expect_failures = [var.protected_repositories]
+}
+
+run "rejects_protected_repository_with_unknown_key" {
+  command = plan
+
+  variables {
+    protected_repositories = replace(var.accepted_protected_repositories, "    name: audit-records\n", "    name: audit-records\n    owner: example-owner\n")
+  }
+
+  expect_failures = [var.protected_repositories]
+}
+
+run "rejects_callers_that_is_a_mapping" {
+  command = plan
+
+  variables {
+    protected_repositories = replace(var.accepted_protected_repositories, "callers: []", "callers: {}")
+  }
+
+  expect_failures = [var.protected_repositories]
+}
+
+run "rejects_caller_without_permissions" {
+  command = plan
+
+  variables {
+    protected_repositories = replace(var.accepted_protected_repositories, "        permissions:\n          contents: write\n          pull_requests: read\n", "")
+  }
+
+  expect_failures = [var.protected_repositories]
+}
+
+run "rejects_caller_with_empty_permissions" {
+  command = plan
+
+  variables {
+    protected_repositories = replace(var.accepted_protected_repositories, "        permissions:\n          contents: write\n          pull_requests: read\n", "        permissions: {}\n")
+  }
+
+  expect_failures = [var.protected_repositories]
+}
+
+run "rejects_zero_protected_repository_id" {
+  command = plan
+
+  variables {
+    protected_repositories = replace(var.accepted_protected_repositories, "\"201\"", "\"0\"")
+  }
+
+  expect_failures = [var.protected_repositories]
+}
+
+run "rejects_protected_repository_id_with_leading_zero" {
+  command = plan
+
+  variables {
+    protected_repositories = replace(var.accepted_protected_repositories, "\"201\"", "\"01\"")
+  }
+
+  expect_failures = [var.protected_repositories]
+}
+
+run "rejects_caller_repository_id_that_may_overflow_int64" {
+  command = plan
+
+  variables {
+    protected_repositories = replace(var.accepted_protected_repositories, "\"100\"", "\"1000000000000000000\"")
+  }
+
+  expect_failures = [var.protected_repositories]
+}
+
+run "rejects_unquoted_protected_repository_id" {
+  command = plan
+
+  variables {
+    protected_repositories = replace(var.accepted_protected_repositories, "\"201\"", "201")
+  }
+
+  expect_failures = [var.protected_repositories]
+}
+
+run "rejects_protected_repository_name_with_owner_name" {
+  command = plan
+
+  variables {
+    protected_repositories = replace(var.accepted_protected_repositories, "name: audit-records", "name: example-owner/audit-records")
+  }
+
+  expect_failures = [var.protected_repositories]
+}
+
+run "rejects_too_long_caller_repository_name" {
+  command = plan
+
+  variables {
+    protected_repositories = replace(var.accepted_protected_repositories, "deploy-tools", join("", [for i in range(101) : "a"]))
+  }
+
+  expect_failures = [var.protected_repositories]
+}
+
+run "rejects_uppercase_permission_name" {
+  command = plan
+
+  variables {
+    protected_repositories = replace(var.accepted_protected_repositories, "contents: write", "Contents: write")
+  }
+
+  expect_failures = [var.protected_repositories]
+}
+
+run "rejects_permission_level_outside_character_set" {
+  command = plan
+
+  variables {
+    protected_repositories = replace(var.accepted_protected_repositories, "pull_requests: read", "pull_requests: read-only")
+  }
+
+  expect_failures = [var.protected_repositories]
+}
+
+run "rejects_duplicate_protected_repository_ids" {
+  command = plan
+
+  variables {
+    protected_repositories = replace(var.accepted_protected_repositories, "\"201\"", "\"200\"")
+  }
+
+  expect_failures = [var.protected_repositories]
+}
+
+run "rejects_protected_repository_names_that_differ_only_in_case" {
+  command = plan
+
+  variables {
+    protected_repositories = replace(var.accepted_protected_repositories, "audit-records", "Platform-Infra")
+  }
+
+  expect_failures = [var.protected_repositories]
+}
+
+run "rejects_duplicate_caller_repository_ids_in_protected_repository" {
+  command = plan
+
+  variables {
+    protected_repositories = replace(var.accepted_protected_repositories, "          pull_requests: read\n", "          pull_requests: read\n      - repository_id: \"100\"\n        repository_name: release-tools\n        permissions:\n          contents: read\n")
+  }
+
+  expect_failures = [var.protected_repositories]
+}
+
+run "rejects_duplicate_caller_repository_names_in_protected_repository" {
+  command = plan
+
+  variables {
+    protected_repositories = replace(var.accepted_protected_repositories, "          pull_requests: read\n", "          pull_requests: read\n      - repository_id: \"101\"\n        repository_name: Deploy-Tools\n        permissions:\n          contents: read\n")
+  }
+
+  expect_failures = [var.protected_repositories]
+}
+
+# 一覧が "repositories: []\n#\n" のとき、この試験の変数での合計は 433 バイトで、# の後の ASCII の 1 文字が 1 バイトを足す
+run "accepts_environment_variables_of_4096_bytes" {
+  command = plan
+
+  variables {
+    protected_repositories = "repositories: []\n#${replace(format("%3663s", ""), " ", "a")}\n"
+  }
+
+  assert {
+    condition     = length(aws_lambda_function.gates.environment[0].variables["GATES_PROTECTED_REPOSITORIES"]) == 3682
+    error_message = "the protected repositories must be passed to the function"
+  }
+}
+
+run "rejects_environment_variables_over_4096_bytes" {
+  command = plan
+
+  variables {
+    protected_repositories = "repositories: []\n#${replace(format("%3664s", ""), " ", "a")}\n"
+  }
+
+  expect_failures = [aws_lambda_function.gates]
+}
+
+# 文字数は 4096 以下で、UTF-8 のバイト数は 4096 を超える
+run "rejects_environment_variables_over_4096_bytes_in_utf8" {
+  command = plan
+
+  variables {
+    protected_repositories = "repositories: []\n#${replace(format("%1300s", ""), " ", "あ")}\n"
+  }
+
+  expect_failures = [aws_lambda_function.gates]
 }

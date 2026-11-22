@@ -56,6 +56,18 @@ issuable_permissions = [
 `pull_requests:write` と `issues:read` は GitHub App に付与しませんが、発行上限には含めます。
 これらの要求を GATES の認可で止めずに GitHub に届け、GitHub App の権限による拒否を確かめるためです。
 GitHub App に付与した `statuses:read` は発行上限に含めず、発行上限による拒否を確かめます。
+
+保護対象の一覧（`protected_repositories`）は、保護対象を置かない値にします。
+
+```hcl
+protected_repositories = <<-EOT
+  repositories: []
+EOT
+```
+
+E2E テストの保護対象の事例は、発行上限と一覧を段階ごとに変えて適用し、終えたらこの 2 つの値に戻します（[E2E Tests](e2e-tests.md)）。
+既存の E2E テストの事例は、保護対象のない一覧を前提とします。
+保護対象を置くと、`write` の発行や `not-granted` の拒否のように、要求した対象と権限によって結果が変わるためです。
 接続情報のほかに E2E テストが使う Variables は、E2E Tests の Setup にあります。
 
 Deployment の最初の発行の確認には、E2E テストの `_e2e-success.yml` を使えます。

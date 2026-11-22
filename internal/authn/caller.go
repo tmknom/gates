@@ -31,7 +31,7 @@ func callerFromClaims(rawClaims []byte) (caller.Caller, error) {
 		return caller.Caller{}, err
 	}
 
-	subjectOwnerID, subjectRepositoryID, err := c.Sub.parse()
+	subjectOwnerID, subjectRepositoryID, repositoryName, err := c.Sub.parse()
 	if err != nil {
 		return caller.Caller{}, err
 	}
@@ -42,7 +42,7 @@ func callerFromClaims(rawClaims []byte) (caller.Caller, error) {
 		return caller.Caller{}, fmt.Errorf("%w: sub repository id does not match repository_id", ErrAuthenticationFailure)
 	}
 
-	verified, err := caller.NewCaller(ownerID, repositoryID, runID, runAttempt, c.triggerAttributes())
+	verified, err := caller.NewCaller(ownerID, repositoryID, repositoryName, runID, runAttempt, c.triggerAttributes())
 	if err != nil {
 		return caller.Caller{}, fmt.Errorf("%w: %w", ErrAuthenticationFailure, err)
 	}

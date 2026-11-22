@@ -1,5 +1,25 @@
 locals {
   lambda_function_name = "gates"
+
+  # 関数の設定と合計の検査で同じ値を使うため、KMS Key ARN 以外を 1 か所に置く
+  # Issuer と GitHub API Host は入れない。Lambda の設定を変更できる主体が検証の基準を差し替えられるようになるため
+  lambda_environment_variables = {
+    GATES_ALLOWED_OWNER_ID       = var.allowed_owner_id
+    GATES_ALLOWED_OWNER_NAME     = var.allowed_owner_name
+    GATES_ALLOWED_OWNER_TYPE     = var.allowed_owner_type
+    GATES_GITHUB_APP_CLIENT_ID   = var.github_app_client_id
+    GATES_AUDIENCE               = var.gates_audience
+    GATES_ISSUABLE_PERMISSIONS   = join(",", var.issuable_permissions)
+    GATES_PROTECTED_REPOSITORIES = var.protected_repositories
+  }
+
+  # KMS Key ARN は鍵の新規作成では Plan の時点で決まらないため、形式から決まる長さの値で数える
+  lambda_environment_json = jsonencode(merge(local.lambda_environment_variables, {
+    GATES_KMS_KEY_ARN = format("arn:%s:kms:%s:%s:key/%s", data.aws_partition.current.partition, var.region, "000000000000", "00000000-0000-0000-0000-000000000000")
+  }))
+  # length は文字数を返すため、Base64 の長さからパディングを引いて UTF-8 のバイト数を求める
+  lambda_environment_base64 = base64encode(local.lambda_environment_json)
+  lambda_environment_bytes  = length(local.lambda_environment_base64) / 4 * 3 - length(regexall("=", local.lambda_environment_base64))
 }
 
 # CloudWatch Logs の既定の暗号化で足りる。ログに資格情報を記録せず、GATES の KMS Key は署名専用で流用できないため、暗号化のためだけに鍵を増やさない
@@ -64,16 +84,17 @@ resource "aws_lambda_function" "gates" {
   memory_size                    = 256
   reserved_concurrent_executions = var.lambda_reserved_concurrency
 
-  # Issuer と GitHub API Host は入れない。Lambda の設定を変更できる主体が検証の基準を差し替えられるようになるため
   environment {
-    variables = {
-      GATES_ALLOWED_OWNER_ID     = var.allowed_owner_id
-      GATES_ALLOWED_OWNER_NAME   = var.allowed_owner_name
-      GATES_ALLOWED_OWNER_TYPE   = var.allowed_owner_type
-      GATES_GITHUB_APP_CLIENT_ID = var.github_app_client_id
-      GATES_AUDIENCE             = var.gates_audience
-      GATES_KMS_KEY_ARN          = aws_kms_external_key.signing[var.active_kms_key].arn
-      GATES_ISSUABLE_PERMISSIONS = join(",", var.issuable_permissions)
+    variables = merge(local.lambda_environment_variables, {
+      GATES_KMS_KEY_ARN = aws_kms_external_key.signing[var.active_kms_key].arn
+    })
+  }
+
+  # 保護対象の一覧で合計が上限を超えると Apply で拒否されるため、Plan の時点で確かめる
+  lifecycle {
+    precondition {
+      condition     = local.lambda_environment_bytes <= 4096
+      error_message = "the environment variables of the Lambda function must total at most 4096 bytes as JSON: shorten protected_repositories, such as by removing comments."
     }
   }
 

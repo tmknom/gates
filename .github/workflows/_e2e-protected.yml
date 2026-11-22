@@ -1,0 +1,296 @@
+name: E2E Protected Repositories
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: 検証環境に適用した発行上限と保護対象の一覧の段階
+        required: true
+        type: choice
+        options:
+          - level-inclusion
+          - protected
+          - name-mismatch
+          - corrected
+          - caller-mismatch
+          - caller-restored
+
+permissions: {}
+
+# 同じ Lambda を呼ぶ E2E テストを重ねない
+concurrency:
+  group: gates-e2e
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+# 検証環境に適用した段階の事例だけを動かし、発行上限の水準の包含と、保護対象の一覧による許可、拒否、照合失敗を確かめる。
+# 段階ごとの発行上限と一覧は docs/contributing/e2e-tests.md の Protected Repositories Cases にある
+jobs:
+  cases:
+    name: Select cases
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      # targets は primary と secondary の並びで、1 つ目と 2 つ目の対象を指す。
+      # expect は success かエラーコード、output は成功する事例で期待する Output の permissions
+      - name: Select cases
+        id: select
+        env:
+          # workflow_dispatch では入力から、写したワークフローの push では e2e/protected/<段階> のブランチの名前から段階を決める
+          INPUT_STAGE: ${{ inputs.stage }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          stage="${INPUT_STAGE:-${REF_NAME#e2e/protected/}}"
+          echo "stage: ${stage}"
+          all='[
+            {"stage": "level-inclusion", "case": "limit-level", "targets": "primary", "permissions": "contents:write", "expect": "success", "output": "contents:write,metadata:read"},
+            {"stage": "level-inclusion", "case": "below-limit", "targets": "primary", "permissions": "contents:read", "expect": "success", "output": "contents:read,metadata:read"},
+            {"stage": "level-inclusion", "case": "above-limit", "targets": "primary", "permissions": "pull_requests:write", "expect": "authorization_denied"},
+            {"stage": "protected", "case": "allowed", "targets": "primary", "permissions": "contents:write", "expect": "success", "output": "contents:write,metadata:read"},
+            {"stage": "protected", "case": "allowed-below-limit", "targets": "primary", "permissions": "contents:read", "expect": "success", "output": "contents:read,metadata:read"},
+            {"stage": "protected", "case": "unlisted-permission", "targets": "primary", "permissions": "contents:read,pull_requests:read", "expect": "authorization_denied"},
+            {"stage": "protected", "case": "other-caller", "targets": "secondary", "permissions": "contents:read", "expect": "authorization_denied"},
+            {"stage": "protected", "case": "mixed-other-caller", "targets": "primary,secondary", "permissions": "contents:read", "expect": "authorization_denied"},
+            {"stage": "name-mismatch", "case": "name-mismatch", "targets": "secondary", "permissions": "contents:read", "expect": "issuance_verification_failed"},
+            {"stage": "corrected", "case": "corrected", "targets": "secondary", "permissions": "contents:read", "expect": "success", "output": "contents:read,metadata:read"},
+            {"stage": "corrected", "case": "above-caller-limit", "targets": "secondary", "permissions": "contents:write", "expect": "authorization_denied"},
+            {"stage": "corrected", "case": "unprotected", "targets": "primary", "permissions": "contents:read", "expect": "success", "output": "contents:read,metadata:read"},
+            {"stage": "corrected", "case": "mixed-unprotected", "targets": "primary,secondary", "permissions": "contents:read", "expect": "success", "output": "contents:read,metadata:read"},
+            {"stage": "corrected", "case": "mixed-above-caller-limit", "targets": "primary,secondary", "permissions": "contents:write", "expect": "authorization_denied"},
+            {"stage": "caller-mismatch", "case": "caller-name-mismatch", "targets": "primary", "permissions": "contents:read", "expect": "authorization_denied"},
+            {"stage": "caller-mismatch", "case": "caller-id-mismatch", "targets": "secondary", "permissions": "contents:read", "expect": "authorization_denied"},
+            {"stage": "caller-restored", "case": "caller-restored", "targets": "primary", "permissions": "contents:read", "expect": "success", "output": "contents:read,metadata:read"},
+            {"stage": "caller-restored", "case": "no-allowed-callers", "targets": "secondary", "permissions": "contents:read", "expect": "authorization_denied"}
+          ]'
+          matrix="$(jq -c --arg stage "${stage}" '[.[] | select(.stage == $stage)]' <<< "${all}")"
+          if [[ "${matrix}" == "[]" ]]; then
+            echo "::error::unknown stage: ${stage}"
+            exit 1
+          fi
+          jq -r '.[] | "\(.case): \(.targets) \(.permissions) -> \(.expect)"' <<< "${matrix}"
+          echo "matrix={\"include\":${matrix}}" >> "${GITHUB_OUTPUT}"
+
+  issue:
+    name: Case (${{ matrix.case }})
+    needs: cases
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix: ${{ fromJSON(needs.cases.outputs.matrix) }}
+    steps:
+      - name: Prepare repositories
+        id: input
+        env:
+          TARGETS: ${{ matrix.targets }}
+          PRIMARY: ${{ vars.GATES_TARGET_PRIMARY }}
+          SECONDARY: ${{ vars.GATES_TARGET_SECONDARY }}
+        run: |
+          set -euo pipefail
+          repositories=()
+          IFS=',' read -ra targets <<< "${TARGETS}"
+          for target in "${targets[@]}"; do
+            case "${target}" in
+              primary) repositories+=("${PRIMARY}") ;;
+              secondary) repositories+=("${SECONDARY}") ;;
+              *) echo "::error::unknown target: ${target}"; exit 1 ;;
+            esac
+          done
+          echo "repositories=$(IFS=','; echo "${repositories[*]}")" >> "${GITHUB_OUTPUT}"
+
+      - name: Issue token
+        id: gates
+        continue-on-error: true
+        uses: tmknom/gates/actions/issue-token@8990cb90e2dea67260f1fb4da9372fc107d14b75
+        with:
+          repositories: ${{ steps.input.outputs.repositories }}
+          permissions: ${{ matrix.permissions }}
+          role-arn: arn:aws:iam::${{ secrets.GATES_AWS_ACCOUNT_ID }}:role/${{ vars.GATES_ROLE_NAME }}
+          function-name: ${{ vars.GATES_FUNCTION_NAME }}
+          aws-region: ${{ vars.GATES_AWS_REGION }}
+          audience: ${{ vars.GATES_AUDIENCE }}
+
+      # 成功する事例は Output と、トークンで許される操作と拒否される操作を確かめる。失敗する事例は Output が空であることを確かめる。
+      # トークンの値は出さず長さだけを出し、応答の本文は出さずステータスだけを出す
+      - name: Check result
+        env:
+          GH_TOKEN: ${{ steps.gates.outputs.token }}
+          CASE: ${{ matrix.case }}
+          EXPECT: ${{ matrix.expect }}
+          PERMISSIONS: ${{ matrix.permissions }}
+          EXPECTED_PERMISSIONS: ${{ matrix.output }}
+          EXPECTED_REPOSITORIES: ${{ steps.input.outputs.repositories }}
+          OUTCOME: ${{ steps.gates.outcome }}
+          EXPIRES_AT: ${{ steps.gates.outputs.expires-at }}
+          OUTPUT_REPOSITORIES: ${{ steps.gates.outputs.repositories }}
+          OUTPUT_PERMISSIONS: ${{ steps.gates.outputs.permissions }}
+        run: |
+          set -euo pipefail
+          echo "outcome: ${OUTCOME}"
+          failed=0
+          fail() {
+            echo "::error::$1"
+            failed=1
+          }
+
+          if [[ "${EXPECT}" != "success" ]]; then
+            [[ "${OUTCOME}" == "failure" ]] || fail "the Action did not fail"
+            for name in GH_TOKEN EXPIRES_AT OUTPUT_REPOSITORIES OUTPUT_PERMISSIONS; do
+              value="${!name}"
+              echo "${name} length: ${#value}"
+              [[ -z "${value}" ]] || fail "${name} is not empty"
+            done
+            exit "${failed}"
+          fi
+
+          echo "repositories: ${OUTPUT_REPOSITORIES}"
+          echo "permissions: ${OUTPUT_PERMISSIONS}"
+          echo "token length: ${#GH_TOKEN}"
+          if [[ "${OUTCOME}" != "success" || -z "${GH_TOKEN}" ]]; then
+            fail "the Action did not issue a token"
+            exit 1
+          fi
+          # Output は GitHub の応答の full_name を応答の並びで示すため、集合として比べる
+          normalize() {
+            tr ',' '\n' <<< "$1" | sort | paste -sd ','
+          }
+          [[ "$(normalize "${OUTPUT_REPOSITORIES}")" == "$(normalize "${EXPECTED_REPOSITORIES}")" ]] \
+            || fail "repositories do not match the requested repositories"
+          # 発行上限か許可 Caller の権限の上限が要求より高い水準でも、要求した水準で発行される
+          [[ "${OUTPUT_PERMISSIONS}" == "${EXPECTED_PERMISSIONS}" ]] || fail "permissions are not ${EXPECTED_PERMISSIONS}"
+
+          call() {
+            gh api --include "$@" 2> /dev/null | head -n 1 | awk '{print $2}' || true
+          }
+          IFS=',' read -ra requested <<< "${EXPECTED_REPOSITORIES}"
+          for repo in "${requested[@]}"; do
+            status="$(call "repos/${repo}/contents/README.md")"
+            echo "${repo} read README.md: ${status}"
+            [[ "${status}" == "200" ]] || fail "README.md of ${repo} is not readable"
+            # 書き込みを許すトークンでは、既定のブランチに書き込まないよう試さない
+            if [[ ",${PERMISSIONS}," == *",contents:write,"* ]]; then
+              echo "${repo} write contents: skipped"
+              continue
+            fi
+            path="e2e-protected/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${CASE}.txt"
+            status="$(call --method PUT "repos/${repo}/contents/${path}" -f message="e2e: protected repositories check" -f content=ZTJlCg==)"
+            echo "${repo} write contents: ${status}"
+            if [[ "${status}" == 2* ]]; then
+              fail "file ${path} was created in ${repo}; the operator must delete it"
+            elif [[ "${status}" != "403" ]]; then
+              fail "write contents to ${repo} was not denied with 403"
+            fi
+          done
+          exit "${failed}"
+
+  # 各事例のジョブのログで、成功する事例は発行と post-entrypoint の失効を、失敗する事例はエラーコードの注釈と、
+  # post-entrypoint が失効を試みずに終えたことを確かめる。一致した行は出さず、件数と GATES の request_id だけを出す
+  logs:
+    name: Check job logs
+    needs: [cases, issue]
+    if: ${{ always() && needs.cases.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+    steps:
+      - name: Check annotations and post-entrypoint
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          MATRIX: ${{ needs.cases.outputs.matrix }}
+        run: |
+          set -euo pipefail
+          # GATES のエラーコードごとの固定の文言（docs/design/lambda.md）
+          declare -A messages=(
+            [authorization_denied]='The requested token is not permitted\.'
+            [github_issuance_rejected]='GitHub rejected the token issuance\.'
+            [issuance_verification_failed]='The issued token did not pass verification and was not returned\.'
+          )
+
+          jobs_json="$(gh api --paginate "repos/${REPOSITORY}/actions/runs/${RUN_ID}/attempts/${RUN_ATTEMPT}/jobs" --jq '.jobs[]')"
+
+          # ログは色付けのエスケープシーケンスを含み、gh api はその出力を拒否するため curl で取得する。
+          # ジョブの完了の直後はログを取得できないことがあるため、空でないログを得るまで待つ
+          fetch_log() {
+            local log
+            for _ in 1 2 3 4 5 6; do
+              if log="$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+                "${GITHUB_API_URL}/repos/${REPOSITORY}/actions/jobs/$1/logs")" && [[ -n "${log}" ]]; then
+                printf '%s' "${log}"
+                return 0
+              fi
+              sleep 10
+            done
+            return 1
+          }
+          count() {
+            grep -c -E -e "$1" <<< "$2" || true
+          }
+
+          failed=0
+          report() {
+            echo "::error::$1"
+            failed=1
+          }
+          while IFS=$'\t' read -r case expect; do
+            name="Case (${case})"
+            job="$(jq -c --arg name "${name}" 'select(.name == $name)' <<< "${jobs_json}")"
+            if [[ -z "${job}" ]]; then
+              report "${name}: no job"
+              continue
+            fi
+            if ! log="$(fetch_log "$(jq -r '.id' <<< "${job}")")"; then
+              report "${name}: cannot fetch the log"
+              continue
+            fi
+
+            invoking="$(count 'Invoking the Lambda function at ' "${log}")"
+            post="$(count '--entrypoint "/revoke-token"' "${log}")"
+            revoked="$(count 'revocation succeeded: HTTP status 204' "${log}")"
+            revocation="$(count 'revocation (succeeded|failed)' "${log}")"
+            warning="$(count '##\[warning\]' "${log}")"
+            if [[ "${expect}" == "success" ]]; then
+              outcome="$(count 'Issued the token: request_id=' "${log}")"
+            else
+              outcome="$(count "##\[error\]GATES returned a failure response: error code \"${expect}\", message \"${messages[${expect}]}\", request id \"[^\"]+\"" "${log}")"
+            fi
+            echo "${name}: expect ${expect}, outcome ${outcome}, invoking ${invoking}, post-entrypoint ${post}, revocation ${revocation}, warning ${warning}"
+            [[ "${outcome}" -ge 1 ]] || report "${name}: the expected issuance or annotation is missing"
+            [[ "${invoking}" == 1 ]] || report "${name}: the Lambda function was not invoked once"
+            [[ "${post}" == 1 ]] || report "${name}: the post-entrypoint did not run"
+            [[ "${warning}" == 0 ]] || report "${name}: a warning was written"
+            if [[ "${expect}" == "success" ]]; then
+              [[ "${revoked}" == 1 && "${revocation}" == 1 ]] || report "${name}: the token was not revoked once with 204"
+            else
+              [[ "${revocation}" == 0 ]] || report "${name}: a revocation was attempted"
+            fi
+
+            # GATES の request_id は資格情報ではなく、監査記録を引くために出す
+            request_id="$(grep -o -E 'request_id=[^ ]+|request id "[^"]+"' <<< "${log}" | head -n 1 || true)"
+            [[ -z "${request_id}" ]] || echo "${name}: ${request_id}"
+          done < <(jq -r '.include[] | [.case, .expect] | @tsv' <<< "${MATRIX}")
+          if [[ "${failed}" != 0 ]]; then
+            echo "::error::at least one case is not as expected"
+            exit 1
+          fi
+
+  credential-leak:
+    name: Credential leak
+    needs: [issue, logs]
+    if: ${{ always() }}
+    permissions:
+      actions: read
+    uses: ./.github/workflows/_e2e-reusable-credential-leak.yml

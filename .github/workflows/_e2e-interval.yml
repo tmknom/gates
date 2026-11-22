@@ -30,7 +30,7 @@ jobs:
       - name: Issue token 1
         id: issue-1
         continue-on-error: true
-        uses: tmknom/gates/actions/issue-token@26d6193a58d8e62fde4bef6c18317524bb282256
+        uses: tmknom/gates/actions/issue-token@8990cb90e2dea67260f1fb4da9372fc107d14b75
         with:
           repositories: ${{ vars.GATES_TARGET_PRIMARY }}
           permissions: contents:read
@@ -45,7 +45,7 @@ jobs:
       - name: Issue token 2
         id: issue-2
         continue-on-error: true
-        uses: tmknom/gates/actions/issue-token@26d6193a58d8e62fde4bef6c18317524bb282256
+        uses: tmknom/gates/actions/issue-token@8990cb90e2dea67260f1fb4da9372fc107d14b75
         with:
           repositories: ${{ vars.GATES_TARGET_PRIMARY }}
           permissions: contents:read
@@ -60,7 +60,7 @@ jobs:
       - name: Issue token 3
         id: issue-3
         continue-on-error: true
-        uses: tmknom/gates/actions/issue-token@26d6193a58d8e62fde4bef6c18317524bb282256
+        uses: tmknom/gates/actions/issue-token@8990cb90e2dea67260f1fb4da9372fc107d14b75
         with:
           repositories: ${{ vars.GATES_TARGET_PRIMARY }}
           permissions: contents:read
@@ -75,7 +75,7 @@ jobs:
       - name: Issue token 4
         id: issue-4
         continue-on-error: true
-        uses: tmknom/gates/actions/issue-token@26d6193a58d8e62fde4bef6c18317524bb282256
+        uses: tmknom/gates/actions/issue-token@8990cb90e2dea67260f1fb4da9372fc107d14b75
         with:
           repositories: ${{ vars.GATES_TARGET_PRIMARY }}
           permissions: contents:read
@@ -90,7 +90,7 @@ jobs:
       - name: Issue token 5
         id: issue-5
         continue-on-error: true
-        uses: tmknom/gates/actions/issue-token@26d6193a58d8e62fde4bef6c18317524bb282256
+        uses: tmknom/gates/actions/issue-token@8990cb90e2dea67260f1fb4da9372fc107d14b75
         with:
           repositories: ${{ vars.GATES_TARGET_PRIMARY }}
           permissions: contents:read

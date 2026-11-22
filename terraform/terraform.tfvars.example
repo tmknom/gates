@@ -10,6 +10,29 @@ gates_audience       = "example-owner-gates"
 
 issuable_permissions = ["contents:read"]
 
+# 保護対象の一覧。保護対象を置かないデプロイは、この値のままにする
+protected_repositories = <<-EOT
+  repositories: []
+EOT
+
+# 保護対象を置くときは、上の値を次の形に置き換える。ID は引用符で囲む
+# protected_repositories = <<-EOT
+#   repositories:
+#     # 共通基盤
+#     - id: "200"
+#       name: platform-infra
+#       callers:
+#         - repository_id: "100"
+#           repository_name: deploy-tools
+#           permissions:
+#             contents: write
+#             pull_requests: read
+#     # どの Caller にも許可しない
+#     - id: "201"
+#       name: audit-records
+#       callers: []
+# EOT
+
 # 値の決め方は docs/user-guide/deployment.md を参照する。key_spec は RSA_2048、RSA_3072、RSA_4096 のいずれか
 # 鍵の名前は key-1、key-2 のように付け、最初の鍵は key-1 にする。鍵の更新の手順は docs/user-guide/rotate-key.md にある
 # kms_keys = {

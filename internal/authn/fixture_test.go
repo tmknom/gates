@@ -51,6 +51,7 @@ func validClaims() map[string]any {
 		"nbf":                 1699999700,
 		"jti":                 "example-jti",
 		"sub":                 "repo:octo@11/app@22:ref:refs/heads/main",
+		"repository":          "octo/app",
 		"repository_owner_id": "11",
 		"repository_id":       "22",
 		"run_id":              "33",
@@ -102,9 +103,9 @@ func claimsWithout(names ...string) map[string]any {
 	return claims
 }
 
-func newCaller(t *testing.T, ownerID, repositoryID, runID, runAttempt int64, attributes caller.WorkflowTriggerAttributes) caller.Caller {
+func newCaller(t *testing.T, ownerID, repositoryID int64, repositoryName string, runID, runAttempt int64, attributes caller.WorkflowTriggerAttributes) caller.Caller {
 	t.Helper()
-	c, err := caller.NewCaller(ownerID, repositoryID, runID, runAttempt, attributes)
+	c, err := caller.NewCaller(ownerID, repositoryID, repositoryName, runID, runAttempt, attributes)
 	if err != nil {
 		t.Fatalf("NewCaller returned error: %v", err)
 	}

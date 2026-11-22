@@ -18,7 +18,7 @@ func TestGrant(t *testing.T) {
 	req := mustTokenRequest(t, []string{"Example-Org/App", "example-org/lib"}, requested)
 	inst := mustNewInstallation(t, allowedOwnerID, false)
 
-	grant, err := authz.Grant(caller, req, owner, mustNewIssuablePermissions(t, issuablePermissionNotations...), inst)
+	grant, err := authz.Grant(caller, req, owner, mustNewIssuablePermissions(t, issuablePermissionNotations...), noProtectedRepositories(t), inst)
 	if err != nil {
 		t.Fatalf("Grant() returned error: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestGrant_KeepsRequestedLevelBelowIssuableLevel(t *testing.T) {
 	requested := map[string]string{"issues": "read"}
 	req := mustTokenRequest(t, []string{"Example-Org/app"}, requested)
 
-	grant, err := authz.Grant(mustNewCaller(t, allowedOwnerID), req, mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName), mustNewIssuablePermissions(t, issuablePermissionNotations...), mustNewInstallation(t, allowedOwnerID, false))
+	grant, err := authz.Grant(mustNewCaller(t, allowedOwnerID), req, mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName), mustNewIssuablePermissions(t, issuablePermissionNotations...), noProtectedRepositories(t), mustNewInstallation(t, allowedOwnerID, false))
 	if err != nil {
 		t.Fatalf("Grant() returned error: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestGrant_Denied(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			caller := mustNewCaller(t, tt.callerOwnerID)
 			req := mustTokenRequest(t, []string{"Example-Org/app"}, tt.permissions)
-			_, err := authz.Grant(caller, req, owner, issuablePermissions, tt.installation(t))
+			_, err := authz.Grant(caller, req, owner, issuablePermissions, noProtectedRepositories(t), tt.installation(t))
 			if !errors.Is(err, tt.want) {
 				t.Fatalf("Grant() error = %v, want %v", err, tt.want)
 			}
@@ -123,12 +123,26 @@ func TestGrant_Denied(t *testing.T) {
 	}
 }
 
+// Grant も保護対象の条件を判定し直すこと（INV-011）を、有効な Installation で確かめる。
+//
+//trace:checks AC-AUTHZ-011
+func TestGrant_DeniedByProtectedRepositories(t *testing.T) {
+	req := mustTokenRequest(t, []string{"Example-Org/vault"}, contentsRead)
+	_, err := authz.Grant(mustNewCaller(t, allowedOwnerID), req, mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName), mustNewIssuablePermissions(t, issuablePermissionNotations...), mustParseProtectedRepositories(t, protectedRepositoriesDocument), mustNewInstallation(t, allowedOwnerID, false))
+	if !errors.Is(err, authz.ErrAuthorizationDenied) {
+		t.Fatalf("Grant() error = %v, want %v", err, authz.ErrAuthorizationDenied)
+	}
+	if !strings.Contains(err.Error(), "protected repositories") {
+		t.Errorf("Grant() error = %q, want it to contain %q", err, "protected repositories")
+	}
+}
+
 func TestGrant_ErrorDoesNotContainValues(t *testing.T) {
 	const installationOwnerID = 987654321
 	owner := mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName)
 	caller := mustNewCaller(t, allowedOwnerID)
 	req := mustTokenRequest(t, []string{"Example-Org/app"}, contentsRead)
-	_, err := authz.Grant(caller, req, owner, mustNewIssuablePermissions(t, issuablePermissionNotations...), mustNewInstallation(t, installationOwnerID, false))
+	_, err := authz.Grant(caller, req, owner, mustNewIssuablePermissions(t, issuablePermissionNotations...), noProtectedRepositories(t), mustNewInstallation(t, installationOwnerID, false))
 	if err == nil {
 		t.Fatal("Grant() returned no error")
 	}

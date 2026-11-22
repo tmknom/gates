@@ -18,6 +18,7 @@ import (
 	"github.com/tmknom/gates/internal/claimsset"
 	"github.com/tmknom/gates/internal/nonzero"
 	"github.com/tmknom/gates/internal/permission"
+	"github.com/tmknom/gates/internal/protected"
 	"github.com/tmknom/gates/internal/request"
 	"github.com/tmknom/gates/internal/signer"
 	"github.com/tmknom/gates/internal/tokenissuer"
@@ -94,7 +95,7 @@ func TestHandle_IssuesTokenForMultiplePermissions(t *testing.T) {
 	})
 	issuablePermissions := mustNewIssuablePermissions(t, "contents:write", "issues:read")
 
-	inv := handleWith(t, issuablePermissions, &verifierStub{caller: verifiedCaller(t)}, newTokenIssuer(t, issuance, http.StatusNoContent), payload)
+	inv := handleWith(t, issuablePermissions, noProtectedRepositories(t), &verifierStub{caller: verifiedCaller(t)}, newTokenIssuer(t, issuance, http.StatusNoContent), payload)
 
 	if inv.response["ok"] != true {
 		t.Fatalf("response = %v, want the success response", inv.response)
@@ -192,7 +193,7 @@ func TestHandle_AuthorizationDeniedDoesNotCallTokenIssuer(t *testing.T) {
 func TestHandle_RequestOutsideIssuablePermissionsDoesNotCallTokenIssuer(t *testing.T) {
 	tokenIssuer := &tokenIssuerStub{}
 
-	inv := handleWith(t, mustNewIssuablePermissions(t, "issues:write"), &verifierStub{caller: verifiedCaller(t)}, tokenIssuer, validPayload(t))
+	inv := handleWith(t, mustNewIssuablePermissions(t, "issues:write"), noProtectedRepositories(t), &verifierStub{caller: verifiedCaller(t)}, tokenIssuer, validPayload(t))
 
 	inv.assertFailed(t, "authorization_denied")
 	if tokenIssuer.calls != 0 {
@@ -204,9 +205,9 @@ func TestHandle_RequestOutsideIssuablePermissionsDoesNotCallTokenIssuer(t *testi
 //
 //trace:checks AC-AUTHZ-009
 func TestHandle_LowerLevelThanIssuableLevelIsIssuedAtRequestedLevel(t *testing.T) {
-	tokenIssuer, issuanceBody := newTokenIssuerRecordingIssuance(t, recordedIssuance(), http.StatusNoContent)
+	tokenIssuer, issuanceBody := newTokenIssuerRecordingIssuance(t, noProtectedRepositories(t), recordedIssuance(), http.StatusNoContent)
 
-	inv := handleWith(t, mustNewIssuablePermissions(t, "contents:write"), &verifierStub{caller: verifiedCaller(t)}, tokenIssuer, validPayload(t))
+	inv := handleWith(t, mustNewIssuablePermissions(t, "contents:write"), noProtectedRepositories(t), &verifierStub{caller: verifiedCaller(t)}, tokenIssuer, validPayload(t))
 
 	if inv.response["ok"] != true {
 		t.Fatalf("response = %v, want the success response", inv.response)
@@ -229,7 +230,7 @@ func TestHandle_IssuanceAtIssuableLevelAboveRequestedLevelFailsVerification(t *t
 	issuance := recordedIssuance()
 	issuance["permissions"] = map[string]any{"contents": "write", "metadata": "read"}
 
-	inv := handleWith(t, mustNewIssuablePermissions(t, "contents:write"), &verifierStub{caller: verifiedCaller(t)}, newTokenIssuer(t, issuance, http.StatusNoContent), validPayload(t))
+	inv := handleWith(t, mustNewIssuablePermissions(t, "contents:write"), noProtectedRepositories(t), &verifierStub{caller: verifiedCaller(t)}, newTokenIssuer(t, issuance, http.StatusNoContent), validPayload(t))
 
 	record := inv.assertFailed(t, "issuance_verification_failed")
 	if record["revocation"] != "succeeded" {
@@ -303,7 +304,7 @@ func TestHandle_PassesRequestContextToTokenIssuer(t *testing.T) {
 		t.Fatalf("NewRequestID returned error: %v", err)
 	}
 
-	NewHandler(&verifierStub{caller: verifiedCaller(t)}, tokenIssuer, allowedOwner(t), mustNewIssuablePermissions(t, "contents:read"), slog.New(slog.DiscardHandler)).Handle(ctx, requestID, validPayload(t))
+	NewHandler(&verifierStub{caller: verifiedCaller(t)}, tokenIssuer, allowedOwner(t), mustNewIssuablePermissions(t, "contents:read"), noProtectedRepositories(t), slog.New(slog.DiscardHandler)).Handle(ctx, requestID, validPayload(t))
 
 	if tokenIssuer.ctx != ctx {
 		t.Errorf("Token Issuer received ctx %v, want the request ctx %v", tokenIssuer.ctx, ctx)
@@ -371,7 +372,7 @@ func TestNewHandler_ZeroAllowedOwnerPanics(t *testing.T) {
 		}
 	}()
 
-	_ = NewHandler(&verifierStub{}, &tokenIssuerStub{}, authz.AllowedOwner{}, mustNewIssuablePermissions(t, "contents:read"), slog.New(slog.DiscardHandler))
+	_ = NewHandler(&verifierStub{}, &tokenIssuerStub{}, authz.AllowedOwner{}, mustNewIssuablePermissions(t, "contents:read"), noProtectedRepositories(t), slog.New(slog.DiscardHandler))
 }
 
 func TestNewHandler_ZeroIssuablePermissionsPanics(t *testing.T) {
@@ -381,7 +382,18 @@ func TestNewHandler_ZeroIssuablePermissionsPanics(t *testing.T) {
 		}
 	}()
 
-	_ = NewHandler(&verifierStub{}, &tokenIssuerStub{}, allowedOwner(t), permission.IssuablePermissions{}, slog.New(slog.DiscardHandler))
+	_ = NewHandler(&verifierStub{}, &tokenIssuerStub{}, allowedOwner(t), permission.IssuablePermissions{}, noProtectedRepositories(t), slog.New(slog.DiscardHandler))
+}
+
+//trace:checks AC-AUTHZ-013
+func TestNewHandler_ZeroProtectedRepositoriesPanics(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("NewHandler did not panic for the zero protected repositories")
+		}
+	}()
+
+	_ = NewHandler(&verifierStub{}, &tokenIssuerStub{}, allowedOwner(t), mustNewIssuablePermissions(t, "contents:read"), protected.Repositories{}, slog.New(slog.DiscardHandler))
 }
 
 func (v *verifierStub) Authenticate(context.Context, request.UnverifiedOIDCJWT) (caller.Caller, claimsset.SignatureVerified, error) {
@@ -456,22 +468,22 @@ func panicWithSecret() {
 	nonzero.Require(secretMarker{})
 }
 
-// handle は、発行上限を `contents:read` にした Handler で handleWith を呼ぶ。
+// handle は、発行上限を `contents:read` にし、保護対象のない一覧を持つ Handler で handleWith を呼ぶ。
 func handle(t *testing.T, verifier oidcVerifier, tokenIssuer installationAccessTokenIssuer, payload []byte) invocation {
 	t.Helper()
-	return handleWith(t, mustNewIssuablePermissions(t, "contents:read"), verifier, tokenIssuer, payload)
+	return handleWith(t, mustNewIssuablePermissions(t, "contents:read"), noProtectedRepositories(t), verifier, tokenIssuer, payload)
 }
 
 // handleWith は Handle を呼び、応答とログの行を返す。
 // どのケースでも、資格情報と panic の値が成功応答の token 以外に現れないことを確かめる。
-func handleWith(t *testing.T, issuablePermissions permission.IssuablePermissions, verifier oidcVerifier, tokenIssuer installationAccessTokenIssuer, payload []byte) invocation {
+func handleWith(t *testing.T, issuablePermissions permission.IssuablePermissions, protectedRepositories protected.Repositories, verifier oidcVerifier, tokenIssuer installationAccessTokenIssuer, payload []byte) invocation {
 	t.Helper()
 	var log bytes.Buffer
 	requestID, err := NewRequestID(lambdaRequestID)
 	if err != nil {
 		t.Fatalf("NewRequestID returned error: %v", err)
 	}
-	h := NewHandler(verifier, tokenIssuer, allowedOwner(t), issuablePermissions, slog.New(slog.NewJSONHandler(&log, nil)))
+	h := NewHandler(verifier, tokenIssuer, allowedOwner(t), issuablePermissions, protectedRepositories, slog.New(slog.NewJSONHandler(&log, nil)))
 
 	b := h.Handle(t.Context(), requestID, payload)
 

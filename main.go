@@ -62,8 +62,8 @@ func newRuntimeEntry(ctx context.Context, log *slog.Logger) (runtimeEntry, error
 	if err != nil {
 		return runtimeEntry{}, err
 	}
-	tokenIssuer := tokenissuer.NewTokenIssuer(kmsSigner, github.NewClient(), cfg.AllowedOwner(), time.Now)
-	return runtimeEntry{handler: handler.NewHandler(verifier, tokenIssuer, cfg.AllowedOwner(), cfg.IssuablePermissions(), log)}, nil
+	tokenIssuer := tokenissuer.NewTokenIssuer(kmsSigner, github.NewClient(), cfg.AllowedOwner(), cfg.ProtectedRepositories(), time.Now)
+	return runtimeEntry{handler: handler.NewHandler(verifier, tokenIssuer, cfg.AllowedOwner(), cfg.IssuablePermissions(), cfg.ProtectedRepositories(), log)}, nil
 }
 
 // Invoke は、Lambda Handler の応答を返す。error を返すのは、相関 ID が UTF-8 として正しくなく、発行処理を始めない場合だけである。

@@ -8,6 +8,7 @@ import (
 	"github.com/tmknom/gates/internal/authz"
 	"github.com/tmknom/gates/internal/githubid"
 	"github.com/tmknom/gates/internal/permission"
+	"github.com/tmknom/gates/internal/protected"
 	"github.com/tmknom/gates/internal/repository"
 )
 
@@ -15,22 +16,24 @@ import (
 // Client ID、Audience、KMS Key ARN を文字列のまま持つのは、それらの条件を OIDC Verifier と KMS Signer が作る時点の不変条件として持ち、規則を 2 か所に分けないため。
 // フィールドを非公開にし、ゼロ値以外は Load でしか作れないようにする。
 type Config struct {
-	allowedOwner        authz.AllowedOwner
-	clientID            string
-	audience            string
-	kmsKeyARN           string
-	issuablePermissions permission.IssuablePermissions
+	allowedOwner          authz.AllowedOwner
+	clientID              string
+	audience              string
+	kmsKeyARN             string
+	issuablePermissions   permission.IssuablePermissions
+	protectedRepositories protected.Repositories
 }
 
 // 環境変数の名前は、AWS Infrastructure Design が定める Lambda と Terraform の間の契約である。
 const (
-	envAllowedOwnerID      = "GATES_ALLOWED_OWNER_ID"
-	envAllowedOwnerName    = "GATES_ALLOWED_OWNER_NAME"
-	envAllowedOwnerType    = "GATES_ALLOWED_OWNER_TYPE"
-	envClientID            = "GATES_GITHUB_APP_CLIENT_ID"
-	envAudience            = "GATES_AUDIENCE"
-	envKMSKeyARN           = "GATES_KMS_KEY_ARN"
-	envIssuablePermissions = "GATES_ISSUABLE_PERMISSIONS"
+	envAllowedOwnerID        = "GATES_ALLOWED_OWNER_ID"
+	envAllowedOwnerName      = "GATES_ALLOWED_OWNER_NAME"
+	envAllowedOwnerType      = "GATES_ALLOWED_OWNER_TYPE"
+	envClientID              = "GATES_GITHUB_APP_CLIENT_ID"
+	envAudience              = "GATES_AUDIENCE"
+	envKMSKeyARN             = "GATES_KMS_KEY_ARN"
+	envIssuablePermissions   = "GATES_ISSUABLE_PERMISSIONS"
+	envProtectedRepositories = "GATES_PROTECTED_REPOSITORIES"
 )
 
 // envValue は、読んだ環境変数の値である。
@@ -47,7 +50,7 @@ type loader struct {
 	errs      []error
 }
 
-// Load は、環境変数から固定設定を読み、INV-004 が定める許可オーナーの条件と INV-015 が定める発行上限の条件を検証する。
+// Load は、環境変数から固定設定を読み、INV-004 が定める許可オーナーの条件、INV-015 が定める発行上限の条件、INV-016 が定める保護対象の一覧の条件を検証する。
 // 欠落と不正な値をすべて集めて返す理由は Lambda Design の「Runtime Entry」に記述する。
 func Load(lookupEnv func(key string) (string, bool)) (Config, error) {
 	l := loader{lookupEnv: lookupEnv}
@@ -58,14 +61,23 @@ func Load(lookupEnv func(key string) (string, bool)) (Config, error) {
 	audience := l.read(envAudience)
 	kmsKeyARN := l.read(envKMSKeyARN)
 	rawIssuablePermissions := l.read(envIssuablePermissions)
+	rawProtectedRepositories := l.read(envProtectedRepositories)
 
 	allowedOwner := l.allowedOwner(ownerID, ownerName, ownerType)
 	issuablePermissions := l.issuablePermissions(rawIssuablePermissions)
+	protectedRepositories := l.protectedRepositories(rawProtectedRepositories)
 
 	if len(l.errs) > 0 {
 		return Config{}, fmt.Errorf("%w: %w", ErrInvalidConfig, errors.Join(l.errs...))
 	}
-	return Config{allowedOwner: allowedOwner, clientID: clientID.value, audience: audience.value, kmsKeyARN: kmsKeyARN.value, issuablePermissions: issuablePermissions}, nil
+	return Config{
+		allowedOwner:          allowedOwner,
+		clientID:              clientID.value,
+		audience:              audience.value,
+		kmsKeyARN:             kmsKeyARN.value,
+		issuablePermissions:   issuablePermissions,
+		protectedRepositories: protectedRepositories,
+	}, nil
 }
 
 // AllowedOwner は、許可オーナーを返す。
@@ -91,6 +103,11 @@ func (c Config) KMSKeyARN() string {
 // IssuablePermissions は、発行上限を返す。
 func (c Config) IssuablePermissions() permission.IssuablePermissions {
 	return c.issuablePermissions
+}
+
+// ProtectedRepositories は、保護対象の一覧を返す。
+func (c Config) ProtectedRepositories() protected.Repositories {
+	return c.protectedRepositories
 }
 
 // read は、欠落と空を分けて報告する。欠落は Terraform との契約の名前の不一致、空は値の誤りと、直す箇所が異なるため。
@@ -168,4 +185,16 @@ func (l *loader) issuablePermissions(raw envValue) permission.IssuablePermission
 		l.fail(raw.key, err)
 	}
 	return issuablePermissions
+}
+
+// protectedRepositories は、値を前後の空白も含めてそのまま読み取りに渡す。運用者が書いた文字列と Lambda が読む文字列を食い違わせないため。
+func (l *loader) protectedRepositories(raw envValue) protected.Repositories {
+	if !raw.ok {
+		return protected.Repositories{}
+	}
+	protectedRepositories, err := protected.Parse(raw.value)
+	if err != nil {
+		l.fail(raw.key, err)
+	}
+	return protectedRepositories
 }
