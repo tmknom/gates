@@ -46,15 +46,6 @@ func (i IssuablePermissions) IsZero() bool {
 }
 
 // Contains は、Permissions の Permission Entry がどれも発行上限に水準の包含で含まれるかを返す。
-// ゼロ値の Permissions は許可する要求を表さないため、含まれないとする。
 func (i IssuablePermissions) Contains(p Permissions) bool {
-	if len(p.levels) == 0 {
-		return false
-	}
-	for name, level := range p.levels {
-		if !includesByLevel(i.entries, entry{name: name, level: level}) {
-			return false
-		}
-	}
-	return true
+	return containsByLevel(i.entries, p)
 }

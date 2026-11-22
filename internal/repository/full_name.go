@@ -13,8 +13,6 @@ type FullName struct {
 	repositoryName string
 }
 
-const maxRepositoryNameLength = 100
-
 // ParseFullName は、一度だけ `/` で分割し、GitHub のオーナー名とリポジトリ名の文字種に従って両部分を検証する。
 // `/` の数は数えず、二つ目以降はリポジトリ名の文字種の検証で拒否する。
 func ParseFullName(s string) (FullName, error) {
@@ -26,8 +24,8 @@ func ParseFullName(s string) (FullName, error) {
 	if err != nil {
 		return FullName{}, fmt.Errorf("%w: %w", ErrInvalidFullName, err)
 	}
-	if err := validateRepositoryName(repo); err != nil {
-		return FullName{}, err
+	if err := ValidateRepositoryName(repo); err != nil {
+		return FullName{}, fmt.Errorf("%w: repository name %w", ErrInvalidFullName, err)
 	}
 	return FullName{ownerName: ownerName, repositoryName: repo}, nil
 }
@@ -50,18 +48,4 @@ func (f FullName) String() string {
 // Equal は、ASCII の範囲で大文字小文字を区別せずに比べる。
 func (f FullName) Equal(other FullName) bool {
 	return f.ownerName.Equal(other.ownerName) && EqualFoldASCII(f.repositoryName, other.repositoryName)
-}
-
-func validateRepositoryName(s string) error {
-	for i := range len(s) {
-		c := s[i]
-		if !isASCIIAlphanumeric(c) && c != '-' && c != '_' && c != '.' {
-			return fmt.Errorf("%w: repository name must consist of ASCII letters, digits, '-', '_', or '.'", ErrInvalidFullName)
-		}
-	}
-	// 文字種を ASCII に限った後なので、バイト数が文字数に等しい
-	if s == "" || len(s) > maxRepositoryNameLength {
-		return fmt.Errorf("%w: repository name must be 1 to %d characters", ErrInvalidFullName, maxRepositoryNameLength)
-	}
-	return nil
 }

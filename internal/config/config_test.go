@@ -104,25 +104,10 @@ func TestLoad_MissingOrEmpty(t *testing.T) {
 	}
 }
 
+// 表記ごとの規則は githubid が検証する。ここでは、表記の誤りが環境変数の名前を付けた初期化の失敗になることを確かめる
 func TestLoad_InvalidOwnerID(t *testing.T) {
-	tests := []struct {
-		name    string
-		ownerID string
-	}{
-		{name: "zero", ownerID: "0"},
-		{name: "negative", ownerID: "-1"},
-		{name: "plus sign", ownerID: "+1"},
-		{name: "leading zero", ownerID: "01"},
-		{name: "non-digit", ownerID: "12a"},
-		{name: "underscore", ownerID: "1_000"},
-		{name: "int64 overflow", ownerID: "9223372036854775808"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name+" owner id returns ErrInvalidConfig", func(t *testing.T) {
-			env := withEnv(map[string]string{"GATES_ALLOWED_OWNER_ID": tt.ownerID})
-			assertInvalid(t, env, "GATES_ALLOWED_OWNER_ID: must be a positive decimal integer")
-		})
-	}
+	env := withEnv(map[string]string{"GATES_ALLOWED_OWNER_ID": "01"})
+	assertInvalid(t, env, "GATES_ALLOWED_OWNER_ID: must be a positive decimal integer")
 }
 
 func TestLoad_InvalidOwnerName(t *testing.T) {

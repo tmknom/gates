@@ -88,3 +88,68 @@ func TestInstallationID_IsZero(t *testing.T) {
 		t.Error("IsZero() = false for the zero installation id, want true")
 	}
 }
+
+const wantMalformedDecimal = "must be a positive decimal integer without a sign or leading zeros that fits in int64"
+
+// 表記の規則は ParseOwnerID と共有するため、ParseRepositoryID で表記ごとに確かめる
+func TestParseRepositoryID(t *testing.T) {
+	accepted := []struct {
+		name string
+		s    string
+		want int64
+	}{
+		{name: "one is accepted", s: "1", want: 1},
+		{name: "largest int64 is accepted", s: "9223372036854775807", want: 9223372036854775807},
+	}
+	for _, tt := range accepted {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := githubid.ParseRepositoryID(tt.s)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got.Int64() != tt.want {
+				t.Errorf("Int64() = %d, want %d", got.Int64(), tt.want)
+			}
+		})
+	}
+	rejected := []struct {
+		name string
+		s    string
+	}{
+		{name: "empty", s: ""},
+		{name: "zero", s: "0"},
+		{name: "negative", s: "-1"},
+		{name: "plus sign", s: "+1"},
+		{name: "leading zero", s: "01"},
+		{name: "leading space", s: " 1"},
+		{name: "trailing space", s: "1 "},
+		{name: "fraction", s: "1.0"},
+		{name: "exponent", s: "1e3"},
+		{name: "hexadecimal", s: "0x10"},
+		{name: "underscore", s: "1_000"},
+		{name: "non-digit", s: "12a"},
+		{name: "int64 overflow", s: "9223372036854775808"},
+	}
+	for _, tt := range rejected {
+		t.Run(tt.name+" is rejected without the value", func(t *testing.T) {
+			_, err := githubid.ParseRepositoryID(tt.s)
+			if err == nil || err.Error() != wantMalformedDecimal {
+				t.Errorf("error = %v, want %q", err, wantMalformedDecimal)
+			}
+		})
+	}
+}
+
+func TestParseOwnerID(t *testing.T) {
+	t.Run("decimal is accepted", func(t *testing.T) {
+		got, err := githubid.ParseOwnerID("12345")
+		if err != nil || got.Int64() != 12345 {
+			t.Errorf("ParseOwnerID = %d, %v, want 12345", got.Int64(), err)
+		}
+	})
+	t.Run("leading zero is rejected", func(t *testing.T) {
+		if _, err := githubid.ParseOwnerID("01"); err == nil || err.Error() != wantMalformedDecimal {
+			t.Errorf("error = %v, want %q", err, wantMalformedDecimal)
+		}
+	})
+}
