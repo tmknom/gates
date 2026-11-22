@@ -20,7 +20,7 @@ Action が失敗すると、ジョブのログとワークフロー実行のペ�
 | `the Lambda Invoke failed` で始まり、`AccessDeniedException` を含む | `function-name` か `aws-region` の誤り | 運用者が登録した Variables を渡す |
 | `error code "invalid_request"` を含む | 要求の形が正しくない（名前に使えない文字、500 を超える `repositories`、大文字の権限名など） | `repositories` は `owner/repo` の形で書く。`permissions` は `contents:read` のように小文字の `権限名:水準` で書く |
 | `error code "invalid_id_token"` を含む | `audience` が GATES の設定と一致しない | 運用者が登録した Variable を渡す。渡しているなら §2 に進む |
-| `error code "authorization_denied"` を含む | 許可オーナー以外のリポジトリを要求した。Issue Token の「要求できる権限」にない権限名か水準（Organization permissions の `members` など）か、発行上限が許さない権限を要求した。または、保護対象を要求したが、ワークフローのリポジトリがその許可 Caller でないか、権限の上限が許さない権限を要求した | 許可オーナーのリポジトリと、運用者から受け取った使える権限だけを要求する。保護対象は、許可 Caller のリポジトリから、権限の上限の範囲で要求する。一つでも許可されないと、要求全体が失敗する。注釈からは原因を見分けられないため、直らなければ §2 に進む。運用者は `request_id` で原因を調べられる |
+| `error code "authorization_denied"` を含む | 許可オーナー以外のリポジトリを要求した。[Action Reference](action-reference.md) の「要求できる権限」にない権限名か水準（Organization permissions の `members` など）か、発行上限が許さない権限を要求した。または、保護対象を要求したが、ワークフローのリポジトリがその許可 Caller でないか、権限の上限が許さない権限を要求した | 許可オーナーのリポジトリと、運用者から受け取った使える権限だけを要求する。保護対象は、許可 Caller のリポジトリから、権限の上限の範囲で要求する。一つでも許可されないと、要求全体が失敗する。注釈からは原因を見分けられないため、直らなければ §2 に進む。運用者は `request_id` で原因を調べられる |
 | `error code "github_issuance_rejected"` を含む | インストール対象にないか、存在しないリポジトリを要求した。または、GitHub App に付与されていない権限か、付与された水準より高い水準を要求した | リポジトリの綴りを確かめる。正しければ、インストール対象に加えるよう頼むか、要求から外す。権限は、運用者から受け取った使える権限と水準に直す。どちらも正しいなら §2 に進む |
 | ジョブの `outputs` に置いたトークンが空になる | GitHub はマスクされた値をジョブの外に渡さない | トークンが要るジョブごとに Action のステップを置く |
 | トークンで呼んだ API が `403` を返す | トークンに、その操作に要る権限がない（要求しなかった権限か、`read` で要求した権限の書き込み）。または、インストール対象外の公開リポジトリへの書き込み | 権限の不足なら、応答の `X-Accepted-GitHub-Permissions` ヘッダーが要る権限を `権限名=水準` の形で示す（`;` で区切った候補はどれか一つを満たせばよく、候補の中で `,` でつないだ権限はすべて要る）。`権限名:水準` に直して `permissions` に加える。運用者から受け取った使える権限になければ、運用者に相談する。インストール対象外のリポジトリなら、インストール対象に加えるよう頼む |
@@ -117,7 +117,7 @@ Caller のリポジトリの完全名は `claims_set.repository` に、Repositor
 | `authorization denied: ` に続く文言 | 原因 | 直し方 |
 |---|---|---|
 | `repositories[<I>] owner name does not match allowed owner name` | 許可オーナー以外のリポジトリを要求した | ワークフロー利用者に、許可オーナーのリポジトリだけを要求してもらう |
-| `permissions are not within allowed permissions` | Issue Token の「要求できる権限」にない権限名か水準を要求した | ワークフロー利用者に §1 の直し方を伝える |
+| `permissions are not within allowed permissions` | Action Reference の「要求できる権限」にない権限名か水準を要求した | ワークフロー利用者に §1 の直し方を伝える |
 | `permissions are not within issuable permissions` | 発行上限が許さない権限名か水準を要求した（発行上限に `read` だけを含めた権限名の `write` など） | ワークフローに必要なら、発行上限と GitHub App の権限の両方に加えるかを判断する。加えた権限は、保護対象でないリポジトリに対して、許可オーナーのすべてのワークフローが要求できるようになる |
 | `...: no allowed callers are listed` | 許可 Caller のない保護対象を要求した | 要求から外してもらう。許可するなら、悪用への対処で意図して止めたものでないかを確かめてから、許可 Caller を加える |
 | `...: no allowed caller matches both the caller repository id and name` | Caller が、その保護対象の許可 Caller でない | 許可するかを判断する。許可するなら、Caller のリポジトリを許可 Caller として保護対象の一覧に加える |
@@ -214,7 +214,7 @@ invalid config: GATES_ISSUABLE_PERMISSIONS: invalid issuable permissions: entrie
 `entries[N]` は、`terraform.tfvars` の `issuable_permissions` のリストの、0 から数えた位置です。
 ログには値が出ないため、位置でリストの要素を探します。
 誤った組がいくつあっても、`; ` で区切って一行に並びます。
-`is not in allowed permissions` は、その組が Issue Token の「要求できる権限」にないことを示します（`members:read` のような Repository permissions でない権限、`contents:admin` のような水準、綴りの誤り）。
+`is not in allowed permissions` は、その組が Action Reference の「要求できる権限」にないことを示します（`members:read` のような Repository permissions でない権限、`contents:admin` のような水準、綴りの誤り）。
 この組を除くか直して、適用し直します。
 
 保護対象の一覧の誤りでは、`error` が次の形になります。
@@ -232,7 +232,7 @@ invalid config: GATES_PROTECTED_REPOSITORIES: invalid protected repositories: re
 
 | 文言 | 誤り |
 |---|---|
-| `is not in allowed permissions` | 権限の上限に、Issue Token の「要求できる権限」にない組がある |
+| `is not in allowed permissions` | 権限の上限に、Action Reference の「要求できる権限」にない組がある |
 | `is a duplicate key` | 同じまとまり（最上位、一つの保護対象、一つの許可 Caller、一つの `permissions`）の中に同じキーが 2 つある |
 | `must not have an anchor`、`must not be an alias`、`must not have a merge key`、`must not have an explicit tag`、`must not have a directive` | アンカー、エイリアス、マージキー、タグ、`%TAG` などの行がある |
 | `must be a string` | 引用符のない名前が、文字列以外に読める（`123`、`true` など）。名前を引用符で囲む |
@@ -245,7 +245,11 @@ invalid config: GATES_PROTECTED_REPOSITORIES: invalid protected repositories: re
 `the Lambda response` か `the success response has no usable` で始まる注釈は、Action が GATES の応答を読めなかったことを示します。
 Action の参照先が、デプロイした GATES と同じリリースのコミットかを確かめます。
 
-Runner の環境（`invalid ACTIONS_ID_TOKEN_REQUEST_URL`、`could not write to GITHUB_OUTPUT` など）や、Action の想定外の失敗（`the child process`、`an unexpected failure occurred`）は、AWS に手がかりがありません。
+次の注釈は、Runner の環境か Action の想定外の失敗を示し、AWS に手がかりがありません。
+
+- **Runner の環境**：`ACTIONS_ID_TOKEN_REQUEST_URL is not set`、`GITHUB_OUTPUT is not set`、`GITHUB_STATE is not set`、`invalid ACTIONS_ID_TOKEN_REQUEST_URL`、`could not write to GITHUB_STATE`、`could not write to GITHUB_OUTPUT`
+- **Action の想定外の失敗**：`the Lambda Invoke returned StatusCode`、`the child process could not be started`、`the child process terminated unexpectedly`、`an unexpected failure occurred`
+
 注釈の全文とワークフロー実行の URL を添えて、Runner の管理者か GATES の開発者に伝えます。
 
 ## 6. Revocation Warning
@@ -262,4 +266,4 @@ GitHub がホストする Runner で繰り返し出るときは、注釈の全�
 
 ## 7. References
 
-- [Issue Token](../../actions/README.md)：注釈の文言と失敗した段階の一覧、要求できる権限
+- [Action Reference](action-reference.md)：Action の入力の書式と検証、要求できる権限

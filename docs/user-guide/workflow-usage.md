@@ -39,7 +39,7 @@ jobs:
 
 - **`id-token: write`**：Action が OIDC JWT を受け取るために要る。Action を置くジョブにだけ与える
 - **`repositories`**：トークンで操作するリポジトリ。複数ならカンマ区切りで並べる
-- **`permissions`**：トークンの権限。`権限名:水準` をカンマ区切りで並べる（例：`contents:write,pull_requests:read`）。書ける権限名と水準は [Issue Token](../../actions/README.md) の「要求できる権限」にある
+- **`permissions`**：トークンの権限。`権限名:水準` をカンマ区切りで並べる（例：`contents:write,pull_requests:read`）。書ける権限名と水準は [Action Reference](action-reference.md) の「要求できる権限」にある
 - **`role-arn` から `audience`**：接続情報。値を直接書かず、Secrets と Variables を参照する
 - **`steps.gates.outputs.token`**：トークン。同じジョブの後続のステップで使う
 
@@ -60,6 +60,7 @@ jobs:
 
 ワークフローを置くリポジトリも、許可オーナーのものでなければなりません。
 接続情報をそのリポジトリから参照できるかも、運用者に確かめます。
+Dependabot のワークフローは GitHub Actions の Secrets を参照できないため、Dependabot のワークフローで使うなら、Dependabot の Secrets にも登録してもらいます。
 保護対象を要求するワークフローを新しく置くときは、先に運用者に、要求する保護対象ごとに、そのリポジトリを許可 Caller に加え、要る権限を権限の上限に含めてもらいます。
 加える前の要求と、権限の上限を超える要求は、ほかのリポジトリと一緒に要求していても、要求全体が `authorization_denied` で失敗します。
 
@@ -75,6 +76,7 @@ jobs:
 ### 3.2 信頼できないコードは、トークンを受け取るジョブで動かさない
 
 トークンを受け取るジョブの中のコードは、どれもトークンを読み、トークンの権限で書き込みを含む操作ができます。
+そのジョブは `id-token: write` を持つため、ジョブの中のコードは、要求しなかった権限を含むトークンも自分で受け取れます。
 Pull Request のコードや、ほかのワークフローの成果物は、`id-token: write` を持たない別のジョブで動かします。
 
 次の例では、Pull Request のコードを `test` のジョブでだけ動かし、トークンを受け取る `publish` のジョブは、既定のブランチへの push のときだけ動かします。
@@ -133,6 +135,7 @@ jobs:
 `permissions` には、そのジョブで使う権限だけを、使う水準で書きます。
 読むだけなら `read` にし、書き込みが要る権限だけを `write` にします。
 トークンが漏れたときや、ジョブの中のコードが改ざんされていたときに、トークンでできる操作を減らすためです。
+トークンで行われた変更は、トークンの期限が短くても、ジョブの終了時に失効しても元に戻りません。
 
 同じジョブのステップはどのトークンも読めるため、ステップごとにトークンを分けても、ジョブの中でできることは分かれません。
 書き込みの要らない処理は、読み取りだけを要求する別のジョブに分けます。
@@ -141,6 +144,9 @@ jobs:
 ## 4. Using the Token
 
 この節の例は、どれも §1 の `Issue token` のステップの後に置きます。
+
+**トークンの一部も、ログに出しません。**
+Action はトークンをログでマスクしますが、切り出した一部はマスクされません。
 
 ### 4.1 GitHub CLI
 
@@ -257,7 +263,7 @@ Windows と macOS の Runner では、Action は動きません。
 
 ## 7. References
 
-- [Issue Token](../../actions/README.md)：Action の入力と出力の書式、注釈の一覧
+- [Action Reference](action-reference.md)：Action の入力の書式と検証、発行の条件、出力、失効の時機
 - [Security Considerations](security-considerations.md)：トークンを受け取るジョブで信頼できないコードを動かさない理由
 - [GitHub — OpenID Connect reference](https://docs.github.com/en/actions/reference/security/oidc)
 - [GitHub — Workflow syntax: permissions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions)

@@ -98,7 +98,7 @@ All inputs are required.
 | Input | Description |
 |---|---|
 | `repositories` | Comma-separated `owner/repo` list of the repositories the token can access (up to 500) |
-| `permissions` | Comma-separated `permission:level` list of repository permissions, such as `contents:read,pull_requests:write`. The accepted names and levels are listed in the [Issue Token action](actions/README.md) |
+| `permissions` | Comma-separated `permission:level` list of repository permissions, such as `contents:read,pull_requests:write`. The accepted names and levels are listed in the [Action Reference](docs/user-guide/action-reference.md) (in Japanese) |
 | `role-arn` | ARN of the IAM role to assume. Build it from the operator's Secrets and Variables as in the example |
 | `function-name` | Name of the GATES Lambda function |
 | `aws-region` | AWS region of the GATES Lambda function |
@@ -149,7 +149,7 @@ Authorization controlled by the administrators of the accessed repository, per t
 
 - [User Guide](docs/user-guide/README.md) (in Japanese): For people who evaluate, deploy, operate, or use GATES from workflows. Overview, security considerations, a deployment tutorial, key material import and rotation, release verification, writing workflows, operations, and troubleshooting
 - [Docs](docs/README.md): For people who develop GATES. Purpose and design principles, requirements, design, research on GitHub and AWS behavior, and development procedures such as testing and releases
-- [Issue Token action](actions/README.md): Detailed reference for the action, including input validation and every failure annotation
+- [Action Reference](docs/user-guide/action-reference.md) (in Japanese): Reference for the action, including input validation, the requestable permissions, outputs, and revocation
 - [Formal models](formal/README.md): Models that check the authorization and token issuance rules
 - [llms.txt](llms.txt): Index of the repository for coding agents
 
