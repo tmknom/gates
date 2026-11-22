@@ -11,7 +11,7 @@ import (
 var (
 	standardClausePrefixes = []string{"RFC7159", "RFC7515", "RFC7517", "RFC7518", "RFC7519", "RFC7797", "RFC8725", "RFC9964", "OIDCC", "OIDCD"}
 	githubClausePrefixes   = []string{"GH-OIDC", "GH-ACCOUNT", "GH-APP", "GH-ACTIONS"}
-	idPrefixes             = slices.Concat([]string{"FR", "QR", "AC", "GOJ", "AOJ", "GAJ", "RULE", "INV"}, standardClausePrefixes, githubClausePrefixes)
+	idPrefixes             = slices.Concat([]string{"FR", "QR", "AC", "GOJ", "RULE", "INV"}, standardClausePrefixes, githubClausePrefixes)
 )
 
 const gojPrefix = "GOJ"

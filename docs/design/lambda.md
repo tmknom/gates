@@ -552,7 +552,14 @@ Caller のリポジトリ名は、受理した `sub` のリポジトリ部の、
 
 ### 6.2 GitHub App JWT
 
-GitHub App JWT の生成条件は [GitHub App JWT](github-app-jwt.md) を正本とします。
+GitHub App JWT の GitHub 側の仕様は [GitHub App Constraints](../external/github/app.md) を参照します。
+本節は、GATES が作る GitHub App JWT の内容と使い方を定めます。
+
+- **`iss`**：デプロイ時の固定設定にある GitHub App の Client ID にする。GitHub は App ID も受け付けるが、Client ID を推奨している。Installation ID、Owner ID、要求の値を使わない。
+- **`iat`**：生成時刻の 60 秒前にする。GitHub が時計差への備えとして推奨する値である。
+- **`exp`**：生成時刻の 5 分後にする。GitHub の上限の 10 分より短くし、Lambda と GitHub の時計がどちらの向きに数分ずれても、上限を超えず、使い終わる前に期限が来ないようにする。使い終わるまでの時間は [Call Time Budget](#64-call-time-budget) にある。
+- **時刻の表現**：`iat` と `exp` は、UTC の秒単位の整数を JSON の数値として置く（RFC 7519 の NumericDate）。
+- **JOSE Header**：`{"alg":"RS256","typ":"JWT"}` に固定し、JWS Compact Serialization で KMS に署名させる。`typ` は任意の Header Parameter だが置く。GitHub が Installation の取得を受け付けた[調査記録](../research/github/app-installation.md)の GitHub App JWT がこの Header であり、`typ` のない JWT を GitHub が受け付けるかは確かめていないためである。
 
 - GitHub App JWT は要求ごとに 1 回だけ作り、Installation の取得（[Processing Flow](#5-processing-flow) の手順 4）と発行（手順 6）の両方に使う。要求をまたいで保持しない。保持すると、有効期限の管理と、期限の近い GitHub App JWT を使って GitHub に拒否される失敗が加わる。
 - Token Issuer は手順 4 から手順 6 までを一つの操作として行い、その間の手順 5（Grant）を Lambda Handler から関数として受け取る。GitHub App JWT を Lambda Handler に渡さないためである。渡すと、Lambda Handler のログやエラーに出し得る値が一つ増え、手順 4 と手順 6 の間で GitHub App JWT を持ち回る経路が Token Issuer の外にできる。
@@ -632,7 +639,7 @@ Lambda の関数のタイムアウトは、合計より、外部の呼び出し�
 このとき呼び出し元が受け取るのは `Sandbox.Timedout` の `FunctionError` で、監査記録の `result` の失敗の種別は呼び出し元に届いていません（[AWS Fault Injection](../research/aws/fault-injection.md)）。
 
 GitHub App JWT を作ってから発行の応答を受け取るまでは、署名、Installation の取得、発行のタイムアウトの合計で最大 20 秒です。
-この時間は GitHub App JWT の `exp`（[GitHub App JWT](github-app-jwt.md) の GAJ-EXP の 5 分）より短いため、同じ GitHub App JWT を手順 4 と手順 6 に使えます。
+この時間は GitHub App JWT の `exp`（[§6.2](#62-github-app-jwt) の 5 分）より短いため、同じ GitHub App JWT を手順 4 と手順 6 に使えます。
 
 失効は、要求の ctx の中断と期限を引き継がない ctx で行い、発行の呼び出しの ctx からも作りません。
 要求が中断された後も、発行がタイムアウトの直前に応答を返した後も、照合に失敗したトークンの失効を試みるためです。
@@ -713,7 +720,6 @@ Caller のリポジトリ名は `caller` に加えません。
 - [GitHub Owner and Repository Constraints](../external/github/account.md)
 - [GATES OIDC JWT Claims](gates-oidc-jwt-claims.md)
 - [GATES OIDC JWT Signature](gates-oidc-jwt-signature.md)
-- [GitHub App JWT](github-app-jwt.md)
 - [RFC 7515 JSON Web Signature](../external/standards/rfc7515.md)
 - [RFC 7519 JSON Web Token](../external/standards/rfc7519.md)
 - [OpenID Foundation — OpenID Connect Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html)

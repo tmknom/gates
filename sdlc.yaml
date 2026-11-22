@@ -50,20 +50,6 @@ definitions:
           - "JWK Set"
     target_type: "GATES OIDC JWT Acceptance Rule"
     id_format: name
-  AOJ:
-    declarations:
-      - file: docs/design/aws-oidc-jwt.md
-        sections:
-          - "Claim Conditions"
-    target_type: "AWS OIDC JWT Claim Condition"
-    id_format: name
-  GAJ:
-    declarations:
-      - file: docs/design/github-app-jwt.md
-        sections:
-          - "Generation Conditions"
-    target_type: "GitHub App JWT Generation Rule"
-    id_format: name
   RFC7159:
     declarations:
       - file: docs/external/standards/rfc7159.md
