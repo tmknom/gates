@@ -77,7 +77,7 @@ Organization なら、Organization の `Settings` の `Developer settings` か�
 | Enterprise permissions | 何も選ばない |
 | Where can this GitHub App be installed? | `Only on this account` |
 
-**GitHub App に付与した権限は、発行上限に含めると、許可オーナーのすべてのワークフローが要求できるようになります。**
+**GitHub App に付与した権限は、発行上限が許すと、保護対象でないリポジトリに対して、許可オーナーのすべてのワークフローが要求できるようになります。**
 付与を避けるべき権限は、[Security Considerations](security-considerations.md) にあります。
 
 `Create GitHub App` をクリックし、設定ページの `General` に表示される **Client ID** を控えます。
@@ -86,6 +86,8 @@ Organization なら、Organization の `Settings` の `Developer settings` か�
 
 設定ページの `Install App` から、許可オーナーの `Install` をクリックします。
 **`Only select repositories` を選び、許可オーナーのどのワークフローから操作されてもよいリポジトリだけを加えます。**
+一部のワークフローからだけ操作させたいリポジトリは、§4.5 で保護対象にするなら加えてかまいません。
+GATES は鍵素材をインポートするまで発行しないため、保護対象の一覧を適用する前に加えても、そのあいだにトークンは発行されません。
 
 ## 3. Getting and Verifying the Source
 
@@ -153,24 +155,92 @@ active_kms_key = "key-1"
 
 ### 4.4 Issuable Permissions
 
-`issuable_permissions` には、GitHub App に付与した Repository permissions のうち、ワークフローが要求する権限名と水準の組を、`権限名:水準` のリストで書きます。
+`issuable_permissions` には、GitHub App に付与した Repository permissions のうち、ワークフローが要求する権限名を、要求する最も高い水準とともに `権限名:水準` のリストで書きます。
 権限名は、GitHub App の設定画面の表示名ではなく、[Issue Token](../../actions/issue-token/README.md) の「要求できる権限」にある名前で書きます。
 
 ```hcl
 issuable_permissions = [
-  "contents:read",
   "contents:write",
   "pull_requests:read",
 ]
 ```
 
+- **高い水準は低い水準の要求も許す**：`contents:write` を書くと、`contents:read` の要求も通る。トークンは要求した水準で発行される。読み取りにしか使わない権限は `read` で書く
 - **GitHub App にない権限を含めない**：後で GitHub App の権限を広げたときに、`terraform.tfvars` のレビューを経ずに発行されるようになる
-- **読み取りだけの要求も通すなら、`read` も書く**：`contents:write` だけを書くと、`contents:read` の要求は拒否される
 
 **`make tf-plan` が止めるのは書式の誤りだけです。**
 「要求できる権限」にない組（`members:read` など）を含めて適用すると、Lambda の関数が初期化に失敗し、どの要求にもトークンを返さなくなります。
 
-### 4.5 Other Variables
+### 4.5 Protected Repositories
+
+`protected_repositories` には、保護対象の一覧を YAML で書きます。
+保護対象を置かないときは、例のファイルの値のままにします。
+変数を消すと、`make tf-plan` が止まります。
+
+```hcl
+protected_repositories = <<-EOT
+  repositories: []
+EOT
+```
+
+保護対象を置くときは、例のファイルのコメントにある形で書きます。
+保護対象と許可 Caller の選び方は、[Security Considerations](security-considerations.md) にあります。
+
+```hcl
+protected_repositories = <<-EOT
+  repositories:
+    # 共通基盤
+    - id: "200"
+      name: platform-infra
+      callers:
+        - repository_id: "100"
+          repository_name: deploy-tools
+          permissions:
+            contents: write
+            pull_requests: read
+    # どの Caller にも許可しない
+    - id: "201"
+      name: audit-records
+      callers: []
+EOT
+```
+
+| キー | 書くもの |
+|---|---|
+| `id`、`name` | 保護対象の Repository ID と、オーナー名を含まないリポジトリ名 |
+| `callers` | 保護対象の許可 Caller の列。`[]` は、どの Caller にも許可しないことを示す |
+| `repository_id`、`repository_name` | 許可 Caller のリポジトリの Repository ID と、オーナー名を含まないリポジトリ名 |
+| `permissions` | 許可 Caller の権限の上限。権限名をキー、許す最も高い水準を値にして、1 組以上書く。権限名と水準は「要求できる権限」にあるものにする |
+
+Repository ID と名前は、次のコマンドがこの順に出力します。
+画面の表示や記憶から書かず、出力を写します。
+
+```bash
+gh api repos/<オーナー名>/<リポジトリ名> --jq '[.id, .name] | @tsv'
+```
+
+```text
+1296269	Hello-World
+```
+
+書くときは、次を守ります。
+
+- **ID は引用符で囲む**：`id: 200` のように引用符がないと、`make tf-plan` が止まる
+- **名前は、迷ったら引用符で囲む**：`123` や `true` のように、文字列以外に読める名前は、引用符がないと、適用した後に Lambda の関数が初期化に失敗する。`2001-12-14` のような日付の形の名前は、引用符がないと `make tf-plan` が止まる
+- **どの Caller にも許可しないなら `callers: []` にする**：許可 Caller の `permissions` を空にすると、`make tf-plan` が止まる
+- **発行上限が許さない権限は、権限の上限に書いても発行されない**：保護対象への要求は、GitHub App の権限、発行上限、権限の上限のすべてが許す必要がある
+- **コメントも大きさに数える**：一覧はコメントを含めてそのまま Lambda の環境変数に入り、Plan の差分にも出る。環境変数の合計は 4096 バイトまでで、日本語は 1 文字 3 バイトになる。超えると、`make tf-plan` が `the environment variables of the Lambda function must total at most 4096 bytes as JSON` で始まるエラーで止まる
+
+`make tf-plan` が止めるのは、YAML として読めない値、構造の誤り（キーの欠落、未知のキー、`callers` を `- ` の並びでなく `キー: 値` で書くような値の形の誤り）、ID の表記の誤り、名前と権限の文字種の誤り、ID と名前の重複、空の `permissions`、環境変数の大きさの超過です。
+**次の誤りは `make tf-plan` を通り、適用すると Lambda の関数が初期化に失敗して、どの要求にもトークンを返さなくなります。**
+
+- 権限の上限に、「要求できる権限」にない組がある（`members: read`、`contents: admin` など）
+- 同じまとまり（最上位、一つの保護対象、一つの許可 Caller、一つの `permissions`）の中に同じキーが 2 つある（`name` を 2 回書くなど）
+- アンカー（`&`）、エイリアス（`*`）、マージキー（`<<`）、タグ（`!!str` など）、`%TAG` の行がある
+- 文字列以外に読める、引用符のない名前か権限がある（`name: 123`、`contents: true`）
+- BOM か、NEL（U+0085）、LS（U+2028）、PS（U+2029）の文字がある
+
+### 4.6 Other Variables
 
 次の変数は、既定のままでかまいません。
 
@@ -296,9 +366,9 @@ gh variable set GATES_AUDIENCE --repo <オーナー名>/<リポジトリ名> --b
 接続情報を登録したリポジトリに、[Using GATES in Workflows](workflow-usage.md) の最小のワークフローを置きます。
 次の値を置き換えます。
 
-- **`example-owner/repo-a`**：インストール対象のリポジトリの完全名
+- **`example-owner/repo-a`**：インストール対象のうち、保護対象でないリポジトリの完全名
 - **`<コミット>`**：チェックアウトしたタグのコミットの SHA（`git rev-parse HEAD` の出力）
-- **`contents:read`**：GitHub App の権限か発行上限にないなら、両方に含まれる `read` の権限
+- **`contents:read`**：GitHub App の権限か発行上限が `contents:read` を許さないなら、両方が許す `read` の権限
 
 ワークフローを既定のブランチに置いて実行します。
 
@@ -330,7 +400,8 @@ aws logs filter-log-events --log-group-name /aws/lambda/gates \
 
 ## 9. Next Steps
 
-ワークフロー利用者に、接続情報の名前、インストール対象、使える権限（GitHub App に付与し、発行上限に含めた権限）、Action のコミットの SHA を伝えます。
+ワークフロー利用者に、接続情報の名前、インストール対象、使える権限（GitHub App に付与し、発行上限が許す権限）、Action のコミットの SHA を伝えます。
+保護対象を置いたなら、保護対象と、それを要求できる許可 Caller のリポジトリと権限の上限も伝えます。
 ほかのリポジトリで GATES を使うときは、そのリポジトリにも接続情報を登録します。
 デプロイの後の作業は [Operations](operations.md) にあります。
 
@@ -426,7 +497,7 @@ aws kms describe-key --key-id "$OLD_KMS_KEY_ARN" --query 'KeyMetadata.KeyState' 
 ## 11. References
 
 - [GATES Overview](overview.md)：GATES の仕組みと、本文書で使う用語
-- [Security Considerations](security-considerations.md)：GitHub App に付与する権限とインストール対象の決め方
+- [Security Considerations](security-considerations.md)：GitHub App に付与する権限、インストール対象、保護対象と許可 Caller の決め方
 - [Troubleshooting](troubleshooting.md)：デプロイの直後に多い `AssumeRoleWithWebIdentity failed` と `invalid_id_token` を含む、失敗の原因と直し方
 - [GitHub — Registering a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app)
 - [GitHub — Installing your own GitHub App](https://docs.github.com/en/apps/using-github-apps/installing-your-own-github-app)

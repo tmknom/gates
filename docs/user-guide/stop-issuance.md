@@ -7,11 +7,13 @@
 疑いの種類で、最初に取る手段が決まります。
 
 - **GATES を通した不正な発行を疑う**（例：`pull_request_target` のジョブが Pull Request のコードを実行している）：§2 で Lambda の呼び出しを止める
+- **GATES を通した、特定のリポジトリへの不正な発行を疑う**：ほかのリポジトリへの発行を続けたいなら、§6 でそのリポジトリへの発行だけを止める
 - **GATES を経ない署名を疑う**（例：AWS で KMS Key や Lambda を書き換えられる主体が、署名を悪用している）：§3 で KMS Key を無効にし、続けて §5 で GitHub から秘密鍵を削除する
 
 | 手段 | 止まるもの | 戻せる主体 |
 |---|---|---|
 | Reserved Concurrency を 0 にする | GATES の発行だけ。KMS Key での署名は止まらない | Lambda の設定を変えられる主体 |
+| リポジトリを許可 Caller のない保護対象にする | そのリポジトリへの GATES の発行だけ。KMS Key での署名は止まらない | Lambda の設定を変えられる主体 |
 | KMS Key を無効にする | 使用中の鍵での署名と、GATES の発行 | `kms:EnableKey` を持つ主体 |
 | Installation を停止する | GitHub App による許可オーナーのリソースへのアクセスと、GATES の発行 | 停止した側だけ |
 | GitHub で秘密鍵を削除する | 削除した鍵での認証と、GATES の発行 | 戻せない。鍵の更新で再開する |
@@ -19,9 +21,9 @@
 KMS Key の無効化は、AWS の権限を持つ主体が元に戻せます。
 **署名の悪用を AWS の権限に左右されずに止められるのは、GitHub での秘密鍵の削除です。**
 
-Reserved Concurrency を 0 にしても KMS Key を無効にしても、止める前に発行されたトークンは、期限（発行から 1 時間）まで使えます。
+どの手段で止めても、止める前に発行されたトークンは、期限（発行から 1 時間）まで使えます。
 **止めても、トークンで行われた変更は取り消されません。**
-書き込みの権限を持つトークンが悪用された疑いがあれば、§6 で残った変更を確かめます。
+書き込みの権限を持つトークンが悪用された疑いがあれば、§7 で残った変更を確かめます。
 
 ## 2. Setting Reserved Concurrency to 0
 
@@ -94,7 +96,26 @@ GitHub は最後の鍵を削除させないため、`Key pairs` に鍵が一つ�
 すぐに鍵の更新に使わないなら、ダウンロードされたファイルは削除し、後の鍵の更新で改めて鍵を生成します。
 そのうえで、対応する鍵を `Delete` します。
 
-## 6. Investigating
+## 6. Stopping Issuance to One Repository
+
+特定のリポジトリを許可 Caller のない保護対象にすると、そのリポジトリを含む要求はすべて拒否され、ほかのリポジトリへの発行は続きます。
+Terraform の適用を経るため、§2 より止まるまでに時間がかかります。
+
+`terraform/local/terraform.tfvars` の保護対象の一覧（`protected_repositories`）に、そのリポジトリを `callers: []` で加えます。
+すでに保護対象なら、その `callers` を `[]` にします。
+Repository ID の調べ方と書き方は、[Deployment](deployment.md) の「Protected Repositories」にあります。
+
+```yaml
+    - id: "<Repository ID>"
+      name: <リポジトリ名>
+      callers: []
+```
+
+`make tf-plan` が、`aws_lambda_function.gates` の環境変数 `GATES_PROTECTED_REPOSITORIES` の変更だけを示すことを確かめ、`make tf-apply` で適用します。
+以後、そのリポジトリを含む要求は `error code "authorization_denied"` で失敗します。
+再開するときは、一覧を元に戻して、同じ手順で適用します。
+
+## 7. Investigating
 
 KMS の署名の記録を CloudTrail から引き、主体ごとに数えます。
 `<開始>` と `<終了>` は `YYYY-MM-DDThh:mm:ssZ` の形の時刻です。
@@ -127,7 +148,7 @@ gh api "repos/<オーナー名>/<リポジトリ名>/commits?path=.github/workfl
 - **ブランチ**：身に覚えのないブランチは、内容を確かめてから削除する
 - **ワークフローのファイル**：既定のブランチのワークフローのファイルを変えたコミットを確かめる。書き換えられたワークフローは、そのリポジトリの Secrets と、そのリポジトリを信頼するクラウドの権限を使えるため、その実行の記録も確かめる
 
-## 7. Resuming after Disabling the Key or Deleting It
+## 8. Resuming after Disabling the Key or Deleting It
 
 **再開する前に、悪用した主体の AWS の権限を取り除きます。**
 権限が残ったままでは、新しい KMS Key での署名も悪用され得るためです。
@@ -139,7 +160,7 @@ KMS Key を無効にしたか、GitHub で秘密鍵を削除した後は、[Key 
 - 旧鍵への切り戻しは行わない
 - 旧 KMS Key の無効化と旧秘密鍵の削除は、済んでいれば省く
 
-## 8. References
+## 9. References
 
 - [GitHub — Suspending a GitHub App installation](https://docs.github.com/en/apps/maintaining-github-apps/suspending-a-github-app-installation)
 - [GitHub — Managing private keys for GitHub Apps](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps)

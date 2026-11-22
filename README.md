@@ -53,7 +53,8 @@ GATES trusts a caller by its immutable GitHub owner ID, not by its name, so rena
 
 - The GATES operator has deployed GATES for your organization or user account and registered its connection information as GitHub Secrets and Variables (`GATES_AWS_ACCOUNT_ID`, `GATES_ROLE_NAME`, `GATES_FUNCTION_NAME`, `GATES_AWS_REGION`, `GATES_AUDIENCE`).
 - The repositories you request belong to the same owner as the calling repository, and the GATES GitHub App is installed on them.
-- The permissions you request are granted to the GATES GitHub App and included in the issuable permissions, the list of permissions the operator allows the deployment to issue.
+- The permissions you request are granted to the GATES GitHub App and allowed by the issuable permissions, the list of permissions the operator allows the deployment to issue. A higher level allows the lower levels of the same permission, so `contents:write` in the issuable permissions also allows a request for `contents:read`.
+- If you request a protected repository, one the operator has limited to listed allowed callers, the calling repository is one of its allowed callers and the permissions are within the permission limit the operator set for that caller.
 - The calling repository uses GitHub's immutable OIDC subject claims. Repositories created after 2026-07-15 use them by default; older repositories need `use_immutable_subject` enabled on the organization or repository.
 - The job declares `id-token: write`.
 - The job runs on a Linux runner with Docker, such as `ubuntu-latest`. Self-hosted runners also need the network access listed in [Using GATES in Workflows](docs/user-guide/workflow-usage.md#6-self-hosted-runners).
@@ -136,10 +137,13 @@ GATES issues tokens with repository permissions for repositories of a single all
 It does not issue organization, account, or enterprise permissions.
 It does not serve clients outside GitHub Actions, manage other kinds of secrets, or change GitHub App installations and permissions for you.
 
-Authorization is currently per owner: any workflow of the allowed owner can request any permission that is both granted to the GitHub App and in the issuable permissions, for any repository the GitHub App is installed on.
-Grant the GitHub App and the issuable permissions only what the workflows need, and keep this in mind before installing the GitHub App on highly sensitive repositories.
-Write permissions such as `workflows`, `administration`, `secrets`, and `actions` can reach the secrets and settings of other repositories.
-Finer-grained authorization per caller or team, and organization, account, and enterprise permissions, are candidates for the future, with no timeline yet.
+Authorization is per owner, except for protected repositories.
+For any unprotected repository the GitHub App is installed on, any workflow of the allowed owner can request any permission that is granted to the GitHub App and allowed by the issuable permissions.
+For a protected repository, only workflows in the repositories the operator lists as its allowed callers can request it, each within the permission limit the operator set.
+A new repository is not protected until the operator adds it to the list of protected repositories.
+Grant the GitHub App and the issuable permissions only what the workflows need, and protect sensitive repositories before installing the GitHub App on them.
+Write permissions such as `workflows`, `administration`, `secrets`, and `actions` can reach the secrets and settings of unprotected repositories, including allowed callers' repositories left unprotected.
+Authorization controlled by the administrators of the accessed repository, per team, or per branch, event, or workflow within a calling repository, and organization, account, and enterprise permissions, are candidates for the future, with no timeline yet.
 
 ## Documentation
 

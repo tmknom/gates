@@ -50,7 +50,7 @@ func TestCallerFromClaims(t *testing.T) {
 			want:   newCaller(t, 11, 22, "another", 33, 2, validAttributes()),
 		},
 		{
-			// 名前を照合しないため、区切りは最初の / と、その後の最初の : で決まる
+			// 認証は名前を照合しないため、区切りは最初の / と、その後の最初の : で決まる
 			name:   "colon in owner name and slash in repository name return caller",
 			claims: claimsWith(map[string]any{"sub": "repo:oc:to@11/ap/p@22:pull_request"}),
 			want:   newCaller(t, 11, 22, "ap/p", 33, 2, validAttributes()),
