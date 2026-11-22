@@ -156,7 +156,7 @@ active_kms_key = "key-1"
 ### 4.4 Issuable Permissions
 
 `issuable_permissions` には、GitHub App に付与した Repository permissions のうち、ワークフローが要求する権限名を、要求する最も高い水準とともに `権限名:水準` のリストで書きます。
-権限名は、GitHub App の設定画面の表示名ではなく、[Issue Token](../../actions/issue-token/README.md) の「要求できる権限」にある名前で書きます。
+権限名は、GitHub App の設定画面の表示名ではなく、[Issue Token](../../actions/README.md) の「要求できる権限」にある名前で書きます。
 
 ```hcl
 issuable_permissions = [

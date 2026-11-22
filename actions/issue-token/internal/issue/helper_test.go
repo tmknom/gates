@@ -5,12 +5,12 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"io"
-	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -234,19 +234,6 @@ func readFile(t *testing.T, path string) string {
 	return string(data)
 }
 
-// readFileIfExists は、ファイルがなければ空を返す。書けないファイルの代わりに存在しないパスを使うため。
-func readFileIfExists(t *testing.T, path string) string {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return ""
-	}
-	if err != nil {
-		t.Fatalf("os.ReadFile(%q) error = %v", path, err)
-	}
-	return string(data)
-}
-
 // expectedSuccess は、success.json から response が取り出すトークンと残りの項目の値である。
 // 値の形（並び、区切り）は response の規則のため、期待値を写さずに response から得る。
 func expectedSuccess(t *testing.T) (token string, items response.Items) {
@@ -260,4 +247,31 @@ func expectedSuccess(t *testing.T) (token string, items response.Items) {
 		t.Fatalf("Items() error = %v", err)
 	}
 	return success.Token().Expose(), items
+}
+
+func lines(s string) []string {
+	return strings.Split(strings.TrimSuffix(s, "\n"), "\n")
+}
+
+// lastLine は、標準出力の最後の行である。失敗の注釈は最後に書かれる。
+func lastLine(s string) string {
+	all := lines(s)
+	return all[len(all)-1]
+}
+
+// noRequests は、どのサーバーにも要求が届いていないことを確かめる。
+func noRequests(f *fixture) bool {
+	return len(f.oidc.received())+len(f.sts.received())+len(f.lambda.received())+len(f.github.received()) == 0
+}
+
+var errWrite = errors.New("write failed")
+
+// failOn は、prefix で始まる書き込みを失敗させる。
+func failOn(prefix string) func(string) error {
+	return func(p string) error {
+		if strings.HasPrefix(p, prefix) {
+			return errWrite
+		}
+		return nil
+	}
 }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tmknom/gates/actions/issue-token/internal/issue"
+	"github.com/tmknom/gates/actions/issue-token/internal/revocation"
 	"github.com/tmknom/gates/actions/issue-token/internal/revoke"
 	"github.com/tmknom/gates/actions/issue-token/internal/supervise"
 	"github.com/tmknom/gates/actions/issue-token/internal/workflow"
@@ -111,5 +112,5 @@ func runPostChild() {
 	}()
 	signal.Ignore(syscall.SIGINT, syscall.SIGTERM)
 	// 返る error は標準出力への書き込みの失敗だけで、知らせる先がない
-	_ = revoke.Run(context.Background(), revoke.Config{Token: os.Getenv("STATE_token"), Stdout: os.Stdout})
+	_ = revoke.Run(context.Background(), revoke.Config{Token: os.Getenv("STATE_" + revocation.TokenStateName), Stdout: os.Stdout})
 }

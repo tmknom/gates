@@ -11,13 +11,21 @@ import (
 	"github.com/tmknom/gates/actions/issue-token/internal/credential"
 )
 
-// invokeTimeout の値の理由は、GitHub Actions Design の Retry and Timeout にある。
-const invokeTimeout = 90 * time.Second
-
 // LambdaClient は、AWS 一時認証情報で署名して Lambda を Invoke する。
 type LambdaClient struct {
 	client *lambda.Client
 }
+
+// InvokeResult は、Lambda Invoke API が返した Invoke の結果である。
+type InvokeResult struct {
+	StatusCode int
+	// FunctionError は X-Amz-Function-Error の値で、ヘッダーがなければ空である。
+	FunctionError string
+	Payload       []byte
+}
+
+// invokeTimeout の値の理由は、GitHub Actions Design の Retry and Timeout にある。
+const invokeTimeout = 90 * time.Second
 
 // NewLambdaClient は、region の Lambda に creds で署名して要求する LambdaClient を作る。
 // 共有の設定ファイルと環境変数を読まず、再試行しない（GitHub Actions Design の Retry and Timeout）。

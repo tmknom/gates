@@ -60,13 +60,13 @@ func Run(ctx context.Context, cfg Config) error {
 func run(ctx context.Context, cfg Config) error {
 	prepared, err := prepare(ctx, cfg)
 	if err != nil {
-		// 要求を受けた後の失敗は、通信の打ち切りによるものとして、段階の文言ではなくキャンセルとして報告する
+		// キャンセルの要求を受けた後の失敗は、通信の打ち切りによるものとして、段階の文言ではなくキャンセルとして報告する
 		if ctx.Err() != nil {
 			return errCanceled
 		}
 		return err
 	}
-	// Invoke の前の要求は、Lambda を呼ばずに終える。トークンはまだ発行されていない
+	// Invoke の前のキャンセルの要求は、Lambda を呼ばずに終える。トークンはまだ発行されていない
 	if ctx.Err() != nil {
 		return errCanceled
 	}
@@ -84,19 +84,19 @@ func run(ctx context.Context, cfg Config) error {
 	}
 
 	// 失敗時の失効も、キャンセルの要求で打ち切らない（GitHub Actions Design の Revocation）
-	revoke := func() error {
+	revokeOnFailure := func() error {
 		return revocation.Attempt(context.WithoutCancel(ctx), cfg.Stdout, githubapi.NewClient(cfg.GitHub...), success.Token())
 	}
 	// トークンを取り出した後の panic も失敗として失効を試み、panic は呼び出し元の回復に渡し直す
 	defer func() {
 		if r := recover(); r != nil {
 			// 返る error は失効の結果を標準出力に書けなかったことだけで、panic を渡し直すため返す先がない
-			_ = revoke()
+			_ = revokeOnFailure()
 			panic(r) //nolint:forbidigo // 回復は呼び出し元が担い、ここでは失効を試みるためだけに受け止める
 		}
 	}()
 	if err := deliver(ctx, cfg, success); err != nil {
-		return errors.Join(err, revoke())
+		return errors.Join(err, revokeOnFailure())
 	}
 	return nil
 }

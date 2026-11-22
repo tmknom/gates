@@ -40,7 +40,7 @@ GitHub App Private Key を KMS Key にインポートするスクリプトで、
 | `make kms-test` | なし（手元のシェル） | `aws` をスタブに差し替え、使い捨ての鍵でインポートのスクリプトを試験する | OpenSSL 3 以降、`jq`、`xxd` |
 | `make -C formal alloy` | Alloy | `formal/alloy/` の `authorization.als` と `issuance-temporal.als` にある `run` と `check` をすべて実行する。ルートの `make alloy` も同じ | |
 | `make -C formal z3` | Z3 | `formal/z3/` の検査をすべて実行し、期待する判定と比べる。ルートの `make z3` も同じ | |
-| `make -C actions/issue-token lint` | golangci-lint | Docker Action のモジュールを lint する | Go と、取得済みの依存モジュール |
+| `make -C actions lint` | golangci-lint | Docker Action のモジュールを lint する | Go と、取得済みの依存モジュール |
 | `make -C terraform lint` | tflint | `terraform/` を再帰的に lint する | |
 | `make -C terraform lock` | Terraform | lock ファイルを作り直す | |
 | `make -C terraform init` | Terraform | イメージの Provider で初期化する | |
@@ -101,5 +101,5 @@ make -C terraform lint TF_DIR=/path/to/terraform
 
 Makefile は、コンテナを起動する前に次の処理を行います。
 
-- `make lint`、`make -C actions/issue-token lint`、`make trivy` は、読み取り専用の `/src` にはマウントポイントを作れないため、ルートの Makefile の `container-mountpoints` で `compose.yaml` が隠すパスをホスト側に用意する
-- `make lint`、`make -C actions/issue-token lint`、`make trivy`、`make -C terraform lint`、`make -C terraform fmt`、`make -C terraform check` は、`terraform/Makefile` の `misplaced-values` で `terraform/local/` の外に置かれた `.tfvars` や State などを検出して失敗する
+- `make lint`、`make -C actions lint`、`make trivy` は、読み取り専用の `/src` にはマウントポイントを作れないため、ルートの Makefile の `container-mountpoints` で `compose.yaml` が隠すパスをホスト側に用意する
+- `make lint`、`make -C actions lint`、`make trivy`、`make -C terraform lint`、`make -C terraform fmt`、`make -C terraform check` は、`terraform/Makefile` の `misplaced-values` で `terraform/local/` の外に置かれた `.tfvars` や State などを検出して失敗する

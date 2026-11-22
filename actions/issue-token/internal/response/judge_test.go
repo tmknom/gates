@@ -3,38 +3,12 @@ package response_test
 import (
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/tmknom/gates/actions/issue-token/internal/awsapi"
 	"github.com/tmknom/gates/actions/issue-token/internal/response"
 )
-
-func fixture(t *testing.T, name string) []byte {
-	t.Helper()
-	body, err := os.ReadFile(filepath.Join("testdata", name))
-	if err != nil {
-		t.Fatalf("read fixture: %v", err)
-	}
-	return body
-}
-
-// ok は、SDK のエラーも FunctionError もない 200 の Invoke の結果を作る。
-func ok(payload []byte) awsapi.InvokeResult {
-	return awsapi.InvokeResult{StatusCode: 200, Payload: payload}
-}
-
-// success は、判定を通る応答を作る。Items のテストの準備に使う。
-func success(t *testing.T, name string) response.Success {
-	t.Helper()
-	got, err := response.Judge(ok(fixture(t, name)), nil)
-	if err != nil {
-		t.Fatalf("Judge(%s) error = %v, want nil", name, err)
-	}
-	return got
-}
 
 func TestJudge_ExtractsToken(t *testing.T) {
 	t.Parallel()

@@ -252,7 +252,7 @@ KMS Key の構成・IAM 権限は Terraform で管理します。GitHub App Priv
 | GitHub App Private Key | KMS インポート前は運用者が別の運用境界で扱う。Lambda と Runner には渡さない。インポート後、インポート前のコピーは運用者の手元から削除する。KMS にインポートした鍵素材は取り出せないため、KMS Key を失った場合は GitHub 側で新しい秘密鍵を発行して切り替える |
 | AWS KMS Key | インポート済みの非対称署名鍵。Lambda 実行 Role に当該キーの `kms:Sign` のみ許可。鍵更新時は新 KMS Key を用意し、Lambda が参照する鍵（使用中の鍵）を切り替える。切り替えの確認の後に旧 KMS Key を無効にし、GitHub 側で旧 Private Key を削除した後に、旧 KMS Key を Terraform の管理から外して削除を予約する |
 | GitHub App JWT | KMS 署名で Lambda が短時間生成し、GitHub API 呼び出しにのみ使用。外部返却・ログ出力禁止 |
-| Installation Access Token | 要求・認可された対象と Permissions（付随する `metadata:read` を許容）に限定して Runner へ返す。短命でも窃取リスクは残る。照合に失敗したものは返さず、文字列を取得できた場合に失効を試みる。Runner へ返したものは、ジョブの終了時に Docker Action がトークン自身で認証して失効を試みる（ジョブの終了時の失効）。Docker Action がトークンを取り出した後に失敗するかキャンセルされ、後続ステップへ渡せなかったものは、その場で失効を試みる（失敗時の失効）。Runner の上では、Output（`GITHUB_OUTPUT`）と `GITHUB_STATE` の 2 つのファイルにだけ書く。どちらも Runner のファイルコマンドのディレクトリにある |
+| Installation Access Token | 要求・認可された対象と Permissions（付随する `metadata:read` を許容）に限定して Runner へ返す。短命でも窃取リスクは残る。照合に失敗したものは返さず、文字列を取得できた場合に失効を試みる。Runner へ返したものは、ジョブの終了時に Docker Action がトークン自身で認証して失効を試みる（ジョブの終了時の失効）。Docker Action がトークンを取り出した後に失敗で終える（キャンセルで終える場合を含む）ものは、その場で失効を試みる（失敗時の失効）。Runner の上では、Output（`GITHUB_OUTPUT`）と `GITHUB_STATE` の 2 つのファイルにだけ書く。どちらも Runner のファイルコマンドのディレクトリにある |
 | AWS 一時認証情報・AWS 用 OIDC JWT・GATES 用 OIDC JWT | Runner の上で Docker Action の子のプロセスのメモリの中だけで扱い、ファイル、環境変数、Output に書かない。プロセスの終了とともに手放す。ログやデバッグ出力に含めない |
 
 ## 5. Failure, Audit, and Security Risks

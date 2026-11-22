@@ -11,12 +11,7 @@ import (
 )
 
 // 値の理由は GitHub Actions Design の「OIDC JWT の取得」に記述する。
-const (
-	connectTimeout    = 10 * time.Second
-	retrievalTimeout  = 30 * time.Second
-	responseSizeLimit = 64 * 1024
-	errorBodyLimit    = 4096
-)
+const connectTimeout = 10 * time.Second
 
 // Client は、GitHub OIDC Provider から OIDC JWT を取得する。
 type Client struct {

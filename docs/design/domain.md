@@ -238,7 +238,7 @@ GATES の処理には 5 種類の **資格情報**（Credential）が現れ、�
 
 | 資格情報 | 英語名 | 発行元 | 用途 | 発行の判定に現れるか |
 |---|---|---|---|---|
-| **AWS 用 OIDC JWT** | AWS OIDC JWT | GitHub OIDC Provider（Audience は AWS STS） | IAM Role の引き受け | 現れない。入口制御だけが扱う |
+| **AWS 用 OIDC JWT** | AWS OIDC JWT | GitHub OIDC Provider（Audience は AWS STS） | IAM Role の引き受け | 現れない。利用者接点が取得し、入口制御が検証する |
 | **AWS 一時認証情報** | AWS Credentials | AWS STS | Lambda Invoke の署名 | 現れない |
 | **GATES 用 OIDC JWT** | GATES OIDC JWT | GitHub OIDC Provider（Audience は GATES 用 Audience） | Caller の確定 | 現れる。認証の入力 |
 | **GitHub App JWT** | App JWT | Lambda が組み立て、KMS が署名 | GitHub API の呼び出し | 現れる。内部でだけ使い、外に出さない |
@@ -338,7 +338,7 @@ flowchart LR
 |---|---|---|---|---|---|
 | トークンを要求する | （Docker Action の責務） | ワークフロー利用者 | 対象、権限、接続情報 | Docker Action が発行処理を起動する | 事実：Requirements FR-OPS-006 |
 | ジョブの終了時の失効 | Revoke | Docker Action | ジョブの終了時の処理へ引き継いだ Installation Access Token。後続ステップへ渡したトークンはすべて含む | 成功または失敗。成否にかかわらずジョブの結果を変えない。トークンを引き継がなかった場合は何もしない | 事実：Requirements FR-ISSUANCE-006、GitHub Actions Design §3.5 |
-| 失敗時の失効 | Revoke | Docker Action | 受け取った後、後続ステップへ渡す前に失敗するかキャンセルされた Installation Access Token | 成功または失敗。成否にかかわらず Docker Action は失敗で終わる | 事実：Requirements FR-ISSUANCE-006、GitHub Actions Design §3.5 |
+| 失敗時の失効 | Revoke | Docker Action | 取り出した後に、Docker Action が失敗で終える（キャンセルで終える場合を含む）Installation Access Token | 成功または失敗。成否にかかわらず Docker Action は失敗で終わる | 事実：Requirements FR-ISSUANCE-006、GitHub Actions Design §3.5 |
 | 形式検証 | Validate | Lambda Handler | Invoke Payload | 発行要求と未検証の GATES 用 OIDC JWT を取り出す、または入力不正 | 事実：Lambda Design §2.2 |
 | 認証 | Authenticate | OIDC Verifier | 未検証の GATES 用 OIDC JWT、固定設定、Issuer の公開鍵、現在時刻 | Caller を確定する、または拒否 | 事実：Requirements FR-AUTHN-001 |
 | 事前認可 | Authorize | Authorization | Caller、発行要求、許可オーナー、発行上限、保護対象の一覧 | 外部呼び出しに進める、または認可拒否 | 事実：Lambda Design §5 手順 3。保護対象の一覧は Requirements FR-AUTHZ-009 |
@@ -806,7 +806,7 @@ GitHub が発行した後に不整合を検出して失効に失敗した場合�
 | **認証** | Authentication | 未検証の GATES 用 OIDC JWT を、Issuer の公開鍵と固定設定の Issuer と Audience で検証し、Caller を確定する | Lambda の Go アプリケーションのうち OIDC Verifier | JWT、JOSE Header、Claim、主体（`sub`）、Issuer、Audience、Discovery、JWK / JWKS、`kid`、使用可能な鍵 |
 | **発行** | Issuance | 発行要求と Caller から発行許可を確定し、発行結果を照合して返す | Lambda の Go アプリケーションのうち OIDC Verifier を除く部分 | 本ドキュメントの Concepts の概念のうち、Issuer、GATES 用 Audience、Issuer の公開鍵集合、Discovery を除くもの |
 | **入口制御** | Entry Control | 許可オーナーのワークフローだけに Lambda の Invoke を許す | IAM OIDC Provider、IAM Role、Terraform | OIDC JWT の主体の文字列パターン、Audience、AWS 一時認証情報、`lambda:InvokeFunction` |
-| **利用者接点** | Workflow Integration | 利用者の入力を Invoke Payload に変換し、Lambda の応答を判定して発行結果を Output として後続ステップへ渡し、受け取ったトークンの失効（失敗時の失効、ジョブの終了時の失効）を試みる | Docker Action | `repositories` と `permissions` のカンマ区切り、接続情報、要求用トークン、OIDC JWT、AWS 一時認証情報、Invoke の結果、成功応答と失敗応答、Output、通信の失敗、ワークフローコマンド（マスク、注釈）、ファイルコマンド（`GITHUB_OUTPUT`、`GITHUB_STATE`） |
+| **利用者接点** | Workflow Integration | 利用者の入力を Invoke Payload に変換し、OIDC JWT の取得と IAM Role の引き受けを経て Lambda を Invoke し、Lambda の応答を判定して発行結果を Output として後続ステップへ渡し、取り出したトークンの失効（失敗時の失効、ジョブの終了時の失効）を試みる | Docker Action | `repositories` と `permissions` のカンマ区切り、接続情報、要求用トークン、OIDC JWT、AWS 一時認証情報、Invoke の結果、成功応答と失敗応答、Output、通信の失敗、キャンセルの要求、ワークフローコマンド（マスク、注釈）、ファイルコマンド（`GITHUB_OUTPUT`、`GITHUB_STATE`） |
 | **鍵管理** | Key Custody | KMS Key の作成、鍵素材のインポート、鍵の更新 | Terraform と独立した運用手順 | KMS Key、鍵素材、`PendingImport` と `Enabled`、`key_spec`、鍵の集合、使用中の鍵 |
 
 GitHub は、オーナー、リポジトリ、GitHub App、Installation を所有する上流です。
@@ -829,7 +829,7 @@ Caller のリポジトリ名は、主体の文字列のリポジトリ部分の�
 
 利用者接点は、Lambda の Invoke API が返した **Invoke の結果**（Invoke Result。`StatusCode`、`FunctionError`、Payload）を、AWS SDK のエラーとあわせて判定（Judge）します（事実：GitHub Actions Design §3）。
 Payload を JSON として読み、`ok` が `true` なら **成功応答**（Success Response）、`false` なら **失敗応答**（Failure Response）です（事実：Lambda Design §3）。
-成功応答からは `token` を Installation Access Token として取り出し、残りの項目をすべて読み取れたときだけ **Output**（Output。`token`、`expires-at`、`repositories`、`permissions`）を作ります（事実：GitHub Actions Design §2.1、§3）。
+成功応答からは `token` を Installation Access Token として取り出し（取り出すのは、空でなく ASCII の制御文字を含まない文字列だけ）、残りの項目をすべて読み取れたときだけ **Output**（Output。`token`、`expires-at`、`repositories`、`permissions`）を作ります（事実：GitHub Actions Design §2.1、§3）。
 失敗応答のエラーコードは発行 Context の失敗の種別を示すもので、利用者接点はそれを読み替えずに示します（事実：GitHub Actions Design §3.2）。
 OIDC JWT の取得、AWS STS、Invoke、失効のどの呼び出しでも、応答を得られなかった失敗を **通信の失敗**（Communication Failure）と呼び、タイムアウトとそれ以外に分けて示します（事実：GitHub Actions Design §3.2）。
 発行 Context では通信の失敗は一時的な障害に含まれますが、利用者接点は失敗の種別を持たず、通信の失敗をそのまま示します（推論：利用者接点は再試行せず、どの失敗もステップの失敗として利用者に伝え、再実行するかを利用者に委ねるため）。
@@ -845,10 +845,11 @@ GitHub API の操作は同じで、英語名はどちらも Revoke です。
 失効の要求の失敗に限らず、失効を試みる処理がどのように失敗してもジョブの結果を変えず、トークンは GitHub 側で有効なまま、GitHub が定めた有効期限まで残り得ます（事実：GitHub Actions Design §3.2、§3.5）。
 ジョブの終了時の処理へトークンを引き継がなかったジョブでは何もしません。
 
-利用者接点がトークンを受け取った後、後続ステップへ渡す前に失敗するかキャンセルされた場合は、そのトークンの失効をその場で試みます（事実：Requirements FR-ISSUANCE-006、GitHub Actions Design §3.5）。
+利用者接点がトークンを取り出した後に失敗で終える場合は、キャンセルで終える場合も含め、そのトークンの失効をその場で試みます（事実：Requirements FR-ISSUANCE-006、GitHub Actions Design §3.5）。
 この操作を **失敗時の失効** と呼びます。
 ジョブの終了時の処理へ引き継ぐ前に終わると、ジョブの終了時の失効の対象にもならず、誰も持たないトークンが有効期限まで残るためです（推論）。
-引き継いだ後に後続ステップへ渡す段階で失敗した場合は、同じトークンが失敗時の失効とジョブの終了時の失効の両方の対象になります（事実：GitHub Actions Design §3.5）。
+取り出せなかったトークンは利用者接点が持たないため、どちらの失効の対象にもなりません。
+引き継いだ後に失敗した場合は、同じトークンが失敗時の失効とジョブの終了時の失効の両方の対象になります（事実：GitHub Actions Design §3.5）。
 失敗時の失効もベストエフォートで、成否はワークフローのログにだけ残り、成否にかかわらず利用者接点は失敗で終わります。
 
 どちらの失効についても、利用者が止める手段は設けません。利用者接点はジョブをまたぐトークンの受け渡しを提供せず、ジョブの終了後にトークンを使う正当な経路がないためです（事実：GitHub Actions Design §2.1）。
@@ -868,6 +869,8 @@ flowchart LR
   KC -->|KMS Key ARN と Sign だけを公開| IS
   GH -->|OIDC JWT| UI
   GH -->|OIDC JWT| EC
+  UI -->|AWS 用 OIDC JWT| EC
+  EC -->|AWS 一時認証情報| UI
   GH -->|Discovery と公開鍵集合| AN
   GH -->|Installation と発行結果| IS
   IS -->|発行結果| UI
@@ -891,14 +894,14 @@ Lambda の Invoke API が JSON として読めずに拒否した Payload も、�
 | オーナー | GATES 用 OIDC JWT の主体と Claim に現れる不変 Owner ID | 不変 Owner ID で同定する実体。名前と種別は設定値 | OIDC JWT の主体の先頭に現れる、オーナー名と Owner ID を並べた文字列パターン | 完全名の `owner` 部分 | 現れない |
 | 主体 | GATES 用 OIDC JWT の `sub`。オーナー名と Owner ID、リポジトリ名と Repository ID を含む文字列 | 現れない。認証が確定した呼び出し元は Caller と呼ぶ | AWS 用 OIDC JWT の `sub` と、Invoke を許す IAM の主体 | 現れない | 現れない |
 | Issuer | GitHub Actions の OIDC Provider。固定設定の値で、Discovery と公開鍵の取得先 | 現れない。コンポーネント名の Token Issuer は Installation Access Token の発行を担うもので、Issuer とは別の概念 | IAM OIDC Provider が信頼する発行元 | 現れない | 現れない |
-| 検証と照合 | 署名と Claim の検証（Verify） | 発行結果と発行許可の照合（Verify）。英語名が同じため、日本語では「検証」と「照合」で区別する | 現れない | 現れない | 現れない |
+| 検証と照合 | 署名と Claim の検証（Verify） | 発行結果と発行許可の照合（Verify）。英語名が同じため、日本語では「検証」と「照合」で区別する | 現れない | 入力のリストの構造の検証。署名と Claim の検証も、照合もしない | 現れない |
 | 権限 / permissions | 現れない | GitHub App の Permissions（`contents:read` など） | IAM の許可（`lambda:InvokeFunction`、`kms:Sign`） | 入力の `permissions`（カンマ区切り）とワークフローの `permissions: id-token: write` | KMS Key Policy の署名権限と管理権限 |
 | 応答 | 現れない | GitHub API の応答（発行応答など）と、Lambda Handler が書く成功応答と失敗応答 | 現れない | Lambda Handler が書いた成功応答と失敗応答を、Invoke の結果の Payload として読むもの | 現れない |
 | 発行要求 | 現れない | 形式検証を通った対象と Permissions（[INV-001 発行要求](#inv-001-発行要求)）。GATES 用 OIDC JWT を含まない | 現れない | リストの構造と UTF-8 の正しさだけを確かめた、入力の表記と順序のままの対象と権限。文字種と対象の上限は確かめていない | 現れない |
 | repositories | 現れない | 発行要求の完全名の列。GitHub API へはリポジトリ名の配列に変換する | 現れない | 入力と Output のカンマ区切り文字列 | 現れない |
 | リポジトリ名 | 主体のリポジトリ部分の、Repository ID と組になった名前。どの名前とも照合しない | 完全名のリポジトリ部分、保護対象と許可 Caller のリポジトリ名、Caller のリポジトリ名。保護対象を発行前に見分け、許可 Caller の照合で ID に重ねて使う | 現れない | 完全名の `repo` 部分 | 現れない |
 | 鍵 | Issuer の公開鍵（検証だけに使う） | 署名鍵の KMS Key ARN（署名だけを依頼する） | 現れない | 現れない | 鍵素材、KMS Key、Private Key のコピー |
-| 失効 | GATES 用 OIDC JWT の失効時刻（`exp`）。時刻の経過で効力を失うこと | 照合を通らなかった発行結果のトークンを GitHub API で無効にする操作（Revoke）。発行処理の不変条件が試行を求め、失効の結果を監査記録に残す | 現れない | 受け取った Installation Access Token を GitHub API で無効にする操作（Revoke）。「ジョブの終了時の失効」と「失敗時の失効」がある。どちらもベストエフォートで、結果はワークフローのログにだけ残る | GitHub 側での旧 Private Key の失効。GATES は代行しない |
+| 失効 | GATES 用 OIDC JWT の失効時刻（`exp`）。時刻の経過で効力を失うこと | 照合を通らなかった発行結果のトークンを GitHub API で無効にする操作（Revoke）。発行処理の不変条件が試行を求め、失効の結果を監査記録に残す | 現れない | 取り出した Installation Access Token を GitHub API で無効にする操作（Revoke）。「ジョブの終了時の失効」と「失敗時の失効」がある。どちらもベストエフォートで、結果はワークフローのログにだけ残る | GitHub 側での旧 Private Key の失効。GATES は代行しない |
 
 ## Unverified GitHub Behavior
 

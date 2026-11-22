@@ -1,3 +1,4 @@
+// Package awsapi は、AWS STS で IAM Role を引き受け、AWS 一時認証情報で Lambda を Invoke する。
 package awsapi
 
 import (

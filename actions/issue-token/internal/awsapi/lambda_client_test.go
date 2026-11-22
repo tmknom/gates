@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -12,11 +13,6 @@ import (
 
 	"github.com/tmknom/gates/actions/issue-token/internal/awsapi"
 	"github.com/tmknom/gates/actions/issue-token/internal/communication"
-)
-
-const (
-	testFunctionName = "gates-function"
-	testPayload      = `{"version":1}`
 )
 
 func TestLambdaClient_Invoke_SendsSignedRequestWithRequestResponse(t *testing.T) {
@@ -264,4 +260,12 @@ func TestLambdaClient_Invoke_InvalidRegionReturnsNotSent(t *testing.T) {
 	if got, want := err.Error(), "the request was not sent"; got != want {
 		t.Errorf("Error() = %q, want %q", got, want)
 	}
+}
+
+// closedServerOptions は、すでに閉じたサーバーに向ける Option を返す。接続が拒否される。
+func closedServerOptions() []awsapi.Option {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	url, transport := server.URL, server.Client().Transport
+	server.Close()
+	return []awsapi.Option{awsapi.WithBaseEndpoint(url), awsapi.WithTransport(transport)}
 }

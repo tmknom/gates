@@ -9,9 +9,17 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/tmknom/gates/actions/issue-token/internal/communication"
 	"github.com/tmknom/gates/actions/issue-token/internal/credential"
+)
+
+// 値の理由は GitHub Actions Design の「OIDC JWT の取得」に記述する。
+const (
+	retrievalTimeout  = 30 * time.Second
+	responseSizeLimit = 64 * 1024
+	errorBodyLimit    = 4096
 )
 
 // Retrieve は、audience の OIDC JWT を取得する。
