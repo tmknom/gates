@@ -8,6 +8,7 @@ import (
 
 	"github.com/tmknom/gates/internal/authz"
 	"github.com/tmknom/gates/internal/caller"
+	"github.com/tmknom/gates/internal/protected"
 )
 
 //trace:checks AC-ISSUANCE-002 AC-AUTHZ-009
@@ -30,7 +31,7 @@ func TestAuthorize(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := mustTokenRequest(t, tt.repositories, tt.permissions)
-			if err := authz.Authorize(caller, req, owner, issuablePermissions); err != nil {
+			if err := authz.Authorize(caller, req, owner, issuablePermissions, noProtectedRepositories(t)); err != nil {
 				t.Errorf("Authorize() returned error: %v", err)
 			}
 		})
@@ -59,7 +60,7 @@ func TestAuthorize_Denied(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			caller := mustNewCaller(t, tt.callerOwnerID)
 			req := mustTokenRequest(t, tt.repositories, tt.permissions)
-			err := authz.Authorize(caller, req, owner, issuablePermissions)
+			err := authz.Authorize(caller, req, owner, issuablePermissions, noProtectedRepositories(t))
 			if !errors.Is(err, authz.ErrAuthorizationDenied) {
 				t.Fatalf("Authorize() error = %v, want %v", err, authz.ErrAuthorizationDenied)
 			}
@@ -73,7 +74,109 @@ func TestAuthorize_Denied(t *testing.T) {
 // ゼロ値どうしは Owner ID が一致してしまうため、形式検証を通った要求がほかの条件で拒否されることを確かめる。
 func TestAuthorize_ZeroValueOwnerAndCallerAreDenied(t *testing.T) {
 	req := mustTokenRequest(t, []string{"Example-Org/app"}, contentsRead)
-	err := authz.Authorize(caller.Caller{}, req, authz.AllowedOwner{}, mustNewIssuablePermissions(t, issuablePermissionNotations...))
+	err := authz.Authorize(caller.Caller{}, req, authz.AllowedOwner{}, mustNewIssuablePermissions(t, issuablePermissionNotations...), noProtectedRepositories(t))
+	if !errors.Is(err, authz.ErrAuthorizationDenied) {
+		t.Errorf("Authorize() error = %v, want %v", err, authz.ErrAuthorizationDenied)
+	}
+}
+
+//trace:checks AC-AUTHZ-011
+func TestAuthorize_ProtectedRepositories(t *testing.T) {
+	tests := []struct {
+		name         string
+		repositories []string
+		permissions  map[string]string
+	}{
+		{name: "allowed caller requesting the level of its permission limit is authorized", repositories: []string{"Example-Org/app"}, permissions: map[string]string{"contents": "write"}},
+		{name: "request without protected repositories is authorized", repositories: []string{"Example-Org/lib"}, permissions: map[string]string{"issues": "write"}},
+	}
+	owner := mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName)
+	caller := mustNewCaller(t, allowedOwnerID)
+	issuablePermissions := mustNewIssuablePermissions(t, issuablePermissionNotations...)
+	protectedRepositories := mustParseProtectedRepositories(t, protectedRepositoriesDocument)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := mustTokenRequest(t, tt.repositories, tt.permissions)
+			if err := authz.Authorize(caller, req, owner, issuablePermissions, protectedRepositories); err != nil {
+				t.Errorf("Authorize() returned error: %v", err)
+			}
+		})
+	}
+}
+
+// 拒否の理由の区別と文言は protected が検証する。ここでは、保護対象の条件で拒否することと、条件の順序を確かめる
+//
+//trace:checks AC-AUTHZ-011
+func TestAuthorize_ProtectedRepositoriesDenied(t *testing.T) {
+	// protectedRepositoriesReason は、保護対象の条件による拒否の文言のうち、ほかの条件の文言と見分けられる部分である
+	const protectedRepositoriesReason = "matches protected repositories["
+	tests := []struct {
+		name               string
+		callerRepositoryID int64
+		callerName         string
+		repositories       []string
+		permissions        map[string]string
+		wantReason         string
+	}{
+		{
+			name:               "caller matching the allowed caller id but not the name is denied by the protected repository condition",
+			callerRepositoryID: callerRepositoryID, callerName: "renamed-tools",
+			repositories: []string{"Example-Org/app"}, permissions: contentsRead,
+			wantReason: protectedRepositoriesReason,
+		},
+		{
+			name:               "permission within issuable permissions but outside the permission limit is denied by the protected repository condition",
+			callerRepositoryID: callerRepositoryID, callerName: callerRepositoryName,
+			repositories: []string{"Example-Org/app"}, permissions: map[string]string{"issues": "write"},
+			wantReason: protectedRepositoriesReason,
+		},
+		{
+			name:               "permission within the permission limit but outside issuable permissions is denied by issuable permissions",
+			callerRepositoryID: callerRepositoryID, callerName: callerRepositoryName,
+			repositories: []string{"Example-Org/app"}, permissions: map[string]string{"pull_requests": "write"},
+			wantReason: "issuable permissions",
+		},
+		{
+			name:               "permission outside issuable permissions and the permission limit is denied by issuable permissions",
+			callerRepositoryID: callerRepositoryID, callerName: callerRepositoryName,
+			repositories: []string{"Example-Org/app"}, permissions: map[string]string{"deployments": "read"},
+			wantReason: "issuable permissions",
+		},
+		{
+			name:               "request failing the owner name and the protected repository condition is denied by the owner name",
+			callerRepositoryID: 9009, callerName: "other",
+			repositories: []string{"other-org/app"}, permissions: contentsRead,
+			wantReason: "repositories[0] owner name",
+		},
+		{
+			name:               "protected repository after an unprotected one is denied with its position",
+			callerRepositoryID: callerRepositoryID, callerName: callerRepositoryName,
+			repositories: []string{"Example-Org/lib", "Example-Org/vault"}, permissions: contentsRead,
+			wantReason: "repositories[1] " + protectedRepositoriesReason,
+		},
+	}
+	owner := mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName)
+	issuablePermissions := mustNewIssuablePermissions(t, issuablePermissionNotations...)
+	protectedRepositories := mustParseProtectedRepositories(t, protectedRepositoriesDocument)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			caller := mustNewCallerOf(t, tt.callerRepositoryID, tt.callerName)
+			req := mustTokenRequest(t, tt.repositories, tt.permissions)
+			err := authz.Authorize(caller, req, owner, issuablePermissions, protectedRepositories)
+			if !errors.Is(err, authz.ErrAuthorizationDenied) {
+				t.Fatalf("Authorize() error = %v, want %v", err, authz.ErrAuthorizationDenied)
+			}
+			if !strings.Contains(err.Error(), tt.wantReason) {
+				t.Errorf("Authorize() error = %q, want it to contain %q", err, tt.wantReason)
+			}
+		})
+	}
+}
+
+// ゼロ値の一覧を保護対象なしと読むと、初期化の漏れで保護が外れるため、保護対象を含まない要求も拒否されることを確かめる。
+func TestAuthorize_ZeroProtectedRepositoriesAreDenied(t *testing.T) {
+	req := mustTokenRequest(t, []string{"Example-Org/lib"}, contentsRead)
+	err := authz.Authorize(mustNewCaller(t, allowedOwnerID), req, mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName), mustNewIssuablePermissions(t, issuablePermissionNotations...), protected.Repositories{})
 	if !errors.Is(err, authz.ErrAuthorizationDenied) {
 		t.Errorf("Authorize() error = %v, want %v", err, authz.ErrAuthorizationDenied)
 	}
@@ -97,7 +200,7 @@ func TestAuthorize_ErrorDoesNotContainValues(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			caller := mustNewCaller(t, tt.callerOwnerID)
 			req := mustTokenRequest(t, tt.repositories, tt.permissions)
-			err := authz.Authorize(caller, req, owner, issuablePermissions)
+			err := authz.Authorize(caller, req, owner, issuablePermissions, noProtectedRepositories(t))
 			if err == nil {
 				t.Fatal("Authorize() returned no error")
 			}

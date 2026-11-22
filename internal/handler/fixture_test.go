@@ -18,6 +18,7 @@ import (
 	"github.com/tmknom/gates/internal/caller"
 	"github.com/tmknom/gates/internal/github"
 	"github.com/tmknom/gates/internal/permission"
+	"github.com/tmknom/gates/internal/protected"
 	"github.com/tmknom/gates/internal/request"
 	"github.com/tmknom/gates/internal/tokenissuer"
 )
@@ -62,7 +63,7 @@ func issueInstallationAccessToken(t *testing.T, issuance map[string]any, revocat
 	owner := allowedOwner(t)
 	issuablePermissions := mustNewIssuablePermissions(t, "contents:read")
 	return newTokenIssuer(t, issuance, revocationStatus).IssueInstallationAccessToken(t.Context(), func(installation authz.Installation) (authz.TokenGrant, error) {
-		return authz.Grant(verifiedCaller(t), tokenRequest(t), owner, issuablePermissions, installation)
+		return authz.Grant(verifiedCaller(t), tokenRequest(t), owner, issuablePermissions, noProtectedRepositories(t), installation)
 	})
 }
 
@@ -77,13 +78,13 @@ func (signerStub) Sign(context.Context) (github.AppJWT, error) {
 // サーバーは許可オーナーの停止していない Installation を返し、issuance を発行応答として返し、失効の要求に revocationStatus で応答する。
 func newTokenIssuer(t *testing.T, issuance map[string]any, revocationStatus int) *tokenissuer.TokenIssuer {
 	t.Helper()
-	tokenIssuer, _ := newTokenIssuerRecordingIssuance(t, issuance, revocationStatus)
+	tokenIssuer, _ := newTokenIssuerRecordingIssuance(t, noProtectedRepositories(t), issuance, revocationStatus)
 	return tokenIssuer
 }
 
-// newTokenIssuerRecordingIssuance は、newTokenIssuer と同じ Token Issuer を作り、発行 API が受け取った本文の記録を返す。
+// newTokenIssuerRecordingIssuance は、newTokenIssuer と同じ Token Issuer を、保護対象の一覧を指定して作り、発行 API が受け取った本文の記録を返す。
 // サーバーのハンドラは別の goroutine で動くため、記録を atomic.Pointer で持つ。
-func newTokenIssuerRecordingIssuance(t *testing.T, issuance map[string]any, revocationStatus int) (*tokenissuer.TokenIssuer, *atomic.Pointer[[]byte]) {
+func newTokenIssuerRecordingIssuance(t *testing.T, protectedRepositories protected.Repositories, issuance map[string]any, revocationStatus int) (*tokenissuer.TokenIssuer, *atomic.Pointer[[]byte]) {
 	t.Helper()
 	var issuanceBody atomic.Pointer[[]byte]
 	respondIssuance := respond(t, http.StatusCreated, issuance)
@@ -107,7 +108,7 @@ func newTokenIssuerRecordingIssuance(t *testing.T, issuance map[string]any, revo
 	rootCAs := x509.NewCertPool()
 	rootCAs.AddCert(server.Certificate())
 	client := github.NewClient(github.WithAPIHost(apiHost), github.WithRootCAs(rootCAs))
-	return tokenissuer.NewTokenIssuer(signerStub{}, client, allowedOwner(t), func() time.Time { return now }), &issuanceBody
+	return tokenissuer.NewTokenIssuer(signerStub{}, client, allowedOwner(t), protectedRepositories, func() time.Time { return now }), &issuanceBody
 }
 
 func respond(t *testing.T, status int, body any) http.HandlerFunc {
@@ -149,6 +150,21 @@ func mustNewIssuablePermissions(t *testing.T, notations ...string) permission.Is
 	return p
 }
 
+func mustParseProtectedRepositories(t *testing.T, document string) protected.Repositories {
+	t.Helper()
+	r, err := protected.Parse(document)
+	if err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+	return r
+}
+
+// noProtectedRepositories は、保護対象のない一覧である。保護対象のない一覧のデプロイで、既存の要求の結果が変わらないことを確かめるため、既定にする。
+func noProtectedRepositories(t *testing.T) protected.Repositories {
+	t.Helper()
+	return mustParseProtectedRepositories(t, "repositories: []\n")
+}
+
 func verifiedCaller(t *testing.T) caller.Caller {
 	t.Helper()
 	return callerOf(t, allowedOwnerID)
@@ -156,7 +172,7 @@ func verifiedCaller(t *testing.T) caller.Caller {
 
 func callerOf(t *testing.T, ownerID int64) caller.Caller {
 	t.Helper()
-	c, err := caller.NewCaller(ownerID, 1234567890, 4004, 1, caller.WorkflowTriggerAttributes{})
+	c, err := caller.NewCaller(ownerID, 1234567890, "example-repo", 4004, 1, caller.WorkflowTriggerAttributes{})
 	if err != nil {
 		t.Fatalf("NewCaller returned error: %v", err)
 	}

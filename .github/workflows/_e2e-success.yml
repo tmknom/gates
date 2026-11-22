@@ -94,7 +94,7 @@ jobs:
 
       - name: Issue token
         id: gates
-        uses: tmknom/gates/actions/issue-token@26d6193a58d8e62fde4bef6c18317524bb282256
+        uses: tmknom/gates/actions/issue-token@8990cb90e2dea67260f1fb4da9372fc107d14b75
         with:
           repositories: ${{ steps.input.outputs.repositories }}
           permissions: ${{ matrix.permissions }}
@@ -341,7 +341,7 @@ jobs:
 
       - name: Issue token
         id: gates
-        uses: tmknom/gates/actions/issue-token@26d6193a58d8e62fde4bef6c18317524bb282256
+        uses: tmknom/gates/actions/issue-token@8990cb90e2dea67260f1fb4da9372fc107d14b75
         with:
           repositories: ${{ vars.GATES_TARGET_PRIMARY }}
           permissions: ${{ matrix.permissions }}

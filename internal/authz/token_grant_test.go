@@ -10,7 +10,7 @@ func TestTokenGrant_IsZero(t *testing.T) {
 	owner := mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName)
 	caller := mustNewCaller(t, allowedOwnerID)
 	req := mustTokenRequest(t, []string{"Example-Org/app"}, contentsRead)
-	grant, err := authz.Grant(caller, req, owner, mustNewIssuablePermissions(t, issuablePermissionNotations...), mustNewInstallation(t, allowedOwnerID, false))
+	grant, err := authz.Grant(caller, req, owner, mustNewIssuablePermissions(t, issuablePermissionNotations...), noProtectedRepositories(t), mustNewInstallation(t, allowedOwnerID, false))
 	if err != nil {
 		t.Fatalf("Grant() returned error: %v", err)
 	}
@@ -27,7 +27,7 @@ func TestTokenGrant_RepositoriesCannotBeModifiedByCaller(t *testing.T) {
 	owner := mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName)
 	caller := mustNewCaller(t, allowedOwnerID)
 	req := mustTokenRequest(t, []string{"Example-Org/app", "Example-Org/lib"}, contentsRead)
-	grant, err := authz.Grant(caller, req, owner, mustNewIssuablePermissions(t, issuablePermissionNotations...), mustNewInstallation(t, allowedOwnerID, false))
+	grant, err := authz.Grant(caller, req, owner, mustNewIssuablePermissions(t, issuablePermissionNotations...), noProtectedRepositories(t), mustNewInstallation(t, allowedOwnerID, false))
 	if err != nil {
 		t.Fatalf("Grant() returned error: %v", err)
 	}

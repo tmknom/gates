@@ -93,7 +93,7 @@ func TestVerifierAuthenticate(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Authenticate returned error: %v", err)
 			}
-			if want := newCaller(t, 11, 22, 33, 2, validAttributes()); got != want {
+			if want := newCaller(t, 11, 22, "app", 33, 2, validAttributes()); got != want {
 				t.Errorf("Authenticate = %+v, want %+v", got, want)
 			}
 		})
@@ -116,7 +116,7 @@ func TestVerifierAuthenticate_EscapedClaimName(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Authenticate returned error: %v", err)
 			}
-			if want := newCaller(t, 11, 22, 33, 2, validAttributes()); got != want {
+			if want := newCaller(t, 11, 22, "app", 33, 2, validAttributes()); got != want {
 				t.Errorf("Authenticate = %+v, want %+v", got, want)
 			}
 		})
@@ -277,7 +277,7 @@ func TestVerifierAuthenticate_ObservedClaims(t *testing.T) {
 			if err := json.Unmarshal(payload, &observed); err != nil {
 				t.Fatalf("Unmarshal returned error: %v", err)
 			}
-			want := newCaller(t, 583231, 1234567890, parseObservedID(t, observed.RunID), parseObservedID(t, observed.RunAttempt), caller.WorkflowTriggerAttributes{
+			want := newCaller(t, 583231, 1234567890, "example-repo", parseObservedID(t, observed.RunID), parseObservedID(t, observed.RunAttempt), caller.WorkflowTriggerAttributes{
 				Actor:          observed.Actor,
 				ActorID:        observed.ActorID,
 				EventName:      observed.EventName,
@@ -322,7 +322,7 @@ func TestVerifierAuthenticate_NonAliasClaimName(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Authenticate returned error: %v", err)
 			}
-			if want := newCaller(t, 11, 22, 33, 2, validAttributes()); got != want {
+			if want := newCaller(t, 11, 22, "app", 33, 2, validAttributes()); got != want {
 				t.Errorf("Authenticate = %+v, want %+v", got, want)
 			}
 		})

@@ -15,6 +15,7 @@ import (
 	"github.com/tmknom/gates/internal/caller"
 	"github.com/tmknom/gates/internal/github"
 	"github.com/tmknom/gates/internal/permission"
+	"github.com/tmknom/gates/internal/protected"
 	"github.com/tmknom/gates/internal/request"
 )
 
@@ -116,7 +117,7 @@ func tokenGrant(t *testing.T, permissions map[string]string) authz.TokenGrant {
 // 発行上限は、Grant が認可を判定し直しても通るよう、要求の Permissions と同じ組にする。
 func grant(t *testing.T, installation authz.Installation, permissions map[string]string) (authz.TokenGrant, error) {
 	t.Helper()
-	c, err := caller.NewCaller(allowedOwnerID, repositoryIDA, 4004, 1, caller.WorkflowTriggerAttributes{})
+	c, err := caller.NewCaller(allowedOwnerID, repositoryIDA, "example-repo", 4004, 1, caller.WorkflowTriggerAttributes{})
 	if err != nil {
 		t.Fatalf("NewCaller returned error: %v", err)
 	}
@@ -138,7 +139,7 @@ func grant(t *testing.T, installation authz.Installation, permissions map[string
 	if err != nil {
 		t.Fatalf("NewIssuablePermissions returned error: %v", err)
 	}
-	return authz.Grant(c, req, allowedOwner(t), issuablePermissions, installation)
+	return authz.Grant(c, req, allowedOwner(t), issuablePermissions, noProtectedRepositories(t), installation)
 }
 
 func allowedOwner(t *testing.T) authz.AllowedOwner {
@@ -152,5 +153,26 @@ func allowedOwner(t *testing.T) authz.AllowedOwner {
 
 func verifyResult(t *testing.T, result github.IssuanceResult, granted map[string]string) (ReturnableIssuanceResult, error) {
 	t.Helper()
-	return verify(result, tokenGrant(t, granted), allowedOwner(t), now)
+	return verify(result, tokenGrant(t, granted), allowedOwner(t), noProtectedRepositories(t), now)
+}
+
+func mustParseProtectedRepositories(t *testing.T, document string) protected.Repositories {
+	t.Helper()
+	r, err := protected.Parse(document)
+	if err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+	return r
+}
+
+// noProtectedRepositories は、保護対象のない一覧である。保護対象との対応の外の規則を確かめるテストが使う。
+func noProtectedRepositories(t *testing.T) protected.Repositories {
+	t.Helper()
+	return mustParseProtectedRepositories(t, "repositories: []\n")
+}
+
+// protectedRepositoriesOf は、許可 Caller のない保護対象を 1 つ持つ一覧を作る。発行後の照合は許可 Caller を見ないため。
+func protectedRepositoriesOf(t *testing.T, id, name string) protected.Repositories {
+	t.Helper()
+	return mustParseProtectedRepositories(t, "repositories:\n  - id: \""+id+"\"\n    name: "+name+"\n    callers: []\n")
 }

@@ -31,6 +31,8 @@ const (
 
 	// oidcJWTMarker は、発行要求と同じ Payload に入れた GATES 用 OIDC JWT で、監査記録に現れないことを確かめる目印である。
 	oidcJWTMarker = "id-token-marker.payload.signature"
+	// callerRepositoryNameMarker は、Caller のリポジトリ名で、監査記録に現れないことを確かめる目印である（Lambda Design の「Audit Record」）
+	callerRepositoryNameMarker = "caller-repository-name-marker"
 )
 
 func TestRecord_Write_SlogKeys(t *testing.T) {
@@ -217,9 +219,12 @@ func TestRecord_Write_Caller(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			r := audit.NewRecord(requestID)
 			r.SetCaller(verifiedCaller(t, tt.attributes))
-			_, got := write(t, r, audit.Succeeded())
+			line, got := write(t, r, audit.Succeeded())
 			if !reflect.DeepEqual(got["caller"], tt.want) {
 				t.Errorf("caller = %v, want %v", got["caller"], tt.want)
+			}
+			if strings.Contains(line, callerRepositoryNameMarker) {
+				t.Errorf("audit record contains the caller repository name: %s", line)
 			}
 		})
 	}
@@ -357,7 +362,7 @@ func merge(a, b map[string]any) map[string]any {
 
 func verifiedCaller(t *testing.T, attributes caller.WorkflowTriggerAttributes) caller.Caller {
 	t.Helper()
-	c, err := caller.NewCaller(ownerID, repositoryID, runID, runAttempt, attributes)
+	c, err := caller.NewCaller(ownerID, repositoryID, callerRepositoryNameMarker, runID, runAttempt, attributes)
 	if err != nil {
 		t.Fatalf("NewCaller returned error: %v", err)
 	}

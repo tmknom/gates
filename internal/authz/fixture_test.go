@@ -8,6 +8,7 @@ import (
 	"github.com/tmknom/gates/internal/authz"
 	"github.com/tmknom/gates/internal/caller"
 	"github.com/tmknom/gates/internal/permission"
+	"github.com/tmknom/gates/internal/protected"
 	"github.com/tmknom/gates/internal/repository"
 	"github.com/tmknom/gates/internal/request"
 )
@@ -18,6 +19,29 @@ const (
 )
 
 const installationID = 5005
+
+// callerRepositoryID と callerRepositoryName は、mustNewCaller が作る Caller のリポジトリで、protectedRepositoriesDocument の許可 Caller に当たる。
+const (
+	callerRepositoryID   = 3003
+	callerRepositoryName = "deploy-tools"
+)
+
+// protectedRepositoriesDocument は、テストの保護対象の一覧である。
+// 許可 Caller のある保護対象 app と、許可 Caller のない保護対象 vault を持つ。
+// 許可 Caller の権限の上限は、発行上限より高い水準（pull_requests:write）を含み、発行上限が含む組（issues:write）を含まない。
+const protectedRepositoriesDocument = `repositories:
+  - id: "200"
+    name: app
+    callers:
+      - repository_id: "3003"
+        repository_name: deploy-tools
+        permissions:
+          contents: write
+          pull_requests: write
+  - id: "201"
+    name: vault
+    callers: []
+`
 
 var contentsRead = map[string]string{"contents": "read"}
 
@@ -45,11 +69,36 @@ func mustNewIssuablePermissions(t *testing.T, notations ...string) permission.Is
 
 func mustNewCaller(t *testing.T, ownerID int64) caller.Caller {
 	t.Helper()
-	c, err := caller.NewCaller(ownerID, 3003, 4004, 1, caller.WorkflowTriggerAttributes{})
+	c, err := caller.NewCaller(ownerID, callerRepositoryID, callerRepositoryName, 4004, 1, caller.WorkflowTriggerAttributes{})
 	if err != nil {
 		t.Fatalf("NewCaller returned error: %v", err)
 	}
 	return c
+}
+
+// mustNewCallerOf は、許可オーナーのリポジトリから呼び出した Caller を、リポジトリを変えて作る。保護対象の許可 Caller との一致を変えるため。
+func mustNewCallerOf(t *testing.T, repositoryID int64, repositoryName string) caller.Caller {
+	t.Helper()
+	c, err := caller.NewCaller(allowedOwnerID, repositoryID, repositoryName, 4004, 1, caller.WorkflowTriggerAttributes{})
+	if err != nil {
+		t.Fatalf("NewCaller returned error: %v", err)
+	}
+	return c
+}
+
+func mustParseProtectedRepositories(t *testing.T, document string) protected.Repositories {
+	t.Helper()
+	r, err := protected.Parse(document)
+	if err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+	return r
+}
+
+// noProtectedRepositories は、保護対象のない一覧である。保護対象の条件の外の規則を確かめるテストが使う。
+func noProtectedRepositories(t *testing.T) protected.Repositories {
+	t.Helper()
+	return mustParseProtectedRepositories(t, "repositories: []\n")
 }
 
 // mustTokenRequest は、TokenRequest を Validate でしか作れないため、Payload を組み立てて形式検証を通す。

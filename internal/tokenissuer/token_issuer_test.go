@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/tmknom/gates/internal/authz"
 	"github.com/tmknom/gates/internal/github"
+	"github.com/tmknom/gates/internal/protected"
 	"github.com/tmknom/gates/internal/revocation"
 )
 
@@ -323,6 +325,30 @@ func TestTokenIssuer_IssueInstallationAccessToken_NamesGitHubStageInError(t *tes
 	}
 }
 
+// 保護対象との食い違いも、ほかの照合失敗と同じ経路で失効を試みることを確かめる。失効の結果の読み方は、ほかの照合失敗のテストで確かめる
+//
+//trace:checks AC-AUTHZ-012 AC-ISSUANCE-004
+func TestTokenIssuer_IssueInstallationAccessToken_RevokesTokenAfterProtectedRepositoryMismatch(t *testing.T) {
+	stub := newGitHubStub(t, nil)
+	tokenIssuer := NewTokenIssuer(&signerStub{}, stub.client(t), allowedOwner(t), protectedRepositoriesOf(t, strconv.Itoa(repositoryIDB), "old-name"), func() time.Time { return now })
+
+	got, err := tokenIssuer.IssueInstallationAccessToken(t.Context(), (&grantRecorder{t: t}).grant)
+
+	failure, ok := errors.AsType[*VerificationFailure](err)
+	if !ok {
+		t.Fatalf("IssueInstallationAccessToken error = %v, want *VerificationFailure", err)
+	}
+	if failure.RevocationOutcome() != revocation.Succeeded {
+		t.Errorf("RevocationOutcome() = %v, want %v", failure.RevocationOutcome(), revocation.Succeeded)
+	}
+	if !reflect.ValueOf(got).IsZero() {
+		t.Error("IssueInstallationAccessToken returned non-zero ReturnableIssuanceResult with error")
+	}
+	if !strings.Contains(err.Error(), "repositories[1]: protected repositories[") {
+		t.Errorf("error message %q does not contain the unmet condition", err)
+	}
+}
+
 func TestNewTokenIssuer_ZeroAllowedOwnerPanics(t *testing.T) {
 	defer func() {
 		if recover() == nil {
@@ -330,7 +356,17 @@ func TestNewTokenIssuer_ZeroAllowedOwnerPanics(t *testing.T) {
 		}
 	}()
 
-	_ = NewTokenIssuer(&signerStub{}, github.NewClient(), authz.AllowedOwner{}, func() time.Time { return now })
+	_ = NewTokenIssuer(&signerStub{}, github.NewClient(), authz.AllowedOwner{}, noProtectedRepositories(t), func() time.Time { return now })
+}
+
+func TestNewTokenIssuer_ZeroProtectedRepositoriesPanics(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("NewTokenIssuer did not panic for the zero protected repositories")
+		}
+	}()
+
+	_ = NewTokenIssuer(&signerStub{}, github.NewClient(), allowedOwner(t), protected.Repositories{}, func() time.Time { return now })
 }
 
 func (s *signerStub) Sign(context.Context) (github.AppJWT, error) {
@@ -427,7 +463,7 @@ func respond(status int, gitHubRequestID, body string) http.HandlerFunc {
 
 func newTestTokenIssuer(t *testing.T, signer *signerStub, stub *gitHubStub) *TokenIssuer {
 	t.Helper()
-	return NewTokenIssuer(signer, stub.client(t), allowedOwner(t), func() time.Time { return now })
+	return NewTokenIssuer(signer, stub.client(t), allowedOwner(t), noProtectedRepositories(t), func() time.Time { return now })
 }
 
 // assertHidesValues は、エラー文言に GitHub App JWT、トークン、応答本文が入らないことを確かめる。

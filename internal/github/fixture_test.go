@@ -9,6 +9,7 @@ import (
 	"github.com/tmknom/gates/internal/caller"
 	"github.com/tmknom/gates/internal/github"
 	"github.com/tmknom/gates/internal/permission"
+	"github.com/tmknom/gates/internal/protected"
 	"github.com/tmknom/gates/internal/request"
 )
 
@@ -102,11 +103,11 @@ func resolve(t *testing.T, client *github.Client) (authz.Installation, error) {
 	return client.ResolveInstallation(t.Context(), github.NewAppJWT(appJWTValue), allowedOwner(t, authz.OwnerTypeUser))
 }
 
-// tokenGrant は、TokenGrant を Grant でしか作れないため、Caller、形式検証を通した発行要求、許可オーナー、発行上限、Installation をそろえて Grant を通す。
+// tokenGrant は、TokenGrant を Grant でしか作れないため、Caller、形式検証を通した発行要求、許可オーナー、発行上限、保護対象の一覧、Installation をそろえて Grant を通す。
 // 発行上限は、Grant が認可を判定し直しても通るよう、要求の Permissions と同じ組にする。
 func tokenGrant(t *testing.T, permissions map[string]string) authz.TokenGrant {
 	t.Helper()
-	c, err := caller.NewCaller(recordedAccountID, 1234567890, 4004, 1, caller.WorkflowTriggerAttributes{})
+	c, err := caller.NewCaller(recordedAccountID, 1234567890, "example-repo", 4004, 1, caller.WorkflowTriggerAttributes{})
 	if err != nil {
 		t.Fatalf("NewCaller returned error: %v", err)
 	}
@@ -128,7 +129,12 @@ func tokenGrant(t *testing.T, permissions map[string]string) authz.TokenGrant {
 	if err != nil {
 		t.Fatalf("NewIssuablePermissions returned error: %v", err)
 	}
-	grant, err := authz.Grant(c, req, allowedOwner(t, authz.OwnerTypeUser), issuablePermissions, newInstallation(t, false))
+	// 保護対象のない一覧にする。保護対象の条件は Authorization と Token Issuer が確かめるため
+	noProtectedRepositories, err := protected.Parse("repositories: []\n")
+	if err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+	grant, err := authz.Grant(c, req, allowedOwner(t, authz.OwnerTypeUser), issuablePermissions, noProtectedRepositories, newInstallation(t, false))
 	if err != nil {
 		t.Fatalf("Grant returned error: %v", err)
 	}

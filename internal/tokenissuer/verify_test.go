@@ -186,6 +186,52 @@ func TestVerify_Rejects(t *testing.T) {
 	}
 }
 
+//trace:checks AC-AUTHZ-012
+func TestVerify_AcceptsProtectedRepositoryMatchingBothNameAndID(t *testing.T) {
+	protectedRepositories := protectedRepositoriesOf(t, strconv.Itoa(repositoryIDB), "repo-b")
+	if _, err := verify(issue(t, marshal(t, recordedIssuance())), tokenGrant(t, contentsRead), allowedOwner(t), protectedRepositories, now); err != nil {
+		t.Errorf("Verify returned error: %v", err)
+	}
+}
+
+// 名前と ID の対応の区別と文言は protected が検証する。ここでは、各実効対象の ID と完全名を渡すことと、同じ実効対象の既存の照合の後に判定することを確かめる
+//
+//trace:checks AC-AUTHZ-012 AC-ISSUANCE-004
+func TestVerify_RejectsProtectedRepositoryMismatch(t *testing.T) {
+	// recreated は、repo-b を削除して作り直す前の Repository ID で保護した一覧である
+	const recreatedID = 9990001
+	recreated := protectedRepositoriesOf(t, strconv.Itoa(recreatedID), "repo-b")
+	tests := []struct {
+		name      string
+		body      func(t *testing.T) string
+		condition string
+	}{
+		{
+			name:      "effective repository mismatching a protected repository returns ErrVerificationFailure",
+			body:      modified(func(map[string]any) {}),
+			condition: "repositories[1]: protected repositories[",
+		},
+		{
+			name: "effective repository failing the owner id and the protected repository returns the owner id condition",
+			body: modified(func(r map[string]any) {
+				r["repositories"] = []any{effectiveRepository(repositoryIDA, allowedOwnerID, allowedOwnerName+"/example-repo"), effectiveRepository(repositoryIDB, otherOwnerID, allowedOwnerName+"/repo-b")}
+			}),
+			condition: "repositories[1] owner.id does not match allowed owner id",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := verify(issue(t, tt.body(t)), tokenGrant(t, contentsRead), allowedOwner(t), recreated, now)
+			if !errors.Is(err, ErrVerificationFailure) {
+				t.Fatalf("Verify error = %v, want %v", err, ErrVerificationFailure)
+			}
+			if !strings.Contains(err.Error(), tt.condition) {
+				t.Errorf("error message %q does not contain condition %q", err.Error(), tt.condition)
+			}
+		})
+	}
+}
+
 func mustNewPermissions(t *testing.T, levels map[string]string) permission.Permissions {
 	t.Helper()
 	p, err := permission.NewPermissions(levels)

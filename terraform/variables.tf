@@ -161,3 +161,96 @@ variable "issuable_permissions" {
     error_message = "issuable_permissions must not have duplicate elements."
   }
 }
+
+# sensitive にしないのは、資格情報ではなく、Plan の差分で一覧の変更をレビューするため
+# 検証は locals から復号した値を読むと循環するため、各検証で復号する。前提の形が崩れた値は、式の誤りにせず try で拒否に倒す
+variable "protected_repositories" {
+  description = "保護対象の一覧。YAML の文書 1 件をヒアドキュメントで書き、保護対象を置かないデプロイは repositories: [] を書く。値はコメントを含めてそのまま Lambda の環境変数に入る。重複したキー、アンカー、明示的なタグ、%TAG、BOM、文字列以外に解決される引用符のない名前や権限、許可権限に含まれない組などは、Plan を通っても Lambda の初期化が拒否する。AWS Infrastructure Design を参照する"
+  type        = string
+
+  validation {
+    condition     = try(keys(yamldecode(var.protected_repositories)) == ["repositories"] && startswith(jsonencode(yamldecode(var.protected_repositories).repositories), "["), false)
+    error_message = "protected_repositories must be one YAML document that is a mapping with only the key repositories, whose value is a sequence."
+  }
+
+  validation {
+    condition = try(alltrue([
+      for repository in yamldecode(var.protected_repositories).repositories :
+      keys(repository) == ["callers", "id", "name"] && startswith(jsonencode(repository.callers), "[")
+    ]), false)
+    error_message = "every protected repository in protected_repositories must have only the keys id, name and callers, and callers must be a sequence."
+  }
+
+  validation {
+    condition = try(alltrue(flatten([
+      for repository in yamldecode(var.protected_repositories).repositories : [
+        for caller in repository.callers :
+        keys(caller) == ["permissions", "repository_id", "repository_name"] && startswith(jsonencode(caller.permissions), "{") && length(keys(caller.permissions)) >= 1
+      ]
+    ])), false)
+    error_message = "every caller in protected_repositories must have only the keys repository_id, repository_name and permissions, and permissions must be a mapping with at least one pair."
+  }
+
+  # Lambda が int64 で読むため、必ず収まる 18 桁までに限る
+  validation {
+    condition = try(alltrue(flatten([
+      for repository in yamldecode(var.protected_repositories).repositories : [
+        for id in concat([repository.id], [for caller in repository.callers : caller.repository_id]) :
+        can(regex("^[1-9][0-9]{0,17}$", id))
+      ]
+    ])), false)
+    error_message = "every id and repository_id in protected_repositories must be a positive integer of up to 18 digits without leading zeros."
+  }
+
+  # yamldecode は引用符のない ID を数値に復号し、jsonencode は数値を引用符なしで符号化する
+  validation {
+    condition = try(alltrue(flatten([
+      for repository in yamldecode(var.protected_repositories).repositories : [
+        for id in concat([repository.id], [for caller in repository.callers : caller.repository_id]) :
+        startswith(jsonencode(id), "\"")
+      ]
+    ])), false)
+    error_message = "every id and repository_id in protected_repositories must be quoted."
+  }
+
+  validation {
+    condition = try(alltrue(flatten([
+      for repository in yamldecode(var.protected_repositories).repositories : [
+        for name in concat([repository.name], [for caller in repository.callers : caller.repository_name]) :
+        can(regex("^[A-Za-z0-9._-]{1,100}$", name))
+      ]
+    ])), false)
+    error_message = "every name and repository_name in protected_repositories must be 1 to 100 characters of ASCII letters, digits, hyphens, underscores and periods, without the owner name."
+  }
+
+  validation {
+    condition = try(alltrue(flatten([
+      for repository in yamldecode(var.protected_repositories).repositories : [
+        for caller in repository.callers : [
+          for name, level in caller.permissions :
+          can(regex("^[a-z_]{1,64}$", name)) && can(regex("^[a-z_]{1,64}$", level))
+        ]
+      ]
+    ])), false)
+    error_message = "every permission name and level in protected_repositories must be 1 to 64 characters of ASCII lowercase letters and underscores."
+  }
+
+  # 名前は、Lambda の重複の判定（RULE-005）と同じく大文字小文字を区別せずに比べる
+  validation {
+    condition = try(
+      length(distinct([for repository in yamldecode(var.protected_repositories).repositories : repository.id])) == length(yamldecode(var.protected_repositories).repositories)
+      && length(distinct([for repository in yamldecode(var.protected_repositories).repositories : lower(repository.name)])) == length(yamldecode(var.protected_repositories).repositories),
+      false
+    )
+    error_message = "protected repositories in protected_repositories must not share an id or a name, compared case-insensitively."
+  }
+
+  validation {
+    condition = try(alltrue([
+      for repository in yamldecode(var.protected_repositories).repositories :
+      length(distinct([for caller in repository.callers : caller.repository_id])) == length(repository.callers)
+      && length(distinct([for caller in repository.callers : lower(caller.repository_name)])) == length(repository.callers)
+    ]), false)
+    error_message = "callers of a protected repository in protected_repositories must not share a repository_id or a repository_name, compared case-insensitively."
+  }
+}

@@ -1372,7 +1372,7 @@ func assertAuthenticated(t *testing.T, verifier *Verifier, token string) {
 	if err != nil {
 		t.Fatalf("Authenticate returned error: %v", err)
 	}
-	if want := newCaller(t, 11, 22, 33, 2, validAttributes()); got != want {
+	if want := newCaller(t, 11, 22, "app", 33, 2, validAttributes()); got != want {
 		t.Errorf("Authenticate = %+v, want %+v", got, want)
 	}
 }

@@ -33,15 +33,16 @@ override_resource {
 }
 
 variables {
-  allowed_owner_id     = "12345678"
-  allowed_owner_name   = "Example-Owner"
-  allowed_owner_type   = "Organization"
-  github_app_client_id = "Iv23example"
-  gates_audience       = "gates-test"
-  kms_keys             = { key-1 = "RSA_2048" }
-  active_kms_key       = "key-1"
-  lambda_package_path  = "tests/testdata/package.txt"
-  issuable_permissions = ["contents:read", "contents:write", "pull_requests:write"]
+  allowed_owner_id       = "12345678"
+  allowed_owner_name     = "Example-Owner"
+  allowed_owner_type     = "Organization"
+  github_app_client_id   = "Iv23example"
+  gates_audience         = "gates-test"
+  kms_keys               = { key-1 = "RSA_2048" }
+  active_kms_key         = "key-1"
+  lambda_package_path    = "tests/testdata/package.txt"
+  issuable_permissions   = ["contents:read", "contents:write", "pull_requests:write"]
+  protected_repositories = "repositories: []\n"
 }
 
 run "provider_without_sts_client_id_is_rejected" {

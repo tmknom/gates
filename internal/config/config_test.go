@@ -8,7 +8,9 @@ import (
 
 	"github.com/tmknom/gates/internal/authz"
 	"github.com/tmknom/gates/internal/config"
+	"github.com/tmknom/gates/internal/githubid"
 	"github.com/tmknom/gates/internal/permission"
+	"github.com/tmknom/gates/internal/repository"
 )
 
 func TestLoad(t *testing.T) {
@@ -91,15 +93,76 @@ func TestLoad_IssuablePermissions(t *testing.T) {
 	}
 }
 
+// 一覧の規則は protected が検証する。ここでは、環境変数の一覧が判定に使われ、保護対象のない一覧がゼロ値と区別されることを確かめる
+func TestLoad_ProtectedRepositories(t *testing.T) {
+	const document = `repositories:
+  - id: "200"
+    name: platform-infra
+    callers: []
+`
+	got, err := config.Load(lookupEnv(withEnv(map[string]string{"GATES_PROTECTED_REPOSITORIES": document})))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	callerRepositoryID, err := githubid.NewRepositoryID(100)
+	if err != nil {
+		t.Fatalf("NewRepositoryID returned error: %v", err)
+	}
+	permissions, err := permission.NewPermissions(map[string]string{"contents": "read"})
+	if err != nil {
+		t.Fatalf("NewPermissions returned error: %v", err)
+	}
+	tests := []struct {
+		name    string
+		target  string
+		allowed bool
+	}{
+		{name: "protected repository in the variable is denied", target: "Example-Org/platform-infra", allowed: false},
+		{name: "repository not in the variable is allowed", target: "Example-Org/app", allowed: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			target, err := repository.ParseFullName(tt.target)
+			if err != nil {
+				t.Fatalf("ParseFullName returned error: %v", err)
+			}
+			err = got.ProtectedRepositories().Authorize(callerRepositoryID, "deploy-tools", []repository.FullName{target}, permissions)
+			if (err == nil) != tt.allowed {
+				t.Errorf("ProtectedRepositories().Authorize() error = %v, want allowed %v", err, tt.allowed)
+			}
+		})
+	}
+}
+
+func TestLoad_NoProtectedRepositoriesIsNotZero(t *testing.T) {
+	got, err := config.Load(lookupEnv(validEnv()))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if got.ProtectedRepositories().IsZero() {
+		t.Error("ProtectedRepositories().IsZero() = true, want false for repositories: []")
+	}
+}
+
+// 欠落か空の環境変数は、その誤りだけを報告し、値の条件の誤りを重ねない。直す箇所を読み違えないため
 func TestLoad_MissingOrEmpty(t *testing.T) {
 	for key := range validEnv() {
 		t.Run("missing "+key+" returns ErrInvalidConfig", func(t *testing.T) {
 			env := validEnv()
 			delete(env, key)
 			assertInvalid(t, env, key+": is not set")
+			_, err := config.Load(lookupEnv(env))
+			if n := strings.Count(err.Error(), key+": "); n != 1 {
+				t.Errorf("Load() error = %q reports %s %d times, want once", err, key, n)
+			}
 		})
 		t.Run("empty "+key+" returns ErrInvalidConfig", func(t *testing.T) {
-			assertInvalid(t, withEnv(map[string]string{key: ""}), key+": must not be empty")
+			env := withEnv(map[string]string{key: ""})
+			assertInvalid(t, env, key+": must not be empty")
+			_, err := config.Load(lookupEnv(env))
+			if n := strings.Count(err.Error(), key+": "); n != 1 {
+				t.Errorf("Load() error = %q reports %s %d times, want once", err, key, n)
+			}
 		})
 	}
 }
@@ -148,6 +211,14 @@ func TestLoad_InvalidIssuablePermissions(t *testing.T) {
 	}
 }
 
+// 一覧の規則は protected が検証する。ここでは、一覧の誤りが環境変数の名前を付けた初期化の失敗になることを確かめる
+//
+//trace:checks AC-AUTHZ-013
+func TestLoad_InvalidProtectedRepositories(t *testing.T) {
+	env := withEnv(map[string]string{"GATES_PROTECTED_REPOSITORIES": "repositories:\n  - id: 200\n    name: app\n    callers: []\n"})
+	assertInvalid(t, env, "GATES_PROTECTED_REPOSITORIES: invalid protected repositories: ")
+}
+
 // 種別の規則そのものは authz が検証する。ここでは誤りが種別の環境変数の名前で報告されることだけを確かめる
 func TestLoad_InvalidOwnerType(t *testing.T) {
 	env := withEnv(map[string]string{"GATES_ALLOWED_OWNER_TYPE": "organization"})
@@ -156,10 +227,11 @@ func TestLoad_InvalidOwnerType(t *testing.T) {
 
 func TestLoad_AggregatesErrors(t *testing.T) {
 	env := withEnv(map[string]string{
-		"GATES_ALLOWED_OWNER_ID":     "0",
-		"GATES_ALLOWED_OWNER_TYPE":   "org",
-		"GATES_KMS_KEY_ARN":          "",
-		"GATES_ISSUABLE_PERMISSIONS": "members:read",
+		"GATES_ALLOWED_OWNER_ID":       "0",
+		"GATES_ALLOWED_OWNER_TYPE":     "org",
+		"GATES_KMS_KEY_ARN":            "",
+		"GATES_ISSUABLE_PERMISSIONS":   "members:read",
+		"GATES_PROTECTED_REPOSITORIES": "repositories: {}\n",
 	})
 	delete(env, "GATES_GITHUB_APP_CLIENT_ID")
 	assertInvalid(t, env,
@@ -168,6 +240,7 @@ func TestLoad_AggregatesErrors(t *testing.T) {
 		"GATES_GITHUB_APP_CLIENT_ID: is not set",
 		"GATES_KMS_KEY_ARN: must not be empty",
 		"GATES_ISSUABLE_PERMISSIONS: ",
+		"GATES_PROTECTED_REPOSITORIES: ",
 	)
 }
 
@@ -181,6 +254,7 @@ func TestLoad_ErrorsDoNotContainValues(t *testing.T) {
 		{name: "owner name", overrides: map[string]string{"GATES_ALLOWED_OWNER_NAME": "Secret_Marker"}},
 		{name: "owner type", overrides: map[string]string{"GATES_ALLOWED_OWNER_TYPE": "SecretMarker"}},
 		{name: "issuable permissions with a malformed entry", overrides: map[string]string{"GATES_ISSUABLE_PERMISSIONS": "contents:read,SecretMarker"}},
+		{name: "protected repositories with an invalid name", overrides: map[string]string{"GATES_PROTECTED_REPOSITORIES": "repositories:\n  - id: \"200\"\n    name: Secret/Marker\n    callers: []\n"}},
 	}
 	for _, tt := range tests {
 		t.Run("invalid "+tt.name+" is not written in the error", func(t *testing.T) {
@@ -200,13 +274,14 @@ func TestLoad_ErrorsDoNotContainValues(t *testing.T) {
 // validEnv は、すべての環境変数が条件を満たす組である。
 func validEnv() map[string]string {
 	return map[string]string{
-		"GATES_ALLOWED_OWNER_ID":     "12345",
-		"GATES_ALLOWED_OWNER_NAME":   "Example-Org",
-		"GATES_ALLOWED_OWNER_TYPE":   "Organization",
-		"GATES_GITHUB_APP_CLIENT_ID": "Iv23liExample",
-		"GATES_AUDIENCE":             "https://gates.example.com",
-		"GATES_KMS_KEY_ARN":          "arn:aws:kms:ap-northeast-1:123456789012:key/11111111-2222-3333-4444-555555555555",
-		"GATES_ISSUABLE_PERMISSIONS": "contents:read,pull_requests:write",
+		"GATES_ALLOWED_OWNER_ID":       "12345",
+		"GATES_ALLOWED_OWNER_NAME":     "Example-Org",
+		"GATES_ALLOWED_OWNER_TYPE":     "Organization",
+		"GATES_GITHUB_APP_CLIENT_ID":   "Iv23liExample",
+		"GATES_AUDIENCE":               "https://gates.example.com",
+		"GATES_KMS_KEY_ARN":            "arn:aws:kms:ap-northeast-1:123456789012:key/11111111-2222-3333-4444-555555555555",
+		"GATES_ISSUABLE_PERMISSIONS":   "contents:read,pull_requests:write",
+		"GATES_PROTECTED_REPOSITORIES": "repositories: []\n",
 	}
 }
 
