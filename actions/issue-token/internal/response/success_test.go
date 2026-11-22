@@ -128,3 +128,13 @@ func TestSuccess_ItemsRejectsAnUnusableItem(t *testing.T) {
 		})
 	}
 }
+
+// success は、判定を通る応答を作る。Items のテストの準備に使う。
+func success(t *testing.T, name string) response.Success {
+	t.Helper()
+	got, err := response.Judge(ok(fixture(t, name)), nil)
+	if err != nil {
+		t.Fatalf("Judge(%s) error = %v, want nil", name, err)
+	}
+	return got
+}

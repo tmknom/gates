@@ -2,7 +2,7 @@
 
 ## 1. Responsibility
 
-Docker Action は、GitHub Actions の利用者にトークン取得手段を提供します。AWS 用 OIDC JWT による AWS STS からの一時認証情報の取得、GATES 用 OIDC JWT の取得、Lambda の同期 Invoke、応答の処理と同一ジョブ内の後続ステップへのトークン出力、受け取ったトークンの失効を担当します。発行の可否の判定は Lambda 側が行います。
+Docker Action は、GitHub Actions の利用者にトークン取得手段を提供します。AWS 用 OIDC JWT による AWS STS からの一時認証情報の取得、GATES 用 OIDC JWT の取得、Lambda の同期 Invoke、応答の処理と同一ジョブ内の後続ステップへのトークン出力、取り出したトークンの失効を担当します。発行の可否の判定は Lambda 側が行います。
 
 これらの処理は、Docker Action のイメージに入れた Go のプログラムが 1 つのプロセスで行います。このプロセスは、同じプログラムの親のプロセスが起動して見張る子のプロセスです。
 GATES 用 OIDC JWT、AWS 用 OIDC JWT、AWS 一時認証情報、Payload、応答は、プロセスのメモリの中だけで扱い、ファイルに書きません。
@@ -79,7 +79,7 @@ Secrets と Variables を置く単位は、許可オーナーの種別で決ま�
 `token` 以外の Output の値と `request_id` が `##[` を含む場合も、不正な応答として失敗します。
 これらの値は成功のログの行にも出し、Runner は `::` で始まるワークフローコマンドを行頭でだけ読む一方、`##[` で始まる旧形式のワークフローコマンドは行の途中からも読むためです（[GitHub — actions/runner ActionCommand.cs](https://github.com/actions/runner/blob/v2.338.2/src/Runner.Common/ActionCommand.cs) の `TryParseV2` と `TryParse`）。
 
-トークンは、ジョブの終了時の失効に渡すため、`GITHUB_STATE` にも `token=<トークン>` の 1 行で書きます。
+トークンは、ジョブの終了時の失効へ引き継ぐため、`GITHUB_STATE` にも `token=<トークン>` の 1 行で書きます。
 `GITHUB_STATE` は `GITHUB_OUTPUT` と同じ Runner のファイルコマンドのディレクトリにあり、トークンを書く場所は増えても、読める主体は増えません。
 
 Output と `GITHUB_STATE` は、応答をすべて判定して成功が決まった後にだけ書きます。
@@ -139,7 +139,8 @@ Docker Action のメインの処理は、次の段階を 1 つの子のプロセ
 4. AWS STS の `AssumeRoleWithWebIdentity` で、入力の `role-arn` の IAM Role を引き受ける。AWS 用 OIDC JWT はこの段階の後に使わない
 5. 入力の `audience` を Audience とする GATES 用 OIDC JWT を取得する
 6. [Lambda Request](lambda.md#21-invoke-payload) の `version`、`id_token`、`repositories`、`permissions` を持つ Payload を組み立て、Invoke の時刻をログに出してから、一時認証情報で Lambda を `RequestResponse` で Invoke する。`InvocationType` は省略せずに指定する。AWS SDK for Go v2 は省略すると `X-Amz-Invocation-Type` を送らず、呼び方を Lambda の既定に任せることになるためである。`LogType` を指定しない
-7. 結果を判定する。SDK のエラー、`StatusCode`、`FunctionError`、応答の `ok` の順に見る。成功なら、トークンを取り出し、残りの項目を判定する。トークンとして取り出すのは、空でなく ASCII の制御文字を含まない文字列だけである。改行を含む値は 1 行の形式で書く `GITHUB_STATE` と `GITHUB_OUTPUT` に別の行を書き足せ、タブ以外の制御文字を含む値は Go の `net/http` が失効の要求のヘッダーに載せない。トークンの文字種に制御文字はないため、タブを含む ASCII の制御文字をまとめて、取り出せない応答として失敗する。すべて満たせば、トークンを `GITHUB_STATE` に、4 つの Output を `GITHUB_OUTPUT` に書き（[§2.1](#21-inputs-and-outputs)）、`request_id`、`expires_at`、対象、実効権限をログに出す。トークンを取り出した後に失敗すれば、失敗時の失効を試みてから終える
+7. 結果を判定し、トークンを取り出す。SDK のエラー、`StatusCode`、`FunctionError`、応答の `ok` の順に見る。成功なら、トークンを取り出す。トークンとして取り出すのは、空でなく ASCII の制御文字を含まない文字列だけである。改行を含む値は 1 行の形式で書く `GITHUB_STATE` と `GITHUB_OUTPUT` に別の行を書き足せ、タブ以外の制御文字を含む値は Go の `net/http` が失効の要求のヘッダーに載せない。トークンの文字種に制御文字はないため、タブを含む ASCII の制御文字をまとめて、取り出せない応答として失敗する
+8. トークンをジョブの終了時の失効へ引き継ぎ、後続ステップへ渡す。トークンをマスクし、キャンセルの要求を確かめ（[§3.6](#36-cancellation)）、成功応答の残りの項目を判定する。すべて満たせば、トークンを `GITHUB_STATE` に、4 つの Output を `GITHUB_OUTPUT` に書き（[§2.1](#21-inputs-and-outputs)）、`request_id`、`expires_at`、対象、実効権限をログに出す。この段階で失敗すれば、失敗時の失効を試みてから終える
 
 入力の検証を AWS STS より前に置くのは、通信を要らない失敗を先に返し、検証に失敗する入力で IAM Role を引き受けないためです。
 前提を最初に確かめるのは、OIDC JWT の取得と AWS STS が `id-token: write` を要し、欠けたまま進むと原因の分かりにくい失敗になるためです。
@@ -167,7 +168,7 @@ JWS Compact Serialization の構成要素は改行を含められないため（
 ### 3.1 Packages
 
 Docker Action は、`actions/issue-token/` を独立した Go モジュールとし、`main.go` をその直下に、ほかの package を `internal/` に置きます。
-`action.yml`、`Dockerfile`、`.dockerignore`、利用者向けの README も同じディレクトリに置きます。
+`action.yml`、`Dockerfile`、`.dockerignore` も同じディレクトリに置き、Action の実行に要らない利用者向けの README と開発用の Makefile は親の `actions/` に置きます。
 Runner は `Dockerfile` のあるディレクトリをビルドコンテキストにし、その外のファイルを `Dockerfile` から参照できないためです（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#runner-source)）。
 ルートの Go モジュールと分けるのも同じ理由で、イメージのビルドに要る `go.mod` と `go.sum` をこのディレクトリに置く必要があるためです。
 
@@ -179,10 +180,10 @@ Runner は `Dockerfile` のあるディレクトリをビルドコンテキス�
 | `main.go` | 起動したパスによる親と子の選択。メインの親ならシグナルの受け口を作り、post-entrypoint の親ならシグナルを無視して、子の起動と見張りを呼び、子なら環境変数を読み取り、シグナルの受け方を設定して入口関数を呼ぶ。終了コード。panic を回復し、その値を出さずに失敗として終える | なし |
 | `internal/supervise` | 親の処理。同じ実行ファイルを子として起動し、メインでは受けたシグナルを子へ送り、子の終了の仕方から親の終了コードと注釈を決める | なし |
 | `internal/issue` | メインの入口関数。前提の確認から Output の書き込みまでの段階を順に呼び、トークンを取り出した後の失敗では失効を呼ぶ。失敗の注釈を書く。キャンセルの要求を受けた時点に応じて終える | なし。部品に任せる |
-| `internal/revoke` | post-entrypoint の入口関数。`GITHUB_STATE` から渡ったトークンがあれば失効を呼ぶ | なし。部品に任せる |
+| `internal/revoke` | post-entrypoint の入口関数。`GITHUB_STATE` から引き継いだトークンがあれば失効を呼ぶ | なし。部品に任せる |
 | `internal/request` | 入力のリストの検証と Payload の組み立て | なし |
-| `internal/response` | Invoke の結果を SDK のエラー、`StatusCode`、`FunctionError`、`ok` の順に判定し、成功なら 4 つの Output の値とログに出す項目を、失敗なら段階とログに出す文言を返す。トークンを取り出す判定と残りの項目の判定を分け、その間で入口関数がマスクとキャンセルの確認を行う | なし |
-| `internal/revocation` | 失効の要求と、その結果のログへの出し方。失敗時の失効とジョブの終了時の失効で共有する | なし。部品に任せる |
+| `internal/response` | Invoke の結果を SDK のエラー、`StatusCode`、`FunctionError`、`ok` の順に判定し、成功ならトークンと残りの項目（3 つの Output の値と `request_id`）を、失敗なら段階を示す文言の error を返す。トークンを取り出す判定（段階 7）と残りの項目の判定（段階 8）を分け、その間で入口関数がマスクとキャンセルの確認を行う | なし |
+| `internal/revocation` | 失効の要求と、その結果のログへの出し方と、トークンを引き継ぐ `GITHUB_STATE` の名前。失敗時の失効とジョブの終了時の失効で共有する | なし。部品に任せる |
 | `internal/communication` | 通信の失敗の error。タイムアウトとそれ以外の判定を、通信する package で共有する | なし |
 | `internal/workflow` | ワークフローコマンド（`::add-mask::`、`::error::`、`::warning::`）の符号化と標準出力への書き込み、ファイルコマンド（`GITHUB_OUTPUT` と `GITHUB_STATE` への `name=value` の書き込み）と、改行を含む値の拒否 | なし |
 | `internal/credential` | 資格情報の型。`fmt` と JSON で値を出さず、値を取り出す口を使う側に限る | なし |
@@ -330,12 +331,12 @@ post-entrypoint でもトークンを読んだ直後にもう一度マスクす�
 
 ### 3.5 Revocation
 
-Docker Action は、受け取ったトークンの失効を 2 つの時点に分けて試みます（[Domain Model](domain.md#contexts)）。
+Docker Action は、取り出したトークンの失効を 2 つの時点に分けて試みます（[Domain Model](domain.md#contexts)）。
 
-- **ジョブの終了時の失効**：`GITHUB_STATE` に書いたトークンを、ジョブの終了時に post-entrypoint で失効させる。`GITHUB_STATE` を `GITHUB_OUTPUT` より先に書くため、後続ステップへ渡したトークンはすべて含む
-- **失敗時の失効**：メインの処理がトークンを取り出した後に、後続ステップへ渡す前に失敗するかキャンセルの要求を受けた場合に、そのトークンをメインの処理がその場で失効させる
+- **ジョブの終了時の失効**：`GITHUB_STATE` に書いて引き継いだトークンを、ジョブの終了時に post-entrypoint で失効させる。`GITHUB_STATE` を `GITHUB_OUTPUT` より先に書くため、後続ステップへ渡したトークンはすべて含む
+- **失敗時の失効**：メインの処理がトークンを取り出した後に失敗で終える場合（キャンセルの要求で終える場合を含む）に、そのトークンをメインの処理がその場で失効させる
 
-失敗時の失効をジョブの終了時に任せないのは、`GITHUB_STATE` に書く前の失敗では post-entrypoint にトークンが渡らず、誰も持たないトークンが有効期限まで GitHub 側に残るためです。
+失敗時の失効をジョブの終了時に任せないのは、`GITHUB_STATE` に書く前の失敗では post-entrypoint にトークンを引き継げず、誰も持たないトークンが有効期限まで GitHub 側に残るためです。
 失敗時の失効は、トークンを取り出した後のどの失敗でも試みます。成功応答の残りの項目が不正な場合、`GITHUB_STATE` か `GITHUB_OUTPUT` への書き込みに失敗した場合、`GITHUB_STATE` に書く前にキャンセルの要求を受けた場合がこれに当たり、トークンのマスクや成功のログを標準出力に書けなかった場合と、想定外の失敗（panic）も含みます。
 失敗で終わるステップのトークンを残さないためです。
 失効を試みた後も、メインの処理は終了コード 1 で終えます。
@@ -390,7 +391,7 @@ Lambda がトークンを発行した後、子が `GITHUB_STATE` に書く前に
 入口関数はキャンセルの要求を ctx のキャンセルとして受け、Invoke と失敗時の失効には、キャンセルを引き継がない ctx を渡します。
 
 Invoke の結果を待つ間に SIGINT から 10 秒を過ぎると、Runner は `docker run` のプロセスを強制終了します。
-その後もコンテナは動き続けるため、子はトークンを受け取れば失敗時の失効を試みます。
+その後もコンテナは動き続けるため、子はトークンを取り出せば失敗時の失効を試みます。
 ただしこの場合、失効の結果はワークフローのログに残りません（[GitHub Docker Action Failure and Cancellation](../research/github/docker-action-cancellation.md#killing-the-docker-run-process)）。
 Runner はコンテナの出力を `docker run` のプロセスの標準出力から読み、そのプロセスがもうないためです（推論）。
 

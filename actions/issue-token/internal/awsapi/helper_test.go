@@ -18,6 +18,16 @@ const (
 	testSessionToken    = "session+token/EXAMPLE=="
 )
 
+const (
+	testRoleARN = "arn:aws:iam::123456789012:role/gates-role"
+	testJWT     = "eyJhbGciOi.payload.signature"
+)
+
+const (
+	testFunctionName = "gates-function"
+	testPayload      = `{"version":1}`
+)
+
 // 応答の Message に入れる目印。エラー文言に現れてはならない。
 const messageMarker = "SECRET-MESSAGE-MARKER"
 
@@ -69,6 +79,12 @@ func received(t *testing.T, got <-chan capturedRequest) capturedRequest {
 	}
 }
 
+func writeXML(w http.ResponseWriter, status int, body string) {
+	w.Header().Set("Content-Type", "text/xml")
+	w.WriteHeader(status)
+	_, _ = w.Write([]byte(body))
+}
+
 func testCredentials() credential.AWSCredentials {
 	return credential.NewAWSCredentials(testAccessKeyID, testSecretAccessKey, testSessionToken)
 }
@@ -87,14 +103,6 @@ func newLambdaClient(t *testing.T, handler http.HandlerFunc, creds credential.AW
 	server := httptest.NewTLSServer(handler)
 	t.Cleanup(server.Close)
 	return awsapi.NewLambdaClient(testRegion, creds, awsapi.WithBaseEndpoint(server.URL), awsapi.WithTransport(server.Client().Transport))
-}
-
-// closedServerOptions は、すでに閉じたサーバーに向ける Option を返す。接続が拒否される。
-func closedServerOptions() []awsapi.Option {
-	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-	url, transport := server.URL, server.Client().Transport
-	server.Close()
-	return []awsapi.Option{awsapi.WithBaseEndpoint(url), awsapi.WithTransport(transport)}
 }
 
 // blockUntilCanceled は、要求の ctx が終わるまで応答を返さない。サーバーの Close を詰まらせないため。

@@ -1,3 +1,5 @@
+// Package request は、repositories と permissions の入力のリストの構造を検証して発行要求を作り、Invoke Payload を組み立てる。
+// 文字種、件数の上限、許可条件は Lambda が判定し、ここでは判定しない（GitHub Actions Design の List Syntax）。
 package request
 
 import (

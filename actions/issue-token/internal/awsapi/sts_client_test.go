@@ -15,17 +15,6 @@ import (
 	"github.com/tmknom/gates/actions/issue-token/internal/credential"
 )
 
-const (
-	testRoleARN = "arn:aws:iam::123456789012:role/gates-role"
-	testJWT     = "eyJhbGciOi.payload.signature"
-)
-
-func writeXML(w http.ResponseWriter, status int, body string) {
-	w.Header().Set("Content-Type", "text/xml")
-	w.WriteHeader(status)
-	_, _ = w.Write([]byte(body))
-}
-
 func TestSTSClient_AssumeRoleWithWebIdentity_SendsUnsignedRequestAndReturnsCredentials(t *testing.T) {
 	t.Parallel()
 
