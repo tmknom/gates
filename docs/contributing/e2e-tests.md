@@ -15,7 +15,7 @@ E2E テストのワークフローは本リポジトリの `.github/workflows/` 
 | [_e2e-failure.yml](../../.github/workflows/_e2e-failure.yml) | 成功する設定から 1 つの条件だけを変えた各事例で、Action が段階を示す注釈を書いて失敗し、Output を書かず、post-entrypoint が失効を試みずに終わること |
 | [_e2e-payload-rejection.yml](../../.github/workflows/_e2e-payload-rejection.yml) | Action を使わずに Lambda を直接 Invoke し、成功する Payload から 1 つの条件だけを変えた各事例を、GATES が定めたエラーコードと固定の文言で拒否し、トークンを返さないこと |
 | [_e2e-cancel.yml](../../.github/workflows/_e2e-cancel.yml) | 後続ステップが失敗したジョブと、後続ステップの実行中にキャンセルしたジョブで、post-entrypoint がトークンを失効させること。メインの処理の最中に SIGINT を受けた Action が、受けた時点に応じて終えること |
-| [_e2e-protected.yml](../../.github/workflows/_e2e-protected.yml) | 検証環境に適用した発行上限と保護対象の一覧の段階ごとに、発行上限の水準の包含と、保護対象の一覧による許可、認可拒否、照合失敗が、Action の結果と注釈に表れること |
+| [_e2e-protected.yml](../../.github/workflows/_e2e-protected.yml) | 検証環境の固定の保護対象の一覧で、保護対象の条件を満たさない要求が、GitHub に届く前に認可拒否になり、Action の結果と注釈に表れること |
 | [_e2e-reusable-credential-leak.yml](../../.github/workflows/_e2e-reusable-credential-leak.yml) | ほかのワークフローから呼ばれ、同じワークフロー実行の完了したジョブのログ全体に、資格情報の文字列がないこと |
 
 ログの検索は、資格情報が漏れていないことを保証しません。
@@ -38,34 +38,40 @@ Lambda を呼ぶ E2E のワークフローは、どれも同じ `concurrency` �
 | `reversed` | 2 つ目と 1 つ目の対象 | `contents:read` | `contents:read,metadata:read` |
 | `letter-case` | 1 つ目の対象のオーナー名とリポジトリ名を大文字にしたもの | `contents:read` | `contents:read,metadata:read` |
 | `whitespace` | 1 つ目と 2 つ目の対象。要素の前後に改行、スペース、タブを置く | `contents:read` | `contents:read,metadata:read` |
-| `write` | 1 つ目の対象 | `contents:write` | `contents:write,metadata:read` |
-| `multiple-permissions` | 1 つ目の対象 | `contents:read,pull_requests:read` | `contents:read,metadata:read,pull_requests:read` |
+| `write` | 1 つ目の対象 | `contents:read,issues:write` | `contents:read,issues:write,metadata:read` |
+| `multiple-permissions` | 1 つ目の対象 | `contents:read,issues:read` | `contents:read,issues:read,metadata:read` |
 | `metadata` | 1 つ目の対象 | `contents:read,metadata:read` | `contents:read,metadata:read` |
 
 Output の `permissions` は、GitHub が発行したトークンの権限で、GitHub が付ける `metadata:read` を含みます。
 `write` と `multiple-permissions` の権限は、検証用の GitHub App に付与し、発行上限にも含めておきます（[Testing Environment Setup](setup-environment.md)）。
+検証用の GitHub App が書き込みを許すのは Issues だけのため、書き込みの水準は `issues:write` で確かめます。
+発行上限は `issues` の `write` だけを含むため、`multiple-permissions` の `issues:read` は水準の包含で発行されます。
+1 つ目の対象は保護対象で、試験用のリポジトリを許可 Caller にしているため、1 つ目の対象を含む事例は許可 Caller の発行を、2 つ目の対象も含む事例は保護対象でない対象と混ぜた発行を確かめます。
 
 大文字にした要求が通るのは、GATES が名前を ASCII の範囲で大文字小文字を区別せずに比べ（[Lambda Design](../design/lambda.md#名前の文字種と比較規則)）、GitHub の発行 API も大文字小文字の違う名前を受け付けるためです（[GitHub Installation Access Token](../research/github/installation-access-token.md#名前の大文字小文字を変えた発行)）。
 区切りは `,` だけで、改行は区切りになりません。
 前後の空白は Action が除きます（[GitHub Actions Design](../design/github-actions.md)）。
 
 どの事例でも、発行したトークンで次を確かめます。
-書き込みの試験のパスと ref の名前は実行ごとに一意にし、想定に反して作られた場合はジョブを失敗させて、パスか ref を注釈に示します。
+書き込みの試験のパス、ref、ラベルの名前は実行ごとに一意にし、想定に反して作られた場合はジョブを失敗させて、その名前を注釈に示します。
 作られたものは運用者が消します。
 
 | 確認 | 方法 | 期待する結果 |
 | --- | --- | --- |
 | トークンから見える対象 | `GET /installation/repositories` | `total_count` が要求した件数で、`full_name` の集合が GitHub 上の表記の要求した対象と一致する |
 | 内容の読み取り | 要求した各対象の `README.md` の取得 | `200` |
-| 内容の書き込み | 要求した各対象への `PUT /repos/{owner}/{repo}/contents/{path}` | `403`。`write` の事例では、既定のブランチに書き込まないよう試さない |
-| ref の作成 | 要求した各対象への `POST /repos/{owner}/{repo}/git/refs` | `403`。`write` の事例では `201` で、作った ref の削除が `204` |
-| 別の権限の読み取り | 要求した各対象の `GET /repos/{owner}/{repo}/pulls` | `403`。`multiple-permissions` の事例では `200`。対象が非公開であることを前提とする |
+| 内容の書き込み | 要求した各対象への `PUT /repos/{owner}/{repo}/contents/{path}` | `403` |
+| ref の作成 | 要求した各対象への `POST /repos/{owner}/{repo}/git/refs` | `403` |
+| ラベルの作成 | 要求した各対象への `POST /repos/{owner}/{repo}/labels` | `403`。`write` の事例では `201` で、作ったラベルの削除が `204` |
+| 別の権限の読み取り | 要求した各対象の `GET /repos/{owner}/{repo}/issues` | `403`。`write` と `multiple-permissions` の事例では `200`。対象が非公開であることを前提とする |
 | 要求していない対象 | 対象 1 件の事例では Installation のもう 1 つの対象、どの事例でも試験用のリポジトリ自身の `README.md` の取得 | `404` |
 | Installation の対象外の公開リポジトリ | `GATES_PUBLIC_UNINSTALLED` の `README.md` の取得 | `200`。トークンの対象ではないが、公開の内容として読める |
 | Output | `repositories` と `permissions` | `repositories` の集合が GitHub 上の表記の要求した対象と一致し、`permissions` が事例の表の値と一致する |
 
-`write` の事例は、確認の途中でステップが終わっても ref を残さないよう、後続の `Remove test refs` のステップが成否によらず同じ ref の削除を試します。
-削除済みの ref には GitHub が `422` を返すため、`204` と `422` 以外ならジョブを失敗させて、ref を注釈に示します。
+ラベルの作成と削除には、Repository permissions の Issues の書き込みが要ります（[GitHub — Permissions required for GitHub Apps](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps#repository-permissions-for-issues)）。
+ラベルは、ref やファイルと違い、既定のブランチの内容を変えずに作って消せます。
+`write` の事例は、確認の途中でステップが終わってもラベルを残さないよう、後続の `Remove test labels` のステップが成否によらず同じラベルの削除を試します。
+削除済みのラベルには GitHub が `404` を返すため、`204` と `404` 以外ならジョブを失敗させて、ラベルを注釈に示します。
 
 `403` の応答の `X-Accepted-GitHub-Permissions` のヘッダーも、ログに出します。
 Output の `repositories` は GitHub の応答の並びのため、並びは判定せずに出すだけにしています。
@@ -73,7 +79,7 @@ Output の `repositories` は GitHub の応答の並びのため、並びは判�
 ### Revoked Token
 
 `_e2e-success.yml` の `Revoked token` のジョブは、post-entrypoint が失効させた後のトークンが使えないことを確かめます。
-ジョブは `contents:read` と `contents:write` の 2 つの権限で動き、書き込みを許すトークンも失効の後に使えないことを確かめます。
+ジョブは `contents:read` と `contents:read,issues:write` の 2 つの権限で動き、書き込みを許すトークンも失効の後に使えないことを確かめます。
 post-entrypoint はジョブの最後に動くため、後続ステップからは失効の後のトークンを試せません。
 そこで、Docker Action のステップより前に、post を持つ試験用の JavaScript の Action（[_e2e-revoked-token](../../.github/actions/_e2e-revoked-token/action.yml)）を置きます。
 Runner は post をメインの処理と逆の順で動かすため、この Action の post は Docker Action の post-entrypoint の後に動きます（[GitHub Actions Design](../design/github-actions.md)）。
@@ -179,9 +185,9 @@ AWS CLI の再試行は止め、1 つの事例で 1 回だけ Invoke します�
 | `partially-organization` | `permissions` に `members:read` を加える | `authorization_denied` |
 | `not-issuable` | `permissions` を、GitHub App に付与されていて発行上限に含まれない `{"statuses":"read"}` にする | `authorization_denied` |
 | `partially-not-issuable` | `permissions` に `statuses:read` を加える | `authorization_denied` |
-| `not-granted` | `permissions` を、発行上限に含まれて GitHub App に付与されていない `{"issues":"read"}` にする | `github_issuance_rejected` |
-| `partially-not-granted` | `permissions` に `issues:read` を加える | `github_issuance_rejected` |
-| `level-not-granted` | `permissions` を、GitHub App に `read` だけを付与した `{"pull_requests":"write"}` にする | `github_issuance_rejected` |
+| `level-not-issuable` | `permissions` を、発行上限が `read` だけを含む `{"contents":"write"}` にする | `authorization_denied` |
+| `not-granted` | `permissions` を、発行上限に含まれて GitHub App に付与されていない `{"pull_requests":"read"}` にする | `github_issuance_rejected` |
+| `partially-not-granted` | `permissions` に `pull_requests:read` を加える | `github_issuance_rejected` |
 | `audience-mismatch` | `id_token` を `sts.amazonaws.com` の OIDC JWT にする | `invalid_id_token` |
 | `tampered` | `id_token` の Payload の `jti` を 1 文字変え、署名を元のままにする | `invalid_id_token` |
 | `expired` | `id_token` の `exp` から 15 秒過ぎるまで待つ | `invalid_id_token` |
@@ -191,7 +197,9 @@ GATES はどの名前も未知のフィールドとして同じ経路で拒否�
 許可オーナー以外のオーナーのリポジトリは、GATES がオーナー名の照合で GitHub API を呼ぶ前に拒否するため、公開か非公開か、実在するかで結果は変わりません。
 許可権限か発行上限から外れた権限を含む要求は、外れた権限を除いて発行せず、要求の全体を `authorization_denied` で拒否します。
 GitHub App に付与されていない権限と水準を含む要求は、GitHub の発行 API が `422` で拒否し、GATES は権限を除いて発行し直さずに `github_issuance_rejected` を返します（[GitHub App Constraints](../external/github/app.md)）。
-`not-issuable` から `level-not-granted` までの事例は、発行上限と GitHub App の権限が [Testing Environment Setup](setup-environment.md) のとおりであることを前提とします。
+`not-issuable` から `partially-not-granted` までの事例は、発行上限と GitHub App の権限が [Testing Environment Setup](setup-environment.md) のとおりであることを前提とします。
+GitHub App に `read` で付与した権限の `write` の要求も GitHub が `422` で拒否しますが、事例にしていません。
+試すには、GitHub App に `read` だけを付与した権限を発行上限に `write` で書く必要があり、検証環境の発行上限に、コードやワークフローに作用しやすい書き込みを置くことになるためです。
 期限切れの事例は `exp` まで 5 分ほど待つため、最後に置きます。
 
 `qualified-arn` と `invalid-json` は関数に届く前に拒否され、GATES の応答も監査記録も残りません（[AWS Lambda Invoke Rejection](../research/aws/lambda-invoke-rejection.md)）。
@@ -211,84 +219,38 @@ GitHub App に付与されていない権限と水準を含む要求は、GitHub
 SIGINT が Invoke の前と後のどちらで届いたかは、`Check job logs` がログに Invoke の行があるかから判定して出します。
 Invoke の前に届いたジョブと、Invoke の開始の後に届いたジョブのどちらかが 1 つもなければ、`Check job logs` が失敗し、待ちの値の見直しを促します。
 Lambda の実行環境が温まっているかで Invoke の時間が変わるため、待ちに合う値は実行ごとに少しずつずれます。
+待ちが 0 ms のジョブは、Action が `the job was canceled` の注釈を書かずに終わることがあります。
+SIGINT が、Action がシグナルを扱い始める前に届いた可能性がありますが、原因は確かめていません。
+このとき `Check job logs` は、Invoke の行も失効の試行もないことだけを確かめ、Invoke の前に届いたジョブとして数えます。
 
 ### Protected Repositories Cases
 
-`_e2e-protected.yml` の事例は、検証環境の発行上限と保護対象の一覧を、[Testing Environment Setup](setup-environment.md) の値から段階ごとに変えて適用した状態で動かします。
-ワークフローは `stage` の入力で段階を受け取り、その段階の事例だけを動かします。
-ほかの E2E のワークフローは Testing Environment Setup の値を前提とするため、段階を適用している間は動かしません。
-どの段階も、変更は関数の環境変数だけで、運用者の承認を得て `make tf-apply` で適用します。
-GitHub 側（リポジトリの名前、Installation の対象、GitHub App の権限）は変えません。
+`_e2e-protected.yml` は、[Testing Environment Setup](setup-environment.md) の固定の保護対象の一覧で、保護対象の条件を満たさない要求を確かめます。
+一覧は、1 つ目の対象と、一覧にだけある実在しないリポジトリの名前（`gates-e2e-` で始まる）を保護対象にします。
+実在しない名前の保護対象への要求は、発行の前の認可で拒否され、KMS と GitHub API に進まないため、GitHub 側にリポジトリが要りません。
+許可 Caller の発行は E2E Success が確かめます（[Success Cases](#success-cases)）。
 
-| 段階 | 発行上限 | 保護対象の一覧 |
-| --- | --- | --- |
-| `level-inclusion` | `contents:write`、`pull_requests:read`、`metadata:read` | 保護対象なし |
-| `protected` | 同上 | 1 つ目の対象の許可 Caller を試験用のリポジトリにし、`contents: write` を許す。2 つ目の対象の許可 Caller を、試験用のリポジトリでない許可オーナーの実在のリポジトリにし、`contents: read` を許す |
-| `name-mismatch` | 同上 | `protected` の一覧から、2 つ目の対象の `name` だけを実在しない名前（`<リポジトリ名>-mismatch`）にする |
-| `corrected` | 同上 | 2 つ目の対象だけを置き、許可 Caller を試験用のリポジトリにして `contents: read` を許す。1 つ目の対象は一覧に置かない |
-| `caller-mismatch` | 同上 | `protected` の一覧から、1 つ目の対象の許可 Caller の `repository_name` を試験用のリポジトリと違う名前にし、2 つ目の対象の許可 Caller を、`repository_name` が試験用のリポジトリの名前で `repository_id` が別のリポジトリの ID の組にする |
-| `caller-restored` | 同上 | `protected` の一覧から、2 つ目の対象の `callers` を `[]` にする |
+| 事例 | 対象 | `permissions` の入力 | 拒否する条件 |
+| --- | --- | --- | --- |
+| `no-allowed-callers` | `gates-e2e-no-callers` | `contents:read` | 許可 Caller のない保護対象 |
+| `other-caller` | `gates-e2e-other-caller` | `contents:read` | 許可 Caller に当たらない Caller |
+| `caller-name-mismatch` | `gates-e2e-caller-name-mismatch` | `contents:read` | Repository ID が一致してリポジトリ名が一致しない Caller |
+| `caller-id-mismatch` | `gates-e2e-caller-id-mismatch` | `contents:read` | リポジトリ名が一致して Repository ID が一致しない Caller |
+| `above-caller-limit` | `gates-e2e-read-only` | `issues:write` | 許可 Caller の上限より高い水準 |
+| `unlisted-permission` | `gates-e2e-read-only` | `pull_requests:read` | 許可 Caller の上限にない権限名 |
+| `mixed-other-caller` | 1 つ目の対象と `gates-e2e-other-caller` | `contents:read` | 許可される保護対象と、許可 Caller に当たらない Caller の保護対象を混ぜた要求の全体 |
+| `mixed-above-caller-limit` | 2 つ目の対象と `gates-e2e-read-only` | `issues:write` | 保護対象でない対象と、上限より高い水準の保護対象を混ぜた要求の全体 |
 
-`protected` の段階の一覧は次の形です。
-Repository ID は `gh api repos/<オーナー>/<リポジトリ> --jq .id` で調べ、引用符で囲みます。
+どの事例も、Action が `authorization_denied` の注釈を書いて失敗し、Output が空で、Invoke が 1 回で、post-entrypoint が失効を試みないことを確かめます。
+`unlisted-permission` の `pull_requests:read` は発行上限に含まれ、GitHub App に付与されていないため、保護対象の条件で止まらなければ GitHub の `422` になり、結果のエラーコードで区別できます。
+どの条件で拒否したかは、監査記録の `reason` で確かめます（[Checks](#checks)）。
 
-```hcl
-protected_repositories = <<-EOT
-  repositories:
-    - id: "<1 つ目の対象の Repository ID>"
-      name: <1 つ目の対象のリポジトリ名>
-      callers:
-        - repository_id: "<試験用のリポジトリの Repository ID>"
-          repository_name: <試験用のリポジトリのリポジトリ名>
-          permissions:
-            contents: write
-    - id: "<2 つ目の対象の Repository ID>"
-      name: <2 つ目の対象のリポジトリ名>
-      callers:
-        - repository_id: "<別のリポジトリの Repository ID>"
-          repository_name: <別のリポジトリのリポジトリ名>
-          permissions:
-            contents: read
-EOT
-```
+次の事例は、検証環境では起こしません。
+どれも、Lambda のローカルの試験と [Alloy Models](../../formal/alloy/README.md) で確かめています。
 
-| 段階 | 事例 | 対象 | `permissions` の入力 | 期待する結果 |
-| --- | --- | --- | --- | --- |
-| `level-inclusion` | `limit-level` | 1 つ目の対象 | `contents:write` | 成功。Output の `permissions` は `contents:write,metadata:read` |
-| `level-inclusion` | `below-limit` | 1 つ目の対象 | `contents:read` | 成功。Output の `permissions` は `contents:read,metadata:read` で、内容の書き込みが `403` |
-| `level-inclusion` | `above-limit` | 1 つ目の対象 | `pull_requests:write` | `authorization_denied` |
-| `protected` | `allowed` | 1 つ目の対象 | `contents:write` | 成功。Output の `permissions` は `contents:write,metadata:read` |
-| `protected` | `allowed-below-limit` | 1 つ目の対象 | `contents:read` | 成功。Output の `permissions` は `contents:read,metadata:read` で、内容の書き込みが `403` |
-| `protected` | `unlisted-permission` | 1 つ目の対象 | `contents:read,pull_requests:read` | `authorization_denied` |
-| `protected` | `other-caller` | 2 つ目の対象 | `contents:read` | `authorization_denied` |
-| `protected` | `mixed-other-caller` | 1 つ目と 2 つ目の対象 | `contents:read` | `authorization_denied` |
-| `name-mismatch` | `name-mismatch` | 2 つ目の対象 | `contents:read` | `issuance_verification_failed` |
-| `corrected` | `corrected` | 2 つ目の対象 | `contents:read` | 成功 |
-| `corrected` | `above-caller-limit` | 2 つ目の対象 | `contents:write` | `authorization_denied` |
-| `corrected` | `unprotected` | 1 つ目の対象 | `contents:read` | 成功 |
-| `corrected` | `mixed-unprotected` | 1 つ目と 2 つ目の対象 | `contents:read` | 成功 |
-| `corrected` | `mixed-above-caller-limit` | 1 つ目と 2 つ目の対象 | `contents:write` | `authorization_denied` |
-| `caller-mismatch` | `caller-name-mismatch` | 1 つ目の対象 | `contents:read` | `authorization_denied` |
-| `caller-mismatch` | `caller-id-mismatch` | 2 つ目の対象 | `contents:read` | `authorization_denied` |
-| `caller-restored` | `caller-restored` | 1 つ目の対象 | `contents:read` | 成功 |
-| `caller-restored` | `no-allowed-callers` | 2 つ目の対象 | `contents:read` | `authorization_denied` |
-
-成功する事例は、Output の `repositories` と `permissions`、要求した各対象の `README.md` の読み取り（`200`）、`contents:write` を要求しない事例での内容の書き込みの拒否（`403`）を確かめます。
-失敗する事例は、Action が失敗し、Output が空であることを確かめます。
-`Check job logs` のジョブが、各事例のジョブのログで、成功する事例の発行の行と post-entrypoint の失効（`204`）、失敗する事例のエラーコードと固定の文言の注釈、失効を試みないこと、Invoke が 1 回であることを確かめ、`request_id` を出します。
-
-段階の設定は、検証環境の GitHub App と Caller が限られていることに合わせ、一覧と GitHub の状態の食い違いを一覧の側で作ります。
-
-- **2 つ目の対象の許可 Caller**：Caller は試験用のリポジトリ 1 件だけのため、許可 Caller に当たらない Caller の事例は、許可 Caller を別のリポジトリにして作る
-- **保護対象の名前と ID の食い違い**：`name-mismatch` は、保護対象を改名して一覧を直していない状態と同じになる。要求した名前は一覧になく事前認可を通り、発行結果の照合で、Repository ID が保護対象と一致して名前が一致しない。改名しても Repository ID が変わらないことと、改名後の名前と改名前の名前での GitHub の発行の結果は、[GitHub Owner and Repository Constraints](../external/github/account.md) と [GitHub App Constraints](../external/github/app.md) に記録している
-- **許可 Caller の名前と ID の食い違い**：Caller のリポジトリを改名する代わりに、一覧の側の名前か ID を変えて作る
-- **許可 Caller の上限より高い水準**：GitHub App が書き込みを許すのは `contents` だけのため、`corrected` の段階で許可 Caller の上限を `contents: read` にし、発行上限と GitHub App の権限が許す `contents:write` を、保護対象の条件だけで拒否させる
-
-保護対象を削除して同じ名前で作り直す事例は、Installation の対象を削除する必要があるため、検証環境では起こしません。
-不正な一覧のデプロイ（[Acceptance Criteria](../spec/acceptance-criteria.md) の AC-AUTHZ-013）も、検証環境の発行がすべて止まるため起こしません。
-どちらも、Lambda のローカルの試験と [Alloy Models](../../formal/alloy/README.md) で確かめています。
-
-すべての段階を終えたら、発行上限と一覧を Testing Environment Setup の値に戻して適用し、既存の E2E のワークフローが通ることを確かめます。
+- **保護対象の名前と Repository ID の食い違い**：発行結果の照合で失敗させるには、インストール先のリポジトリを 1 つ、どの発行にも使えない状態で一覧に置く必要がある
+- **保護対象を削除して同じ名前で作り直した後の要求**：Installation の対象を削除する必要がある
+- **不正な一覧のデプロイ**（[Acceptance Criteria](../spec/acceptance-criteria.md) の AC-AUTHZ-013）：検証環境の発行がすべて止まる
 
 ## Setup
 
@@ -325,10 +287,8 @@ on:
 | E2E Failure | `e2e/failure` |
 | E2E Payload Rejection | `e2e/payload-rejection` |
 | E2E Cancel | `e2e/cancel` |
-| E2E Protected Repositories | `e2e/protected/<段階>` |
+| E2E Protected Repositories | `e2e/protected-repositories` |
 
-E2E Protected Repositories は、push では入力を受け取れないため、ブランチの名前の `e2e/protected/` の後ろを段階として読みます。
-写したワークフローの `branches:` には、`"e2e/protected/*"` を書きます。
 
 試験用のリポジトリに、次の Secrets と Variables を登録します。
 接続情報の値と登録のコマンドは [Deployment](../user-guide/deployment.md) の §7 にあります。
@@ -348,13 +308,25 @@ E2E Protected Repositories は、push では入力を受け取れないため、
 トークンで読めるかを、`README.md` の取得のステータスで確かめるためです。
 対象のリポジトリは非公開にします。
 公開のリポジトリでは、権限のないトークンでも読める API があり、別の権限の読み取りの確認が意味を持たないためです。
-対象のリポジトリでは、設定の Features の Pull requests を有効にします。
-無効にしたリポジトリでは、`pull_requests:read` を持つトークンでも Pull Request の一覧が `404` になり、`multiple-permissions` の事例が失敗するためです。
+1 つ目の対象では、設定の Features の Issues を有効にします。
+無効にしたリポジトリでは、`issues:read` を持つトークンでも Issue の一覧を読めず、`write` と `multiple-permissions` の事例が失敗するためです。
+`issues:write` のトークンで Issue を作ったときに動くワークフローを、対象のリポジトリに置きません。
 
 試験の前に、IAM OIDC Provider がアカウントにあることを確かめます。
 ない間は、Action が IAM Role を引き受けられません。
 
 ## Running
+
+変更した範囲に応じて、次の E2E を動かします。
+どの E2E も検証環境の設定を変えずに動かせます。
+
+| 変更した範囲 | 動かす E2E |
+| --- | --- |
+| Lambda のコード、`go.mod`、Terraform | Success、Failure、Payload Rejection、Protected Repositories |
+| Docker Action | Success、Failure、Cancel、Interval |
+| E2E のワークフロー | 変えたワークフロー |
+
+Interval は、Lambda の外部への接続の扱いを変えたときも動かします。
 
 `push` のトリガーを加えたワークフローは、表のブランチへの push で動きます。
 同じ内容でもう一度動かすときは、空のコミットを push します。
@@ -365,6 +337,7 @@ git push origin HEAD:e2e/failure
 ```
 
 ワークフローを動かさずに文書だけを push するときは、コミットのメッセージに `[skip ci]` を付けます。
+前の試験の履歴が残っていて push が fast-forward にならないブランチは、`git merge -s ours origin/<ブランチ>` でその履歴を内容を変えずに取り込んでから push します。
 
 複数のワークフローを動かすときは、1 つが終わってから次を push します。
 同じ `concurrency` のグループで待てる実行は 1 つだけで、新しい実行が待っている実行を取り消すためです（[GitHub — Control the concurrency of workflows and jobs](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)）。
@@ -381,9 +354,9 @@ git push origin HEAD:e2e/failure
 | 引き受けと Invoke の数 | CloudTrail と CloudWatch Logs | 失敗のワークフローで、成功した `AssumeRoleWithWebIdentity` の記録は `audience`、`function`、`authorization`、`installation` の 4 つの事例の数だけ増え、Lambda の `START` の行は `authorization` と `installation` の 2 つの事例の数だけ増える。`function` の Invoke は IAM が拒否するため、関数に届かない |
 | Invoke の間隔と実行時間 | CloudWatch Logs の `REPORT` 行 | 間隔の試験で、2 回目以降の Invoke に `Init Duration` がなく、直前の Invoke からの間隔が 1 分前後である |
 | Payload の拒否の監査記録 | CloudWatch Logs | Payload の拒否のワークフローの `request_id` ごとに `audit record` の行がちょうど 1 行あり、`result` が期待したエラーコードと一致する。`invalid_request` は `claims_set`、`caller`、`request`、`installation` がなく、`reason` に未知のフィールドの名前や Payload の断片がない。`invalid_id_token` は `caller` と `installation` がない。`authorization_denied` は `caller` と `request` があり `installation` がない。`github_issuance_rejected` だけに `installation` がある |
-| KMS の署名の数 | CloudTrail と CloudWatch Logs | Payload の拒否のワークフローの時間帯の KMS の `Sign` の記録が、`github_issuance_rejected` の事例の数（5）と一致する。ほかの事例は KMS と GitHub API に進まない |
-| 保護対象の事例の監査記録 | CloudWatch Logs | 保護対象の事例のワークフローの `request_id` ごとに `audit record` の行がちょうど 1 行あり、`result` が事例の期待する結果と一致し、`request.permissions` が要求した水準のまま。`authorization_denied` は `installation` がない。保護対象の条件による拒否の `reason` は `matches protected repositories[` を含み、`caller-name-mismatch` は `matches the caller repository id but not the name`、`caller-id-mismatch` は `matches the caller repository name but not the id`、`no-allowed-callers` は `no allowed callers are listed`、許可 Caller の上限を超えた事例は `permissions are not within the permission limit` を含む。`name-mismatch` は `installation` と `revocation` があり、`revocation` が `succeeded` で、`reason` が `matches the repository id but not the repository name` を含む。どの `reason` にも、保護対象と許可 Caller の ID と名前がない |
-| 保護対象の事例の KMS の署名の数 | CloudTrail と CloudWatch Logs | 段階ごとの実行の時間帯の KMS の `Sign` の記録が、GitHub の発行 API に進む事例（成功する事例と `name-mismatch`）の数と一致する。`authorization_denied` の事例は KMS と GitHub API に進まない |
+| KMS の署名の数 | CloudTrail と CloudWatch Logs | Payload の拒否のワークフローの時間帯の KMS の `Sign` の記録が、`github_issuance_rejected` の事例の数（4）と一致する。ほかの事例は KMS と GitHub API に進まない |
+| 保護対象の事例の監査記録 | CloudWatch Logs | 保護対象の事例のワークフローの `request_id` ごとに `audit record` の行がちょうど 1 行あり、`result` が `authorization_denied` で、`installation` がなく、`request.permissions` が要求した水準のまま。`reason` は `matches protected repositories[` を含み、`caller-name-mismatch` は `matches the caller repository id but not the name`、`caller-id-mismatch` は `matches the caller repository name but not the id`、`no-allowed-callers` は `no allowed callers are listed`、`other-caller` と `mixed-other-caller` は `no allowed caller matches both the caller repository id and name`、上限を超えた 3 つの事例は `permissions are not within the permission limit` を含む。どの `reason` にも、保護対象と許可 Caller の ID と名前がない |
+| 保護対象の事例の KMS の署名の数 | CloudTrail と CloudWatch Logs | 保護対象の事例のワークフローの時間帯に、KMS の `Sign` の記録がない |
 | 資格情報の非記録 | CloudWatch Logs | 同じ時間帯のロググループに `ghs_`、`eyJ`、`ASIA`、`FwoG`、`IQoJ` の文字列がない |
 
 監査記録は、関数のロググループを `request_id` で検索して引きます。

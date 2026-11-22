@@ -55,10 +55,13 @@ jobs:
 | 接続情報を登録した Secret と Variables の名前 | `role-arn`、`function-name`、`aws-region`、`audience` |
 | Action のコミットの SHA | `uses` の `<コミット>` |
 | インストール対象のリポジトリ | `repositories`。ここにないリポジトリは要求できない |
-| 使える権限（GitHub App に付与され、発行上限に含まれる権限） | `permissions`。ここにない権限は要求できない |
+| 使える権限（GitHub App に付与され、発行上限が許す権限） | `permissions`。ここにない権限は要求できない |
+| 要求する保護対象と、保護対象ごとに、ワークフローを置くリポジトリ（許可 Caller のリポジトリ）に許された権限の上限 | `repositories` と `permissions` |
 
 ワークフローを置くリポジトリも、許可オーナーのものでなければなりません。
 接続情報をそのリポジトリから参照できるかも、運用者に確かめます。
+保護対象を要求するワークフローを新しく置くときは、先に運用者に、要求する保護対象ごとに、そのリポジトリを許可 Caller に加え、要る権限を権限の上限に含めてもらいます。
+加える前の要求と、権限の上限を超える要求は、ほかのリポジトリと一緒に要求していても、要求全体が `authorization_denied` で失敗します。
 
 ## 3. Rules to Follow
 
@@ -237,6 +240,8 @@ Action の Output の `permissions` は、要求した `contents:write,pull_requ
 
 Action は、`::error::` の注釈で失敗の段階と原因を示します。
 注釈をもとに [Troubleshooting](troubleshooting.md) で直し方を引き、直せなければ運用者に伝えます。
+許可 Caller でないリポジトリからの保護対象の要求と、権限の上限を超える要求も、ほかの認可の拒否と同じ `error code "authorization_denied"` の注釈になり、注釈からは原因を見分けられません。
+運用者は、注釈の `request_id` から原因を調べられます。
 
 ## 6. Self-Hosted Runners
 

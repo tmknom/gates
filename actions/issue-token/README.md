@@ -74,7 +74,8 @@ GATES がトークンを発行するのは、要素がどれも次の条件を�
 一つでも満たさない要素があると、要求全体が失敗し、許可される要素だけのトークンも返りません。
 
 - **`repositories`**：運用者が許可したオーナーのリポジトリで、GitHub App のインストール対象に含まれる
-- **`permissions`**：[要求できる権限](#要求できる権限) の組で、GitHub App に付与され、発行上限（運用者が GATES のデプロイで決める、発行してよい権限の一覧）に含まれる
+- **`permissions`**：[要求できる権限](#要求できる権限) の組で、GitHub App に付与され、発行上限（運用者が GATES のデプロイで決める、発行してよい権限の一覧）が許す。発行上限の高い水準は、同じ権限名の低い水準も許す（`contents:write` を含む発行上限は `contents:read` の要求も許す）。トークンは要求した水準で発行される
+- **保護対象を含むとき**：保護対象（運用者が、要求できるワークフローと権限を限ったリポジトリ）を含む要求は、運用者が、ワークフローを置くリポジトリにその保護対象の要求を許していて、要求の権限がどれもそのリポジトリに許した範囲（権限の上限）にあるときだけ発行される。保護対象かどうかと、許された範囲は運用者に確かめる
 
 ## 要求できる権限
 
@@ -90,7 +91,7 @@ Organization permissions（`members` など）と Account permissions（`emails`
 - **権限名は表の名前で書く**：GitHub App の設定画面の表示名（`Contents`、`Pull requests`、`Commit statuses` など）ではなく、`contents`、`pull_requests`、`statuses` のように書く。表示名と権限名は、`Commit statuses` と `statuses` のように一致しないことがある
 - **水準は付与された水準以下にする**：GitHub App に `Read-only` で付与された権限の `write` は、GitHub に拒否される
 - **`single_file` のファイルは選べない**：読み書きできるファイルのパスは GitHub App の設定で決まり、要求では指定できない
-- **`metadata` は書かなくてよい**：GitHub が `metadata:read` を加えることがある。明示して要求するときは、ほかの権限と同じく発行上限に含まれている必要がある
+- **`metadata` は書かなくてよい**：GitHub が `metadata:read` を加えることがある。明示して要求するときは、ほかの権限と同じく発行上限が許している必要がある
 - **機能が無効なリポジトリでは使えない**：リポジトリの設定で Pull requests の機能が無効なら、`pull_requests` の権限を持つトークンでも Pull Request の API は `404` になる
 
 ## 出力
@@ -136,7 +137,9 @@ Action は失敗すると、ステップを失敗で終え、`::error::` の注�
 | `the child process could not be started`、`the child process terminated unexpectedly`、`an unexpected failure occurred` | Action の想定外の失敗。運用者に知らせる |
 
 `GATES returned a failure response` のうち、`error.message` が `Retry later.` で終わるものは一時的な障害で、再実行で解消することがあります。
-運用者は `request_id` で GATES の監査記録を探せるため、問い合わせるときは `request_id` を伝えます。
+`error.code` が `authorization_denied` のものは、許されないリポジトリか権限を要求したことを示します。
+保護対象を、許されていないリポジトリのワークフローから要求したか、許された範囲を超える権限で要求した場合も同じ注釈になり、注釈からは原因を見分けられません。
+運用者は `request_id` で GATES の監査記録を探して原因を調べられるため、問い合わせるときは `request_id` を伝えます。
 
 ## トークンの失効
 

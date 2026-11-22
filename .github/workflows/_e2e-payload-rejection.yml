@@ -343,10 +343,11 @@ jobs:
           # statuses:read は GitHub App に付与されているが、発行上限に含めない
           json_case not-issuable authorization_denied '.permissions = {statuses: "read"}'
           json_case partially-not-issuable authorization_denied '.permissions += {statuses: "read"}'
-          # issues は GitHub App に付与せず、pull_requests は read だけを付与する。どちらも発行上限に含める
-          json_case not-granted github_issuance_rejected '.permissions = {issues: "read"}'
-          json_case partially-not-granted github_issuance_rejected '.permissions += {issues: "read"}'
-          json_case level-not-granted github_issuance_rejected '.permissions = {pull_requests: "write"}'
+          # 発行上限は contents の read だけを含むため、contents:write は GitHub に届く前に拒否する
+          json_case level-not-issuable authorization_denied '.permissions = {contents: "write"}'
+          # pull_requests は GitHub App に付与せず、発行上限に含める
+          json_case not-granted github_issuance_rejected '.permissions = {pull_requests: "read"}'
+          json_case partially-not-granted github_issuance_rejected '.permissions += {pull_requests: "read"}'
 
       - name: Reject ID tokens
         env:

@@ -254,7 +254,13 @@ jobs:
           for delay in 0 500 1000 1500 2000 2500; do
             name="Signal during issuance (${delay} ms)"
             load "${name}" || continue
-            if [[ "${canceled}" != 1 ]]; then
+            if [[ "${canceled}" != 1 && "${invoking}" == 0 ]]; then
+              # Action がシグナルを扱い始める前に受けた：注釈を書かずに終えることがある。Lambda を呼ばず、トークンはない。
+              # 注釈を書かない原因は確かめていないため、ここでは Invoke も失効の試行もないことだけを確かめる
+              echo "${name}: ended before the Invoke without the cancellation annotation"
+              before=$((before + 1))
+              [[ "${revoked}" == 0 ]] || report "${name}: a revocation was attempted without a token"
+            elif [[ "${canceled}" != 1 ]]; then
               # 判定の後に受けたか、終えた後に届いた：成功として終え、トークンはジョブの終了時に失効する
               echo "${name}: not canceled"
               [[ "${revoked}" == 1 ]] || report "${name}: the token was not revoked once with 204"

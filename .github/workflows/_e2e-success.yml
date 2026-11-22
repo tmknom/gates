@@ -33,10 +33,14 @@ jobs:
           - { case: reversed, permissions: "contents:read", output: "contents:read,metadata:read" }
           - { case: letter-case, permissions: "contents:read", output: "contents:read,metadata:read" }
           - { case: whitespace, permissions: "contents:read", output: "contents:read,metadata:read" }
-          - { case: write, permissions: "contents:write", output: "contents:write,metadata:read" }
+          # 検証用の GitHub App が書き込みを許すのは Issues だけのため、書き込みの水準は issues:write で確かめる
+          - case: write
+            permissions: "contents:read,issues:write"
+            output: "contents:read,issues:write,metadata:read"
+          # 検証環境の発行上限は issues の write だけを含むため、issues:read は水準の包含で発行される
           - case: multiple-permissions
-            permissions: "contents:read,pull_requests:read"
-            output: "contents:read,metadata:read,pull_requests:read"
+            permissions: "contents:read,issues:read"
+            output: "contents:read,issues:read,metadata:read"
           - { case: metadata, permissions: "contents:read,metadata:read", output: "contents:read,metadata:read" }
     steps:
       # repositories は Action に渡す入力、expected は GitHub 上の表記の要求した対象、
@@ -141,52 +145,39 @@ jobs:
             fail "GET /installation/repositories failed"
           fi
 
-          # 要求した権限から、書き込みと Pull Request の一覧が許されるかを決める
+          # 要求した権限から、ラベルの書き込みと Issue の一覧が許されるかを決める
           IFS=',' read -ra permissions <<< "${PERMISSIONS}"
           writable=0
-          pulls=0
+          issues=0
           for permission in "${permissions[@]}"; do
             case "${permission}" in
-              contents:write) writable=1 ;;
-              pull_requests:read) pulls=1 ;;
+              issues:write) writable=1 issues=1 ;;
+              issues:read) issues=1 ;;
             esac
           done
 
-          # 書き込みが想定に反して成功しても既存の内容を壊さないよう、パスと ref の名前を実行ごとに一意にする
+          # 書き込みが想定に反して成功しても既存の内容を壊さないよう、パス、ref、ラベルの名前を実行ごとに一意にする
           suffix="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${CASE}"
           for repo in "${requested[@]}"; do
             call "repos/${repo}/contents/README.md"
             echo "requested ${repo} read README.md: ${status}"
             [[ "${status}" == "200" ]] || fail "README.md of ${repo} is not readable"
 
-            # 書き込みを許すトークンでは、既定のブランチに書き込まないよう、ファイルの書き込みを試さない
+            # どの事例も Contents の書き込みを要求しないため、内容の書き込みと ref の作成は拒否される
             path="e2e-token-scope/${suffix}.txt"
-            if [[ "${writable}" == 1 ]]; then
-              echo "requested ${repo} write contents: skipped"
-            else
-              call --method PUT "repos/${repo}/contents/${path}" -f message="e2e: token scope check" -f content=ZTJlCg==
-              echo "requested ${repo} write contents: ${status} accepted=${accepted}"
-              if [[ "${status}" == 2* ]]; then
-                fail "file ${path} was created in ${repo}; the operator must delete it"
-              elif [[ "${status}" != "403" ]]; then
-                fail "write contents to ${repo} was not denied with 403"
-              fi
+            call --method PUT "repos/${repo}/contents/${path}" -f message="e2e: token scope check" -f content=ZTJlCg==
+            echo "requested ${repo} write contents: ${status} accepted=${accepted}"
+            if [[ "${status}" == 2* ]]; then
+              fail "file ${path} was created in ${repo}; the operator must delete it"
+            elif [[ "${status}" != "403" ]]; then
+              fail "write contents to ${repo} was not denied with 403"
             fi
 
             ref="refs/heads/e2e-token-scope/${suffix}"
             if sha="$(gh api "repos/${repo}/commits/HEAD" --jq '.sha' 2> /dev/null)"; then
               call --method POST "repos/${repo}/git/refs" -f ref="${ref}" -f sha="${sha}"
               echo "requested ${repo} create ref: ${status} accepted=${accepted}"
-              if [[ "${writable}" == 1 ]]; then
-                # 作った ref はすぐに削除する。削除できなかった場合は Remove test refs のステップがもう一度削除を試す
-                if [[ "${status}" == "201" ]]; then
-                  call --method DELETE "repos/${repo}/git/${ref}"
-                  echo "requested ${repo} delete ref: ${status}"
-                  [[ "${status}" == "204" ]] || fail "ref ${ref} in ${repo} was not deleted with 204"
-                else
-                  fail "create ref in ${repo} did not succeed with 201"
-                fi
-              elif [[ "${status}" == 2* ]]; then
+              if [[ "${status}" == 2* ]]; then
                 fail "ref ${ref} was created in ${repo}; the operator must delete it"
               elif [[ "${status}" != "403" ]]; then
                 fail "create ref in ${repo} was not denied with 403"
@@ -195,13 +186,31 @@ jobs:
               fail "HEAD commit of ${repo} is not readable"
             fi
 
-            # 対象は非公開のため、Pull requests の権限がなければ一覧を読めない
-            call "repos/${repo}/pulls"
-            echo "requested ${repo} list pulls: ${status} accepted=${accepted}"
-            if [[ "${pulls}" == 1 ]]; then
-              [[ "${status}" == "200" ]] || fail "list pulls of ${repo} did not succeed with 200"
+            # ラベルの作成と削除は Issues の書き込みで許される。作ったラベルはすぐに削除し、削除できなかった場合は Remove test labels のステップがもう一度削除を試す
+            label="e2e-token-scope-${suffix}"
+            call --method POST "repos/${repo}/labels" -f name="${label}"
+            echo "requested ${repo} create label: ${status} accepted=${accepted}"
+            if [[ "${writable}" == 1 ]]; then
+              if [[ "${status}" == "201" ]]; then
+                call --method DELETE "repos/${repo}/labels/${label}"
+                echo "requested ${repo} delete label: ${status}"
+                [[ "${status}" == "204" ]] || fail "label ${label} in ${repo} was not deleted with 204"
+              else
+                fail "create label in ${repo} did not succeed with 201"
+              fi
+            elif [[ "${status}" == 2* ]]; then
+              fail "label ${label} was created in ${repo}; the operator must delete it"
+            elif [[ "${status}" != "403" ]]; then
+              fail "create label in ${repo} was not denied with 403"
+            fi
+
+            # 対象は非公開のため、Issues の権限がなければ一覧を読めない
+            call "repos/${repo}/issues"
+            echo "requested ${repo} list issues: ${status} accepted=${accepted}"
+            if [[ "${issues}" == 1 ]]; then
+              [[ "${status}" == "200" ]] || fail "list issues of ${repo} did not succeed with 200"
             else
-              [[ "${status}" == "403" ]] || fail "list pulls of ${repo} was not denied with 403"
+              [[ "${status}" == "403" ]] || fail "list issues of ${repo} was not denied with 403"
             fi
           done
 
@@ -273,10 +282,10 @@ jobs:
           fi
           exit "${failed}"
 
-      # 書き込みを許すトークンの事例で、Check token scope が途中で終わっても試験の ref を残さないよう、成否によらず削除を試す。
-      # 削除済みなら GitHub は 422 を返す
-      - name: Remove test refs
-        if: ${{ always() && contains(matrix.permissions, 'contents:write') && steps.gates.outputs.token != '' }}
+      # 書き込みを許すトークンの事例で、Check token scope が途中で終わっても試験のラベルを残さないよう、成否によらず削除を試す。
+      # 削除済みなら GitHub は 404 を返す
+      - name: Remove test labels
+        if: ${{ always() && contains(matrix.permissions, 'issues:write') && steps.gates.outputs.token != '' }}
         env:
           GH_TOKEN: ${{ steps.gates.outputs.token }}
           CASE: ${{ matrix.case }}
@@ -287,11 +296,11 @@ jobs:
           failed=0
           IFS=',' read -ra requested <<< "${EXPECTED}"
           for repo in "${requested[@]}"; do
-            ref="refs/heads/e2e-token-scope/${suffix}"
-            status="$(gh api --include --method DELETE "repos/${repo}/git/${ref}" 2> /dev/null | head -n 1 | awk '{print $2}' || true)"
-            echo "remove ${repo} ref: ${status}"
-            if [[ "${status}" != "204" && "${status}" != "422" ]]; then
-              echo "::error::ref ${ref} in ${repo} may remain; the operator must delete it"
+            label="e2e-token-scope-${suffix}"
+            status="$(gh api --include --method DELETE "repos/${repo}/labels/${label}" 2> /dev/null | head -n 1 | awk '{print $2}' || true)"
+            echo "remove ${repo} label: ${status}"
+            if [[ "${status}" != "204" && "${status}" != "404" ]]; then
+              echo "::error::label ${label} in ${repo} may remain; the operator must delete it"
               failed=1
             fi
           done
@@ -324,7 +333,7 @@ jobs:
       max-parallel: 1
       matrix:
         # 書き込みを許すトークンも、post-entrypoint の失効の後に使えないことを確かめる
-        permissions: ["contents:read", "contents:write"]
+        permissions: ["contents:read", "contents:read,issues:write"]
     steps:
       # 試験用の Action を相対パスで参照するため、ワークフローのリポジトリを取得する
       - name: Checkout
@@ -407,7 +416,7 @@ jobs:
             done
             return 1
           }
-          for permission in contents:read contents:write; do
+          for permission in contents:read contents:read,issues:write; do
             name="Revoked token (${permission})"
             job="$(jq -c --arg name "${name}" 'select(.name == $name)' <<< "${jobs_json}")"
             if [[ -z "${job}" ]]; then

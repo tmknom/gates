@@ -5,6 +5,7 @@
 | 作業 | 行う時期 |
 |---|---|
 | インストール対象と、GitHub App の権限と発行上限を変える | 操作させたいリポジトリか、ワークフローに要る権限が変わったとき |
+| 保護対象の一覧を変える | 守りたいリポジトリか、それを要求するワークフローが変わったとき。保護対象か許可 Caller のリポジトリを改名したとき |
 | 監査記録を確かめる | 定期的に。失敗や悪用の疑いを調べるとき |
 | `terraform.tfvars` の値を変える | Audience、同時実行数、保持期間を変えるとき。許可オーナーが改名したとき |
 | GATES を新しいリリースに更新する | 新しいリリースが出たとき |
@@ -26,6 +27,8 @@ GATES の設定は変えません。
 4. `Save` をクリックする
 
 加えるのは、許可オーナーのどのワークフローから操作されてもよいリポジトリだけです。
+一部のワークフローからだけ操作させたいリポジトリは、先に §1.3 で保護対象にして適用してから加えます。
+保護対象の一覧にないリポジトリは、加えた時点から、許可オーナーのどのワークフローも要求できるためです。
 変更は、1 分ほどで発行に反映されます。
 
 **外したリポジトリを要求するワークフローは、ほかのリポジトリと一緒に要求していても、要求全体が失敗します。**
@@ -37,6 +40,7 @@ GATES の設定は変えません。
 ### 1.2 Changing the Permissions
 
 **GitHub App の権限と発行上限の変更は、許可オーナーのすべてのワークフローにできることを変える、認可境界の変更です。**
+保護対象でも、許可 Caller が権限の上限の範囲で要求できる権限が変わります。
 変更の前に、許可オーナーのどのワークフローにその権限を渡してよいかを判断します。
 
 権限を広げるときは、GitHub App の権限と発行上限の両方を変えます。
@@ -51,6 +55,7 @@ GATES の設定は変えません。
 身に覚えのない `Permission updates requested.` は承認しません。
 
 権限を狭めるときは、先に監査記録で、その権限を要求しているワークフローを調べ、ワークフロー利用者に要求から外してもらいます。
+`contents:write` を `contents:read` にするように水準を下げるときは、`write` の要求だけを調べます。
 外さないまま狭めると、そのワークフローの要求は全体が失敗します。
 そのうえで、発行上限から外して適用し、GitHub App の権限からも外します。
 発行上限から外すだけでは、GATES を経ない署名で得られる権限は狭まりません。
@@ -58,6 +63,50 @@ GATES の設定は変えません。
 **発行上限を狭めても、発行済みのトークンは失効しません。**
 発行済みのトークンは、期限（発行から 1 時間）まで、発行したときの権限で使えます。
 悪用を止めるために狭めるときは、[Stopping GATES](stop-issuance.md) の手段もあわせて検討します。
+
+### 1.3 Changing the Protected Repositories
+
+**保護対象の一覧の変更も、保護対象を要求できるワークフローと権限を変える、認可境界の変更です。**
+保護対象を加える、外す、許可 Caller を加える、外す、権限の上限を変える、のどれも同じ手順で行います。
+
+1. 保護対象を加えるか、許可 Caller を外すか、権限の上限を狭めるときは、先に監査記録（§2.2）で、その保護対象を要求しているワークフローを調べる。許されなくなる要求は、ほかのリポジトリと一緒に要求していても全体が失敗するため、ワークフロー利用者に直してもらうか、そのワークフローのリポジトリを許可 Caller に加える
+2. `terraform.tfvars` の `protected_repositories` を変える。書き方と、`make tf-plan` を通っても Lambda の関数が初期化に失敗する誤りは、[Deployment](deployment.md) の「Protected Repositories」にある
+3. `make tf-plan` が、`aws_lambda_function.gates` の環境変数 `GATES_PROTECTED_REPOSITORIES` の変更だけを示すことを確かめ、適用する。Plan の差分には、コメントを含めた一覧の全体が出る
+4. GATES からトークンを受け取るワークフローを実行し、発行が成功することを確かめる。一覧に Lambda の関数が初期化に失敗する誤りがあれば、どの要求も `the Lambda function returned FunctionError` で失敗するため、[Troubleshooting](troubleshooting.md) で初期化の失敗のログを読んで直す
+5. 許可 Caller のワークフロー利用者に、要求できるようになった保護対象と権限の上限を伝える
+
+適用が完了した後の要求から、新しい一覧で判定されます。
+
+**一覧を変えても、発行済みのトークンは失効しません。**
+保護対象を加えたときも、許可 Caller を外したときも、それまでに発行したトークンは、期限（発行から 1 時間）まで発行したときの対象と権限で使えます。
+悪用を止めるために変えるときは、[Stopping GATES](stop-issuance.md) の手段もあわせて検討します。
+
+### 1.4 Renaming a Protected Repository
+
+保護対象を改名すると、一覧の `name` を新しい名前に直すまで、その保護対象への発行が止まります。
+新しい名前の要求は `issuance_verification_failed` に、旧名の要求は `authorization_denied` か `github_issuance_rejected` になります。
+新しい名前の要求のたびに、GitHub 側ではトークンが発行され、GATES が失効を試みるため、改名から一覧の更新までの時間を短くします。
+
+1. 改名の時期を、その保護対象を要求するワークフロー利用者と合わせる
+2. リポジトリを改名する
+3. 一覧の保護対象の `name` を新しい名前にして、§1.3 の手順で適用する。`id` は変えない
+4. ワークフロー利用者に、`repositories` を新しい名前に直してもらう
+
+保護対象を削除して同じ名前で作り直したリポジトリは、別の Repository ID を持ちます。
+一覧を直すまで、作り直したリポジトリへの要求は、どの Caller からでも `authorization_denied` か `issuance_verification_failed` になります。
+保護するなら新しい Repository ID を調べて `id` を直し、保護しないなら一覧から外します。
+
+### 1.5 Renaming an Allowed Caller Repository
+
+許可 Caller のリポジトリを改名すると、一覧の `repository_name` を新しい名前に直すまで、そのリポジトリのワークフローからの保護対象への要求は `authorization_denied` になります。
+保護対象でないリポジトリだけの要求は、これまでどおり発行されます。
+
+1. 改名の時期を、そのリポジトリのワークフロー利用者と合わせる
+2. リポジトリを改名する
+3. 一覧の、そのリポジトリの許可 Caller の `repository_name` を新しい名前にして、§1.3 の手順で適用する。`repository_id` は変えない。同じリポジトリを複数の保護対象の許可 Caller にしていれば、すべて直す
+
+許可 Caller のリポジトリを削除して同じ名前で作り直したときも、新しいリポジトリは許可を引き継がず、要求は `authorization_denied` になります。
+許可するなら、新しい Repository ID を調べて `repository_id` を直します。
 
 ## 2. Reviewing Audit Records
 
@@ -78,7 +127,9 @@ GATES の設定は変えません。
 | `caller.workflow_ref` | 呼び出し元のワークフローのファイル（`<オーナー名>/<リポジトリ名>/.github/workflows/<ファイル>@<ref>`） |
 | `request.repositories` | 要求したリポジトリ。要求の表記のまま記録される |
 | `request.permissions` | 要求した権限。権限名をキー、水準を値とするオブジェクト（`{"contents":"write","pull_requests":"read"}` など） |
+| `revocation` | GitHub が発行したトークンを照合で返さなかったときの、失効の結果（`succeeded`、`failed`、`not_attempted`） |
 | `claims_set.head_ref` | Pull Request の元のブランチ名 |
+| `claims_set.repository` | 呼び出し元のリポジトリの完全名。一覧の許可 Caller の `repository_name` と見比べるのに使う |
 
 `caller` は、GATES が呼び出し元を確かめた後にだけ記録されます。
 `invalid_request` や `invalid_id_token` のような早い段階の失敗は、`caller` で絞るクエリには現れません。
@@ -135,6 +186,33 @@ aws logs filter-log-events --log-group-name /aws/lambda/gates \
   | jq -r '.[] | fromjson
       | select((.request.permissions // {}) | any(.[]; . != "read"))
       | [.time, .result, (.request.permissions | to_entries | map("\(.key):\(.value)") | join(",")), .caller.workflow_ref, .caller.run_id] | @tsv'
+```
+
+保護対象の条件で拒否した要求を出します。
+`reason` の `protected repositories[<J>]` は、一覧の `repositories` の 0 から数えた位置で、続く文言が拒否の理由を示します。
+理由の読み方は、[Troubleshooting](troubleshooting.md) の `authorization_denied` にあります。
+
+```bash
+aws logs filter-log-events --log-group-name /aws/lambda/gates \
+  --start-time <開始> --end-time <終了> \
+  --filter-pattern '{ $.msg = "audit record" && $.result = "authorization_denied" }' \
+  --query 'events[].message' --output json \
+  | jq -r '.[] | fromjson
+      | select(.reason | contains("matches protected repositories"))
+      | [.time, .reason, .claims_set.repository, .caller.workflow_ref, .caller.run_id] | @tsv'
+```
+
+保護対象の名前と Repository ID が一覧と食い違って、トークンを返さなかった要求を出します。
+保護対象の改名か作り直しの後に一覧を直していないか、一覧の `id` か `name` を書き誤ったことを示します。
+
+```bash
+aws logs filter-log-events --log-group-name /aws/lambda/gates \
+  --start-time <開始> --end-time <終了> \
+  --filter-pattern '{ $.msg = "audit record" && $.result = "issuance_verification_failed" }' \
+  --query 'events[].message' --output json \
+  | jq -r '.[] | fromjson
+      | select(.reason | contains("protected repositories["))
+      | [.time, .reason, .revocation, (.request.repositories | join(",")), .caller.run_id] | @tsv'
 ```
 
 `pull_request_target` と `workflow_run` で起動したジョブへの発行を出します。
@@ -224,6 +302,11 @@ git diff <更新前のバージョン> <更新後のバージョン> -- terrafor
 
 更新先の配布物をダウンロードし、[Release Verification](verify-release.md) の手順でチェックサムと Attestation を検証します。
 検証に失敗したリリースには更新しません。
+
+保護対象の一覧を持たないリリースから更新するときは、次を確かめます。
+
+- **`protected_repositories` が必須になる**：既定値がないため、`terraform.tfvars` に書くまで `make tf-plan` が止まる。保護対象を置かないなら `repositories: []` を書く。書き方は [Deployment](deployment.md) の「Protected Repositories」にある。Plan は、`aws_lambda_function.gates` の `source_code_hash` に加えて、環境変数 `GATES_PROTECTED_REPOSITORIES` の追加を示す
+- **発行上限の高い水準が、低い水準の要求も許すようになる**：`contents:write` だけを含めた発行上限では、これまで拒否していた `contents:read` の要求も発行されるようになる。高い水準だけを含めた権限名ごとに、低い水準の要求が発行されてよいかを確かめる。`contents:read` と `contents:write` の両方を書いた発行上限は、`contents:write` だけを書いたものと同じ意味になる
 
 ### 4.3 Applying the New Release
 
