@@ -3,10 +3,10 @@ package config
 import (
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/tmknom/gates/internal/authz"
+	"github.com/tmknom/gates/internal/githubid"
 	"github.com/tmknom/gates/internal/permission"
 	"github.com/tmknom/gates/internal/repository"
 )
@@ -137,12 +137,12 @@ func (l *loader) ownerID(raw envValue) (int64, bool) {
 	if !raw.ok {
 		return 0, false
 	}
-	id, err := parseOwnerID(raw.value)
+	id, err := githubid.ParseOwnerID(raw.value)
 	if err != nil {
 		l.fail(raw.key, err)
 		return 0, false
 	}
-	return id, true
+	return id.Int64(), true
 }
 
 func (l *loader) ownerType(raw envValue) (authz.OwnerType, bool) {
@@ -168,15 +168,4 @@ func (l *loader) issuablePermissions(raw envValue) permission.IssuablePermission
 		l.fail(raw.key, err)
 	}
 	return issuablePermissions
-}
-
-// parseOwnerID は、符号と先頭の 0 を持たない 10 進表記だけを受け付ける。
-// strconv.ParseUint を 63 ビットで使うのは、strconv.ParseInt と違って符号を受理せず、値が int64 に収まるため。
-// strconv の error は値を含むため、包まずに条件だけを返す。
-func parseOwnerID(s string) (int64, error) {
-	id, err := strconv.ParseUint(s, 10, 63)
-	if err != nil || s[0] == '0' {
-		return 0, errors.New("must be a positive decimal integer without a sign or leading zeros that fits in int64")
-	}
-	return int64(id), nil
 }

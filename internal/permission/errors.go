@@ -7,3 +7,6 @@ var ErrMalformedPermissions = errors.New("malformed permissions")
 
 // ErrInvalidIssuablePermissions は、発行上限が INV-015 を満たさないか、組の表記の誤りか重複を含むことを表す。
 var ErrInvalidIssuablePermissions = errors.New("invalid issuable permissions")
+
+// ErrInvalidLimit は、権限の上限が INV-016 の条件を満たさないことを表す。
+var ErrInvalidLimit = errors.New("invalid permission limit")

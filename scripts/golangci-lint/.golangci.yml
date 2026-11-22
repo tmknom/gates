@@ -128,6 +128,33 @@ linters:
           deny:
             - pkg: gopkg.in/yaml.v3
               desc: archived; use go.yaml.in/yaml/v3
+        # YAML のライブラリは、保護対象の一覧を読む internal/protected だけが使う。拒否する YAML の機能と構文木の読み方を一つの package に閉じるため。
+        # 否定だけの files は全ファイルに効くため、Docker Action のモジュールでも拒否する
+        yaml-library:
+          list-mode: lax
+          files:
+            - "!**/internal/protected/**"
+          deny:
+            - pkg: go.yaml.in/yaml
+              desc: only internal/protected may use the YAML library
+        # 保護対象の一覧は通信せず、外部ライブラリは YAML のライブラリだけを使い、ドメインの値の package だけを参照する。
+        # no-communication に加えないのは、その規則が外部ライブラリを持たない package の規則で、YAML のライブラリを許すと食い違うため
+        protected-dependencies:
+          list-mode: strict
+          files:
+            - "**/internal/protected/**"
+            - "!**/actions/issue-token/**"
+          allow:
+            - $gostd
+            - github.com/tmknom/gates/internal/githubid$
+            - github.com/tmknom/gates/internal/permission$
+            - github.com/tmknom/gates/internal/repository$
+            - go.yaml.in/yaml/v3$
+          deny:
+            - pkg: net
+              desc: internal/protected must not communicate
+            - pkg: crypto/tls
+              desc: internal/protected must not communicate
         # 入力、固定設定、認可の処理と、ドメインの値の package は、通信と外部ライブラリを持たない。副作用をこれらの package に入れず、テストを通信なしで書けるようにするため
         no-communication:
           list-mode: lax

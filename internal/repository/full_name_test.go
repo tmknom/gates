@@ -16,9 +16,6 @@ func TestParseFullName(t *testing.T) {
 		repositoryName string
 	}{
 		{name: "requested spelling is kept", input: "Example-Org/Repo.A_1", ownerName: "Example-Org", repositoryName: "Repo.A_1"},
-		{name: "repository name of 100 characters is accepted", input: "org/" + strings.Repeat("r", 100), ownerName: "org", repositoryName: strings.Repeat("r", 100)},
-		{name: "repository name of single period is accepted", input: "org/.", ownerName: "org", repositoryName: "."},
-		{name: "repository name of double period is accepted", input: "org/..", ownerName: "org", repositoryName: ".."},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -48,8 +45,6 @@ func TestParseFullName_Invalid(t *testing.T) {
 		{name: "value with two slashes returns ErrInvalidFullName", input: "org/repo/extra"},
 		{name: "empty owner name returns ErrInvalidFullName", input: "/repo"},
 		{name: "empty repository name returns ErrInvalidFullName", input: "org/"},
-		{name: "repository name of 101 characters returns ErrInvalidFullName", input: "org/" + strings.Repeat("r", 101)},
-		{name: "repository name with Kelvin sign returns ErrInvalidFullName", input: "org/\u212Aepo"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -58,6 +53,15 @@ func TestParseFullName_Invalid(t *testing.T) {
 				t.Errorf("ParseFullName(%q) error = %v, want %v", tt.input, err, repository.ErrInvalidFullName)
 			}
 		})
+	}
+}
+
+// リポジトリ名の規則は ValidateRepositoryName が検証する。ここでは、その条件を完全名の誤りとして包むことを確かめる
+func TestParseFullName_InvalidRepositoryName(t *testing.T) {
+	_, err := repository.ParseFullName("org/repo!")
+	const want = "invalid full name: repository name must consist of ASCII letters, digits, '-', '_', or '.'"
+	if !errors.Is(err, repository.ErrInvalidFullName) || err.Error() != want {
+		t.Errorf("error = %v, want %q wrapping %v", err, want, repository.ErrInvalidFullName)
 	}
 }
 

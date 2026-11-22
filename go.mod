@@ -15,6 +15,7 @@ require (
 	github.com/aws/smithy-go v1.28.9
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/go-jose/go-jose/v4 v4.1.9
+	go.yaml.in/yaml/v3 v3.0.6
 )
 
 require (

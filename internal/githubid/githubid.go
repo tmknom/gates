@@ -3,13 +3,19 @@
 // 概念ごとに型を分け、Owner ID と Installation ID のように別の概念の ID を取り違えて比べるとコンパイルできないようにする。
 package githubid
 
-import "errors"
+import (
+	"errors"
+	"strconv"
+)
 
 // ErrInvalidID は、ID が正の整数でないことを表す。文言は、呼び出し元が ID の名前を前置して読める形にする。
 var ErrInvalidID = errors.New("must be a positive integer")
 
+// errMalformedDecimal は、ID の表記が符号と先頭の 0 を持たない 10 進表記でないことを表す。文言に入力の値を含めない。
+var errMalformedDecimal = errors.New("must be a positive decimal integer without a sign or leading zeros that fits in int64")
+
 // OwnerID は、オーナーの不変 Owner ID である。
-// フィールドを非公開にし、ゼロ値以外は NewOwnerID でしか作れないようにする。
+// フィールドを非公開にし、ゼロ値以外は NewOwnerID か ParseOwnerID でしか作れないようにする。
 type OwnerID struct {
 	value int64
 }
@@ -22,7 +28,16 @@ func NewOwnerID(value int64) (OwnerID, error) {
 	return OwnerID{value: value}, nil
 }
 
-// IsZero は、NewOwnerID を経ていないゼロ値かを返す。
+// ParseOwnerID は、符号と先頭の 0 を持たない 10 進表記だけから Owner ID を作る。
+func ParseOwnerID(s string) (OwnerID, error) {
+	value, err := parseDecimal(s)
+	if err != nil {
+		return OwnerID{}, err
+	}
+	return NewOwnerID(value)
+}
+
+// IsZero は、NewOwnerID か ParseOwnerID を経ていないゼロ値かを返す。
 func (id OwnerID) IsZero() bool {
 	return id.value == 0
 }
@@ -33,7 +48,7 @@ func (id OwnerID) Int64() int64 {
 }
 
 // RepositoryID は、リポジトリの不変 Repository ID である。
-// フィールドを非公開にし、ゼロ値以外は NewRepositoryID でしか作れないようにする。
+// フィールドを非公開にし、ゼロ値以外は NewRepositoryID か ParseRepositoryID でしか作れないようにする。
 type RepositoryID struct {
 	value int64
 }
@@ -44,6 +59,15 @@ func NewRepositoryID(value int64) (RepositoryID, error) {
 		return RepositoryID{}, err
 	}
 	return RepositoryID{value: value}, nil
+}
+
+// ParseRepositoryID は、符号と先頭の 0 を持たない 10 進表記だけから Repository ID を作る。
+func ParseRepositoryID(s string) (RepositoryID, error) {
+	value, err := parseDecimal(s)
+	if err != nil {
+		return RepositoryID{}, err
+	}
+	return NewRepositoryID(value)
 }
 
 // Int64 は、ID の値を返す。
@@ -118,4 +142,15 @@ func validate(value int64) error {
 		return ErrInvalidID
 	}
 	return nil
+}
+
+// parseDecimal は、符号と先頭の 0 を持たない 10 進表記だけを受け付ける。先頭の 0 を拒否するため、0 も受け付けない。
+// strconv.ParseUint を 63 ビットで使うのは、strconv.ParseInt と違って符号を受理せず、値が int64 に収まるため。
+// strconv の error は値を含むため、包まずに条件だけを返す。
+func parseDecimal(s string) (int64, error) {
+	value, err := strconv.ParseUint(s, 10, 63)
+	if err != nil || s[0] == '0' {
+		return 0, errMalformedDecimal
+	}
+	return int64(value), nil
 }
