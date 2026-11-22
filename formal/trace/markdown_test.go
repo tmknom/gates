@@ -23,8 +23,8 @@ func TestParseMarkdownDefinitions(t *testing.T) {
 		},
 		{
 			name:    "heading made of the ID alone defines it",
-			content: lines("## GAJ-ISS"),
-			want:    []definition{{id: "GAJ-ISS", path: "d.md", line: 1}},
+			content: lines("## GOJ-ISS"),
+			want:    []definition{{id: "GOJ-ISS", path: "d.md", line: 1}},
 		},
 		{
 			name:    "heading in a fenced code block defines nothing",

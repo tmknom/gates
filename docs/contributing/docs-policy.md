@@ -95,9 +95,7 @@ flowchart TD
 | `security.md` | 信頼境界、認証・認可、資格情報の保護、失敗時の扱い |
 | `gates-oidc-jwt-claims.md` | GATES 用 OIDC JWT の Claim の受理条件 |
 | `gates-oidc-jwt-signature.md` | GATES 用 OIDC JWT の直列化、JOSE Header、Discovery、JWK の受理条件 |
-| `aws-oidc-jwt.md` | AWS 用 OIDC JWT の Claim に課す条件 |
-| `github-app-jwt.md` | GitHub App JWT の生成条件 |
-| `lambda.md` | Lambda の入出力契約、コンポーネント、外部連携 |
+| `lambda.md` | Lambda の入出力契約、コンポーネント、外部連携、GitHub App JWT の生成条件 |
 | `aws-infrastructure.md` | AWS リソースの構成 |
 | `github-actions.md` | Docker Action の入出力と処理手順 |
 
@@ -248,11 +246,8 @@ flowchart TD
     infra --> domain
     lambda --> claims["gates-oidc-jwt-claims.md"]
     lambda --> signature["gates-oidc-jwt-signature.md"]
-    lambda --> app["github-app-jwt.md"]
     security --> claims
     security --> signature
-    security --> aws["aws-oidc-jwt.md"]
-    infra --> aws
     actions --> claims
     signature --> claims
     claims --> domain
@@ -304,7 +299,7 @@ flowchart TD
 | 受け入れ条件 | `acceptance-criteria.md` | `docs/design/`、テスト、`formal/` |
 | コンポーネントの全体構成と処理の流れ | `architecture.md` | `docs/design/` の他のドキュメント、`docs/user-guide/` |
 | 概念の名前と意味 | `domain.md` | `requirements.md`、`acceptance-criteria.md`、`scope.md`、`docs/design/` の他のドキュメント、`docs/user-guide/`、コード、`formal/` |
-| JWT の Claim・JOSE・JWK の受理・生成条件 | `gates-oidc-jwt-claims.md`、`gates-oidc-jwt-signature.md`、`aws-oidc-jwt.md`、`github-app-jwt.md` | `docs/design/` の他のドキュメント、`docs/user-guide/`、コード |
+| GATES 用 OIDC JWT の Claim・JOSE・JWK の受理条件 | `gates-oidc-jwt-claims.md`、`gates-oidc-jwt-signature.md` | `docs/design/` の他のドキュメント、`docs/user-guide/`、コード |
 | Docker Action の入出力と処理手順 | `github-actions.md` | Docker Action の `README.md`、`docs/user-guide/`、コード |
 | 運用者の手順（デプロイ、鍵素材のインポート、鍵の更新、配布物の検証） | `docs/user-guide/` | `docs/contributing/` |
 

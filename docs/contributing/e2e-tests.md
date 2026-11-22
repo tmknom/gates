@@ -255,7 +255,7 @@ SIGINT が、Action がシグナルを扱い始める前に届いた可能性が
 ## Setup
 
 試験用のリポジトリは、許可オーナーのリポジトリで、GitHub App のインストール先に含めません。
-GitHub Actions 用 IAM Role の信頼ポリシーは、不変 ID 入りの形式の `sub` だけを受け付けるため、試験用のリポジトリの OIDC の `sub` をその形式にしておきます（[AWS OIDC JWT](../design/aws-oidc-jwt.md)）。
+GitHub Actions 用 IAM Role の信頼ポリシーは、不変 ID 入りの形式の `sub` だけを受け付けるため、試験用のリポジトリの OIDC の `sub` をその形式にしておきます（[AWS Infrastructure Design](../design/aws-infrastructure.md)）。
 ワークフローは試験用のリポジトリ自身を、要求していない対象として読めないことと、Installation の対象外として拒否されることを確かめるため、インストール先に含めると試験が失敗します。
 GitHub App のインストール先は、対象として使う 2 つのリポジトリだけにします。
 

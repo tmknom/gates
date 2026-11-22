@@ -19,7 +19,8 @@
 ### 2.1 AWS IAM / STS
 
 IAM Role の Trust Policy は、GitHub OIDC Provider を信頼先とし、`aud` と `sub` の条件で引き受けを制限します。
-AWS 用 OIDC JWT の Claim に課す条件と、この入口制御が保証しない範囲は [AWS OIDC JWT](aws-oidc-jwt.md) に定めます。
+Trust Policy は、`aud` を `sts.amazonaws.com` と一致させ、`sub` の先頭を許可オーナー名と不変 Owner ID の組に固定して、不変 ID を含まない旧形式の `sub` を拒否します。
+AWS 用 OIDC JWT を検証するのは AWS STS だけで、Lambda はこの JWT を受け取りません。
 
 - オーナー配下での共通利用を前提とし、`sub` の後半部分（`ref`、`pull_request`、`environment` など）による追加制限は設けない。
 - 引き受けた IAM Role の権限は対象 Lambda への `lambda:InvokeFunction` のみとし、KMS `Sign`、IAM 管理、鍵インポートを許可しない。
@@ -339,7 +340,6 @@ GATES は不正な変更や署名を通知する仕組みを持たないため�
 ## 7. References
 
 - [GitHub App Constraints](../external/github/app.md)
-- [AWS OIDC JWT](aws-oidc-jwt.md)
 - [GATES OIDC JWT Claims](gates-oidc-jwt-claims.md)
 - [GATES OIDC JWT Signature](gates-oidc-jwt-signature.md)
 - [External](../external/README.md)
