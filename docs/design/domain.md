@@ -181,6 +181,7 @@ GATES 運用者は、固定設定で指定したリポジトリについて、�
 | **保護対象** | Protected Repository | 値 | 要求できる Caller と権限を限るリポジトリ。Repository ID、リポジトリ名、許可 Caller の集合を持つ。許可 Caller の集合は空でもよい | 事実：Requirements FR-AUTHZ-009 |
 | **許可 Caller** | Allowed Caller | 値 | 保護対象への要求か、リポジトリポリシーを置いたリポジトリへの要求を許す Caller のリポジトリと、その Caller に許す権限の組。Repository ID、リポジトリ名、権限の上限を持つ。保護対象の一覧とリポジトリポリシーの両方に、同じ形と同じ照合の規則で現れる | 事実：Requirements FR-AUTHZ-009、FR-AUTHZ-011 |
 | **権限の上限** | Permission Limit | 値 | 許可 Caller に許す Permission Entry の上限。Permissions と同じく権限名ごとに水準を一つ持ち、要求の Permission Entry を[水準の包含](#permission-levels)で照合する | 事実：Requirements FR-AUTHZ-009 |
+| **許可 Caller の集合** | Allowed Caller Set | 値 | 一つの保護対象か一つのリポジトリポリシーが持つ許可 Caller の集まり。空でもよい。集合の中で Repository ID とリポジトリ名はどちらも重複しない。Caller が許可 Caller に当たるかを判定する単位 | 事実：Requirements FR-AUTHZ-009、FR-AUTHZ-011。重複しないことは INV-016、INV-017。語は候補 |
 | **保護対象の一覧** | Protected Repositories | 値 | 保護対象の集合。固定設定の値で、空でもよい | 事実：Requirements FR-AUTHZ-009、FR-OPS-001 |
 
 保護対象の同一性は Repository ID です（事実：Requirements FR-AUTHZ-010）。
@@ -195,6 +196,12 @@ GATES 運用者は、固定設定で指定したリポジトリについて、�
 照合しなければ、ID を書き誤った一覧は、名前の示すリポジトリとは別のリポジトリを許可したまま誰にも気付かれません（推論）。
 照合すれば、ID と名前のどちらを書き誤っても、その許可 Caller はどの Caller にも当たらなくなり、拒否に倒れます。
 
+Caller と要求の Permissions を許可 Caller の集合に当てはめた結果を、**許可 Caller の判定結果**（Allowed Caller Verdict）と呼びます（語は候補）。
+判定結果は、許す、許可 Caller がない、権限の上限に含まれない、Repository ID だけが一致する、リポジトリ名だけが一致する、どちらも一致しない、のどれか一つで、許すのは最初の結果だけです（事実：Lambda Design §7 が拒否の理由として見分ける区分）。
+権限の上限に含まれないのは、両方が一致する許可 Caller があり、その権限の上限に要求の Permissions が[水準の包含](#permission-levels)で含まれない場合です。
+Repository ID だけが一致する許可 Caller と、リポジトリ名だけが一致する許可 Caller の両方があれば、Repository ID だけが一致する結果にします。
+同一性を Repository ID で判断するため、ID が一致する許可 Caller のほうが Caller と同じリポジトリを指すからです（事実：Lambda Design §7）。
+
 保護対象の一覧は、許可権限と発行上限のどちらとも別の概念です。
 許可権限と発行上限は Caller と対象によって変わらず、固定設定のうち Caller と対象の組で条件を変えるのは保護対象の一覧だけであるためです（事実：Requirements FR-AUTHZ-006、FR-AUTHZ-008、Security Design §3.1）。
 保護対象の一覧は、ほかの認可条件、Installation の対象範囲と有効性、GitHub App に付与された権限の条件で拒否される要求を許可に変えません（事実：Requirements FR-AUTHZ-009）。
@@ -208,6 +215,7 @@ GATES 運用者は、固定設定で指定したリポジトリについて、�
 | 概念 | 英語名 | 種別 | 内容 | 根拠 |
 |---|---|---|---|---|
 | **リポジトリポリシー** | Repository Policy | 値 | アクセスされる側のリポジトリが、自分への要求を許す許可 Caller の集合を定めた文書。そのリポジトリの既定ブランチの、リポジトリポリシーのパスに置く。許可 Caller の集合は空でもよい | 事実：Requirements FR-AUTHZ-011 |
+| **リポジトリポリシーの取得の結果** | Repository Policy Fetch Result | 値 | 対象 1 件について、リポジトリポリシーの取得が返し、発行許可の確定に渡す値。文書（読み取る前の文字列）、ファイルがない、パスにあるのがファイルでない、大きさの上限を超える、のどれか。取得できない場合と想定外の応答は、この値にならない | 事実：Lambda Design §6.2、§6.3。語は候補 |
 | **リポジトリポリシーの適用** | Repository Policy Enforcement | 値 | リポジトリポリシーによる認可を行うか行わないかの二値。固定設定の値で、既定値を持たない | 事実：Requirements FR-AUTHZ-011、FR-OPS-001 |
 
 リポジトリポリシーは、固定設定とも GitHub の実体とも位置づけが異なります。
@@ -218,11 +226,12 @@ GitHub の実体と異なり、GitHub はファイルを保存して返すだけ
 リポジトリポリシーは、それを読んだリポジトリに属し、そのリポジトリは Repository ID で同定します（推論：Requirements FR-AUTHZ-012 から）。
 読む操作は名前でファイルを指定し、GitHub の応答は読んだリポジトリを Repository ID で示さないため、読んだリポジトリの Repository ID は、読むのに使った照合済みのポリシー読み取りトークンの実効対象から得ます（事実：Security Design §3.7）。
 
-発行処理がある対象のリポジトリポリシーを読んだ結果は、次のどれかです。
+リポジトリポリシーの取得は、対象ごとに、リポジトリポリシーの取得の結果を返すか、**取得できない** まま終わります。
+取得できないのは、GitHub API の一時的な障害で、ファイルがあるかどうかも分からない場合です。
+発行許可の確定は、取得の結果から、その対象のリポジトリポリシーが次のどちらかを決めます（事実：Lambda Design §6.2）。
 
-- **有効なリポジトリポリシー**：[INV-017 リポジトリポリシー](#inv-017-リポジトリポリシー)を満たす値を作れた
-- **有効なリポジトリポリシーがない**：ファイルがない、パスにあるのがファイルでない、大きさの上限を超える、書式か内容が不正。どれも [RULE-016 リポジトリポリシーの認可条件](#rule-016-リポジトリポリシーの認可条件)を満たさない
-- **取得できない**：GitHub API の一時的な障害で、ファイルがあるかどうかも分からない
+- **有効なリポジトリポリシー**：取得の結果が文書で、その文書から [INV-017 リポジトリポリシー](#inv-017-リポジトリポリシー)を満たす値を作れた
+- **有効なリポジトリポリシーがない**：取得の結果が、ファイルがない、パスにあるのがファイルでない、大きさの上限を超える、のどれかであるか、文書の書式か内容が不正である。どれも [RULE-016 リポジトリポリシーの認可条件](#rule-016-リポジトリポリシーの認可条件)を満たさない
 
 照合済みのポリシー読み取りトークンで、ファイルの有無を示さない拒否のような想定外の応答が返った場合は、どの結果にも当たらず、内部障害で終わります（[Failure Kinds](#failure-kinds)）。
 
@@ -396,9 +405,9 @@ flowchart LR
 | ポリシー読み取り許可の確定（適用時） | Grant Policy Read | Caller、発行要求、許可オーナー、発行上限、保護対象の一覧、取得した Installation | ポリシー読み取り許可、または拒否 | 事実：Requirements FR-ISSUANCE-002、Security Design §3.7 |
 | ポリシー読み取りトークンの発行（適用時） | Issue Policy Read Token | ポリシー読み取り許可、GitHub App JWT | 発行結果、または拒否 | 事実：Requirements FR-ISSUANCE-003、FR-ISSUANCE-007 |
 | ポリシー読み取りトークンの照合（適用時） | Verify Policy Read Token | 発行結果、ポリシー読み取り許可、許可オーナー、保護対象の一覧、リポジトリポリシーのパス、現在時刻 | 照合済みのポリシー読み取りトークン、または照合失敗 | 事実：Requirements FR-ISSUANCE-004、Security Design §3.4 |
-| リポジトリポリシーの取得（適用時） | Fetch Repository Policy | 照合済みのポリシー読み取りトークン、対象の完全名、リポジトリポリシーのパス | 対象ごとに、有効なリポジトリポリシー、有効なリポジトリポリシーがない、取得できないのどれか | 事実：Requirements FR-AUTHZ-011、Security Design §3.7 |
+| リポジトリポリシーの取得（適用時） | Fetch Repository Policy | 照合済みのポリシー読み取りトークン、対象の完全名、リポジトリポリシーのパス | 対象ごとに、リポジトリポリシーの取得の結果、または取得できない | 事実：Requirements FR-AUTHZ-011、Security Design §3.7、Lambda Design §6.2 |
 | ポリシー読み取りトークンの失効（適用時） | Revoke Policy Read Token | 取得できたポリシー読み取りトークン | 成功または失敗。成否は発行処理の結果を変えない | 事実：Requirements FR-ISSUANCE-007。成否が結果を変えないのは推論：失効は使い終えたトークンに対する後始末で、発行処理の判定に使う値を変えないため |
-| 発行許可の確定 | Grant | Caller、発行要求、許可オーナー、発行上限、保護対象の一覧、取得した Installation、適用時は各対象のリポジトリポリシー | 発行許可、または拒否 | 事実：Lambda Design §5、Security Design §3.1。保護対象の一覧は Requirements FR-AUTHZ-009。リポジトリポリシーは FR-AUTHZ-011 |
+| 発行許可の確定 | Grant | Caller、発行要求、許可オーナー、発行上限、保護対象の一覧、取得した Installation、適用時は各対象のリポジトリポリシーの取得の結果 | 発行許可、または拒否 | 事実：Lambda Design §5、Security Design §3.1。保護対象の一覧は Requirements FR-AUTHZ-009。リポジトリポリシーは FR-AUTHZ-011 |
 | 発行 | Issue | 発行許可、GitHub App JWT | 発行結果、または拒否 | 事実：Requirements FR-ISSUANCE-002、FR-ISSUANCE-003 |
 | 発行結果の照合 | Verify | 発行結果、発行許可、許可オーナー、保護対象の一覧、適用時は照合済みのポリシー読み取りトークン、現在時刻 | 返却可能な発行結果、または照合失敗 | 事実：Requirements FR-ISSUANCE-004、FR-AUTHZ-010、FR-AUTHZ-012 |
 | 失効 | Revoke | 照合を通らなかった発行結果のトークン | 成功または失敗。成否にかかわらず照合失敗のまま終わる | 事実：Requirements FR-ISSUANCE-004、Lambda Design §3.1 |
@@ -770,9 +779,9 @@ Installation に対象リポジトリが含まれることを、GATES は発行�
 
 **時点**：取得した内容から作った時点
 
-**常に成り立つこと**：許可 Caller の集合は空でもよい。許可 Caller の Repository ID は [RULE-002 ID の形式](#rule-002-id-の形式)を満たし、リポジトリ名はリポジトリ名の文字種を満たす。許可 Caller の間で Repository ID とリポジトリ名のどちらも重複しない。許可 Caller の権限の上限は Permission Entry を 1 つ以上持ち、権限名が重複せず、どの Permission Entry も許可権限に含まれる。権限の上限が発行上限に含まれることは求めない。取得した内容の一部でもこれらを満たさなければ、リポジトリポリシーを作らず、その対象は有効なリポジトリポリシーがないものとして扱う
+**常に成り立つこと**：作る元の文書は、大きさの上限を超えない。許可 Caller の集合は空でもよい。許可 Caller の Repository ID は [RULE-002 ID の形式](#rule-002-id-の形式)を満たし、リポジトリ名はリポジトリ名の文字種を満たす。許可 Caller の間で Repository ID とリポジトリ名のどちらも重複しない。許可 Caller の権限の上限は Permission Entry を 1 つ以上持ち、権限名が重複せず、どの Permission Entry も許可権限に含まれる。権限の上限が発行上限に含まれることは求めない。取得した内容の一部でもこれらを満たさなければ、リポジトリポリシーを作らず、その対象は有効なリポジトリポリシーがないものとして扱う
 
-**根拠**：事実：Requirements FR-AUTHZ-011。許可 Caller の条件を [INV-016 保護対象の一覧](#inv-016-保護対象の一覧)の許可 Caller と同じにするのは推論：Caller が許可 Caller に当たる条件を共有し（[RULE-016 リポジトリポリシーの認可条件](#rule-016-リポジトリポリシーの認可条件)）、同じ書き誤りを同じく拒否に倒すため。一部だけを満たさない場合に全体を作らないのは事実：Security Design §3.7、Requirements FR-AUTHZ-011。その理由は推論：正しい部分だけを使うと、書いた主体の意図より広い許可にも狭い許可にもなり得るため。条件を満たさない値を作らない方針（[Invariants](#invariants) の冒頭）にも従う
+**根拠**：事実：Requirements FR-AUTHZ-011。大きさの上限は事実：Lambda Design §4.2。許可 Caller の条件を [INV-016 保護対象の一覧](#inv-016-保護対象の一覧)の許可 Caller と同じにするのは推論：Caller が許可 Caller に当たる条件を共有し（[RULE-016 リポジトリポリシーの認可条件](#rule-016-リポジトリポリシーの認可条件)）、同じ書き誤りを同じく拒否に倒すため。一部だけを満たさない場合に全体を作らないのは事実：Security Design §3.7、Requirements FR-AUTHZ-011。その理由は推論：正しい部分だけを使うと、書いた主体の意図より広い許可にも狭い許可にもなり得るため。条件を満たさない値を作らない方針（[Invariants](#invariants) の冒頭）にも従う
 
 #### INV-018 リポジトリポリシーの適用
 

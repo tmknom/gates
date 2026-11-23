@@ -1,4 +1,4 @@
-package protected
+package strictyaml
 
 import (
 	"slices"
@@ -31,23 +31,23 @@ func TestScanText(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var c conditions
+			var c Conditions
 			if ok := scanText(tt.document, &c); !ok {
 				t.Fatalf("scanText(%q) = false, want true", tt.document)
 			}
-			if !slices.Equal(c.list, tt.want) {
-				t.Errorf("scanText(%q) conditions = %q, want %q", tt.document, c.list, tt.want)
+			if !slices.Equal(c.List(), tt.want) {
+				t.Errorf("scanText(%q) conditions = %q, want %q", tt.document, c.List(), tt.want)
 			}
 		})
 	}
 }
 
 func TestScanText_InvalidUTF8(t *testing.T) {
-	var c conditions
+	var c Conditions
 	if ok := scanText("repositories: \xff !x\n", &c); ok {
 		t.Error("scanText = true for invalid UTF-8, want false")
 	}
-	if want := []string{"must be valid UTF-8"}; !slices.Equal(c.list, want) {
-		t.Errorf("conditions = %q, want %q", c.list, want)
+	if want := []string{"must be valid UTF-8"}; !slices.Equal(c.List(), want) {
+		t.Errorf("conditions = %q, want %q", c.List(), want)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/tmknom/gates/internal/allowedcaller"
 	"github.com/tmknom/gates/internal/githubid"
 	"github.com/tmknom/gates/internal/permission"
 	"github.com/tmknom/gates/internal/repository"
@@ -37,34 +38,21 @@ func (r Repositories) Authorize(callerRepositoryID githubid.RepositoryID, caller
 	return nil
 }
 
-// authorize は、Repository ID とリポジトリ名の両方が Caller と一致する許可 Caller を探し、その権限の上限に要求を照合する。
 // 片方だけが一致する許可 Caller の理由の分け方は Lambda Design の「Audit Record」に記述する。
-// 同じ保護対象の中で許可 Caller の ID と名前は重複しないため（INV-016）、どちらの一致も高々一つである。
 func (p protectedRepository) authorize(callerRepositoryID githubid.RepositoryID, callerRepositoryName string, permissions permission.Permissions) error {
-	if len(p.callers) == 0 {
+	verdict, k := p.callers.Authorize(callerRepositoryID, callerRepositoryName, permissions)
+	switch verdict {
+	case allowedcaller.Allowed:
+		return nil
+	case allowedcaller.NoAllowedCallers:
 		return errNoAllowedCallers
+	case allowedcaller.ExceedsPermissionLimit:
+		return fmt.Errorf("%w of callers[%d]", errExceedsPermissionLimit, k)
+	case allowedcaller.NameMismatch:
+		return fmt.Errorf("callers[%d] %w", k, errAllowedCallerNameMismatch)
+	case allowedcaller.IDMismatch:
+		return fmt.Errorf("callers[%d] %w", k, errAllowedCallerIDMismatch)
+	default:
+		return errNoMatchingAllowedCaller
 	}
-	idOnly, nameOnly := -1, -1
-	for k, a := range p.callers {
-		idMatches := a.repositoryID == callerRepositoryID
-		nameMatches := repository.EqualFoldASCII(a.repositoryName, callerRepositoryName)
-		switch {
-		case idMatches && nameMatches:
-			if !a.limit.Contains(permissions) {
-				return fmt.Errorf("%w of callers[%d]", errExceedsPermissionLimit, k)
-			}
-			return nil
-		case idMatches:
-			idOnly = k
-		case nameMatches:
-			nameOnly = k
-		}
-	}
-	switch {
-	case idOnly >= 0:
-		return fmt.Errorf("callers[%d] %w", idOnly, errAllowedCallerNameMismatch)
-	case nameOnly >= 0:
-		return fmt.Errorf("callers[%d] %w", nameOnly, errAllowedCallerIDMismatch)
-	}
-	return errNoMatchingAllowedCaller
 }

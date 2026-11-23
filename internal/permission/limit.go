@@ -18,7 +18,7 @@ type LimitEntry struct {
 	Level string
 }
 
-// NewLimit は、書かれた順の組を読み、INV-016 が権限の上限に求める条件を検証して権限の上限を作る。
+// NewLimit は、書かれた順の組を読み、INV-016 と INV-017 が権限の上限に求める条件を検証して権限の上限を作る。
 // 誤りは組の位置と条件だけで示し、権限名と水準を含めない。組ごとの誤りを 1 行につなぐ理由は NewIssuablePermissions と同じである。
 func NewLimit(written []LimitEntry) (Limit, error) {
 	if len(written) == 0 {
