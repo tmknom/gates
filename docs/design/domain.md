@@ -224,12 +224,17 @@ GitHub の実体と異なり、GitHub はファイルを保存して返すだけ
 - **有効なリポジトリポリシーがない**：ファイルがない、パスにあるのがファイルでない、大きさの上限を超える、書式か内容が不正。どれも [RULE-016 リポジトリポリシーの認可条件](#rule-016-リポジトリポリシーの認可条件)を満たさない
 - **取得できない**：GitHub API の一時的な障害で、ファイルがあるかどうかも分からない
 
+照合済みのポリシー読み取りトークンで、ファイルの有無を示さない拒否のような想定外の応答が返った場合は、どの結果にも当たらず、内部障害で終わります（[Failure Kinds](#failure-kinds)）。
+
 有効なリポジトリポリシーがないことと取得できないことを分けるのは、失敗の種別と直す担当が異なるためです。
 前者はリポジトリの側が直す認可拒否、後者は再実行で解消し得る一時的な障害です（[Failure Kinds](#failure-kinds)）。
 どちらも許可とは読みません。
 
 保護対象の一覧とリポジトリポリシーは、どちらも条件を加えるだけで、優先順位を持ちません（事実：Security Design §3.6。[RULE-016 リポジトリポリシーの認可条件](#rule-016-リポジトリポリシーの認可条件)）。
 許可 Caller の形と、Caller が許可 Caller に当たる条件は両者で共有します（事実：Requirements FR-AUTHZ-011）。
+
+リポジトリポリシーを適用するデプロイでは、1 回の要求の対象の件数に、[INV-001 発行要求](#inv-001-発行要求)の 500 件より小さい **対象の件数の上限** を置きます（事実：Lambda Design §2.2。値は 10 件）。
+取得の時間とレート制限の消費が、対象の件数に比例するためです。
 
 ### Issuance Result
 
@@ -296,14 +301,14 @@ Runner がジョブに渡す、GitHub OIDC Provider に OIDC JWT を要求する
 |---|---|---|
 | 相関 ID（Request ID） | 常に | 事実：Requirements FR-OPS-003 |
 | 時刻、結果（成功、または失敗の種別を表すエラーコード） | 常に | 事実：Security Design §5 |
-| 拒否の理由 | 失敗の種別で終わった場合。満たさなかった条件か失敗した呼び出しを示し、資格情報と Caller、要求、許可オーナー、保護対象の一覧、リポジトリポリシー、Installation の値を含めない。リポジトリポリシーの条件で拒否した場合は、要求の対象の列での位置（何番目か）と、リポジトリポリシーがない、不正（どちらも有効なリポジトリポリシーがない場合）、Caller か Permissions を許していないのどれかを示す。panic を回復した場合は panic の値を含めない | 事実：Security Design §5、§3.7、Lambda Design §3.2。保護対象の一覧とリポジトリポリシーの値を含めないのは推論：満たさなかった条件を示すのに要らず、文言が誤って応答に混ざっても、許可 Caller を含む内容を許可されない呼び出し元に明かさないため（Lambda Design §3.2 の許可オーナーと同じ理由） |
+| 拒否の理由 | 失敗の種別で終わった場合。満たさなかった条件か失敗した呼び出しを示し、資格情報と Caller、要求、許可オーナー、保護対象の一覧、リポジトリポリシー、Installation の値を含めない。リポジトリポリシーの条件で拒否した場合は、要求の対象の列での位置（何番目か）と、リポジトリポリシーがない、不正（どちらも有効なリポジトリポリシーがない場合）、Caller か Permissions を許していないのどれかを示す。各区分の内訳（ファイルでない、大きすぎる、Repository ID だけが一致するなど）は Lambda Design §7 が定める。panic を回復した場合は panic の値を含めない | 事実：Security Design §5、§3.7、Lambda Design §3.2。保護対象の一覧とリポジトリポリシーの値を含めないのは推論：満たさなかった条件を示すのに要らず、文言が誤って応答に混ざっても、許可 Caller を含む内容を許可されない呼び出し元に明かさないため（Lambda Design §3.2 の許可オーナーと同じ理由） |
 | Caller の Owner ID と Repository ID、ワークフロー実行 ID と試行番号 | 認証に成功した後だけ。認証前の失敗では未検証の値を Caller として記録しない | 事実：Security Design §5 |
 | ワークフロー起動属性 | 認証に成功した後で、含まれていた属性だけ | 事実：Security Design §5 |
 | 署名検証済みの Claims Set | 署名検証を通った後。署名検証の後の Claim の検証で認証に失敗した場合も含む | 事実：Requirements FR-OPS-003。署名検証の後の失敗を含めるのは推論：拒否した JWT の Claim が、拒否の理由を調べる手がかりになるため |
 | 要求対象、要求権限 | 形式検証を通った後 | 事実：Lambda Design §1。時点は推論 |
 | 取得した Installation の Installation ID とインストール先 Owner ID | Installation の解決に成功した後 | 推論：インストール先 Owner ID の不一致は運用者かオーナーの管理者が直す失敗であり、どのアカウントの Installation が返ったかを、呼び出しを再現せずに確かめるため。監査記録は応答に出ないため、エラー文言で値を伏せる理由は及ばない |
 | 失効の結果 | 照合失敗で終わった場合 | 事実：Lambda Design §3.1 |
-| ポリシー読み取りトークンの失効の結果 | ポリシー読み取りトークンの発行 API を呼んだ後。発行処理の結果を問わない | 事実：Requirements FR-OPS-003、Security Design §5。発行 API を呼んだ後とするのは推論：応答を喪失した処理のように、GitHub 側にトークンが残り得るのに失効を試みなかった処理を「試みなかった」として残し、発行 API を呼ばなかった処理と見分けるため |
+| ポリシー読み取りトークンの失効の結果 | ポリシー読み取りトークンの発行 API を呼んだ後。発行処理の結果を問わない。panic を回復した場合は、失効の結果が発行処理の結果として返らないため記録しない | 事実：Requirements FR-OPS-003、Security Design §5。発行 API を呼んだ後とするのは推論：応答を喪失した処理のように、GitHub 側にトークンが残り得るのに失効を試みなかった処理を「試みなかった」として残し、発行 API を呼ばなかった処理と見分けるため |
 
 照合に失敗した発行処理では、失効を試みたかどうかと、試みた場合の成否を残します。
 この値を **失効の結果**（Revocation Outcome）と呼び、試みなかった、試みて成功した、試みて失敗した、の 3 つのどれかをとります（語は候補）。
@@ -385,7 +390,7 @@ flowchart LR
 |---|---|---|---|---|
 | 形式検証 | Validate | Invoke Payload | 発行要求と未検証の GATES 用 OIDC JWT を取り出す、または入力不正 | 事実：Lambda Design §2.2 |
 | 認証 | Authenticate | 未検証の GATES 用 OIDC JWT、固定設定の Issuer と Audience、Issuer の公開鍵、現在時刻 | Caller を確定する、または拒否 | 事実：Requirements FR-AUTHN-001 |
-| 事前認可 | Authorize | Caller、発行要求、許可オーナー、発行上限、保護対象の一覧 | 外部呼び出しに進める、または認可拒否。リポジトリポリシーの条件は判定しない | 事実：Lambda Design §5 手順 3。保護対象の一覧は Requirements FR-AUTHZ-009。リポジトリポリシーの条件を判定しないのは Security Design §3.1 |
+| 事前認可 | Authorize | Caller、発行要求、許可オーナー、発行上限、保護対象の一覧、リポジトリポリシーの適用 | 外部呼び出しに進める、または認可拒否。リポジトリポリシーの条件は判定しない。適用するデプロイでは、対象の件数の上限を判定する | 事実：Lambda Design §5 手順 3。保護対象の一覧は Requirements FR-AUTHZ-009。リポジトリポリシーの条件を判定しないのは Security Design §3.1。対象の件数の上限は Lambda Design §2.2 |
 | 署名 | Sign | 固定設定の Client ID と KMS Key ARN、現在時刻 | GitHub App JWT、または拒否 | 事実：Requirements FR-ISSUANCE-001、Lambda Design §4 |
 | Installation の解決 | Resolve Installation | GitHub App JWT、許可オーナーの名前と種別 | 取得した Installation、または拒否 | 事実：Lambda Design §3.2、§6.3 |
 | ポリシー読み取り許可の確定（適用時） | Grant Policy Read | Caller、発行要求、許可オーナー、発行上限、保護対象の一覧、取得した Installation | ポリシー読み取り許可、または拒否 | 事実：Requirements FR-ISSUANCE-002、Security Design §3.7 |
@@ -429,12 +434,12 @@ flowchart LR
 |---|---|---|---|---|
 | **入力不正** | Invalid Request | Payload を GATES が読み取れない | 利用者が要求の形を直す。要求を読み取れていないため、監査記録に要求対象と要求権限を残さない | 事実：Lambda Design §2.2 |
 | **認証失敗** | Authentication Failure | GATES 用 OIDC JWT から Caller を確定できない | 利用者がワークフローの設定を直す。OIDC JWT の主体のカスタマイズが原因なら、リポジトリかオーナーの管理者が直す（[Events Outside GATES That Change the Outcome](#events-outside-gates-that-change-the-outcome)）。Issuer の公開鍵のローテーションの直後なら、時間をおいた再実行で解消し得る（同節）。監査記録に未検証の値を Caller として残さない | 事実：Requirements FR-AUTHN-001、Security Design §5 |
-| **認可拒否** | Authorization Denied | Caller と要求は読み取れたが、GATES の認可条件を満たさない。保護対象に当たる対象を含む要求で、Caller が許可 Caller に当たらないか、Permissions が許可 Caller の権限の上限に水準の包含で含まれない場合を含む。リポジトリポリシーを適用するデプロイで、有効なリポジトリポリシーがない対象か、リポジトリポリシーが Caller か Permissions を許していない対象を含む場合も含む | 利用者が要求の対象か権限を直す。保護対象の一覧が GitHub の現在の状態と食い違っている場合（許可 Caller のリポジトリの改名など）は、GATES 運用者が一覧を直す。リポジトリポリシーがない、不正、または Caller か Permissions を許していない場合は、アクセスされる側のリポジトリの管理者がリポジトリポリシーを直す。監査記録には、GATES の認可で拒否したことと、満たさなかった条件が残る | 事実：Security Design §3.1、§3.6、§3.7 |
+| **認可拒否** | Authorization Denied | Caller と要求は読み取れたが、GATES の認可条件を満たさない。保護対象に当たる対象を含む要求で、Caller が許可 Caller に当たらないか、Permissions が許可 Caller の権限の上限に水準の包含で含まれない場合を含む。リポジトリポリシーを適用するデプロイで、有効なリポジトリポリシーがない対象か、リポジトリポリシーが Caller か Permissions を許していない対象を含む場合と、対象の件数が上限を超える場合も含む | 利用者が要求の対象か権限を直す。保護対象の一覧が GitHub の現在の状態と食い違っている場合（許可 Caller のリポジトリの改名など）は、GATES 運用者が一覧を直す。リポジトリポリシーがない、不正、または Caller か Permissions を許していない場合は、アクセスされる側のリポジトリの管理者がリポジトリポリシーを直す。監査記録には、GATES の認可で拒否したことと、満たさなかった条件が残る | 事実：Security Design §3.1、§3.6、§3.7。対象の件数の上限は Lambda Design §2.2 |
 | **Installation 利用不可** | Installation Unavailable | 固定した GitHub App と許可オーナーから、発行に使える Installation を得られない。GitHub が Installation を返さない、応答から Installation を作れない、停止している、インストール先 Owner ID が一致しない、発行の間に Installation か App の状態が変わった場合 | GATES 運用者かオーナーの管理者が、GitHub 側か固定設定を直す。再試行では解消しない | 事実：Lambda Design §3.2 |
 | **GitHub 発行拒否** | GitHub Issuance Rejected | GATES の認可が成立したが、GitHub 発行 API が `422` で要求を拒否した。原因は応答コードから確定できない。リポジトリポリシーを適用するデプロイで、ポリシー読み取りトークンの発行 API が `422` で拒否した場合（対象が Installation に含まれない、GitHub App に Single file の権限が付与されていないか承認されていないなど）を含む | 利用者の許可外要求とは断定せず、運用者が GitHub の発行条件・状態・応答を調べる。ポリシー読み取りトークンの拒否なら、GitHub App / オーナーの管理者が Installation の対象か GitHub App の権限を直す。トークン文字列は未取得 | 事実：Lambda Design §3.2。ポリシー読み取りトークンは Security Design §3.7、承認の前の `422` は GitHub App Constraints §4.4 の観測 |
 | **照合失敗** | Verification Failure | GitHub 発行 API の応答を取得したが、発行結果が発行許可かポリシー読み取り許可と一致しないか、実効対象のリポジトリ名と Repository ID の対応が保護対象の一覧と食い違う。ポリシー読み取りトークンの読めるファイルのパスが、リポジトリポリシーのパスだけでない場合と、利用者に返すトークンの実効対象の Repository ID が、リポジトリポリシーを読んだ対象と一致しない場合を含む。発行結果に読み取れなかった項目がある場合を含む | 運用者が設定か GitHub 側の仕様変更を調べる。保護対象の一覧との食い違いなら、GATES 運用者が一覧を GitHub の現在の状態に合わせて直す。ポリシー読み取りトークンのパスの食い違いなら、GitHub App / オーナーの管理者が Single file のパスを直す。リポジトリポリシーを読んだ対象との不一致は、対象が作り直された直後なら再実行で解消し得るが、監視の対象とし、繰り返し起きるなら名前の競合を疑う。トークン文字列を取得できた場合は失効を試みる | 事実：Requirements FR-ISSUANCE-004、FR-AUTHZ-012、Lambda Design §3.1、Security Design §3.4。リポジトリポリシーを読んだ対象との不一致が再実行で解消し得るのは推論：再実行すると、作り直した後のリポジトリのリポジトリポリシーを読み直すため |
 | **一時的な障害** | Transient Failure | Issuer の公開鍵の取得、KMS の署名、GitHub API の呼び出し（リポジトリポリシーの取得を含む）のいずれかが一時的に失敗した。通信の失敗、タイムアウト、サーバー側のエラー、レート制限を指す | 利用者の再実行で解消し得る。GATES も Docker Action も要求を自動で送り直さない（[Contexts](#contexts)） | 事実：Lambda Design §3.2、§6.4、GitHub Actions Design §3.3。リポジトリポリシーの取得は Security Design §3.7 |
-| **内部障害** | Internal Failure | 想定外の失敗。どの段階にも属さない失敗と、再試行では解消しない外部依存の異常を含む。後者は、GitHub OIDC Provider の応答が想定と異なる場合（公開する Issuer が固定した Issuer と異なる、公開鍵集合に秘密鍵の値が含まれるなど）と、再試行では解消しない理由で KMS から署名を得られない場合（鍵の無効化、権限の不足、署名として解釈できない応答など）と、照合済みのポリシー読み取りトークンでリポジトリポリシーを取得したのに、ファイルの有無を示さない拒否（権限の拒否など）が返る場合である | 運用者が調べる。再試行では解消しない | 事実：Lambda Design §3.2。リポジトリポリシーの取得の拒否は推論：照合を通ったトークンで固定のパスを読めないのは、GitHub の振る舞いが観測（GitHub App Constraints §4.5）と異なることを示し、利用者の要求にもリポジトリの内容にも起因しないため |
+| **内部障害** | Internal Failure | 想定外の失敗。どの段階にも属さない失敗と、再試行では解消しない外部依存の異常を含む。後者は、GitHub OIDC Provider の応答が想定と異なる場合（公開する Issuer が固定した Issuer と異なる、公開鍵集合に秘密鍵の値が含まれるなど）と、再試行では解消しない理由で KMS から署名を得られない場合（鍵の無効化、権限の不足、署名として解釈できない応答など）と、照合済みのポリシー読み取りトークンでリポジトリポリシーを取得したのに、ファイルの有無を示さない拒否（権限の拒否など）が返る場合である | 運用者が調べる。再試行では解消しない | 事実：Lambda Design §3.2。リポジトリポリシーの取得の拒否は推論：照合を通ったトークンで固定のパスを読めないのは、GitHub の振る舞いが観測（GitHub App Constraints §4.5）と異なることを示し、利用者の要求にもリポジトリの内容にも起因しないため。GitHub App の Single file のパスの食い違いは、取得の前に [INV-019 照合済みのポリシー読み取りトークン](#inv-019-照合済みのポリシー読み取りトークン)の照合で照合失敗になるため、この拒否に当たらない（推論：Lambda Design §6.3 から） |
 
 Installation 利用不可を認可拒否と分けるのは、利用者の要求に起因しない失敗だからです。
 認可拒否に含めると、監査記録では利用者の要求が許可外だったように見えます。
@@ -493,7 +498,7 @@ stateDiagram-v2
   validated --> rej_transient : 公開鍵の一時的な取得不能
   validated --> rej_internal : GitHub OIDC Provider の応答が想定と異なる
   authenticated --> preauthorized : 事前認可
-  authenticated --> rej_authz : Owner ID、オーナー名、権限の不一致、保護対象の条件の不成立
+  authenticated --> rej_authz : Owner ID、オーナー名、権限の不一致、保護対象の条件の不成立、適用時の対象の件数の超過
   preauthorized --> signed : 署名
   preauthorized --> rej_transient : KMS の一時的な失敗
   preauthorized --> rej_internal : 再試行では解消しない理由で署名を得られない
@@ -543,7 +548,7 @@ stateDiagram-v2
 固定設定が不変条件（[INV-004 許可オーナー](#inv-004-許可オーナー)、[INV-005 認証の固定設定](#inv-005-認証の固定設定)、[INV-006 署名の固定設定](#inv-006-署名の固定設定)、[INV-015 発行上限](#inv-015-発行上限)、[INV-016 保護対象の一覧](#inv-016-保護対象の一覧)、[INV-018 リポジトリポリシーの適用](#inv-018-リポジトリポリシーの適用)）を満たさなければ、その実行環境は受け取った Invoke に対して発行処理を始めません（推論：不変条件を満たさない値を作らない方針から）。
 発行処理を始めない Invoke は、中断と異なり、監査記録を残さず、GitHub 側にトークンを残すこともありません（推論：GitHub API を呼ばないため）。
 
-認可が事前認可と発行許可の確定の二段に分かれるのは、Installation を取得しないとインストール先 Owner ID を照合できず、Installation の取得には署名済みの GitHub App JWT が要るためです（推論：Lambda Design §5 手順 3 から 5 の順序から）。
+認可が事前認可と発行許可の確定の二段に分かれるのは、Installation を取得しないとインストール先 Owner ID を照合できず、Installation の取得には署名済みの GitHub App JWT が要るためです（推論：Lambda Design §5 の手順 3、手順 4、手順 7 の順序から）。
 事前認可は、KMS と GitHub API を呼ぶ前に、認可の見込みがない要求を落とすための段階です（事実：Lambda Design §5）。
 リポジトリポリシーを適用するデプロイでは、リポジトリポリシーの条件は発行許可の確定でだけ判定します。
 条件の判定にはリポジトリポリシーが要り、その取得にはポリシー読み取りトークンが要り、その発行には Installation の確認が要るためです（事実：Security Design §3.1）。
@@ -828,9 +833,9 @@ GitHub が発行した後に不整合を検出して失効に失敗した場合�
 
 **時点**：確定した時点
 
-**常に成り立つこと**：リポジトリポリシーの適用が「適用する」である。[RULE-010 認可条件](#rule-010-認可条件)、[RULE-015 保護対象の認可条件](#rule-015-保護対象の認可条件)、[RULE-011 Installation の有効性](#rule-011-installation-の有効性)をすべて満たす。対象は発行要求の対象と同じ列である。Permissions は `single_file:read` だけで、発行要求の Permissions によらない。Installation ID は、RULE-011 を満たした Installation のものである
+**常に成り立つこと**：リポジトリポリシーの適用が「適用する」である。[RULE-010 認可条件](#rule-010-認可条件)、[RULE-015 保護対象の認可条件](#rule-015-保護対象の認可条件)、[RULE-011 Installation の有効性](#rule-011-installation-の有効性)をすべて満たす。対象は発行要求の対象と同じ列で、件数は対象の件数の上限以下である。Permissions は `single_file:read` だけで、発行要求の Permissions によらない。Installation ID は、RULE-011 を満たした Installation のものである
 
-**根拠**：事実：Requirements FR-ISSUANCE-002、FR-ISSUANCE-007、Security Design §3.7。対象を発行要求と同じ列にするのは推論：リポジトリポリシーを読む対象を、利用者に返すトークンの対象と一致させ、要求していないリポジトリを読まないため
+**根拠**：事実：Requirements FR-ISSUANCE-002、FR-ISSUANCE-007、Security Design §3.7。対象を発行要求と同じ列にするのは推論：リポジトリポリシーを読む対象を、利用者に返すトークンの対象と一致させ、要求していないリポジトリを読まないため。件数の上限は事実：Lambda Design §2.2（取得の時間とレート制限の消費が件数に比例するため）
 
 #### INV-014 発行処理
 
