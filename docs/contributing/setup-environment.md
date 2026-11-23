@@ -24,6 +24,9 @@ Deployment の Repository permissions は、[E2E Tests](e2e-tests.md) の事例�
 | `Issues` | `Read and write` | 書き込みの水準の発行、複数の権限の発行、水準の包含 |
 | `Commit statuses` | `Read-only` | GitHub App に付与されていて、発行上限に含まれない `statuses:read` の要求の拒否 |
 | `Pull requests` | 付与しない | 発行上限に含まれて、付与されていない `pull_requests:read` の要求の拒否 |
+| `Single file` | `Read-only`、パスは `.github/gates-policy.yml` だけ | `single_file:read` の発行と、そのトークンで読める範囲の調査（[GitHub Single File Permission](../research/github/single-file.md)） |
+
+`Single file` のパスを `.github/gates-policy.yml` のほかに加えると、`single_file:read` のトークンで読めるファイルが増えるため、加えません。
 
 ほかの Repository permissions、Organization permissions、Account permissions は付与しません。
 書き込みは `Issues` だけにし、`Contents`、`Pull requests`、`Workflows`、`Administration`、`Secrets`、`Actions` の書き込みは付与しません。
@@ -51,6 +54,7 @@ issuable_permissions = [
   "metadata:read",
   "issues:write",
   "pull_requests:read",
+  "single_file:read",
 ]
 ```
 
@@ -58,6 +62,7 @@ issuable_permissions = [
 - **`contents:read`**：`contents` は `read` だけを含め、`contents:write` の要求が GitHub に届く前に拒否されることを確かめる
 - **`pull_requests:read`**：GitHub App に付与しないが発行上限に含め、GATES の認可で止めずに GitHub に届け、GitHub App の権限による拒否を確かめる
 - GitHub App に付与した `statuses:read` は発行上限に含めず、発行上限による拒否を確かめる
+- **`single_file:read`**：検証用リポジトリのワークフローから、`single_file:read` だけのトークンを GATES を通して発行し、Single file の振る舞いを調べるために含める
 
 保護対象の一覧は、1 つ目の対象を保護対象にして試験用のリポジトリを許可 Caller にし、ほかは一覧にだけある実在しないリポジトリの名前にします。
 
@@ -74,6 +79,7 @@ protected_repositories = <<-EOT
             metadata: read
             issues: write
             pull_requests: read
+            single_file: read
     - id: "9000000001"
       name: gates-e2e-no-callers
       callers: []
