@@ -82,7 +82,7 @@ Output の `repositories` は GitHub の応答の並びのため、並びは判�
 ジョブは `contents:read` と `contents:read,issues:write` の 2 つの権限で動き、書き込みを許すトークンも失効の後に使えないことを確かめます。
 post-entrypoint はジョブの最後に動くため、後続ステップからは失効の後のトークンを試せません。
 そこで、Docker Action のステップより前に、post を持つ試験用の JavaScript の Action（[_e2e-revoked-token](../../.github/actions/_e2e-revoked-token/action.yml)）を置きます。
-Runner は post をメインの処理と逆の順で動かすため、この Action の post は Docker Action の post-entrypoint の後に動きます（[GitHub Actions Design](../design/github-actions.md)）。
+Runner は post をメインの処理と逆の順で動かすため、この Action の post は Docker Action の post-entrypoint の後に動きます（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#runner-source)）。
 
 1. 試験用の Action のメインの処理が、`RUNNER_TEMP` の下に、ほかのユーザーが読めないディレクトリを作る
 2. Docker Action がトークンを発行する

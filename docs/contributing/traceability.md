@@ -13,7 +13,7 @@ ID を付ける種類は次のとおりです。
 | `FR-` | 機能要求 | `requirements.md` | カテゴリのスラッグと、カテゴリごとの 3 桁の連番（`FR-AUTHN-001`）。スラッグは `AUTHN`（Authentication）、`AUTHZ`（Authorization）、`ISSUANCE`（Token Issuance）、`OPS`（Usability and Operations） |
 | `QR-` | 品質とセキュリティの要求 | `requirements.md` | 3 桁の連番（`QR-003`） |
 | `AC-` | 受け入れ条件 | `acceptance-criteria.md` | カテゴリのスラッグと、カテゴリごとの 3 桁の連番（`AC-AUTHZ-001`）。スラッグは `FR-` の 4 つに `QUALITY`（Quality and Security）を加えた 5 つ。`FR-` を判定する AC は、期待する結果が判定する `FR-` のカテゴリに置き、`QR-` だけを判定する AC は `QUALITY` に置く |
-| `GOJ-` | GATES 用 OIDC JWT の受理条件 | `gates-oidc-jwt-claims.md`、`gates-oidc-jwt-signature.md` | Claim 名か、規則の内容を表す名前。作り方は `gates-oidc-jwt-claims.md` に定める |
+| `GOJ-` | GATES 用 OIDC JWT の受理条件 | `oidc-jwt-claims.md`、`oidc-jwt-signature.md` | Claim 名か、規則の内容を表す名前。作り方は `oidc-jwt-claims.md` に定める |
 | `RULE-` | ドメインの規則 | `domain.md` | 3 桁の連番（`RULE-001`） |
 | `INV-` | ドメインの不変条件 | `domain.md` | 3 桁の連番（`INV-001`） |
 | `RFC7159-` | JSON の条項 | `docs/external/standards/rfc7159.md` | 条項の内容を表す名前 |
@@ -69,7 +69,7 @@ ID は定義の意味を指し、定義の書き方や置き場所を指しま�
 ## 3. Writing Definitions
 
 - 定義ごとに見出しを置き、見出しは ID、半角スペース、タイトルの順に書く（例：`#### FR-AUTHZ-001 許可オーナーの Owner ID による認可`）
-- 定義を並べる節の直下の見出しは、定義の見出しだけにする。文書の題名の直下に定義を並べず、定義だけを並べる節を設ける（例：`gates-oidc-jwt-claims.md` の `## Claims` の直下に `### GOJ-ISS …`）
+- 定義を並べる節の直下の見出しは、定義の見出しだけにする。文書の題名の直下に定義を並べず、定義だけを並べる節を設ける（例：`oidc-jwt-claims.md` の `## Claims` の直下に `### GOJ-ISS …`）
 - 定義を並べる節は、リポジトリのルートの `sdlc.yaml` の `definitions` に、見出しのテキストで登録する。節を加える、見出しを変えるときは、`sdlc.yaml` を同じ変更で直す。直さないと、`sdlc validate` が定義を見つけられず違反を報告し、`sdlc trace` が止まるためである
 - 定義を分類するときは、分類ごとに節を設け、その節の直下に定義の見出しを並べる（例：`requirements.md` の `### Authorization` の直下に `#### FR-AUTHZ-001 …`）
 - 定義を並べる節を持つファイルでは、見出しに節番号を付けない。節番号を付けると、節を加えるか並べ替えるだけで、番号の変わった見出しを `sdlc.yaml` で直すことになるためである
@@ -197,8 +197,8 @@ GATES の役割に当たる強い規範の条項は、いずれかの GOJ の Sa
 強い規範とは、Level が MUST、MUST NOT、REQUIRED、SHALL、SHALL NOT の条項です。
 それ以外の Level の条項は、標準仕様が従わない選択を許すか、義務を課さないため、網羅を求めません（関係を書くことは妨げません）。
 
-- **GATES の役割に当たる Actor の一覧**：Recipient、Relying Party のように、GATES が当たる条項の Actor を、「**Actor**：説明」の箇条書きで挙げる。`gates-oidc-jwt-claims.md` に置き、`gates-oidc-jwt-signature.md` も同じ一覧に従う
-- **適用しない標準の条項**：GATES の役割に当たる強い規範のうち、GATES に適用しない条項の ID と、適用しない理由（`nonce` の照合は認証要求を前提とする、など）を並べた表。列は Clause と Reason の 2 つで、1 行に一つの条項を、Clause の ID の順に書く。`gates-oidc-jwt-claims.md` と `gates-oidc-jwt-signature.md` のそれぞれの `## Standard Clauses Not Applied` の節に置き、条項が扱う対象が Claims Set か、直列化、JOSE Header、Discovery、JWK かによって、[Documentation Policy](docs-policy.md) の §2.3 に定める責務に合う側に挙げる。同じ条項を、関係の表の Satisfies か Narrows の行と、この表の両方には挙げない
+- **GATES の役割に当たる Actor の一覧**：Recipient、Relying Party のように、GATES が当たる条項の Actor を、「**Actor**：説明」の箇条書きで挙げる。`oidc-jwt-claims.md` に置き、`oidc-jwt-signature.md` も同じ一覧に従う
+- **適用しない標準の条項**：GATES の役割に当たる強い規範のうち、GATES に適用しない条項の ID と、適用しない理由（`nonce` の照合は認証要求を前提とする、など）を並べた表。列は Clause と Reason の 2 つで、1 行に一つの条項を、Clause の ID の順に書く。`oidc-jwt-claims.md` と `oidc-jwt-signature.md` のそれぞれの `## Standard Clauses Not Applied` の節に置き、条項が扱う対象が Claims Set か、直列化、JOSE Header、Discovery、JWK かによって、[Documentation Policy](docs-policy.md) の §2.3 に定める責務に合う側に挙げる。同じ条項を、関係の表の Satisfies か Narrows の行と、この表の両方には挙げない
 
 ## 7. Trace Annotations
 
@@ -277,7 +277,7 @@ sdlc は、`sdlc.yaml` に登録した節の定義、`trace:checks` の注釈、
 | `no table of ID kinds` | §1 の表の見出しの列（接頭辞、定めるドキュメント）を戻す |
 | `has no relation table`、`relation row has`、`None row`、`want a standard clause`、`want a GitHub clause`、`Clause "…" is not an ID`、`both Accepts and Possibly Rejects`、`table header`、`unknown Relation`、`relation table is not under a definition heading` | §6 の書式に合わせて関係の表を直す |
 | `is a strong norm of a GATES role`、`in the table of standard clauses not applied` | 条項を GOJ の Satisfies か Narrows の行に挙げるか、「適用しない標準の条項」の表に理由とともに挙げる。両方には挙げない |
-| `no list of the Actors that are GATES roles` | GATES OIDC JWT Claims の「GATES の役割に当たる Actor」の見出しと、「**Actor**：説明」の箇条書きを戻す |
+| `no list of the Actors that are GATES roles` | OIDC JWT Claims の「GATES の役割に当たる Actor」の見出しと、「**Actor**：説明」の箇条書きを戻す |
 | `has neither trace:formalizes nor trace:unformalized`、`has both`、`is Unconfirmed` | 条項か GOJ を形式化して `trace:formalizes` を置くか、`trace:unformalized` と理由を書く。Evidence が Unconfirmed の条項からは注釈を除く |
 | `has no trace:checks listing both IDs on …` | 報告が示す種類の検査（形式化しない GOJ か条項では Go のテストでもよい）に、GOJ と条項の両方の ID を挙げた `trace:checks` を置く。既にあるなら、期待する判定が関係の種類に合っているかを確かめる |
 | `which no relation row of … links`、`which is not a Possibly Rejects relation` | 関係の行を削除したか種類を変えたなら、検査の `trace:checks` から ID を外すか、検査を直す。関係の行を書き忘れたなら、行を加える |

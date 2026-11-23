@@ -7,12 +7,12 @@ import (
 	"strings"
 )
 
-// The Traceability Policy and the GATES OIDC JWT Claims hold the lists the
+// The Traceability Policy and the OIDC JWT Claims hold the lists the
 // check reads besides the definitions: the ID kinds and the Actors that are
 // GATES roles.
 const (
 	idKindsDocument = "docs/contributing/traceability.md"
-	actorsDocument  = "docs/design/gates-oidc-jwt-claims.md"
+	actorsDocument  = "docs/design/oidc-jwt-claims.md"
 	actorSection    = "GATES の役割に当たる Actor"
 )
 

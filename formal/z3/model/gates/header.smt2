@@ -1,5 +1,5 @@
 ; GATES, JOSE HEADER -- the GOJ acceptance rules on the decoded JOSE Header.
-; Source of truth: docs/design/gates-oidc-jwt-signature.md. Each predicate is
+; Source of truth: docs/design/oidc-jwt-signature.md. Each predicate is
 ; one GOJ decision; gates-header-accepted is their conjunction. The rules on
 ; Discovery, JWKs and the signature are formalized with the signature model.
 

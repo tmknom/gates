@@ -1,5 +1,5 @@
 ; GATES, CLAIMS SET -- the GOJ acceptance rules on the decoded Claims Set.
-; Source of truth: docs/design/gates-oidc-jwt-claims.md. Each predicate is one
+; Source of truth: docs/design/oidc-jwt-claims.md. Each predicate is one
 ; GOJ decision; gates-claims-accepted is their conjunction.
 
 ; GATES reads a Claim only under the name that equals it exactly.

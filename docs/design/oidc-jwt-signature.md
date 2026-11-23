@@ -1,10 +1,10 @@
-# GATES OIDC JWT Signature
+# OIDC JWT Signature
 
 本ドキュメントは、GATES 用 OIDC JWT の直列化、JOSE Header、署名の検証鍵に GATES が課す受理条件を定めます。
-Claims Set の受理条件は [GATES OIDC JWT Claims](gates-oidc-jwt-claims.md) に定め、規則の ID、関係の表の読み方、受理の分類、GATES の役割に当たる Actor、GATES 用 OIDC JWT を ID Token として扱わないことも、そちらに従います。
+Claims Set の受理条件は [OIDC JWT Claims](oidc-jwt-claims.md) に定め、規則の ID、関係の表の読み方、受理の分類、GATES の役割に当たる Actor、GATES 用 OIDC JWT を ID Token として扱わないことも、そちらに従います。
 各規則の ID は同じ `GOJ-` の接頭辞で始まります。
 
-Discovery / JWKS の取得時刻、キャッシュの存続、再取得の上限、タイムアウト、応答サイズ、失敗時の戻り値は本書の受理条件ではなく、OIDC Verifier のコンポーネント設計が扱います。
+Discovery / JWKS の取得時刻、キャッシュの存続、再取得の上限、タイムアウト、応答サイズ、失敗時の戻り値は本ドキュメントの受理条件ではなく、OIDC Verifier のコンポーネント設計が扱います。
 
 ## Serialization
 
@@ -19,7 +19,7 @@ Discovery / JWKS の取得時刻、キャッシュの存続、再取得の上限
 | Narrows | RFC7519-SERIALIZATION | JWE Compact Serialization を拒否する。GATES 用 OIDC JWT は署名した JWT で、GATES は復号の鍵を持たないため |
 | Accepts | GH-OIDC-HEADER-OBSERVED | なし |
 
-JWS Compact Serialization だけを受理し、3部分以外の形、JSON Serialization、Base64URL 以外の文字、余分な padding・空白は拒否します。
+JWS Compact Serialization だけを受理し、3部分以外の形、JSON Serialization、Base64url 以外の文字、余分な padding・空白は拒否します。
 
 JWT の生の文字列に CR / LF を含む場合も拒否します。JWS Compact Serialization の符号化された構成要素に改行を含めることはできず、検証ライブラリが読み飛ばす挙動を受理条件の代用にしません。
 
@@ -146,7 +146,7 @@ JOSE Header で、エスケープ解除後に同一となる JSON 名の重複�
 ## Discovery
 
 GitHub の Discovery の Metadata は、`authorization_endpoint` と `token_endpoint` を持ちません（GH-OIDC-DISCOVERY-MEMBERS）。
-OpenID Provider には OIDCD-AUTHORIZATION-ENDPOINT-REQUIRED と OIDCD-TOKEN-ENDPOINT-REQUIRED が課され、GitHub の Metadata は OpenID Provider Metadata の要求を満たしません。
+OpenID Provider には OIDCD-AUTHORIZATION-ENDPOINT-REQUIRED が課され、Implicit Flow だけを使う場合を除いて OIDCD-TOKEN-ENDPOINT-REQUIRED も課されるため、GitHub の Metadata は OpenID Provider Metadata の要求を満たしません。
 ただし、Metadata の不足だけで個々の JWT の署名・Claim が不正だと断定することはできません。
 GATES は、認証 Endpoint、`client_id`、`nonce` を前提にした OpenID Connect の認証フローを実行せず、Metadata のうち `issuer` と `jwks_uri` だけを使います。
 完全な Discovery クライアントとして標準準拠しているとは主張しません。
@@ -170,9 +170,8 @@ GATES は、認証 Endpoint、`client_id`、`nonce` を前提にした OpenID Co
 | Accepts | GH-OIDC-DISCOVERY-LOCATION | なし |
 | Accepts | GH-OIDC-ISS | なし |
 
-署名検証鍵は、[GATES OIDC JWT Claims](gates-oidc-jwt-claims.md) の GOJ-ISS の固定 Issuer の検証済み Discovery / JWKS だけから得ます。
-固定 Issuer の Discovery を、サーバー証明書を検証する HTTPS で、リダイレクトに従わずに取得し、**一致を確認した `issuer`** だけを使用します。
-Discovery に異なる `issuer` があればその Metadata を利用しません。
+署名検証鍵は、[OIDC JWT Claims](oidc-jwt-claims.md) の GOJ-ISS の固定 Issuer の検証済み Discovery / JWKS だけから得ます。
+固定 Issuer の Discovery を、サーバー証明書を検証する HTTPS で、リダイレクトに従わずに取得し、`issuer` が固定 Issuer と **一致することを確認した Metadata** だけを使用します。
 
 ### GOJ-DISCOVERY-JWKS-URI 鍵の取得先
 
@@ -185,7 +184,7 @@ Discovery に異なる `issuer` があればその Metadata を利用しませ�
 | Satisfies | RFC8725-ISS-KEY-VALIDATE | GOJ-ISS とともに満たす。`iss` を固定の Issuer に限り、鍵をその Issuer の `jwks_uri` だけから得る |
 | Accepts | GH-OIDC-DISCOVERY-JWKS-URI | なし |
 
-一致を確認した `issuer` を持つ Discovery の JWKS の取得先 `jwks_uri` だけを使用します。
+一致を確認した Metadata の `jwks_uri` だけを JWKS の取得先として使用します。
 JWKS の URL は Issuer と同じ HTTPS のホスト・ポートに制限し、リダイレクトに従いません。
 JWT の Header やリクエストが任意の鍵取得 URL を指定することも許しません。
 
@@ -269,7 +268,7 @@ JWK は、名前の重複のない JSON オブジェクトとします。未知�
 | Accepts | GH-OIDC-JWKS-X5C | なし |
 | Accepts | GH-OIDC-JWKS-X5C-KEY | なし |
 
-RFC 7517 §4.7 は、`x5c` を Base64（Base64URL ではない）で表した X.509 証明書の配列とし、先頭証明書の公開鍵が JWK の公開鍵パラメーターと一致することを **MUST** とします。`use`、`alg` などの関連メンバーも、証明書に記載された対応情報と意味的に整合することが **MUST** です（[RFC 7517 §4.6–§4.7](https://www.rfc-editor.org/rfc/rfc7517.html#section-4.7)）。§4.8–§4.9 は、`x5t` と `x5t#S256` を証明書の指紋とし、`x5u` を証明書の URI とします。これらの規定は [RFC 7517 JSON Web Key](../external/standards/rfc7517.md) の条項の対象外のため、関係の表に挙げていません。
+RFC 7517 §4.7 は、`x5c` を Base64（Base64url ではない）で表した X.509 証明書の配列とし、先頭証明書の公開鍵が JWK の公開鍵パラメーターと一致することを **MUST** とします。`use`、`alg` などの関連メンバーも、証明書に記載された対応情報と意味的に整合することが **MUST** です（[RFC 7517 §4.6–§4.7](https://www.rfc-editor.org/rfc/rfc7517.html#section-4.7)）。§4.6 は `x5u` を証明書の URI とし、§4.8–§4.9 は `x5t` と `x5t#S256` を証明書の指紋とします。これらの規定は [RFC 7517 JSON Web Key](../external/standards/rfc7517.md) の条項の対象外のため、関係の表に挙げていません。
 
 `x5c` があれば、1件以上の文字列を含む配列として読み、各要素が Base64 DER の X.509 証明書として解析できることを要求します。先頭証明書には RSA 公開鍵を要求し、その `n` / `e` を JWK と一致させます。証明書に Key Usage がある場合は、署名用途と矛盾しない `digitalSignature` を要求します。`alg=RS256` は証明書の公開鍵アルゴリズム・用途と整合させ、**証明書自身の発行者による署名アルゴリズムが `RS256` と同じであることは要求しません**。これらに不一致があれば、その JWK は受理条件を満たしません。RFC 7517 §4.6 は `alg` が「証明書に指定されたアルゴリズム」と対応することを求めますが、どのフィールドかを定めていません。GATES はこれを公開鍵のアルゴリズムと解釈します。発行者の署名アルゴリズムは発行者が証明書に署名した方式であり、この鍵で JWT を検証する方式ではないためです。`x5c` 自体は必須ではありません。
 
@@ -310,7 +309,7 @@ JWKS の JSON 不正、`keys` が配列でない、集合ルートに名前の�
 | Satisfies | RFC9964-AKP-PRIV-PUBLIC-KEY | なし |
 | Accepts | GH-OIDC-JWKS-RSA-MEMBERS | なし |
 
-JWKS 内のいずれかの JWK が `kty=oct`、または `kty` を問わず秘密鍵・対称鍵の値のメンバー（対称鍵の `k`、秘密鍵の `d`、`p`、`q`、`dp`、`dq`、`qi`、`oth`、AKP 鍵の秘密鍵の `priv`）を含む場合は、名前の重複などでその JWK を JWK として読めなくても、またほかに正常な鍵があっても、JWKS 全体を拒否し、内部障害とします。該当する値はログ・エラー応答に出しません。
+JWKS 内のいずれかの JWK が `kty=oct`、または `kty` を問わず秘密鍵・対称鍵の値のメンバー（対称鍵の `k`、秘密鍵の `d`、`p`、`q`、`dp`、`dq`、`qi`、`oth`、AKP 鍵の秘密鍵の `priv`）を含む場合は、名前の重複などでその JWK を JWK として読めなくても、またほかに使用可能な鍵があっても、JWKS 全体を拒否し、内部障害とします。該当する値はログ・エラー応答に出しません。
 どのメンバーが秘密の情報かは、RFC7518-EC-PRIVATE-D、RFC7518-RSA-PRIVATE-MEMBERS、RFC7518-OCT-KEY-VALUE、RFC9964-AKP-PRIV-PUBLIC-KEY に従います。
 
 秘密鍵・対称鍵の値を含む JWKS は OpenID Provider が作ってはならないもので（OIDCD-JWKS-NO-PRIVATE）、その JWK だけを除外せず集合全体を拒否するのは GATES の追加制約です。
@@ -372,12 +371,12 @@ JWK の受理条件（GOJ-JWK-JSON、GOJ-JWK-RSA、GOJ-JWK-KID、GOJ-JWK-USAGE�
 ## Standard Clauses Not Applied
 
 GATES の役割に当たる強い規範の条項のうち、直列化、JOSE Header、Discovery、JWK を扱い、GATES に適用しない条項です。
-GATES の役割に当たる Actor と、Claims Set を扱う条項は [GATES OIDC JWT Claims](gates-oidc-jwt-claims.md) に挙げます。
+GATES の役割に当たる Actor と、Claims Set を扱う条項は [OIDC JWT Claims](oidc-jwt-claims.md) に挙げます。
 
 | Clause | Reason |
 |---|---|
 | OIDCC-CODE-ISSUER-KEYS | Authorization Code Flow の Token Response に含まれる ID Token に限る。GATES は Issuer の鍵だけを使う（GOJ-DISCOVERY-JWKS-URI） |
-| OIDCC-CODE-SIGNATURE-VALIDATE | Authorization Code Flow の ID Token に限る。GATES は GOJ-SIGNATURE で署名を検証する |
+| OIDCC-CODE-SIGNATURE-VALIDATE | Client と Token Endpoint の直接の通信以外で受け取る ID Token に限る。GATES は GOJ-SIGNATURE で署名を検証する |
 | OIDCC-IMPLICIT-SIGNATURE | Implicit Flow の ID Token に限る |
 | OIDCC-SIGNING-MAC-PUBLIC-CLIENT | 公開 Client の Relying Party に限る。GATES は OpenID Provider に登録した Client ではなく、MAC による署名を受理しない（GOJ-HEADER-ALG） |
 | OIDCD-CONFIG-ISSUER-ID-TOKEN | ID Token に限る。GATES は `iss`（GOJ-ISS）と Discovery の `issuer`（GOJ-DISCOVERY-ISSUER）を、同じ固定の Issuer と照合する |

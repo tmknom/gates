@@ -93,8 +93,8 @@ flowchart TD
 | `architecture.md` | コンポーネントの全体構成と処理の流れ |
 | `domain.md` | 概念の名前、意味、ルール、不変条件 |
 | `security.md` | 信頼境界、認証・認可、資格情報の保護、失敗時の扱い |
-| `gates-oidc-jwt-claims.md` | GATES 用 OIDC JWT の Claim の受理条件 |
-| `gates-oidc-jwt-signature.md` | GATES 用 OIDC JWT の直列化、JOSE Header、Discovery、JWK の受理条件 |
+| `oidc-jwt-claims.md` | GATES 用 OIDC JWT の Claim の受理条件 |
+| `oidc-jwt-signature.md` | GATES 用 OIDC JWT の直列化、JOSE Header、Discovery、JWK の受理条件 |
 | `lambda.md` | Lambda の入出力契約、コンポーネント、外部連携、GitHub App JWT の生成条件 |
 | `aws-infrastructure.md` | AWS リソースの構成 |
 | `github-actions.md` | Docker Action の入出力と処理手順 |
@@ -169,6 +169,7 @@ GATES の開発に固有でない運用者の手順は、`docs/user-guide/` を�
 - **安全に関わる注意は目立たせる**：トークンで操作できる範囲と権限を決めるもの、トークンを受け取るジョブの分け方、Action の参照の仕方のように、守らないと被害につながる注意は、但し書きに埋めず、見出しか箇条書きで示す
 - **理由は必要な箇所にだけ**：理由は、省くと誤りや危険を招く手順にだけ添える
 - **実装の詳細を書かない**：内部の処理、検証のアルゴリズム、読者が操作しない設定の値は書かない。読者が実行して確かめる出力に現れるもの（Plan に現れるリソースの名前など）は書いてよい
+- **実行環境で変わる値を書かない**：Docker Action のイメージのビルド時間のように、Runner や回線で変わる値は書かず、ジョブのたびにビルドするといった事実だけを書く。値を書くと、読者の実測と食い違い得るためである
 - **検証の有無を書かない**：検証環境で確かめたかどうかの注記は書かない。根拠は `docs/research/` が持つ。公式ドキュメントか GATES の設計に基づく事柄は、注記を添えずに書き、どちらにも基づかない推測は書かない。確かめていないことが導入の判断を変えるとき（たとえば、Organization を許可オーナーにした構成）に限り、`overview.md` の制約として一度だけ書く
 
 `docs/user-guide/` の中の依存は、次の向きを基準にします。
@@ -244,8 +245,8 @@ flowchart TD
     security --> domain
     actions --> domain
     infra --> domain
-    lambda --> claims["gates-oidc-jwt-claims.md"]
-    lambda --> signature["gates-oidc-jwt-signature.md"]
+    lambda --> claims["oidc-jwt-claims.md"]
+    lambda --> signature["oidc-jwt-signature.md"]
     security --> claims
     security --> signature
     actions --> claims
@@ -280,6 +281,10 @@ flowchart TD
 | `docs/external/`、`docs/research/` | 外部仕様の用語を使う。`domain.md` の概念名を持ち込まない |
 | `docs/user-guide/` | `domain.md` の概念名を使い、`overview.md` の用語の節で一度だけ平易な説明を添える（例：「許可オーナー：GATES がトークンを発行してよいと設定した GitHub のアカウント」）。`domain.md` へのリンクは求めない |
 
+コードでは、概念の英語名から空白を除いた形（Token Request を TokenRequest に）を型名と関数名にし、`domain.md` との整合はこの対応で確かめます。
+package 名が概念名の一部を表すときは、型名からその部分を除きます（Revocation Outcome を revocation package の Outcome に、Signature-Verified Claims Set を claimsset package の SignatureVerified に、Success Response を response package の Success にするなど）。
+Lambda のコードに現れる OIDC JWT は GATES 用 OIDC JWT だけのため、型名から GATES を除きます（Unverified GATES OIDC JWT を UnverifiedOIDCJWT にするなど）。
+
 外部仕様の用語と概念名の対応は、`docs/design/` の側に書きます。
 
 概念名の変更に伴う `CONSTITUTION.md`、`architecture.md`、`requirements.md`、`acceptance-criteria.md`、`scope.md` の語の置き換えは、`CONSTITUTION.md` が他のドキュメントに依存しないという規則と、`docs/spec/` が `docs/design/` に依存しないという規則と、`architecture.md` が `docs/design/` の他のドキュメントに依存しないという規則の例外です。
@@ -299,7 +304,7 @@ flowchart TD
 | 受け入れ条件 | `acceptance-criteria.md` | `docs/design/`、テスト、`formal/` |
 | コンポーネントの全体構成と処理の流れ | `architecture.md` | `docs/design/` の他のドキュメント、`docs/user-guide/` |
 | 概念の名前と意味 | `domain.md` | `requirements.md`、`acceptance-criteria.md`、`scope.md`、`docs/design/` の他のドキュメント、`docs/user-guide/`、コード、`formal/` |
-| GATES 用 OIDC JWT の Claim・JOSE・JWK の受理条件 | `gates-oidc-jwt-claims.md`、`gates-oidc-jwt-signature.md` | `docs/design/` の他のドキュメント、`docs/user-guide/`、コード |
+| GATES 用 OIDC JWT の Claim・JOSE・JWK の受理条件 | `oidc-jwt-claims.md`、`oidc-jwt-signature.md` | `docs/design/` の他のドキュメント、`docs/user-guide/`、コード |
 | Docker Action の入出力と処理手順 | `github-actions.md` | `docs/user-guide/`、コード |
 | 運用者の手順（デプロイ、鍵素材のインポート、鍵の更新、配布物の検証） | `docs/user-guide/` | `docs/contributing/` |
 
