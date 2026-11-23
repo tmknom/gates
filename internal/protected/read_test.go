@@ -4,7 +4,8 @@ import (
 	"slices"
 	"testing"
 
-	yaml "go.yaml.in/yaml/v3"
+	"github.com/tmknom/gates/internal/allowedcaller"
+	"github.com/tmknom/gates/internal/strictyaml"
 )
 
 func TestReadDocument(t *testing.T) {
@@ -16,21 +17,21 @@ func TestReadDocument(t *testing.T) {
 		t.Fatalf("len(repositories) = %d, want 2", len(got))
 	}
 	first, second := got[0], got[1]
-	if first.id.Int64() != 200 || first.name != "platform-infra" || len(first.callers) != 1 {
-		t.Errorf("repositories[0] = %d %q with %d callers, want 200 %q with 1 caller", first.id.Int64(), first.name, len(first.callers), "platform-infra")
+	if first.id.Int64() != 200 || first.name != "platform-infra" {
+		t.Errorf("repositories[0] = %d %q, want 200 %q", first.id.Int64(), first.name, "platform-infra")
 	}
-	if second.id.Int64() != 201 || second.name != "audit-records" || len(second.callers) != 0 {
-		t.Errorf("repositories[1] = %d %q with %d callers, want 201 %q with no caller", second.id.Int64(), second.name, len(second.callers), "audit-records")
+	if second.id.Int64() != 201 || second.name != "audit-records" {
+		t.Errorf("repositories[1] = %d %q, want 201 %q", second.id.Int64(), second.name, "audit-records")
 	}
-	caller := first.callers[0]
-	if caller.repositoryID.Int64() != 100 || caller.repositoryName != "deploy-tools" {
-		t.Errorf("callers[0] = %d %q, want 100 %q", caller.repositoryID.Int64(), caller.repositoryName, "deploy-tools")
+	deployTools := mustRepositoryID(t, 100)
+	if verdict, k := first.callers.Authorize(deployTools, "deploy-tools", mustNewPermissions(t, map[string]string{"contents": "write", "pull_requests": "read"})); verdict != allowedcaller.Allowed || k != 0 {
+		t.Errorf("repositories[0].callers verdict for deploy-tools = %v at %d, want Allowed at 0", verdict, k)
 	}
-	if !caller.limit.Contains(mustNewPermissions(t, map[string]string{"contents": "write", "pull_requests": "read"})) {
-		t.Error("callers[0].limit does not contain contents:write and pull_requests:read")
+	if verdict, _ := first.callers.Authorize(deployTools, "deploy-tools", mustNewPermissions(t, map[string]string{"pull_requests": "write"})); verdict != allowedcaller.ExceedsPermissionLimit {
+		t.Errorf("repositories[0].callers verdict for pull_requests:write = %v, want ExceedsPermissionLimit", verdict)
 	}
-	if caller.limit.Contains(mustNewPermissions(t, map[string]string{"pull_requests": "write"})) {
-		t.Error("callers[0].limit contains pull_requests:write")
+	if verdict, _ := second.callers.Authorize(deployTools, "deploy-tools", mustNewPermissions(t, map[string]string{"contents": "read"})); verdict != allowedcaller.NoAllowedCallers {
+		t.Errorf("repositories[1].callers verdict = %v, want NoAllowedCallers", verdict)
 	}
 }
 
@@ -243,11 +244,11 @@ func TestReadDocument_DoesNotDescendIntoInvalidValues(t *testing.T) {
 // read は、文字列の検査と文書の数を通る文書の構文木を読み、読み取りの結果と条件を返す。
 func read(t *testing.T, document string) ([]protectedRepository, []string) {
 	t.Helper()
-	var root yaml.Node
-	if err := yaml.Unmarshal([]byte(document), &root); err != nil {
-		t.Fatalf("Unmarshal returned error: %v", err)
+	var c strictyaml.Conditions
+	root, ok := strictyaml.Decode(document, &c)
+	if !ok || len(c.List()) > 0 {
+		t.Fatalf("Decode = %v with conditions %q, want true without conditions", ok, c.List())
 	}
-	var c conditions
-	got := readDocument(&root, &c)
-	return got, c.list
+	got := readDocument(root, &c)
+	return got, c.List()
 }

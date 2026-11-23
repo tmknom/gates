@@ -5,8 +5,8 @@ package protected
 import (
 	"errors"
 
+	"github.com/tmknom/gates/internal/allowedcaller"
 	"github.com/tmknom/gates/internal/githubid"
-	"github.com/tmknom/gates/internal/permission"
 )
 
 // Repositories は、保護対象の一覧である。
@@ -21,14 +21,7 @@ type Repositories struct {
 type protectedRepository struct {
 	id      githubid.RepositoryID
 	name    string
-	callers []allowedCaller
-}
-
-// allowedCaller は、許可 Caller である。Repository ID とリポジトリ名の両方が Caller と一致するときだけ当たる。
-type allowedCaller struct {
-	repositoryID   githubid.RepositoryID
-	repositoryName string
-	limit          permission.Limit
+	callers allowedcaller.Set
 }
 
 // errUninitialized は、Parse を経ていないゼロ値の一覧で判定したことを表す。保護対象なしと読まずに拒否する。

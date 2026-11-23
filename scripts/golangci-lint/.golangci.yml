@@ -128,21 +128,21 @@ linters:
           deny:
             - pkg: gopkg.in/yaml.v3
               desc: archived; use go.yaml.in/yaml/v3
-        # YAML のライブラリは、保護対象の一覧を読む internal/protected だけが使う。拒否する YAML の機能と構文木の読み方を一つの package に閉じるため。
+        # YAML のライブラリは、保護対象の一覧とリポジトリポリシーの文書を読む internal/strictyaml だけが使う。拒否する YAML の機能と構文木の読み方を一つの package に閉じるため。
         # 否定だけの files は全ファイルに効くため、Docker Action のモジュールでも拒否する
         yaml-library:
           list-mode: lax
           files:
-            - "!**/internal/protected/**"
+            - "!**/internal/strictyaml/**"
           deny:
             - pkg: go.yaml.in/yaml
-              desc: only internal/protected may use the YAML library
-        # 保護対象の一覧は通信せず、外部ライブラリは YAML のライブラリだけを使い、ドメインの値の package だけを参照する。
+              desc: only internal/strictyaml may use the YAML library
+        # 文書の読み取りは通信せず、外部ライブラリは YAML のライブラリだけを使い、ドメインの値の package だけを参照する。
         # no-communication に加えないのは、その規則が外部ライブラリを持たない package の規則で、YAML のライブラリを許すと食い違うため
-        protected-dependencies:
+        strictyaml-dependencies:
           list-mode: strict
           files:
-            - "**/internal/protected/**"
+            - "**/internal/strictyaml/**"
             - "!**/actions/issue-token/**"
           allow:
             - $gostd
@@ -152,9 +152,62 @@ linters:
             - go.yaml.in/yaml/v3$
           deny:
             - pkg: net
+              desc: internal/strictyaml must not communicate
+            - pkg: crypto/tls
+              desc: internal/strictyaml must not communicate
+        # 許可 Caller の集合は通信せず、文書の読み取りとドメインの値の package だけを参照する
+        allowedcaller-dependencies:
+          list-mode: strict
+          files:
+            - "**/internal/allowedcaller/**"
+            - "!**/actions/issue-token/**"
+          allow:
+            - $gostd
+            - github.com/tmknom/gates/internal/githubid$
+            - github.com/tmknom/gates/internal/permission$
+            - github.com/tmknom/gates/internal/repository$
+            - github.com/tmknom/gates/internal/strictyaml$
+          deny:
+            - pkg: net
+              desc: internal/allowedcaller must not communicate
+            - pkg: crypto/tls
+              desc: internal/allowedcaller must not communicate
+        # 保護対象の一覧は通信せず、文書の読み取り、許可 Caller の集合、ドメインの値の package だけを参照する
+        protected-dependencies:
+          list-mode: strict
+          files:
+            - "**/internal/protected/**"
+            - "!**/actions/issue-token/**"
+          allow:
+            - $gostd
+            - github.com/tmknom/gates/internal/allowedcaller$
+            - github.com/tmknom/gates/internal/githubid$
+            - github.com/tmknom/gates/internal/permission$
+            - github.com/tmknom/gates/internal/repository$
+            - github.com/tmknom/gates/internal/strictyaml$
+          deny:
+            - pkg: net
               desc: internal/protected must not communicate
             - pkg: crypto/tls
               desc: internal/protected must not communicate
+        # リポジトリポリシーの読み取りと判定は通信せず、文書の読み取り、許可 Caller の集合、ドメインの値の package だけを参照する。
+        # 保護対象の一覧と互いに参照しないため、internal/protected を許可しない
+        repositorypolicy-dependencies:
+          list-mode: strict
+          files:
+            - "**/internal/repositorypolicy/**"
+            - "!**/actions/issue-token/**"
+          allow:
+            - $gostd
+            - github.com/tmknom/gates/internal/allowedcaller$
+            - github.com/tmknom/gates/internal/githubid$
+            - github.com/tmknom/gates/internal/permission$
+            - github.com/tmknom/gates/internal/strictyaml$
+          deny:
+            - pkg: net
+              desc: internal/repositorypolicy must not communicate
+            - pkg: crypto/tls
+              desc: internal/repositorypolicy must not communicate
         # 入力、固定設定、認可の処理と、ドメインの値の package は、通信と外部ライブラリを持たない。副作用をこれらの package に入れず、テストを通信なしで書けるようにするため
         no-communication:
           list-mode: lax

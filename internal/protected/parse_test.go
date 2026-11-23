@@ -2,45 +2,9 @@ package protected
 
 import (
 	"errors"
-	"slices"
 	"strings"
 	"testing"
 )
-
-func TestDecodeDocument(t *testing.T) {
-	var c conditions
-	if _, ok := decodeDocument("repositories: []\n", &c); !ok || len(c.list) != 0 {
-		t.Errorf("decodeDocument = %v with conditions %q, want true without conditions", ok, c.list)
-	}
-}
-
-func TestDecodeDocument_Invalid(t *testing.T) {
-	tests := []struct {
-		name     string
-		document string
-		ok       bool
-		want     []string
-	}{
-		{name: "empty string is not a mapping", document: "", want: []string{"document must be a mapping"}},
-		{name: "comment only is not a mapping", document: "# repositories: []\n", want: []string{"document must be a mapping"}},
-		{name: "syntax error returns its line without the library message", document: "repositories: []\nsecret: [\n", want: []string{"line 2: is not valid YAML"}},
-		{name: "syntax error without a line returns no position", document: "repositories: \x00\n", want: []string{"is not valid YAML"}},
-		{name: "second document returns the condition", document: "repositories: []\n---\nrepositories: []\n", ok: true, want: []string{"must be a single document"}},
-		{name: "empty second document returns the condition", document: "repositories: []\n---\n", ok: true, want: []string{"must be a single document"}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var c conditions
-			_, ok := decodeDocument(tt.document, &c)
-			if ok != tt.ok {
-				t.Errorf("decodeDocument(%q) = %v, want %v", tt.document, ok, tt.ok)
-			}
-			if !slices.Equal(c.list, tt.want) {
-				t.Errorf("decodeDocument(%q) conditions = %q, want %q", tt.document, c.list, tt.want)
-			}
-		})
-	}
-}
 
 func TestParse(t *testing.T) {
 	tests := []struct {

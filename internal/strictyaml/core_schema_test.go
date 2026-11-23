@@ -1,4 +1,4 @@
-package protected
+package strictyaml
 
 import "testing"
 

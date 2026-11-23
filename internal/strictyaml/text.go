@@ -1,4 +1,4 @@
-package protected
+package strictyaml
 
 import (
 	"strings"
@@ -10,24 +10,24 @@ import (
 //
 // 見分け方と、それが正しい値を拒否しない理由は Lambda Design の「保護対象の一覧の書式」に記述する。
 // 引用符の中の " #" をコメントの始まりと読み違えて ! を見逃すのは、引用符の中に空白と # を含む値を持つ文書で、どの値の文字種にも合わずに別の理由で拒否される。
-func scanText(document string, c *conditions) bool {
+func scanText(document string, c *Conditions) bool {
 	if !utf8.ValidString(document) {
-		c.add("must be valid UTF-8")
+		c.Add("must be valid UTF-8")
 		return false
 	}
 	if strings.ContainsRune(document, '\uFEFF') {
-		c.add("must not contain a byte order mark")
+		c.Add("must not contain a byte order mark")
 	}
 	if strings.ContainsAny(document, "\u0085\u2028\u2029") {
-		c.add("must not contain NEL, LS, or PS")
+		c.Add("must not contain NEL, LS, or PS")
 	}
 	for i, line := range lines(document) {
 		// %TAG のディレクティブは ! を含むため、ディレクティブの行はタグとして重ねて報告しない
 		switch {
 		case strings.HasPrefix(line, "%"):
-			c.add("line %d: must not have a directive", i+1)
+			c.Add("line %d: must not have a directive", i+1)
 		case strings.Contains(withoutComment(line), "!"):
-			c.add("line %d: must not have an explicit tag", i+1)
+			c.Add("line %d: must not have an explicit tag", i+1)
 		}
 	}
 	return true
