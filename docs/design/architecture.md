@@ -30,6 +30,8 @@ flowchart LR
   K -->|署名| L
   L -->|App JWT / Installation・Token API| API
   API -->|Installation 情報 / Token 発行応答| L
+  L -->|ポリシー読み取りトークン / リポジトリポリシーの取得と失効| API
+  API -->|リポジトリポリシー| L
   L -->|発行結果| A
   A -->|失敗時の失効、ジョブの終了時の失効| API
 ```
@@ -43,9 +45,9 @@ Docker Action は、AWS STS から AWS 一時認証情報を取得し、AWS Lamb
 | GitHub Actions / Docker Action | 利用者の要求を受け付け、OIDC JWT の取得、AWS 認証、Lambda Invoke、発行結果の受け取り、受け取ったトークンの失効（失敗時の失効、ジョブの終了時の失効）を行う | 対象リポジトリ・権限・接続情報 → GitHub OIDC JWT、AWS 一時認証情報、Installation Access Token |
 | GitHub OIDC Provider | GitHub Actions のワークフロー実行を表す OIDC JWT を発行し、検証用の公開鍵情報を提供する | Audience → OIDC JWT、Discovery / JWKS |
 | AWS STS | AWS 用 OIDC JWT を受け、Lambda 呼び出しに使う AWS 一時認証情報を発行する | OIDC JWT → AWS 一時認証情報 |
-| AWS Lambda / Go アプリケーション | GATES 用 OIDC JWT と要求を受け、Caller の識別、対象と権限の確認（保護対象の一覧の許可 Caller と権限の上限で、保護対象ごとに要求できる Caller と権限を制限することを含む）、Installation Access Token の発行を行う | Invoke Payload → 発行結果またはエラー |
+| AWS Lambda / Go アプリケーション | GATES 用 OIDC JWT と要求を受け、Caller の識別、対象と権限の確認（保護対象の一覧の許可 Caller と権限の上限で、保護対象ごとに要求できる Caller と権限を制限することを含む）、Installation Access Token の発行を行う。リポジトリポリシーを適用するデプロイでは、ポリシー読み取りトークンで各対象のリポジトリポリシーを読み、その許可 Caller と権限の上限でも要求を制限する | Invoke Payload → 発行結果またはエラー |
 | AWS KMS | インポート済み GitHub App Private Key による署名を実行する | 署名対象のダイジェスト → 署名 |
-| GitHub API | 許可オーナーに対する Installation を返し、指定した対象・権限で Installation Access Token を発行し、失効の要求を受けたトークンを失効させる | GitHub App JWT、対象・権限 → Installation 情報、Installation Access Token。失効では Installation Access Token → 失効の結果 |
+| GitHub API | 許可オーナーに対する Installation を返し、指定した対象・権限で Installation Access Token とポリシー読み取りトークンを発行し、対象のリポジトリの既定ブランチにあるリポジトリポリシーを返し、失効の要求を受けたトークンを失効させる | GitHub App JWT、対象・権限 → Installation 情報、Installation Access Token、ポリシー読み取りトークン。取得ではポリシー読み取りトークン → リポジトリポリシー。失効では失効させるトークン → 失効の結果 |
 
 ## 4. Information and Credentials
 
@@ -56,11 +58,14 @@ Docker Action は、AWS STS から AWS 一時認証情報を取得し、AWS Lamb
 | AWS 用 OIDC JWT | GitHub OIDC Provider | AWS STS での一時認証情報の取得。Audience は `sts.amazonaws.com` |
 | AWS 一時認証情報 | AWS STS | Docker Action から Lambda Invoke を認証付きで実行 |
 | GATES 用 OIDC JWT | GitHub OIDC Provider | Lambda 内で Caller を確定し、ワークフロー起動属性を監査のために読み取る。GATES 用 Audience を使用 |
-| GitHub App JWT | Lambda が作成し、KMS が署名 | GitHub API の Installation 取得と Installation Access Token 発行 |
+| GitHub App JWT | Lambda が作成し、KMS が署名 | GitHub API の Installation 取得と、Installation Access Token とポリシー読み取りトークンの発行 |
 | Installation 情報 | GitHub API | 発行対象となる GitHub App のインストール先の確認 |
+| リポジトリポリシー | アクセスされる側のリポジトリ（既定ブランチの固定のパスのファイル） | リポジトリポリシーを適用するデプロイで、そのリポジトリへの要求を許す Caller と権限の上限を Lambda が読む |
+| ポリシー読み取りトークン | GitHub API | リポジトリポリシーを適用するデプロイで、Lambda が要求の対象のリポジトリポリシーを読むためだけに取得する。権限は `single_file:read` だけで、Lambda の外に出さず、リポジトリポリシーの取得を終えたとき（成否を問わない）、または発行応答の照合に失敗したときに Lambda が失効を試みる |
 | Installation Access Token | GitHub API | 指定したリポジトリへの、要求した権限でのアクセス。Lambda から Docker Action に返却し、失敗時とジョブの終了時に Docker Action が失効を試みる |
 
 AWS 用と GATES 用の OIDC JWT は、同じ GitHub Actions ジョブから別々の Audience を指定して取得します。GitHub App JWT はこれらとは異なり、Lambda が GitHub App として GitHub API を呼び出すために生成します。
+ポリシー読み取りトークンは、Installation Access Token と同じ発行 API で得る別のトークンです（[Requirements](../spec/requirements.md) の FR-ISSUANCE-007）。
 
 ## 5. End-to-End Data Flow
 
@@ -86,10 +91,23 @@ sequenceDiagram
   K-->>L: 署名
   L->>G: App JWT で許可オーナーの Installation を取得
   G-->>L: Installation 情報
-  Note over L: Installation の account.id を照合し、発行範囲を確定
+  Note over L: Installation の account.id を照合
+  opt リポジトリポリシーを適用するデプロイ
+    L->>G: App JWT で対象と single_file:read を指定してポリシー読み取りトークンを発行
+    G-->>L: ポリシー読み取りトークンと発行範囲
+    Note over L: 発行結果を対象・権限・読めるファイルのパスと保護対象の一覧に照合
+    loop 対象ごと
+      L->>G: ポリシー読み取りトークンでリポジトリポリシーを取得
+      G-->>L: リポジトリポリシー
+    end
+    L->>G: ポリシー読み取りトークンで失効を要求
+    G-->>L: 失効の結果
+    Note over L: 各対象のリポジトリポリシーで Caller と権限を照合
+  end
+  Note over L: 発行範囲を確定
   L->>G: App JWT で対象と権限を指定して Token 発行
   G-->>L: Installation Access Token と発行範囲
-  Note over L: 発行結果を認可した対象・権限と保護対象の一覧に照合
+  Note over L: 発行結果を認可した対象・権限と保護対象の一覧に照合し、<br/>適用するデプロイではリポジトリポリシーを読んだ対象と Repository ID で照合
   L-->>A: Installation Access Token、有効期限、対象・権限
   Note over A: 同一ジョブ内の後続ステップがトークンを使う
   A->>G: ジョブの終了時にトークンで失効を要求
@@ -97,6 +115,9 @@ sequenceDiagram
 ```
 
 AWS 用 OIDC JWT から取得した AWS 一時認証情報で Lambda を呼び出し、GATES 用 OIDC JWT で呼び出し元を識別します。Lambda は KMS 署名で GitHub App JWT を作成し、Installation を確認した後、対象を限定した Installation Access Token を GitHub API から取得します。
+リポジトリポリシーを適用するデプロイでは、Installation Access Token を取得する前に、ポリシー読み取りトークンで各対象のリポジトリポリシーを読み、すべての対象のリポジトリポリシーが要求を許すときだけ Installation Access Token の取得に進みます。
+ポリシー読み取りトークンの発行応答の照合に失敗したときは、リポジトリポリシーを読まずに失効を試みます。
+照合を通ったときは、リポジトリポリシーの取得を終えた時点で、取得の成否にかかわらず失効を試みます。
 
 Docker Action は応答を処理し、発行されたトークン、有効期限、対象、実効権限を同一ジョブ内の後続ステップへ渡します。
 ジョブの終了時には、Docker Action がそのトークン自身で GitHub API に失効を要求します。失効はベストエフォートで、失敗してもジョブの結果を変えません。

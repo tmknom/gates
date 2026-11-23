@@ -30,7 +30,7 @@ IAM Role と Lambda の AWS リソース設定は [AWS Infrastructure Design](aw
 | `audience` | GATES 用 OIDC JWT の Audience |
 
 入力はどれも必須です。
-`permissions` に書ける組と、保護対象を含む要求の条件は Lambda の認可が決めます（[Security Design](security.md#31-authorization-rule)）。
+`repositories` に書ける対象の件数、`permissions` に書ける組、保護対象の一覧とリポジトリポリシーが対象ごとに課す条件は、Lambda が確かめます（[Lambda Design](lambda.md#22-validation)、[Security Design](security.md#31-authorization-rule)）。
 全リポジトリを対象にする入力は設けません。
 GATES は対象を明示した要求だけを受け付けるためです。
 

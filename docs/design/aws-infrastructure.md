@@ -8,7 +8,7 @@ AWS 側が受け持つのは、GitHub OIDC から AWS STS を経た IAM 認証�
 
 GitHub App Private Key の取得、変換、KMS への鍵素材のインポートは Terraform の対象外とし、独立した手順で行います。
 鍵素材を読み込む Terraform の Resource、Data Source、Provisioner、外部実行処理は作りません。
-Terraform への入力は、Key ID / ARN、GitHub App の Client ID、許可オーナー、GATES 用 Audience、発行上限、保護対象の一覧などの非秘密値に限ります。
+Terraform への入力は、Key ID / ARN、GitHub App の Client ID、許可オーナー、GATES 用 Audience、発行上限、保護対象の一覧、リポジトリポリシーの適用などの非秘密値に限ります。
 
 ## 2. Resource Model
 
@@ -145,7 +145,7 @@ Lambda と KMS Key は、Terraform の入力で受け取る単一のリージョ
 | 設定 | 設計方針 |
 |---|---|
 | ネットワーク | 利用者管理 VPC に接続せず、GitHub API と OIDC JWKS への HTTPS 通信を確保する |
-| タイムアウト・メモリ | タイムアウトは、外部呼び出しの待ち時間の上限の合計より長くする |
+| タイムアウト・メモリ | タイムアウトは、外部呼び出しの待ち時間の上限の合計より長くする。リポジトリポリシーを適用するデプロイの合計に合わせた一つの値にし、リポジトリポリシーの適用の値によって変えない |
 | 同時実行数 | Reserved Concurrency による実行数の上限を設定できるようにする |
 | 環境変数 | 非秘密の固定設定。実行時の要求からは変更できない |
 | ログの保持期間 | Terraform の入力で受け取る |
@@ -167,14 +167,21 @@ Lambda と KMS Key は、Terraform の入力で受け取る単一のリージョ
 | `GATES_KMS_KEY_ARN` | 使用中の鍵の KMS Key ARN |
 | `GATES_ISSUABLE_PERMISSIONS` | 発行上限。権限名と水準を `:` でつないだ組をカンマで区切って並べる（`contents:read,pull_requests:write`） |
 | `GATES_PROTECTED_REPOSITORIES` | 保護対象の一覧。YAML の文書 1 件。保護対象を置かないデプロイは `repositories: []` を書く |
+| `GATES_REPOSITORY_POLICY_ENFORCEMENT` | リポジトリポリシーの適用。適用するなら `true`、適用しないなら `false` |
 
-Issuer と GitHub API Host は環境変数にしません。
-デプロイごとに変わらない値であり、環境変数にすると、Lambda の設定を変更できる主体が検証の基準を差し替えられるためです。
+Issuer、GitHub API Host、リポジトリポリシーのパスは環境変数にしません。
+デプロイごとに変わらない値であり、環境変数にすると、Lambda の設定を変更できる主体が検証の基準や読むファイルを差し替えられるためです。
 
-発行上限と保護対象の一覧は、既定値のない Terraform の変数で受け取ります。
-発行してよい権限と、保護対象を置くかどうかを、運用者に明示して決めさせるためです。
+発行上限、保護対象の一覧、リポジトリポリシーの適用は、既定値のない Terraform の変数で受け取ります。
+発行してよい権限、保護対象を置くかどうか、リポジトリポリシーを適用するかどうかを、運用者に明示して決めさせるためです。
 保護対象の一覧の既定値を空の一覧にすると、変数を書き忘れたデプロイが、保護のないまま Plan と Apply を通ります。
 保護対象の一覧の値は、コメントを含めてそのまま環境変数に入ります。
+
+リポジトリポリシーの適用は、`bool` 型の変数 `repository_policy_enforcement` で受け取り、`nullable = false` で `null` を拒否します（[Terraform — variable block](https://developer.hashicorp.com/terraform/language/block/variable)）。
+既定値を置かないのは、既定値を `false` にすると、書き忘れたデプロイがリポジトリポリシーを適用しないまま運用され、`true` にすると、GATES を更新しただけでリポジトリポリシーのない対象への発行が止まるためです（[Security Design](security.md#37-repository-policies)）。
+Terraform が文字列を `bool` に変換するのは、文字列が `true` か `false` を表すときだけなので（[Terraform — Type Conversion](https://developer.hashicorp.com/terraform/language/expressions/types#type-conversion)）、`bool` 型のほかに値の検証（`validation`）は要りません。
+環境変数には、変数の値を文字列にした `true` か `false` を渡し、Lambda の初期化はこの 2 つのほかの値を拒否します。
+適用するデプロイでは、GitHub App に `Single file` を `Read-only` で付与し、パスをリポジトリポリシーのパスだけにする必要があり、変数の説明にこのことを書きます。
 
 ### 5.2 Plan-Time Validation
 
@@ -209,7 +216,7 @@ Plan の時点で値の決まらない KMS Key ARN は、ARN の形式から決�
 | FR-ISSUANCE-001、QR-008、AC-OPS-005 | `EXTERNAL` origin の非対称署名 KMS Key、Lambda 実行 Role への `kms:Sign` のみの許可、Key Policy による署名権限と管理権限の分離 |
 | FR-OPS-005、AC-ISSUANCE-005 | 鍵の集合への新 KMS Key の追加と使用中の鍵の切り替えによる鍵更新、`prevent_destroy` と Plan の確認による置換・削除の防止、退役させる鍵の State からの除外 |
 | QR-008、AC-OPS-006 | 鍵素材インポートおよびインポート前コピー削除の Terraform からの分離 |
-| FR-OPS-001、FR-AUTHZ-008、FR-AUTHZ-009、AC-AUTHZ-007、AC-AUTHZ-010、AC-AUTHZ-013 | 許可オーナー、GitHub App、KMS Key、発行上限、保護対象の一覧を Terraform 入力と Lambda 環境変数で固定。Plan の時点の変数の検証と、Lambda の初期化での残りの確認。Installation は固定した GitHub App と不変 Owner ID から一意に導出する |
+| FR-OPS-001、FR-AUTHZ-008、FR-AUTHZ-009、FR-AUTHZ-011、AC-AUTHZ-007、AC-AUTHZ-010、AC-AUTHZ-013、AC-AUTHZ-017 | 許可オーナー、GitHub App、KMS Key、発行上限、保護対象の一覧、リポジトリポリシーの適用を Terraform 入力と Lambda 環境変数で固定。Plan の時点の変数の検証と、Lambda の初期化での残りの確認。Installation は固定した GitHub App と不変 Owner ID から一意に導出する |
 | FR-OPS-003、QR-004 | CloudWatch Logs の保持期間・アクセス制限と資格情報の非記録 |
 
 受け入れ条件の正本は [Acceptance Criteria](../spec/acceptance-criteria.md) です。
@@ -235,5 +242,7 @@ Plan の時点で値の決まらない KMS Key ARN は、ARN の形式から決�
 - [Terraform AWS Provider — CHANGELOG（v6.11.0）](https://github.com/hashicorp/terraform-provider-aws/blob/main/CHANGELOG.md)
 - [Terraform — Managing sensitive data](https://developer.hashicorp.com/terraform/language/manage-sensitive-data)
 - [Terraform — yamldecode](https://developer.hashicorp.com/terraform/language/functions/yamldecode)
+- [Terraform — Types and Values](https://developer.hashicorp.com/terraform/language/expressions/types)
+- [Terraform — variable block](https://developer.hashicorp.com/terraform/language/block/variable)
 - [Terraform — Lifecycle](https://developer.hashicorp.com/terraform/language/meta-arguments/lifecycle)
 - [Terraform — Remove a resource from state](https://developer.hashicorp.com/terraform/language/state/remove)
