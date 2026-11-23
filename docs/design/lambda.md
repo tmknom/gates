@@ -14,7 +14,7 @@ Lambda は AWS IAM により認証・認可された同期 Invoke を受け付�
 | Payload | JSON。GATES が設ける上限を 16 KiB とする。無効な型・未知フィールドは拒否 |
 | Response | JSON。呼び出し元は Invoke の `FunctionError` と Lambda 応答の `ok` をそれぞれ確認 |
 
-Lambda Invoke には HTTP の `Authorization` ヘッダーに相当するアプリケーション層のヘッダーがないため、GATES 用 OIDC JWT は `id_token` フィールドとして Payload に含めます。Payload は資格情報を含むため丸ごとログに記録せず、監査に必要な非秘密のフィールド（要求対象、要求権限）だけを記録します。
+Lambda Invoke には HTTP の `Authorization` ヘッダーに相当するアプリケーション層のヘッダーがないため、GATES 用 OIDC JWT は `id_token` フィールドとして Payload に含めます。そのため Payload を丸ごとログに記録しません。
 
 概念の定義は [Domain Model](domain.md) を正本とします。
 
@@ -36,7 +36,7 @@ Lambda Invoke には HTTP の `Authorization` ヘッダーに相当するアプ�
 | `version` | 必須、整数 `1` |
 | `id_token` | 必須、GATES 用 Audience の JWT。Bearer 資格情報として慎重に扱う |
 | `repositories` | 必須、重複のない 1 件以上 500 件以下の `owner/repo` の配列。上限は GitHub のトークン発行 API が一度に受け付ける件数に合わせる（[GitHub App Constraints](../external/github/app.md)）。GATES が設ける 16 KiB の Payload には最短の要素で 2,000 件以上が入るため、Payload サイズより先にこの上限に達する |
-| `permissions` | 必須、権限名をキー、水準を値とする 1 組以上のオブジェクト。どの組も許可権限に含まれ、発行上限に水準の包含で含まれる必要がある。保護対象に当たる対象を含む要求では、Caller が当たる許可 Caller の権限の上限にも水準の包含で含まれる必要がある。形式が不正なら入力不正、形式が正しくこれらの条件を満たさない組が一つでもあれば認可拒否 |
+| `permissions` | 必須、権限名をキー、水準を値とする 1 組以上のオブジェクト。許可される組の条件は [Security Design](security.md#31-authorization-rule) に、入力不正と認可拒否の分け方は [Validation](#22-validation) に定める |
 
 形式検証を通った Invoke Payload から、未検証の GATES 用 OIDC JWT と発行要求を分けて取り出します。
 
@@ -77,7 +77,7 @@ GATES はそれでもこの形を入力不正として判定し、Invoke API の
 重複したキーを入力不正にするのは、`{"contents":"write","contents":"read"}` のような Payload の解釈が JSON の実装ごとに分かれるためです。
 後の値を採る実装はこの Payload を `contents:read` として発行しますが、監査記録や別の処理が先の値を読むと、発行した内容と記録した内容が食い違います。
 
-オーナー名の不一致を認可拒否にするのも、未知のキーと同じく、形式は読み取れて値が許可外の要求だからです。
+オーナー名の不一致を認可拒否にするのも、許可権限の列挙にないキーと同じく、形式は読み取れて値が許可外の要求だからです。
 形式検証は、`owner/repo` をオーナー名とリポジトリ名に分割できるかまでを見ます。
 
 500 件を超える要求を入力不正にするのは、GitHub API に渡すと、その応答が `422` なら `github_issuance_rejected` に分類され、利用者が直せる件数の超過が、原因を特定できない発行拒否として記録され得るためです。
@@ -90,11 +90,8 @@ GATES はそれでもこの形を入力不正として判定し、Invoke API の
 #### 権限名と水準の文字種
 
 `permissions` のキー（権限名）と値（水準）は、1 文字以上 64 文字以下の ASCII 小文字とアンダースコア（`_`）の文字列に限ります。
-GitHub の Permissions の表現は [GitHub App Constraints](../external/github/app.md) を参照します。
-この文字種は、その表現に合わせて GATES が決めた形式の制限です。
-GitHub が公式に定めた規則ではありません。
-この文字種に合わない文字列は、GitHub の権限名や水準として読み取れないため、入力不正にします。
-[Domain Model](domain.md) の RULE-013 が入力不正にする「値を読み取れない形」に、この文字列も含まれます。
+この文字種は、GitHub の Permissions の表現（[GitHub App Constraints](../external/github/app.md)）に合わせて GATES が決めた形式の制限で、GitHub が公式に定めた規則ではありません。
+この文字種に合わない文字列は、GitHub の権限名や水準として読み取れない形（[Domain Model](domain.md) の RULE-013）として、入力不正にします。
 
 この規則により、監査記録に入る要求の権限は、改行や制御文字を含まない 64 文字以下の語に限られます。
 ログのエンコーダが値をどうエスケープするかによらず、記録の 1 行を偽装する値や長大な値が入りません。
@@ -137,7 +134,7 @@ GATES が GitHub より厳しい規則を持つと、正当な要求が入力不
 リポジトリ名の文字種が `/` を含まないため、`a/b/c` は入力不正になり、リポジトリ名 `b/c` が GitHub API の `repositories` に渡ることはありません。
 
 名前の比較と重複判定は、ASCII の範囲で大文字小文字を区別せずに行います。
-Unicode の大文字小文字の対応（Go の `strings.EqualFold` など）を使わないのは、Kelvin 記号（U+212A）と `k` のように、GitHub 上では別の文字が同じ文字として扱われ得るためです。
+Unicode の大文字小文字の対応を使わないのは、Kelvin 記号（U+212A）と `k` のように、GitHub 上では別の文字が同じ文字として扱われ得るためです。
 比較の規則は、要求の重複判定、オーナー名の照合、発行応答の `full_name` の照合、保護対象のリポジトリ名と要求のリポジトリ名の照合、許可 Caller のリポジトリ名と Caller のリポジトリ名の照合、保護対象の一覧の重複判定で共通です（[Domain Model](domain.md) の RULE-005）。
 
 入力文字列のリポジトリ名だけから所有権を判断せず、要求元のオーナーは検証済み JWT に基づいて決定します。
@@ -212,7 +209,7 @@ Lambda Handler は Payload を読む前に相関 ID を確かめます。
 | Error code | 失敗の種別 | 内容 |
 |---|---|---|
 | `invalid_request` | 入力不正 | Payload が [Validation](#22-validation) の入力不正の形に当たる |
-| `invalid_id_token` | 認証失敗 | GATES 用 OIDC JWT が [GATES OIDC JWT Claims](gates-oidc-jwt-claims.md) または [GATES OIDC JWT Signature](gates-oidc-jwt-signature.md) の受理条件を満たさない。JWT の形式・署名、Issuer、Audience、時間条件、必須 Claim、再取得後も一意に選べる使用可能な鍵がない `kid` などを含む |
+| `invalid_id_token` | 認証失敗 | GATES 用 OIDC JWT が [OIDC JWT Claims](oidc-jwt-claims.md) または [OIDC JWT Signature](oidc-jwt-signature.md) の受理条件を満たさない。JWT の形式・署名、Issuer、Audience、時間条件、必須 Claim、再取得後も一意に選べる使用可能な鍵がない `kid` などを含む |
 | `authorization_denied` | 認可拒否 | Caller の Owner ID が許可オーナーと不一致、要求した権限が許可条件外、要求したリポジトリのオーナー名が許可オーナー名と不一致、または保護対象に当たる対象を含む要求で、Caller が許可 Caller に当たらないか、要求した権限が許可 Caller の権限の上限に水準の包含で含まれない。Installation の対象外であることが GitHub API の呼び出し後に判明した場合は、その処理段階の失敗として扱う |
 | `identity_verification_unavailable` | 一時的な障害 | OIDC Discovery / JWKS の取得が一時的に失敗した。通信の失敗、タイムアウト、5xx、403 / 429 で、再試行で解消し得る |
 | `signing_unavailable` | 一時的な障害 | KMS 署名が一時的に失敗した。通信の失敗、タイムアウト、呼び出し元の ctx の期限切れと中断、5xx、スロットリングで、再試行で解消し得る |
@@ -233,7 +230,7 @@ Lambda Handler は、その種別をエラーコードに写します。
 
 失敗応答の `message` は、エラーコードごとに固定した次の文言です。
 部品のエラー文言を含めず、拒否の理由を応答に出しません（[応答とエラー文言に出す情報](#応答とエラー文言に出す情報)）。
-一時的な障害の 3 つのコードだけに再実行を促す文を添えます。
+一時的な障害のコードだけに再実行を促す文を添えます。
 再実行では解消しない失敗に再実行を促さないためです。
 
 | Error code | `message` |
@@ -260,11 +257,8 @@ Client ID の誤り、KMS Key と GitHub に登録した Private Key の不一�
 Installation の応答の形式が想定と異なる場合は `installation_unavailable` に、発行応答の形式が想定と異なる場合は `issuance_verification_failed` にします。
 
 この分類は GATES のエラー分類であり、GitHub の HTTP ステータスの定義ではありません。
-発行 API の `422` は、GitHub の公開仕様では検証失敗またはスパム判定を指し、Installation の範囲外の要求だけを意味しません（[GitHub App Constraints](../external/github/app.md)）。
-Installation の取得に使う Organization と User の API が公開している応答コードは `200` だけです（[GitHub App Constraints](../external/github/app.md)）。
-上の 404 は、User の API でアンインストールの後に観測した応答で、Organization の API では確かめていません。
-分類は `200` 以外の応答をレート制限と一時的な障害を除いて `installation_unavailable` にすることで成り立ち、特定のステータスには依存しません。
-発行 API の `422` を `authorization_denied` と分けるのは、`422` だけでは権限不足や悪意の有無を確定できないためです。
+Installation の取得に使う API が公開している応答コードは `200` だけで（[GitHub App Constraints](../external/github/app.md)）、分類は `200` 以外の応答をレート制限と一時的な障害を除いて `installation_unavailable` にすることで成り立ち、特定のステータスには依存しません。
+発行 API の `422` を `authorization_denied` と分けるのは、`422` は検証失敗かスパム判定を指し（同）、権限不足や悪意の有無を確定できないためです。
 
 403 と 429 のうちレート制限によるものは、応答のヘッダーで判定します。
 429 は常にレート制限とします。
@@ -272,7 +266,6 @@ Installation の取得に使う Organization と User の API が公開してい
 本文のメッセージは判定に使いません。
 GitHub はセカンダリのレート制限を本文のメッセージだけで示す場合があり（[GitHub App Constraints](../external/github/app.md)）、文言に頼ると、GitHub が文言を変えたときに分類が変わるためです。
 この判定は、ヘッダーのないレート制限の 403 を `installation_unavailable` として、レート制限でないのにこれらのヘッダーが付いた 403 を `github_api_unavailable` として伝え得ます。
-GitHub App JWT で認証した要求の応答は、レート制限に達していない記録では `x-ratelimit-*` を含まず（同節）、制限に達したときに付くかは確かめていません。
 どちらの誤りでもトークンは返さず、誤りが変えるのは、利用者に再実行を促すかどうかです。
 
 #### Discovery / JWKS と KMS の失敗の分類
@@ -298,8 +291,7 @@ KMS に接続できない失敗には、経路の一時的な障害と、ネッ�
 値を含めないのは、Caller と要求は監査記録が別の項目として持つため文言に重ねる必要がなく、文言が誤って応答に混ざっても許可オーナーと保護対象の一覧を明かさないためです。
 
 保護対象に関わる拒否も、応答はほかの認可拒否と照合失敗と同じく、エラーコードごとの固定の `message` にし、要求した対象が保護対象であること、許可 Caller、権限の上限を応答に出しません。
-出すと、許可されない呼び出し元が、どのリポジトリが保護対象か、どのリポジトリが許可 Caller かを探れます。
-許可 Caller を知った呼び出し元は、そのリポジトリのワークフローを書き換えて許可 Caller として要求する経路（[Security Design](security.md#36-protected-repositories) の許可 Caller を経由した到達）の標的を選べます。
+出すと、許可されない呼び出し元が、どのリポジトリが保護対象か、どのリポジトリが許可 Caller かを探り、許可 Caller を経由した到達（[Security Design](security.md#36-protected-repositories)）の標的を選べるためです。
 エラー文言は、どの要求の対象か、一覧のどの保護対象かを、要求の対象の位置と一覧の要素の位置で示します。
 Installation は許可オーナー名から取得するため、その Installation ID と `account.id` は、許可オーナー名をいま持つアカウントを示します。
 `account.id` が許可オーナーの Owner ID と一致しない場合も同じであり、許可オーナーの値と同じに伏せます。
@@ -350,6 +342,8 @@ Caller を見る条件は、Token Issuer が関数として受け取る Grant（
 資格情報の値を取り出せるコンポーネントは、次のとおりに限ります。
 ほかのコンポーネントでは、ログやエラーにどう出力しても値が伏せられる型で運びます。
 取り出せる箇所を限ると、資格情報がログやエラー本文に出る経路を、その箇所の確認に絞れるためです。
+伏せた値は、資格情報の種類によらず、どの出力でも同じ表記にします。
+伏せ方が資格情報ごとに異なると、直すときに一部の資格情報だけが直り、ほかの資格情報が出力に残り得るためです。
 
 | 資格情報 | 値を取り出せるコンポーネント |
 |---|---|
@@ -370,7 +364,6 @@ Payload を Lambda Runtime のライブラリに復号させると、こうし�
 Runtime Entry は、Lambda Runtime が Invoke ごとに ctx に入れる request ID を読んで、相関 ID として Lambda Handler に値で渡します。
 ctx は期限を変えずにそのまま渡します。
 Lambda Handler は Lambda Runtime のライブラリに依存せず、応答を書けた Invoke を `FunctionError` にしません。
-Lambda Runtime のライブラリを Runtime Entry だけに閉じるのは、Lambda Handler のテストで Lambda の ctx を組み立てずに済ませるためです。
 
 固定設定のうち Issuer と API Host は本ドキュメントが固定し（[§6.1](#61-oidc-validation)、[§6.3](#63-github-client)）、残りの値（許可オーナー、Client ID、GATES 用 Audience、KMS Key ARN、発行上限、保護対象の一覧）は Runtime Entry が起動時に環境変数から読みます。
 読んだ値を [Domain Model](domain.md) の許可オーナー、発行上限、保護対象の一覧の不変条件（INV-004、INV-015、INV-016）で検証するのは固定設定の読み込みであり、Runtime Entry はその結果を受け取るだけで、値の検証の判断を持ちません。
@@ -382,12 +375,11 @@ Lambda はこの Invoke を `Runtime.ExitError` の `FunctionError` にします
 初期化を失敗させれば、設定の誤りが Invoke の時点で明らかになり、Lambda Handler に未初期化の部品を扱う分岐が要りません。
 初期化の失敗のログには、満たさなかった条件と、どの値の条件かを書き、値を書きません。
 固定設定の読み込みで見つけた誤りは環境変数の名前で、部品を作る時点で見つけた誤りは固定設定の概念名（GATES 用 Audience、Client ID など）で、どの値かを示します。
-部品は環境変数を知らず、概念名と環境変数の名前は [AWS Infrastructure Design](aws-infrastructure.md#5-lambda-deployment-and-operation) の表で一対一に対応するためです。
+部品は環境変数を知らず、概念名と環境変数の名前は [AWS Infrastructure Design](aws-infrastructure.md#51-environment-variables) の表で一対一に対応するためです。
 固定設定の読み込みで見つけた環境変数の欠落と不正な値は、複数あればそのすべてを一度の初期化の失敗として書きます。
 デプロイの誤りを、一度の Invoke でまとめて直せるようにするためです。
 認証の固定設定と署名の固定設定の不変条件は、読み込みの後に部品を作る時点で検査するため、読み込みの誤りを直した後の初期化で初めて見つかることがあります。
 AWS SDK の失敗も、SDK の文言を含めず、設定を読めなかったことだけを書きます。
-Discovery / JWKS は初期化で取得しません。
 
 発行上限の環境変数は、`contents:read,pull_requests:write` のように、権限名と水準を `:` でつないだ組をカンマで区切って並べた文字列です。
 組の並びは意味を持ちません。
@@ -403,7 +395,7 @@ Discovery / JWKS は初期化で取得しません。
 前後の空白を除かず、重複を一つにまとめないのは、どちらも書き損じであることが多く、読み替えると運用者が書いた値と Lambda が使う値が食い違うためです。
 許可権限に含まれるかも固定設定の読み込みで確かめるため、この誤りも環境変数の名前で示します。
 不正な要素が複数あれば、そのすべてを、要素の位置と満たさなかった条件とともに、環境変数の名前を付けた一つの誤りとして書きます。
-許可権限に含まれるかは Terraform が確かめず（[AWS Infrastructure Design](aws-infrastructure.md#5-lambda-deployment-and-operation)）、適用した後の初期化で初めて分かるため、環境変数の誤りと同じく、まとめて直せるようにします。
+許可権限に含まれるかは Terraform が確かめず（[AWS Infrastructure Design](aws-infrastructure.md#52-plan-time-validation)）、適用した後の初期化で初めて分かるため、環境変数の誤りと同じく、まとめて直せるようにします。
 
 #### 保護対象の一覧の書式
 
@@ -481,20 +473,20 @@ Core Schema で文字列に解決される `yes`、`on`、`2001-12-14` は、文
 空の `permissions` の許可 Caller を拒否するのは、その許可 Caller にどの権限も許さないことになり、許可 Caller を書かないことと区別できず、書き忘れであることが多いためです。
 どの Caller にも許可しない保護対象は、`callers: []` で表せます。
 
-この書式は、YAML を構文木（ノード）として読んで確かめます。
-Go の値に復号した結果からは、重複したキー、引用符の有無、タグ、アンカーを見分けられないためです。
+この書式は、YAML を値に復号した結果ではなく、構文の上で確かめます。
+復号した値からは、重複したキー、引用符の有無、タグ、アンカーを見分けられないためです。
 エイリアスは、展開する前に拒否します。
-ディレクティブと明示的なタグは、構文木に残らないものがあるため（ディレクティブと非特定タグ `!`）、解析の前の文字列で、行頭の `%` と、コメントの外の `!` を見分けて拒否します。
-正しい書式の値は、コメントの外に `%` と `!` を含まないため、正しい値を拒否しません。
+構文木に残らない機能（ディレクティブと非特定タグ `!`）は、解析の前の文字列で拒否します。
+正しい書式の値はコメントの外に `%` と `!` を含まないため、この拒否は正しい値を拒否しません。
 入力の大きさの上限は、固定設定の読み込みでは設けません。
-Lambda は環境変数の合計が 4096 バイトを超える設定を適用させないため（[AWS Infrastructure Design](aws-infrastructure.md#5-lambda-deployment-and-operation)）、入力はその大きさに収まります。
+Lambda は環境変数の合計が 4096 バイトを超える設定を適用させないため（[AWS Infrastructure Design](aws-infrastructure.md#52-plan-time-validation)）、入力はその大きさに収まります。
 エイリアスを展開しないため、入力より大きな値を作る経路もありません。
 
 不正な値は、発行上限と同じく、そのすべてを、位置と満たさなかった条件とともに、環境変数の名前を付けた一つの誤りとして書きます。
 位置は、YAML として読めない値と YAML の機能の誤りでは行で、構造と値の誤りでは `repositories[1].callers[0].permissions` のような要素のパスで示します。
 YAML として読めない値は、ライブラリが行を特定できなければ位置を示しません。
 権限の上限の組の誤りは、`permissions` のパスと、書かれた順の組の位置で示します。
-次の二つは、すべての誤りを書く規則の例外です。
+すべての誤りを書く規則には、次の例外があります。
 YAML として読めない組（文字列でないキー、マージキー、エイリアス、文字列でない値）を含む `permissions` では、ほかの組の誤りを示しません。読めない組を除いて確かめると、示す位置が書かれた順とずれるためです。
 種類の違う値と未知のキーの値の中にある誤りも示しません。その位置がすでに誤りで、中の値は書式のどの位置にも当たらないためです。
 誤りには、ID、名前、権限の値と、YAML のライブラリのエラー文言を含めません。
@@ -505,7 +497,7 @@ YAML として読めない組（文字列でないキー、マージキー、エ
 
 1. Lambda Handler が Payload を形式検証し、GATES 用 OIDC JWT と発行要求を取り出す。
 2. OIDC Verifier が GATES 用 OIDC JWT を認証し、Caller を確定する。
-3. Authorization が、[Security Design](security.md#31-authorization-rule) の認可条件を番号順に判定する（事前認可）。Caller の Owner ID、要求した各完全名のオーナー名、要求の Permissions を照合し、Permissions は、どの Permission Entry も許可権限に含まれ、発行上限に水準の包含で含まれることを確かめる。要求した完全名にリポジトリ名が保護対象の名前と一致するものがあれば、該当するすべての保護対象について、Caller の Repository ID とリポジトリ名の両方が一致する許可 Caller があり、要求の Permissions がその権限の上限に水準の包含で含まれることを確かめる（[Domain Model](domain.md) の RULE-015）。
+3. Authorization が、[Security Design](security.md#31-authorization-rule) の認可条件を番号順に判定する（事前認可）。保護対象の条件は、要求した完全名のリポジトリ名が保護対象の名前と一致するすべての保護対象について判定する（[Domain Model](domain.md) の RULE-015）。
 4. Token Issuer が KMS Signer で GitHub App JWT を作り、GitHub Client で許可オーナーの Installation を取得する。
 5. Authorization が取得した Installation の有効性を確かめ、手順 3 の認可条件を保護対象の条件を含めて判定し直し、発行許可を確定する（Grant）。
 6. Token Issuer が発行許可の対象と Permissions を明示して GitHub API にトークンを発行させ、発行応答を発行許可と照合する。照合には、各実効対象とすべての保護対象の組について、リポジトリ名の一致と Repository ID の一致が両方成り立つか両方成り立たないことを含む（[Domain Model](domain.md) の INV-012）。
@@ -518,10 +510,9 @@ Owner ID、権限、オーナー名、保護対象の照合（手順 3）を Ins
 保護対象の条件は、要求と Caller と保護対象の一覧だけで判定でき、Installation を要しません。
 手順 3 で判定すれば、保護対象に当たる対象を含み、許可のない要求では、GitHub 側でトークンが発行されません。
 
-手順 3 の水準の包含は、要求の Permission Entry が許可権限に含まれることを、包含の規則そのものの条件として持ちます（[Domain Model](domain.md) の水準の包含）。
-許可権限の確認を別の条件として判定したうえで、包含の規則にも許可権限の条件を持たせるのは、発行上限が許可権限の一部であること（INV-015）に頼ると、発行上限の `write` が許可権限にない `read` を許し得るためです。
-許す要求を許可権限の中に保つのは、許可権限の確認と、包含の規則の許可権限の条件の両方で、どちらかを誤っても、もう片方が拒否します。
-保護対象の権限の上限の照合も、同じ包含の規則で行います。
+手順 3 では、許可権限の確認を別の条件として判定したうえで、水準の包含の規則そのものにも許可権限に含まれることの条件を持たせます（[Domain Model](domain.md) の水準の包含）。
+発行上限が許可権限の一部であること（INV-015）に頼ると、発行上限の `write` が許可権限にない `read` を許し得るためです。
+二つの確認のどちらかを誤っても、もう片方が拒否します。
 付随権限 `metadata:read` は要求の Permissions に含めず、要求の Permissions だけを権限の上限に照合します。
 
 手順 6 の照合を、名前が一致した保護対象だけでなく、すべての保護対象との組で行うのは、改名した保護対象を新しい名前で要求した場合を検出するためです。
@@ -535,20 +526,20 @@ Owner ID、権限、オーナー名、保護対象の照合（手順 3）を Ins
 
 ### 6.1 OIDC Validation
 
-OIDC Verifier は、GATES 用 OIDC JWT を [GATES OIDC JWT Claims](gates-oidc-jwt-claims.md) と [GATES OIDC JWT Signature](gates-oidc-jwt-signature.md) の受理条件で検証し、成立したときだけ Caller を確定します。
-受理条件はこの2つの設計を正本とし、検証ライブラリの既定値で置き換えません。
-Caller のリポジトリ名は、受理した `sub` のリポジトリ部の、Repository ID と組になった名前で、`repository` の Claim からは取りません（[GATES OIDC JWT Claims](gates-oidc-jwt-claims.md) の GOJ-SUB-FORMAT）。
+OIDC Verifier は、GATES 用 OIDC JWT を [OIDC JWT Claims](oidc-jwt-claims.md) と [OIDC JWT Signature](oidc-jwt-signature.md) の受理条件で検証し、成立したときだけ Caller を確定します。
+受理条件はこれらの設計を正本とし、検証ライブラリの既定値で置き換えません。
+Caller のリポジトリ名は、受理した `sub` のリポジトリ部の、Repository ID と組になった名前で、`repository` の Claim からは取りません（[OIDC JWT Claims](oidc-jwt-claims.md) の GOJ-SUB-FORMAT）。
 名前の文字種は認証で確かめず、受理条件を変えません（[Domain Model](domain.md) の INV-009）。
 文字種の外の名前は、許可 Caller のリポジトリ名に一致しないため、保護対象に当たる対象を含む要求だけが認可拒否になります。
 署名の検証そのものは暗号ライブラリに任せ、自作しません。
-本節は、GATES OIDC JWT Signature がコンポーネント設計に委ねる Discovery / JWKS の取得、保持、再取得、除外した JWK の記録を定めます。
+本節は、OIDC JWT Signature がコンポーネント設計に委ねる Discovery / JWKS の取得、保持、再取得、除外した JWK の記録を定めます。
 
 - **取得先**：Issuer は `https://token.actions.githubusercontent.com` に固定する。リダイレクトに従わず、JWT の Header や利用者入力から取得先を変更しない。
-- **取得の時点と保持**：Discovery / JWKS は Lambda の初期化ではなく最初の認証で取得する。初期化時に取得すると、取得の失敗を Handler が相関 ID 付きのエラーとして返せないためである。取得に成功した Discovery は実行環境内で保持して再取得せず、取得に失敗した内容は保持しない。JWKS は使用可能な鍵だけを、有効期限を設けずに保持する。有効期限を設けないことで受容するリスクは [Security Design](security.md#5-failure-audit-and-security-risks) に定める。
-- **取得前の拒否**：[GATES OIDC JWT Signature](gates-oidc-jwt-signature.md) の直列化の条件（GOJ-SERIALIZATION-COMPACT）と JOSE Header の条件（GOJ-HEADER-JSON、GOJ-HEADER-ALG、GOJ-HEADER-KID、GOJ-HEADER-CTY、GOJ-HEADER-CRIT、GOJ-HEADER-B64）、[GATES OIDC JWT Claims](gates-oidc-jwt-claims.md) の Claims Set の JSON と Claim 名の条件（GOJ-CLAIMS-JSON、GOJ-CLAIM-NAME-ALIAS）と GOJ-EXP の NumericDate の型と範囲は、Issuer の鍵情報に依存しない。これらを満たさない JWT は、Discovery / JWKS を取得せずに `invalid_id_token` で拒否する。不正な JWT が再取得の上限を消費せず、Issuer の障害時にもエラーの種別が変わらないためである。
+- **取得の時点と保持**：Discovery / JWKS は Lambda の初期化ではなく最初の認証で取得する。初期化時に取得すると、取得の失敗を Handler が相関 ID 付きのエラーとして返せないためである。取得に成功した Discovery は実行環境内で保持して再取得せず、取得に失敗した内容は保持しない。そのため Issuer が公開鍵の取得先を変えて古い取得先が使えなくなると、実行環境が入れ替わるまで一時的な障害か内部障害で止まる。JWKS は使用可能な鍵だけを、有効期限を設けずに保持する。有効期限を設けないことで受容するリスクは [Security Design](security.md#5-failure-audit-and-security-risks) に定める。
+- **取得前の拒否**：[OIDC JWT Signature](oidc-jwt-signature.md) の直列化の条件（GOJ-SERIALIZATION-COMPACT）と JOSE Header の条件（GOJ-HEADER-JSON、GOJ-HEADER-ALG、GOJ-HEADER-KID、GOJ-HEADER-CTY、GOJ-HEADER-CRIT、GOJ-HEADER-B64）、[OIDC JWT Claims](oidc-jwt-claims.md) の Claims Set の JSON と Claim 名の条件（GOJ-CLAIMS-JSON、GOJ-CLAIM-NAME-ALIAS）と GOJ-EXP の NumericDate の型と範囲は、Issuer の鍵情報に依存しない。これらを満たさない JWT は、Discovery / JWKS を取得せずに `invalid_id_token` で拒否する。不正な JWT が再取得の上限を消費せず、Issuer の障害時にもエラーの種別が変わらないためである。
 - **JWKS の再取得の上限**：保持した鍵集合に、JWT の `kid` で一意に選べて署名が一致する使用可能な鍵がなければ、JWKS の再取得を試みる。取得の試行は、成否にかかわらず、同じ実行環境内で前回の試行の開始から 1 分に 1 回までとし、並行した試行は一つにまとめる。上限の間は取得せず、前回の試行が取得失敗なら同じ種別を返す。JWKS の構造の異常、秘密情報の混入、使用可能な鍵が 1 つもない場合も取得失敗とし、直前に取得に成功した鍵集合を置き換えない。1 分は取得頻度の抑制とローテーションへの追従を両立させるために置いた初期値で、実環境のローテーションでは検証していない。
 - **除外した JWK の記録**：JWK の受理条件を満たさず除外した JWK は、`keys` 内の位置、`kid`、除外の理由を、運用者向けのログに WARN で記録する。鍵の値、応答本文、ライブラリのエラー文言は記録しない。運用者は位置と `kid` から Issuer の JWKS を直接確かめられるためである。
-- **取得の制限**：Discovery と JWKS の各取得の応答サイズは各 64 KiB とする。調査時の応答（[Discovery](../research/github/oidc-discovery.md) が約 1.2 KB、[JWKS](../research/github/oidc-jwks.md) が 4 鍵で約 5.5 KB）に対して JWKS が約 10 倍に増えても収まり、想定外に大きい応答を読み込み続けない大きさである。各取得のタイムアウトは [Call Time Budget](#64-call-time-budget) に置く。
+- **取得の制限**：Discovery と JWKS の応答サイズの上限は、それぞれ 64 KiB とする。調査時の応答（[Discovery](../research/github/oidc-discovery.md)、[JWKS](../research/github/oidc-jwks.md)）が約 10 倍に増えても収まり、想定外に大きい応答を読み込み続けない大きさである。各取得のタイムアウトは [Call Time Budget](#64-call-time-budget) に置く。
 
 ### 6.2 GitHub App JWT
 
@@ -562,23 +553,23 @@ GitHub App JWT の GitHub 側の仕様は [GitHub App Constraints](../external/g
 - **JOSE Header**：`{"alg":"RS256","typ":"JWT"}` に固定し、JWS Compact Serialization で KMS に署名させる。`typ` は任意の Header Parameter だが置く。GitHub が Installation の取得を受け付けた[調査記録](../research/github/app-installation.md)の GitHub App JWT がこの Header であり、`typ` のない JWT を GitHub が受け付けるかは確かめていないためである。
 
 - GitHub App JWT は要求ごとに 1 回だけ作り、Installation の取得（[Processing Flow](#5-processing-flow) の手順 4）と発行（手順 6）の両方に使う。要求をまたいで保持しない。保持すると、有効期限の管理と、期限の近い GitHub App JWT を使って GitHub に拒否される失敗が加わる。
-- Token Issuer は手順 4 から手順 6 までを一つの操作として行い、その間の手順 5（Grant）を Lambda Handler から関数として受け取る。GitHub App JWT を Lambda Handler に渡さないためである。渡すと、Lambda Handler のログやエラーに出し得る値が一つ増え、手順 4 と手順 6 の間で GitHub App JWT を持ち回る経路が Token Issuer の外にできる。
+- Token Issuer は手順 4 から手順 6 までを、署名を含めて一つの操作として行い、その間の手順 5（Grant）を Lambda Handler から関数として受け取る。GitHub App JWT を Lambda Handler に渡さないためである。渡すと、Lambda Handler のログやエラーに出し得る値が一つ増え、手順 4 と手順 6 の間で GitHub App JWT を持ち回る経路が Token Issuer の外にできる。この操作を Installation Access Token の発行（Issue Installation Access Token）と呼び、失敗した段階の種別をそのまま返し、照合失敗には失効の結果を添える。
 
 ### 6.3 GitHub Client
 
 Installation の取得、トークンの発行と失効の GitHub API の仕様は、[GitHub App Constraints](../external/github/app.md) を参照します。
 本節は、GATES がどのエンドポイントをどう使うかを定めます。
 GitHub API は SDK を使わず、Go 標準ライブラリの HTTP クライアントで呼び出します。
-使うエンドポイントが次の 3 つに限られるためです。
+使うエンドポイントが少数に限られるためです。
 
 - **Installation の取得**：GitHub App JWT で、許可オーナーの種別が Organization なら `GET /orgs/{org}/installation`、ユーザーアカウントなら `GET /users/{username}/installation` を呼び出す。`GET /repos/{owner}/{repo}/installation` はどちらの種別にも使えるが、採用しない。要求されたリポジトリから Installation を引くことになり、固定した設定から Installation を導出する [Requirements](../spec/requirements.md) FR-OPS-001 から外れるためである。停止の判定は Authorization が行う。
 - **トークンの発行**：`POST /app/installations/{installation_id}/access_tokens` に、発行許可の対象と Permissions を必ず指定する。発行 API の `repositories` はリポジトリ名だけを受け取るため、発行許可の各完全名を一度だけ `/` で分割し、リポジトリ名の部分を渡す。分割前の完全名は、発行応答の `full_name` との照合に使う。
 - **トークンの失効**：照合に失敗したトークンの失効には `DELETE /installation/token` を使う。このエンドポイントは App JWT ではなく、失効させる Installation Access Token 自体で認証する。`204` だけを失効の成功とし、失敗しても再試行せずに監査記録へ残す。
 - **API Host**：`https://api.github.com` に固定し、利用者入力から変更しない。GATES が対象とするのは GitHub.com だけである。
 - **リダイレクト**：従わず、`3xx` は成功以外の応答として扱う。リダイレクト先は GATES が選んだエンドポイントではなく、その応答を Installation や発行応答として読む根拠がないためである。また、従うと、固定した API Host の外へ GitHub App JWT を送り得る。
-- **API バージョン**：すべての要求に `X-GitHub-Api-Version: 2026-03-10` を付ける。GitHub App Constraints が REST API を確認した版であり、[調査記録](../research/github/installation-access-token.md)もこの版で取得している。ヘッダーを省略すると既定の版が使われ、その版のサポートが終わると既定の版が変わる（[GitHub App Constraints](../external/github/app.md)）。省略すると、GATES のコードを変えずに応答の形が変わり得るため、省略しない。この版のサポートが終わると、GitHub はこの版を指定した要求に `410 Gone` を返し、`installation_unavailable` になる。再試行では解消せず、運用者が版を更新するまで発行が止まる。版を更新するときは、GitHub App Constraints と調査記録を新しい版で確かめ直す。
-- **`User-Agent`**：すべての要求に、GATES を示す固定の値 `gates` を付ける。GitHub は `User-Agent` のない要求を拒否し、値にアプリケーションの名前を推奨する（[GitHub App Constraints](../external/github/app.md)）。
-- **応答サイズの上限**：Installation の取得の応答は 64 KiB、発行応答は 16 MiB とする。失効の応答は、成否をステータスだけで判定するため本文を読まず、上限を設けない。Installation の応答は[調査記録](../research/github/app-installation.md)で約 1.6 KB であり、64 KiB は Discovery と JWKS の上限と同じく、増えても収まり、想定外に大きい応答を読み込み続けない大きさとする。発行応答は対象 1 件ごとにリポジトリの完全な表現を持ち、[調査記録](../research/github/installation-access-token.md)では 12 文字のリポジトリ名で 1 件あたり約 6 KB だった。この表現はリポジトリ名を約 40 回、オーナー名を約 50 回繰り返すため、100 文字のリポジトリ名と 39 文字のオーナー名では 1 件あたり約 12 KB になる。説明文やトピックのような自由記述のフィールドの最大長は確かめていない。16 MiB は、対象 500 件で 1 件あたり約 33 KB まで収まる大きさとする。
+- **API バージョン**：すべての要求の `X-GitHub-Api-Version` に、[GitHub App Constraints](../external/github/app.md) が REST API を確認したバージョンを付ける。省略すると既定のバージョンが使われ、そのサポートが終わると既定が変わるため、GATES のコードを変えずに応答の形が変わり得る。指定したバージョンのサポートが終わると、GitHub は `410 Gone` を返し、`installation_unavailable` になる。再試行では解消せず、バージョンを更新するまで発行が止まる。更新するときは、GitHub App Constraints と調査記録を新しいバージョンで確かめ直す。
+- **`User-Agent`**：すべての要求に、GATES を示す固定の値を付ける。GitHub は `User-Agent` のない要求を拒否し、値にアプリケーションの名前を推奨する（同）。
+- **応答サイズの上限**：Installation の取得の応答は 64 KiB、発行応答は 16 MiB とする。失効の応答は、成否をステータスだけで判定するため本文を読まず、上限を設けない。64 KiB は、Discovery と JWKS の上限と同じく、[調査記録](../research/github/app-installation.md)の応答が増えても収まり、想定外に大きい応答を読み込み続けない大きさとする。発行応答は対象 1 件ごとにリポジトリの完全な表現を持ち、[調査記録](../research/github/installation-access-token.md)では 12 文字のリポジトリ名で 1 件あたり約 6 KB だった。この表現はリポジトリ名を約 40 回、オーナー名を約 50 回繰り返すため、100 文字のリポジトリ名と 39 文字のオーナー名では 1 件あたり約 12 KB になる。16 MiB は対象 500 件で 1 件あたり約 33 KB まで収まる大きさとする。説明文やトピックのような自由記述のフィールドの最大長は確かめていない。
 - **上限を超えた応答**：Installation の応答は、形式が想定と異なる応答として `installation_unavailable` にする。発行応答は、形式が想定と異なる発行応答として `issuance_verification_failed` にし、失効を試みない。トークン文字列は、完全に受信して解釈できた発行応答からだけ取り出す。途中までの本文からトークン文字列を探すと、壊れた JSON の解釈という別の規則が要るためである。この場合、GitHub 側で発行されたトークンは有効期限まで残り得る。
 - **発行応答の読み取り**：`201` の本文は、`token` とほかのフィールドを独立に読む。`token` を読み取れれば、ほかのフィールドが欠落しているか読み取れなくても発行結果にし、読み取れなかったことを発行結果に残す。本文を JSON のオブジェクトとして解釈できない場合（JSON でない、読まないフィールドの中を含めて本文のどこかに同じ名前の重複がある、UTF-8 として正しくない文字列がある）は、`token` を含めてどのフィールドも読み取らない。読み取れなかったフィールドは `issuance_verification_failed` になり、どの読み取りも失敗の種別を変えないため、GitHub Client は `201` をエラーにしない。
 - **名前の重複**：同じ名前を重複して持つ Installation の応答は、形式が想定と異なる応答として `installation_unavailable` にする。重複した名前のどちらの値を読むかが決まらず、Installation ID やインストール先 Owner ID を一つに定められないためである。
@@ -621,10 +612,10 @@ GitHub API は SDK を使わず、Go 標準ライブラリの HTTP クライア�
 短すぎると一時的な障害が増えて利用者に再実行を促しますが、トークンを誤って返すことはありません。
 発行だけを 10 秒にするのは、短すぎることの代償がほかの呼び出しより大きいためです。
 GitHub 側でトークンを発行した後にタイムアウトすると、トークン文字列を取得できず失効も試みられないまま、有効なトークンが GitHub 側に残ります。
-対象 500 件の発行応答が数 MB になり得ることも、他の呼び出しより長く待つ理由です。
+対象 500 件の発行応答が数 MB になり得ることも、ほかの呼び出しより長く待つ理由です。
 
 GATES はどの呼び出しも再試行せず、一時的な障害を呼び出し元の再実行に任せます。
-AWS SDK for Go v2 が既定で行う KMS の呼び出しの再試行も止めます。
+AWS SDK が既定で行う KMS の呼び出しの再試行も止めます。
 再試行を残すと、1 回の呼び出しの待ち時間がタイムアウトの数倍に試行の間の待ちを足した値になり、合計を見積もれなくなるためです。
 
 外部の呼び出しはどれも、HTTP の要求ごとに接続を張り、その要求が終われば閉じます。
@@ -644,10 +635,10 @@ GitHub App JWT を作ってから発行の応答を受け取るまでは、署�
 失効は、要求の ctx の中断と期限を引き継がない ctx で行い、発行の呼び出しの ctx からも作りません。
 要求が中断された後も、発行がタイムアウトの直前に応答を返した後も、照合に失敗したトークンの失効を試みるためです。
 失効のタイムアウトは、5 秒と、関数の残り時間から応答を書くための 1 秒を除いた時間の短いほうとします。
+関数の残り時間を超えて待つと、失効を待つ間に関数がタイムアウトし、照合失敗の応答を書けなくなるためです。
 関数の残り時間は、Lambda Handler が受け取った要求の ctx の期限から読みます。
 要求の ctx に期限がなければ、失効のタイムアウトは 5 秒だけとします。
 そのため Lambda Handler は、要求の ctx を別の期限で包まずに Token Issuer へ渡します。
-関数の残り時間を超えて待つと、失効を待つ間に関数がタイムアウトし、照合失敗の応答を書けなくなるためです。
 残り時間が 1 秒以下でも失効は試み、すぐにタイムアウトした失効は失敗として監査記録に残します。
 試みなかったことにすると、照合に失敗してトークン文字列を取得できたのに失効を試みない経路が、中断のほかにできるためです（[Domain Model](domain.md) の INV-014 の発行処理の不変条件）。
 
@@ -656,8 +647,8 @@ GitHub App JWT を作ってから発行の応答を受け取るまでは、署�
 監査記録の項目と記録する条件は [Domain Model](domain.md#audit-record) を、記録する値と記録しない値は [Security Design](security.md#5-failure-audit-and-security-risks) を正本とします。
 本節は、監査記録の出力の形とキー名を定めます。
 
-監査記録は、`log/slog` の JSON Handler で標準出力に 1 行ずつ書きます。
-Lambda の Go Runtime では標準出力が CloudWatch Logs に送られ、JSON Handler は文字列の値の改行と `"` をエスケープするため、ワークフロー起動属性に改行が入っても 1 行に収まります。
+監査記録は、JSON のオブジェクトを標準出力に 1 行ずつ書き、CloudWatch Logs に送ります。
+文字列の値の改行と `"` はエスケープするため、ワークフロー起動属性に改行が入っても 1 行に収まります。
 1 回の発行処理につき 1 行を、応答を返す直前に出力します。
 途中の手順で出力すると、1 回の発行処理に複数の記録が残るためです。
 
@@ -665,7 +656,7 @@ Lambda の Go Runtime では標準出力が CloudWatch Logs に送られ、JSON 
 ほかのログ（除外した JWK、初期化の失敗、回復した panic）は別の `msg` を持ち、監査記録のキーを持ちません。
 ログの種類を表すキーを別に設けないのは、`msg` と同じ事実を二か所に書くと、二つの印が食い違い得るためです。
 結果によらず `INFO` にするのは、拒否は通常の運用で起きる記録であり、監視は `result` の値で行うためです。
-時刻は `slog` が付ける `time`（RFC 3339）をそのまま監査記録の時刻とし、独自のキーを持ちません。
+時刻はログの共通のキー `time`（RFC 3339）をそのまま監査記録の時刻とし、独自のキーを持ちません。
 記録は結果が確定した直後に 1 回書くため、書いた時刻が結果の時刻だからです。
 
 | Domain Model の項目 | キー | 値 |
@@ -688,7 +679,7 @@ Lambda の Go Runtime では標準出力が CloudWatch Logs に送られ、JSON 
 制御文字と U+2028、U+2029 はエスケープされ、Payload の元の表記によらず、ワークフロー起動属性の文字列と同じく 1 行に収まります。
 数値の表記を変えないのは、未知の Claim の大きな整数を浮動小数点数に丸めると、調査に使う値が変わるためです。
 入れ子にするのは、Domain Model の概念の単位でキーがそろい、記録する条件もその単位で決まるためです。
-`time`、`level`、`msg` は `slog` のキーで、監査記録の項目には使いません。
+`time`、`level`、`msg` はほかのログと共通のキーで、監査記録の項目には使いません。
 
 記録する条件を満たさなかった項目は、キーごと出しません。
 `null` や空文字列を値として書かないのは、条件を満たさなかったことと、値が空だったことを見分けるためです。
@@ -707,7 +698,7 @@ Caller のリポジトリ名は `caller` に加えません。
 
 ## 8. References
 
-- [AWS — Lambda Invoke](https://docs.aws.amazon.com/lambda/latest/dg/invocation-sync.html)
+- [AWS — Invoke a Lambda Event Function synchronously](https://docs.aws.amazon.com/lambda/latest/dg/invocation-sync.html)
 - [AWS — Lambda API Reference: Invoke](https://docs.aws.amazon.com/lambda/latest/api/API_Invoke.html)
 - [AWS — Lambda execution environment lifecycle](https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtime-environment.html)
 - [AWS — Lambda context object in Go](https://docs.aws.amazon.com/lambda/latest/dg/golang-context.html)
@@ -718,8 +709,8 @@ Caller のリポジトリ名は `caller` に加えません。
 - [AWS — KMS Common Error Types](https://docs.aws.amazon.com/kms/latest/APIReference/CommonErrors.html)
 - [GitHub App Constraints](../external/github/app.md)
 - [GitHub Owner and Repository Constraints](../external/github/account.md)
-- [GATES OIDC JWT Claims](gates-oidc-jwt-claims.md)
-- [GATES OIDC JWT Signature](gates-oidc-jwt-signature.md)
+- [OIDC JWT Claims](oidc-jwt-claims.md)
+- [OIDC JWT Signature](oidc-jwt-signature.md)
 - [RFC 7515 JSON Web Signature](../external/standards/rfc7515.md)
 - [RFC 7519 JSON Web Token](../external/standards/rfc7519.md)
 - [OpenID Foundation — OpenID Connect Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html)

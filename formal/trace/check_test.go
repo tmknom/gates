@@ -11,7 +11,7 @@ import (
 // The other kinds get a document that does not exist.
 var fixtureDocuments = map[string]string{
 	"AC":      "`acceptance-criteria.md`",
-	"GOJ":     "`gates-oidc-jwt-claims.md`、`gates-oidc-jwt-signature.md`",
+	"GOJ":     "`oidc-jwt-claims.md`、`oidc-jwt-signature.md`",
 	"RFC7519": "`docs/external/standards/rfc7519.md`",
 	"GH-OIDC": "`docs/external/github/oidc.md`",
 }
@@ -130,7 +130,7 @@ func goTest(annotation string) string {
 	return lines(annotation, "func TestZ(t *testing.T) {}")
 }
 
-// claimsWithRows returns the GATES OIDC JWT Claims of the fixture with the
+// claimsWithRows returns the OIDC JWT Claims of the fixture with the
 // relation rows of GOJ-AUD replaced by rows.
 func claimsWithRows(rows ...string) string {
 	content := []string{
@@ -227,8 +227,8 @@ func TestCheck(t *testing.T) {
 		},
 		{
 			name:  "GOJ without a relation table is reported",
-			files: map[string]string{"docs/design/gates-oidc-jwt-signature.md": lines("### GOJ-SIG 署名"), "formal/z3/model/sig.smt2": lines("; trace:formalizes GOJ-SIG", "(define-fun f () Bool true)")},
-			want:  []finding{{path: "docs/design/gates-oidc-jwt-signature.md", line: 1, message: "GOJ-SIG has no relation table"}},
+			files: map[string]string{"docs/design/oidc-jwt-signature.md": lines("### GOJ-SIG 署名"), "formal/z3/model/sig.smt2": lines("; trace:formalizes GOJ-SIG", "(define-fun f () Bool true)")},
+			want:  []finding{{path: "docs/design/oidc-jwt-signature.md", line: 1, message: "GOJ-SIG has no relation table"}},
 		},
 		{
 			name:  "relation row with an empty Note is reported",

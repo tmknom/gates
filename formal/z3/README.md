@@ -2,7 +2,7 @@
 
 このディレクトリには、GATES が受け取る GitHub OIDC JWT の、デコード済みの JOSE Header と Claims Set を SMT-LIB 2 で記述しています。
 ソルバーは [Z3](https://github.com/Z3Prover/z3) です。
-受理条件の正本は [GATES OIDC JWT Claims](../../docs/design/gates-oidc-jwt-claims.md) と [GATES OIDC JWT Signature](../../docs/design/gates-oidc-jwt-signature.md)、外部仕様の条項の正本は [External](../../docs/external/README.md) に挙げた標準仕様の文書と [GitHub Actions OIDC Constraints](../../docs/external/github/oidc.md) です。
+受理条件の正本は [OIDC JWT Claims](../../docs/design/oidc-jwt-claims.md) と [OIDC JWT Signature](../../docs/design/oidc-jwt-signature.md)、外部仕様の条項の正本は [External](../../docs/external/README.md) に挙げた標準仕様の文書と [GitHub Actions OIDC Constraints](../../docs/external/github/oidc.md) です。
 
 モデルは、互いの記述を見ずに書く 3 つの層からなります。
 

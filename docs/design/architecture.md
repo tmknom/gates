@@ -2,8 +2,6 @@
 
 ## 1. Overview
 
-本ドキュメントはシステム構成を示します。
-
 GATES（GitHub App Token Exchange System）は、GitHub Actions から指定したリポジトリを操作するために、短命な GitHub App Installation Access Token を発行するシステムです。利用者は Docker Action を通じてアクセス先リポジトリと、必要な Repository permissions の権限を指定します。Lambda は要求を処理し、対象を限定したトークンを GitHub Actions に返します。
 
 システムは GitHub.com の単一のオーナー（Organization またはユーザーアカウント）を対象とし、AWS Lambda 上の Go アプリケーション、AWS STS、AWS KMS、および GitHub API によって構成します。GitHub App Private Key を Lambda や Actions Runner に渡さず、署名操作を KMS に委譲します。
@@ -47,7 +45,7 @@ Docker Action は、AWS STS から AWS 一時認証情報を取得し、AWS Lamb
 | AWS STS | AWS 用 OIDC JWT を受け、Lambda 呼び出しに使う AWS 一時認証情報を発行する | OIDC JWT → AWS 一時認証情報 |
 | AWS Lambda / Go アプリケーション | GATES 用 OIDC JWT と要求を受け、Caller の識別、対象と権限の確認（保護対象の一覧の許可 Caller と権限の上限で、保護対象ごとに要求できる Caller と権限を制限することを含む）、Installation Access Token の発行を行う | Invoke Payload → 発行結果またはエラー |
 | AWS KMS | インポート済み GitHub App Private Key による署名を実行する | 署名対象のダイジェスト → 署名 |
-| GitHub API | GitHub App のオーナーに対する Installation を返し、指定した対象・権限で Installation Access Token を発行し、失効の要求を受けたトークンを失効させる | GitHub App JWT、対象・権限 → Installation 情報、Installation Access Token。失効では Installation Access Token → 失効の結果 |
+| GitHub API | 許可オーナーに対する Installation を返し、指定した対象・権限で Installation Access Token を発行し、失効の要求を受けたトークンを失効させる | GitHub App JWT、対象・権限 → Installation 情報、Installation Access Token。失効では Installation Access Token → 失効の結果 |
 
 ## 4. Information and Credentials
 
@@ -60,7 +58,7 @@ Docker Action は、AWS STS から AWS 一時認証情報を取得し、AWS Lamb
 | GATES 用 OIDC JWT | GitHub OIDC Provider | Lambda 内で Caller を確定し、ワークフロー起動属性を監査のために読み取る。GATES 用 Audience を使用 |
 | GitHub App JWT | Lambda が作成し、KMS が署名 | GitHub API の Installation 取得と Installation Access Token 発行 |
 | Installation 情報 | GitHub API | 発行対象となる GitHub App のインストール先の確認 |
-| Installation Access Token | GitHub API | 指定したリポジトリへの、要求した権限でのアクセス。Lambda から Docker Action に返却し、ジョブの終了時に Docker Action が失効を試みる |
+| Installation Access Token | GitHub API | 指定したリポジトリへの、要求した権限でのアクセス。Lambda から Docker Action に返却し、失敗時とジョブの終了時に Docker Action が失効を試みる |
 
 AWS 用と GATES 用の OIDC JWT は、同じ GitHub Actions ジョブから別々の Audience を指定して取得します。GitHub App JWT はこれらとは異なり、Lambda が GitHub App として GitHub API を呼び出すために生成します。
 
@@ -130,8 +128,8 @@ Docker Action は応答を処理し、発行されたトークン、有効期限
 | 文書 | 主題 |
 |---|---|
 | [Security Design](security.md) | 信頼境界、認証・認可、資格情報の保護、失敗時の扱い |
-| [GATES OIDC JWT Claims](gates-oidc-jwt-claims.md) | GATES 用 OIDC JWT の Claim の受理条件 |
-| [GATES OIDC JWT Signature](gates-oidc-jwt-signature.md) | GATES 用 OIDC JWT の直列化、JOSE Header、Discovery、JWK の受理条件 |
+| [OIDC JWT Claims](oidc-jwt-claims.md) | GATES 用 OIDC JWT の Claim の受理条件 |
+| [OIDC JWT Signature](oidc-jwt-signature.md) | GATES 用 OIDC JWT の直列化、JOSE Header、Discovery、JWK の受理条件 |
 | [AWS Infrastructure Design](aws-infrastructure.md) | AWS リソースの構成 |
 | [Lambda Design](lambda.md) | Lambda の入出力契約、コンポーネント、外部連携 |
 | [GitHub Actions Design](github-actions.md) | Docker Action の入出力と処理手順 |

@@ -36,12 +36,12 @@ definitions:
           - "Invariants"
   GOJ:
     declarations:
-      - file: docs/design/gates-oidc-jwt-claims.md
+      - file: docs/design/oidc-jwt-claims.md
         sections:
           - "Claims"
           - "Time"
           - "Cross-Claim Invariants"
-      - file: docs/design/gates-oidc-jwt-signature.md
+      - file: docs/design/oidc-jwt-signature.md
         sections:
           - "Serialization"
           - "JOSE Header"

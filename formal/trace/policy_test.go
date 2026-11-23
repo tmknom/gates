@@ -58,12 +58,12 @@ func TestParseIDKinds(t *testing.T) {
 				"| 接頭辞 | 対象 | 定めるドキュメント | ID の形 |",
 				"|---|---|---|---|",
 				"| `FR-` | 機能要求 | `requirements.md` | 連番（`FR-AUTHN-001`） |",
-				"| `GOJ-` | 受理条件 | `gates-oidc-jwt-claims.md`、`gates-oidc-jwt-signature.md` | 名前 |",
+				"| `GOJ-` | 受理条件 | `oidc-jwt-claims.md`、`oidc-jwt-signature.md` | 名前 |",
 				"| `GH-OIDC-` | GitHub Actions OIDC の条項 | `docs/external/github/oidc.md` | 名前 |",
 			),
 			want: []idKind{
 				{prefix: "FR", documents: []string{"requirements.md"}, line: 5},
-				{prefix: "GOJ", documents: []string{"gates-oidc-jwt-claims.md", "gates-oidc-jwt-signature.md"}, line: 6},
+				{prefix: "GOJ", documents: []string{"oidc-jwt-claims.md", "oidc-jwt-signature.md"}, line: 6},
 				{prefix: "GH-OIDC", documents: []string{"docs/external/github/oidc.md"}, line: 7},
 			},
 		},
@@ -86,16 +86,16 @@ func TestParseIDKinds(t *testing.T) {
 }
 
 func TestIDKindDefines(t *testing.T) {
-	kind := idKind{prefix: "GOJ", documents: []string{"gates-oidc-jwt-claims.md", "docs/external/github/oidc.md"}}
+	kind := idKind{prefix: "GOJ", documents: []string{"oidc-jwt-claims.md", "docs/external/github/oidc.md"}}
 	cases := []struct {
 		name string
 		path string
 		want bool
 	}{
-		{name: "document named by its file name defines the kind", path: "docs/design/gates-oidc-jwt-claims.md", want: true},
+		{name: "document named by its file name defines the kind", path: "docs/design/oidc-jwt-claims.md", want: true},
 		{name: "document named by its path defines the kind", path: "docs/external/github/oidc.md", want: true},
-		{name: "document whose name only ends with the file name does not define the kind", path: "docs/design/old-gates-oidc-jwt-claims.md"},
-		{name: "document with the file name outside docs/spec and docs/design does not define the kind", path: "docs/research/gates-oidc-jwt-claims.md"},
+		{name: "document whose name only ends with the file name does not define the kind", path: "docs/design/old-oidc-jwt-claims.md"},
+		{name: "document with the file name outside docs/spec and docs/design does not define the kind", path: "docs/research/oidc-jwt-claims.md"},
 		{name: "other document does not define the kind", path: "docs/design/domain.md"},
 	}
 	for _, tc := range cases {

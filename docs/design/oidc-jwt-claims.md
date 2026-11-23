@@ -1,15 +1,14 @@
-# GATES OIDC JWT Claims
+# OIDC JWT Claims
 
 本ドキュメントは、GATES 用 OIDC JWT の Claims Set に GATES が課す受理条件を定めます。
 GATES 用 OIDC JWT は GitHub Actions OIDC Provider が発行し、Lambda の OIDC Verifier が検証する JWT です。
 Caller の認証と監査（ワークフロー起動属性と、調査用に残す Claims Set の全体）に使い、GATES 固有の Audience を指定して取得します。
 同じジョブで取得する AWS 用 OIDC JWT とは Audience が異なる別の JWT です。
 
-Claim の意味と使い方、Claim 間の整合を記述します。
 Go のパッケージ構成、Discovery / JWKS の取得・キャッシュ、エラー応答、信頼境界と残留リスクはそれぞれのコンポーネント設計の責務です。
 Caller とその不変条件の概念的な定義は [Domain Model](domain.md) を正本とします。
 
-本書の受理条件は、採用する設計契約です。
+本ドキュメントの受理条件は、採用する設計契約です。
 GitHub が定めていない事柄は [GitHub Actions OIDC Constraints](../external/github/oidc.md) の Evidence が Unconfirmed の条項に、GATES がそれによって拒否し得る発行は各規則の Possibly Rejects の行に書きます。
 
 ## Rule ID
@@ -41,7 +40,7 @@ Claim ごとでない規則の ID は、規則の内容を表す名前です（G
 本文には、GATES の判断とその理由を書きます。
 GitHub の条項の Evidence のうち、Published と Observed は取得・観測した時点と条件での値です。Published と Observed の条項だけを根拠にした Accepts の行は、GitHub が保証した受理ではありません。
 
-GATES は、適用対象の標準仕様が要求する検証を省略しません。追加で受理対象を狭くする場合は、Narrows の行で狭める条項と理由を、Possibly Rejects の行で互換性への影響を示します。「理解しない Claim / Header は無視する」という標準規定も尊重し、無関係な新規 Claim の追加だけを拒否の理由にしません。Claims Set の JSON の名前重複、不正な UTF-8、既知 Claim の解釈の曖昧さは、未知 Claim と区別して [GOJ-CLAIMS-JSON](#goj-claims-json-claims-set-の-json)、[GOJ-CLAIM-NAME-MATCH](#goj-claim-name-match-claim-名の厳密一致)、[GOJ-CLAIM-NAME-ALIAS](#goj-claim-name-alias-claim-名の別名の拒否) で扱います。
+GATES は、適用対象の標準仕様が要求する検証をすべて行います。追加で受理対象を狭くする場合は、Narrows の行で狭める条項と理由を、Possibly Rejects の行で互換性への影響を示します。「理解しない Claim / Header は無視する」という標準規定も尊重し、無関係な新規 Claim の追加だけを拒否の理由にしません。Claims Set の JSON の名前重複、不正な UTF-8、既知 Claim の解釈の曖昧さは、未知 Claim と区別して [GOJ-CLAIMS-JSON](#goj-claims-json-claims-set-の-json)、[GOJ-CLAIM-NAME-MATCH](#goj-claim-name-match-claim-名の厳密一致)、[GOJ-CLAIM-NAME-ALIAS](#goj-claim-name-alias-claim-名の別名の拒否) で扱います。
 
 GH-OIDC-DISCOVERY-CLAIMS の `claims_supported` は、サポートする Claim の一覧として読み、すべての JWT に全 Claim が存在する保証とは読みません（GH-OIDC-CLAIM-PRESENCE）。
 
@@ -59,7 +58,7 @@ GH-OIDC-DISCOVERY-CLAIMS の `claims_supported` は、サポートする Claim �
 
 標準仕様の条項の Actor のうち、GATES が当たるものは次のとおりです。
 Level が MUST、MUST NOT、REQUIRED、SHALL、SHALL NOT で、Actor がこの一覧にある条項は、いずれかの規則の Satisfies か Narrows の行に挙げるか、[適用しない標準の条項](#standard-clauses-not-applied) の表に挙げます。
-この一覧は [GATES OIDC JWT Signature](gates-oidc-jwt-signature.md) にも適用します。
+この一覧は [OIDC JWT Signature](oidc-jwt-signature.md) にも適用します。
 
 - **Recipient**：JWT を受け取って処理する主体。GATES は GATES 用 OIDC JWT の Recipient である
 - **Relying Party**：OpenID Provider の設定と鍵を使って検証する主体。GATES は GitHub Actions OIDC Provider の Discovery と JWKS を使う主体として当たる。ID Token を受け取る主体としては当たらない（[ID Token として扱わないこと](#id-token-として扱わないこと)）
@@ -74,7 +73,7 @@ Issuer、Producer、OpenID Provider、Signer は、GATES 用 OIDC JWT と鍵情�
 
 ### ID Token として扱わないこと
 
-OpenID Connect Core の ID Token は、Client が送った認証要求に応えて、OpenID Provider が End-User の認証の結果を Client に伝えるトークンです（[OIDC Core §2](https://openid.net/specs/openid-connect-core-1_0.html#IDToken)）。
+OpenID Connect Core の ID Token は、Client が送った認証要求に応えて、OpenID Provider が End-User の認証の結果を Client に伝えるトークンです（[OIDC Core §1.3](https://openid.net/specs/openid-connect-core-1_0.html#Overview)、[§2](https://openid.net/specs/openid-connect-core-1_0.html#IDToken)）。
 GATES 用 OIDC JWT は、GitHub Actions のジョブが実行環境から要求して受け取る JWT で（[GitHub Actions Integration Constraints](../external/github/actions.md)）、GATES は認証要求を送らず、GitHub に登録した Client でもありません。
 Audience も `client_id` ではなく、ジョブが指定する値です（GH-OIDC-AUD-CUSTOM）。
 GitHub の Discovery は、認証要求を受ける `authorization_endpoint` と `token_endpoint` を持ちません（GH-OIDC-DISCOVERY-MEMBERS）。
@@ -158,9 +157,8 @@ Condition を持たない OpenID Connect の条項（文字列の比較など）
 - `sub` は欠落不可の JSON 文字列である。`repo:` で始まり、以後の最初の `/` によってオーナー部とリポジトリ部を分ける。
 - リポジトリ部は最初の `:` までとし、`:` がなければ拒否する。オーナー部・リポジトリ部はそれぞれ非空の `NAME@ID` で、`@` は各部にちょうど1個とする。
 - 両方の ID は [GOJ-ID-FORMAT](#goj-id-format-id-の表記) の正の整数の文字列表現に合致する。`repository_owner_id`・`repository_id` との一致は [GOJ-ID-MATCH](#goj-id-match-subject-と識別子の一致) で判定する。
-- 名前部分は ID の認可根拠とせず、Claim の名前部分と他の名前の一致を認証条件にしない。`:` 以降のコンテキストは解釈・認可に使用しない。
+- 名前部分は ID に代えて認可の根拠とせず、Claim の名前部分と他の名前の一致を認証条件にしない。`:` 以降のコンテキストは解釈・認可に使用しない。
 - リポジトリ部の名前部分は、Caller のリポジトリ名として取り出す。取り出しても受理条件は加わらず、文字種もリポジトリ名の規則で確かめない。Caller のリポジトリ名は、発行 Context が保護対象の認可で、Repository ID の一致に重ねて許可 Caller の名前と照合する（[Domain Model](domain.md) の RULE-015）。
-- 旧形式、`repo` を含まないカスタマイズ形式、末尾の `:` がない形式は拒否する。
 
 **理由**：`sub` の名前部分だけを信頼すると、名前の再利用で別の主体を許す危険があります。不変 ID と個別 Claim の両方を確認し、主体の取り違えを防ぎます。`sub` はワークフロー実行 ID ではなく、Caller の不変な識別子を得るための根拠です。
 Caller のリポジトリ名を `sub` から得るのは、`sub` が署名と形式の検証を経ており、しかも同じ文字列の中で名前が Repository ID と組になっているためです。`repository` の Claim を使うと、`sub` との一致を別に確かめる受理条件が要ります。
@@ -176,7 +174,7 @@ Caller のリポジトリ名を `sub` から得るのは、`sub` が署名と形
 
 **GATES の受理条件**：`sub` 全体を ASCII 文字のみに限定し、文字数が255を超えたら拒否します。
 
-**理由**：長さと文字種の条件は ID の一致による認可を強めるものではなく、受理する `sub` の範囲を明示するためのものです。GATES 用 OIDC JWT は ID Token として扱わないため（[ID Token として扱わないこと](#id-token-として扱わないこと)）、255 文字の上限も ASCII 以外の拒否も GATES が加える制約です。
+**理由**：長さと文字種の条件は、受理する `sub` の範囲を明示するためのもので、ID の一致による認可を強めるものではありません。GATES 用 OIDC JWT は ID Token として扱わないため（[ID Token として扱わないこと](#id-token-として扱わないこと)）、255 文字の上限も ASCII 以外の拒否も GATES が加える制約です。
 
 ### GOJ-AUD `aud`
 
@@ -196,7 +194,7 @@ Caller のリポジトリ名を `sub` から得るのは、`sub` が署名と形
 | Accepts | GH-OIDC-AUD-CUSTOM-STRING | なし |
 | Possibly Rejects | GH-OIDC-CLAIM-PRESENCE | `aud` がない JWT を拒否する。RFC8725-AUD-VALIDATE が求める拒否である |
 
-**GATES の受理条件**：必須。固定設定の GATES 用 Audience と大文字小文字を含め完全一致する文字列1個、またはそれだけを含む要素数1の文字列配列を許容し、要素が複数なら GATES 用 Audience を含んでも拒否します。空文字列、空配列、別の Audience は拒否します。AWS 用 JWT の `aud=sts.amazonaws.com` とは区別します。
+**GATES の受理条件**：必須。固定設定の GATES 用 Audience と大文字小文字を含め完全一致する文字列1個、またはそれだけを含む要素数1の文字列配列を許容し、要素が複数なら GATES 用 Audience を含んでも拒否します。空文字列、空配列、別の Audience は拒否します。AWS 用 OIDC JWT の `aud=sts.amazonaws.com` とは区別します。
 
 ### GOJ-EXP `exp`
 
@@ -300,7 +298,7 @@ JWT の `iss` の値は照合だけに使い、Discovery / JWKS の取得先に�
 |---|---|---|
 | Accepts | GH-OIDC-CLAIMS-TOKEN-TABLE | なし |
 
-**GATES の設計**：未使用。認証・認可で使用する Owner ID を名前で代用しません。オーナーの名前変更で失敗する箇所（要求対象の完全名のオーナー部分と許可オーナー名の照合、オーナー名を含む IAM の `sub` 条件）は、この Claim を使わず、それぞれ別の設計の責務です。
+**GATES の設計**：未使用。認証・認可で使用する Owner ID を名前で代用しません。オーナーの名前変更で失敗する箇所（要求対象の完全名のオーナー部分と許可オーナー名の照合、オーナー名を含む IAM の `sub` 条件）は、それぞれ別の設計の責務で、その設計でもこの Claim は使いません。
 
 ### GOJ-REPOSITORY-OWNER-ID `repository_owner_id`
 
@@ -327,7 +325,7 @@ JWT の `iss` の値は照合だけに使い、Discovery / JWKS の取得先に�
 |---|---|---|
 | Accepts | GH-OIDC-CLAIM-MEANING | 意味が定まっていなくても、判定に使わない |
 
-**GATES の設計**：未使用。Claim 名が `_id` で終わるというだけで整数文字列と決めつけたり、固定オーナー ID に代用したりしません。
+**GATES の設計**：未使用。Claim 名が `_id` で終わるというだけで整数文字列と決めつけたり、許可オーナーの Owner ID に代用したりしません。
 
 ### GOJ-RUN-ID `run_id`
 
@@ -372,7 +370,7 @@ JWT の `iss` の値は照合だけに使い、Discovery / JWKS の取得先に�
 |---|---|---|
 | Accepts | GH-OIDC-ACTOR | なし |
 
-**GATES の設計**：任意・監査。JSON 文字列ならそのまま記録します。必須 ID Claim と異なり正の整数への変換を必須にせず、欠落・型違いを拒否しません。認可には使いません。
+**GATES の設計**：任意・監査。JSON 文字列ならそのまま記録します。[GOJ-ID-FORMAT](#goj-id-format-id-の表記) の適用対象と異なり正の整数への変換を必須にせず、欠落・型違いを拒否しません。認可には使いません。
 
 ### GOJ-WORKFLOW `workflow`
 
@@ -468,7 +466,7 @@ JWT の `iss` の値は照合だけに使い、Discovery / JWKS の取得先に�
 | Accepts | GH-OIDC-WORKFLOW-REF | なし |
 | Accepts | GH-OIDC-WORKFLOW-REF-OBSERVED | なし |
 
-**GATES の設計**：任意・監査。JSON 文字列なら保持し、欠落・型違いは拒否しません。再利用する場合としない場合の存在条件を、観測（GH-OIDC-WORKFLOW-REF-OBSERVED）から保証された仕様へ格上げしません。`workflow_ref` との一致も要求しません。
+**GATES の設計**：任意・監査。JSON 文字列なら保持し、欠落・型違いは拒否しません。再利用ワークフローを使うジョブと使わないジョブでの存在条件を、観測（GH-OIDC-WORKFLOW-REF-OBSERVED）から保証された仕様へ格上げしません。`workflow_ref` との一致も要求しません。
 
 ### GOJ-JOB-WORKFLOW-SHA `job_workflow_sha`
 
@@ -548,7 +546,7 @@ JWT の `iss` の値は照合だけに使い、Discovery / JWKS の取得先に�
 
 ## Cross-Claim Invariants
 
-各 Claim の値を独立に受理しただけでは Caller を確定しません。次の条件が同時に成立したときに限り、[Domain Model](domain.md) の INV-009 が定める Caller を生成できます。
+次の条件が同時に成立したときに限り、[Domain Model](domain.md) の INV-009 が定める Caller を生成できます。各 Claim の値を独立に受理しただけでは Caller を確定しません。
 
 ### GOJ-ID-FORMAT ID の表記
 
@@ -559,7 +557,7 @@ JWT の `iss` の値は照合だけに使い、Discovery / JWKS の取得先に�
 | Possibly Rejects | GH-OIDC-CLAIM-ID-FORMAT | 数字以外の文字を含む ID、先頭に `0` を持つ ID、64 bit 符号付き整数の正の範囲を超える ID を拒否する。ID を正の 64 bit 符号付き整数の 10 進表記に限って、同じ ID を一つの文字列だけで表し、Claim を読み取る処理によって異なる値に読めないようにするため |
 | Possibly Rejects | GH-OIDC-CLAIM-TYPE | JSON の文字列でない ID の Claim を拒否する。GitHub が型を変えたときに、暗黙に受理を広げないため |
 
-`repository_owner_id`、`repository_id`、`run_id`、`run_attempt` と `sub` のオーナー ID・リポジトリ ID はすべて、次の条件を満たす必要があります。
+`repository_owner_id`、`repository_id`、`run_id`、`run_attempt` と `sub` の Owner ID・Repository ID はすべて、次の条件を満たす必要があります。
 
 - JSON の **文字列** である。JSON 数値、`null`、boolean は拒否する。
 - ASCII 数字 `[0-9]` だけで構成し、先頭に `0` を持たず、`"0"` を拒否する。`+` / `-`、空白、小数点、指数表記、非 ASCII 数字は拒否する。
@@ -581,7 +579,7 @@ JWT の `iss` の値は照合だけに使い、Discovery / JWKS の取得先に�
 | `sub` の Owner ID = `repository_owner_id` | 拒否（認証失敗） |
 | `sub` の Repository ID = `repository_id` | 拒否（認証失敗） |
 
-Caller の確定後、固定した Allowed Owner ID との一致は認可で確認します。
+Caller の確定後、固定した許可オーナーの Owner ID との一致は認可で確認します。
 
 ### GOJ-CLAIMS-JSON Claims Set の JSON
 
@@ -607,7 +605,7 @@ Claims Set は UTF-8 の JSON オブジェクトとし、不正な UTF-8 と、�
 | Satisfies | RFC7519-STRING-COMPARE | なし |
 
 - Claim 名はエスケープ解除後の **厳密一致** で識別する。識別では、大文字小文字の同一視、Unicode 正規化、Unicode の Case Folding は行わない。`iss`、`ISS`、`iſſ` はそれぞれ別の名前として扱う。
-- 検証ライブラリと Claim 抽出処理で、同じ署名済み Claims Set の **同名・同値** を使用する。
+- 検証ライブラリと Claim を読み取る処理で、同じ署名済み Claims Set の **同名・同値** を使用する。
 
 ### GOJ-CLAIM-NAME-ALIAS Claim 名の別名の拒否
 
@@ -650,7 +648,7 @@ Claims Set は UTF-8 の JSON オブジェクトとし、不正な UTF-8 と、�
 ## Standard Clauses Not Applied
 
 GATES の役割に当たる強い規範の条項のうち、Claims Set を扱い、GATES に適用しない条項です。
-直列化、JOSE Header、Discovery、JWK を扱う条項は [GATES OIDC JWT Signature](gates-oidc-jwt-signature.md) に挙げます。
+直列化、JOSE Header、Discovery、JWK を扱う条項は [OIDC JWT Signature](oidc-jwt-signature.md) に挙げます。
 
 | Clause | Reason |
 |---|---|
@@ -678,13 +676,13 @@ GATES の役割に当たる強い規範の条項のうち、Claims Set を扱い
 | Claim 名の別名の拒否と、時刻の値の表記 | [Requirements](../spec/requirements.md) の FR-AUTHN-004 |
 | 不変形式 `sub` | [Requirements](../spec/requirements.md) の FR-AUTHN-003、FR-OPS-002 |
 | Caller の Owner ID による認可、Repository ID の監査利用、保護対象の認可での Repository ID とリポジトリ名の利用 | [Requirements](../spec/requirements.md) の FR-AUTHN-001、FR-AUTHZ-001、FR-AUTHZ-009 |
-| 起動属性のベストエフォート監査と、署名検証を通った Claims Set の調査用の記録 | [Requirements](../spec/requirements.md) の FR-OPS-003 |
+| ワークフロー起動属性のベストエフォート監査と、署名検証を通った Claims Set の調査用の記録 | [Requirements](../spec/requirements.md) の FR-OPS-003 |
 
 ## Verification Cases
 
 | 対象 | 受理例・拒否例の焦点 | 期待結果 |
 |---|---|---|
-| `sub` | 不変形式、旧形式、`@` の過不足、`:` 欠落、カスタマイズ形 | 構文と ID 一致を満たす場合だけ受理 |
+| `sub` | 不変形式、旧形式、`@` の過不足、`:` 欠落、カスタマイズ形式 | 構文と ID 一致を満たす場合だけ受理 |
 | `sub` の長さ・文字種 | ASCII 255文字、256文字、非 ASCII、長い ref / Environment | ASCII 255文字以内のみ受理 |
 | `aud` | GATES 用1件、文字列1件と配列1件、配列に空要素や別 Audience を含む場合、AWS 用 Audience | GATES 用の1要素だけを受理 |
 | NumericDate | 数値整数、数字文字列、小数、指数、範囲外、`exp=now`、`exp=now+1` | 整数・範囲・各時刻条件を満たすものだけ受理 |
