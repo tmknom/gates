@@ -6,6 +6,10 @@
 各 AC の Relationship の表は、その AC が適合を判定する要求を `alignment` で示します。
 Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を指します。
 
+リポジトリポリシーを適用するデプロイで判定するときは、リポジトリポリシーに固有の AC（AC-AUTHZ-014 から AC-AUTHZ-017、AC-ISSUANCE-011、AC-ISSUANCE-012）と、AC-QUALITY-001 のうちリポジトリポリシーの取得の一時的な障害の場合を除き、各 AC の条件に、要求の対象のリポジトリポリシーがその要求を許していることを含めます。
+リポジトリポリシーが要求を許していれば、各 AC の期待する結果は変わらないためです（FR-AUTHZ-011）。
+リポジトリポリシーが許さない要求と、リポジトリポリシーの取得の一時的な障害が起きる要求の結果は、リポジトリポリシーに固有の AC と AC-QUALITY-001 で判定します。
+
 ## Authentication
 
 ### AC-AUTHN-001 未認証か許可されない呼び出し元の要求の拒否
@@ -129,16 +133,17 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 | `alignment` | `FR-AUTHZ-005` | Functional Requirement |
 | `alignment` | `FR-AUTHZ-004` | Functional Requirement |
 
-### AC-AUTHZ-007 実行時の入力による許可オーナー、GitHub App、Installation、KMS Key、発行上限、保護対象の一覧の指定の拒否
+### AC-AUTHZ-007 実行時の入力による許可オーナー、GitHub App、Installation、KMS Key、発行上限、保護対象の一覧、リポジトリポリシーの適用と取得先、ポリシー読み取りトークンの権限と対象の指定の拒否
 
-**条件**：実行時の要求やワークフロー側の入力で、許可オーナー・GitHub App・Installation・KMS Key・発行上限・保護対象の一覧を指定しようとする
+**条件**：実行時の要求やワークフロー側の入力で、許可オーナー・GitHub App・Installation・KMS Key・発行上限・保護対象の一覧・リポジトリポリシーの適用・リポジトリポリシーのパス・リポジトリポリシーの ref・リポジトリポリシーの取得先・ポリシー読み取りトークンの権限・ポリシー読み取りトークンの対象の追加を指定しようとする
 
-**期待する結果**：指定を受け付けず、デプロイ時の設定と、そこから導出した Installation が使われる
+**期待する結果**：指定を受け付けず、デプロイ時の設定と、そこから導出した Installation が使われる。リポジトリポリシーを適用するデプロイでは、リポジトリポリシーは、要求の対象の既定ブランチの、GATES が定める固定のパスから読み、ポリシー読み取りトークンは、権限を `single_file:read` だけ、対象を要求の対象だけに限って取得する
 
 | Relationship | Target | Target Type |
 |---|---|---|
 | `alignment` | `FR-AUTHZ-002` | Functional Requirement |
 | `alignment` | `FR-OPS-001` | Functional Requirement |
+| `alignment` | `FR-ISSUANCE-007` | Functional Requirement |
 
 ### AC-AUTHZ-008 GitHub App に付与されていない権限を含む要求の全件拒否
 
@@ -207,6 +212,56 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 |---|---|---|
 | `alignment` | `FR-OPS-001` | Functional Requirement |
 | `alignment` | `FR-AUTHZ-009` | Functional Requirement |
+| `alignment` | `QR-003` | Quality Requirement |
+
+### AC-AUTHZ-014 リポジトリポリシーによる要求の許可と拒否
+
+**条件**：リポジトリポリシーを適用するデプロイで、GATES が許可し、発行上限に含まれ、GitHub App の Installation に付与された権限で、保護対象でない対象に次の要求をする。対象のリポジトリポリシーの許可 Caller に当たる Caller が、その許可 Caller の権限の上限と同じかより低い水準だけで要求する。Caller が、リポジトリポリシーが Caller を許していない自分のリポジトリを要求する。リポジトリポリシーのない対象を要求する。許可 Caller に当たらない Caller（Repository ID が一致してリポジトリ名が一致しない Caller と、リポジトリ名が一致して Repository ID が一致しない Caller を含む）が要求する。許可 Caller に当たる Caller が、権限の上限より高い水準か、権限の上限にない権限名を含めて要求する。許可 Caller のないリポジトリポリシーの対象を要求する。拒否されるはずのこれらの要求は、リポジトリポリシーが要求を許す対象を混ぜない形と混ぜた形の両方で行う。また、許可 Caller に当たる Caller の要求が発行された後に、リポジトリポリシーをその Caller を許さない内容に変えて、同じ要求をする。固定のパスに、Caller を許す内容のファイルを指すシンボリックリンクを置いて要求する
+
+**期待する結果**：許可 Caller に当たる Caller の、権限の上限と同じかより低い水準だけの要求は、要求した水準で発行する。それ以外の要求は、リポジトリポリシーが許す対象を混ぜていても全体を認可拒否とし、利用者に返すトークンを取得しない。リポジトリポリシーを変えた後の要求は、変えた後の内容で判定して認可拒否とする。シンボリックリンクを置いた対象は、リンク先のファイルの内容で判定して発行する。拒否の理由は監査記録に残り、応答と監査記録にリポジトリポリシーの内容が出ない
+
+| Relationship | Target | Target Type |
+|---|---|---|
+| `alignment` | `FR-AUTHZ-011` | Functional Requirement |
+| `alignment` | `FR-AUTHZ-004` | Functional Requirement |
+| `alignment` | `FR-ISSUANCE-002` | Functional Requirement |
+| `alignment` | `FR-OPS-003` | Functional Requirement |
+
+### AC-AUTHZ-015 有効なリポジトリポリシーのない対象を含む要求の拒否
+
+**条件**：リポジトリポリシーを適用するデプロイで、対象の固定のパスに次のものを置き、ファイルに誤りがなければリポジトリポリシーが許す Caller から要求する。書式の誤ったファイル、空のファイル、許可 Caller の Repository ID かリポジトリ名が重複したファイル、空の権限の上限を持つ許可 Caller を含むファイル、GATES が許可しない権限名と水準の組を含む権限の上限を持つ許可 Caller を含むファイル、大きさの上限を超えるファイル、ディレクトリ、存在しないファイルを指すシンボリックリンク。空の権限の上限を持つ許可 Caller を含むファイルと、許可しない組を含む権限の上限を持つ許可 Caller を含むファイルでは、ほかの許可 Caller を正しく書く
+
+**期待する結果**：どの要求も全体を認可拒否とし、正しい許可 Caller の部分だけを使って発行しない。利用者に返すトークンを取得しない
+
+| Relationship | Target | Target Type |
+|---|---|---|
+| `alignment` | `FR-AUTHZ-011` | Functional Requirement |
+| `alignment` | `FR-ISSUANCE-002` | Functional Requirement |
+
+### AC-AUTHZ-016 保護対象への要求での、保護対象の一覧とリポジトリポリシーの両方による判定
+
+**条件**：リポジトリポリシーを適用し、空でない保護対象の一覧でデプロイして、保護対象に次の要求をする。保護対象の一覧とリポジトリポリシーの両方が許す Caller と権限で要求する。保護対象の一覧だけが許す Caller か権限で要求する。リポジトリポリシーだけが許す Caller か権限で要求する
+
+**期待する結果**：両方が許す要求だけを、要求した水準で発行する。片方だけが許す要求は全体を認可拒否とし、利用者に返すトークンを取得しない
+
+| Relationship | Target | Target Type |
+|---|---|---|
+| `alignment` | `FR-AUTHZ-011` | Functional Requirement |
+| `alignment` | `FR-AUTHZ-009` | Functional Requirement |
+| `alignment` | `FR-ISSUANCE-002` | Functional Requirement |
+
+### AC-AUTHZ-017 リポジトリポリシーの適用の設定
+
+**条件**：リポジトリポリシーを適用しない設定でデプロイし、リポジトリポリシーのない対象、不正なリポジトリポリシーの対象、Caller を許していないリポジトリポリシーの対象を要求する。また、リポジトリポリシーの適用が欠落した設定か、適用するとしないのどちらでもない値の設定でデプロイし、発行を要求する
+
+**期待する結果**：適用しないデプロイでは、リポジトリポリシーを読まず、ポリシー読み取りトークンを取得せず、どの要求も、リポジトリポリシーの有無と内容によらず、AC-AUTHZ-014 から AC-AUTHZ-016、AC-ISSUANCE-011、AC-ISSUANCE-012 を除く AC の期待する結果のとおりになる。欠落か不正な設定のデプロイでは、どの要求にもトークンを返さず、設定の誤りは、値を記録せずに、どの設定の誤りかを運用者が特定できる形で残る
+
+| Relationship | Target | Target Type |
+|---|---|---|
+| `alignment` | `FR-OPS-001` | Functional Requirement |
+| `alignment` | `FR-AUTHZ-011` | Functional Requirement |
+| `alignment` | `FR-ISSUANCE-002` | Functional Requirement |
+| `alignment` | `FR-ISSUANCE-007` | Functional Requirement |
 | `alignment` | `QR-003` | Quality Requirement |
 
 ## Token Issuance
@@ -322,6 +377,32 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 | `alignment` | `FR-ISSUANCE-003` | Functional Requirement |
 | `alignment` | `FR-ISSUANCE-004` | Functional Requirement |
 
+### AC-ISSUANCE-011 ポリシー読み取りトークンの取得の限定、非返却、失効
+
+**条件**：リポジトリポリシーを適用するデプロイで、次の要求をする。ポリシー読み取りトークンを発行する前に判定する、リポジトリポリシーの条件のほかの認可条件で拒否される要求。発行に成功する要求。リポジトリポリシーで認可拒否になる要求。リポジトリポリシーの取得の一時的な障害が起きる要求。ポリシー読み取りトークンの発行応答が照合に失敗する要求（権限、対象、読めるファイルのパスが一致しない）
+
+**期待する結果**：ポリシー読み取りトークンを発行する前に判定する認可条件で拒否される要求では、ポリシー読み取りトークンを取得しない。それ以外の要求では、ポリシー読み取りトークンは `single_file:read` と付随権限だけを持ち、応答、ワークフローのログ、監査記録に出ない。取得できたポリシー読み取りトークンは失効が試みられ、その成否が、利用者に返すトークンの照合失敗での失効の結果とは別の項目として監査記録に残る。失効成功は保証しない。発行応答が照合に失敗したポリシー読み取りトークンは、リポジトリポリシーの取得に使われず、照合失敗として扱われる
+
+| Relationship | Target | Target Type |
+|---|---|---|
+| `alignment` | `FR-ISSUANCE-007` | Functional Requirement |
+| `alignment` | `FR-ISSUANCE-002` | Functional Requirement |
+| `alignment` | `FR-ISSUANCE-004` | Functional Requirement |
+| `alignment` | `FR-ISSUANCE-005` | Functional Requirement |
+| `alignment` | `FR-OPS-003` | Functional Requirement |
+| `alignment` | `QR-004` | Quality Requirement |
+
+### AC-ISSUANCE-012 リポジトリポリシーを読んだリポジトリと Repository ID が一致しない発行結果の不返却
+
+**条件**：リポジトリポリシーを適用するデプロイで、利用者に返すトークンの発行応答の実効対象の Repository ID が、同じ完全名でリポジトリポリシーを読んだリポジトリ（ポリシー読み取りトークンの実効対象）の Repository ID と一致しない状態を作る。リポジトリポリシーを読んだ後に対象を削除して同じ名前で作り直した場合に当たる
+
+**期待する結果**：トークンを返さない。空でないトークン文字列を取得した場合は失効 API を試み、成否を監査する。失効成功は保証しない
+
+| Relationship | Target | Target Type |
+|---|---|---|
+| `alignment` | `FR-AUTHZ-012` | Functional Requirement |
+| `alignment` | `FR-ISSUANCE-004` | Functional Requirement |
+
 ## Usability and Operations
 
 ### AC-OPS-001 対象、権限、接続情報だけを利用者接点に渡したときのトークンの取得
@@ -434,13 +515,14 @@ Target と本文に書く `FR-` と `QR-` の ID は、Requirements の要求を
 
 ### AC-QUALITY-001 OIDC 公開鍵、KMS、GitHub API の障害での Fail Closed
 
-**条件**：OIDC 公開鍵・KMS・GitHub API の取得・通信障害
+**条件**：OIDC 公開鍵・KMS・GitHub API の取得・通信障害。リポジトリポリシーを適用するデプロイでの、リポジトリポリシーの取得の一時的な障害（通信の失敗、タイムアウト、サーバー側のエラー、レート制限）を含む
 
 **期待する結果**：Fail Closed。資格情報を露出しない
 
 | Relationship | Target | Target Type |
 |---|---|---|
 | `alignment` | `QR-003` | Quality Requirement |
+| `alignment` | `FR-AUTHZ-011` | Functional Requirement |
 
 ### AC-QUALITY-002 ログとエラー本文からの秘密情報の除外
 

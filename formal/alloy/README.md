@@ -24,14 +24,20 @@ Alloy は、指定した大きさの範囲で、モデルの規則を満たす�
 
 ```mermaid
 flowchart TB
-    Request[発行要求] -->|発行許可の確定| Grant[発行許可]
+    Request[発行要求] -->|ポリシー読み取り許可の確定<br/>適用するデプロイだけ| PolicyGrant[ポリシー読み取り許可]
+    PolicyGrant -->|発行と照合| PolicyToken[照合済みのポリシー読み取りトークン]
+    PolicyToken -->|リポジトリポリシーの取得| Fetch[対象ごとの取得]
+    Fetch --> Grant
+    Request -->|発行許可の確定| Grant[発行許可]
     Grant -->|範囲を明示| Call[発行 API の呼び出し]
     Call --> Result[発行結果]
     Result -->|発行結果の照合| Token[返却可能な発行結果]
+    PolicyToken -->|Repository ID の照合| Token
 ```
 
 調べる範囲は、各要素（リポジトリ名、保護対象、許可 Caller を含む）が最大 3 個、Owner とオーナー名が最大 2 個です。
-権限は、`metadata` を含む 4 つまでの権限名と、`read` と `write` の 2 つの水準を調べます。
+リポジトリポリシーは、ないもの、不正なものと、有効なもの最大 2 個を調べます。
+権限は、`metadata` と `single_file` を含む 5 つまでの権限名と、`read` と `write` の 2 つの水準を調べます。
 `admin` は加えていません。
 水準の包含は、要求の水準 1 つと上限の水準 1 つを順序で比べる規則で、3 つ目の水準を加えても規則が別に扱う場合は増えないためです。
 権限名は、GATES が許可権限に列挙するものと列挙しないものに分けます。
@@ -45,6 +51,15 @@ flowchart TB
 こうして、改名（ID が同じで現在の名前が異なる）、作り直し（名前が同じで現在の ID が異なる）、ID や名前の書き誤りが現れます。
 Caller のリポジトリ名も、Caller の Repository ID の現在の名前と独立に決めずに調べます。
 名前は大文字小文字を区別しない比較の結果として、一致するかどうかだけを表します。
+
+リポジトリポリシーの適用は、適用するデプロイと適用しないデプロイの両方を調べます。
+各リポジトリは、既定ブランチのリポジトリポリシーを、「ない」「不正」「有効」の状態のどれかで持ち、有効なものは許可 Caller の集合（空の場合を含む）を持ちます。
+許可 Caller は保護対象の一覧と同じ型で表し、同じ許可 Caller が両方に現れる場合も調べます。
+Caller が許可 Caller に当たる条件は、両方で一つの述語を使います。
+`single_file` はポリシー読み取りトークンの権限として、許可権限に列挙する権限名の一つに固定します。
+2 つのリポジトリが同じ完全名を持つ状態も調べ、リポジトリポリシーを読んだ後に対象が削除され、同じ名前で作り直された場合を表します。
+リポジトリポリシーの取得は、どのリポジトリを読んだかを決めずに調べ、取得の最中に名前が別のリポジトリを指す競合を表します（[モデルが保証しないこと](#モデルが保証しないこと)）。
+取得に失敗した対象は、その対象の取得を表す要素を置かないことで表します。
 
 ### 反例がないことを確かめる規則
 
@@ -78,6 +93,18 @@ Caller のリポジトリ名も、Caller の Repository ID の現在の名前と
 | `NoProtectedNameWithOtherIdReturned` | 返却可能な発行結果の実効対象に、リポジトリ名が保護対象の名前で、Repository ID がその保護対象の ID と異なるものはない | FR-AUTHZ-010 |
 | `ProtectedRepositoriesAddNothingWhenNotTargeted` | 保護対象に当たる対象を含まない要求には、保護対象の条件がどの Caller にも成り立つ。保護対象の一覧が空なら、発行結果の照合は保護対象の条件のない照合と同じである | FR-AUTHZ-009 |
 | `ProtectedRepositoriesKeepPermissionBoundary` | 許可 Caller の権限の上限が発行上限の外の組を含んでも、返却可能な発行結果の権限は、許可権限に含まれ発行上限が水準の包含で含むものと、任意の `metadata:read` だけである | FR-AUTHZ-009 |
+| `RepositoryPoliciesOnlyAddConditions` | 適用するデプロイの発行許可も、適用しないデプロイの発行許可の条件（RULE-010、RULE-015、RULE-011）をすべて満たす | FR-AUTHZ-011 |
+| `NotEnforcedIgnoresRepositoryPolicies` | 適用しないデプロイでは、ポリシー読み取り許可が作られず、どの発行許可もポリシー読み取りトークンに依らない | FR-AUTHZ-011, FR-OPS-001 |
+| `DefaultDenyWithoutValidPolicy` | 適用するデプロイの発行許可の各対象について、発行許可のポリシー読み取りトークンでその名前のリポジトリポリシーを取得しており、読んだリポジトリポリシーは許可 Caller を持つ有効なものである | FR-AUTHZ-011 |
+| `ProtectedRepositoriesNeedListAndPolicy` | 適用するデプロイで保護対象に当たる対象を含む発行許可は、保護対象の一覧とリポジトリポリシーの両方の条件を満たす | FR-AUTHZ-009, FR-AUTHZ-011 |
+| `EveryTargetAllowedByPolicy` | 適用するデプロイの発行許可は、すべての対象について、そのリポジトリポリシーが Caller と権限を許している | FR-AUTHZ-011, FR-AUTHZ-004 |
+| `GrantWithinEveryPermissionLimit` | 発行許可の権限は、許可権限、発行上限、適用するデプロイでは各対象のリポジトリポリシーで Caller が当たる許可 Caller の権限の上限のすべてに含まれる | FR-AUTHZ-008, FR-AUTHZ-011 |
+| `PolicyAllowedCallerNeedsIdAndName` | 適用するデプロイの発行許可の各対象のリポジトリポリシーに、Repository ID とリポジトリ名の両方が Caller と一致する許可 Caller がある | FR-AUTHZ-011 |
+| `ReturnedRepositoriesArePolicyRepositories` | 適用するデプロイで返却可能な発行結果の各実効対象は、発行許可のポリシー読み取りトークンの実効対象と Repository ID が同じである | FR-AUTHZ-012 |
+| `ReturnedRepositoriesAllowedByOwnPolicy` | 取得の最中に名前が別のリポジトリを指さなかったなら、返却可能な発行結果の各実効対象は、それ自身のリポジトリポリシーが Caller と要求した権限を許している | FR-AUTHZ-011, FR-AUTHZ-012 |
+| `PolicyTokenWithinPermissionLimit` | 取得の最中に名前が別のリポジトリを指さなかったなら、適用するデプロイで返却可能な発行結果の権限は、各実効対象のリポジトリポリシーで Caller が当たる許可 Caller の権限の上限が水準の包含で含むものと、任意の `metadata:read` だけである | FR-AUTHZ-011, FR-ISSUANCE-004 |
+| `PolicyReadTokenOnlyReadsThePolicy` | 照合済みのポリシー読み取りトークンの権限は `single_file:read` と任意の `metadata:read` だけで、読めるファイルはリポジトリポリシーのパスだけである | FR-ISSUANCE-004, FR-ISSUANCE-007 |
+| `PolicyReadGrantMeetsOtherConditions` | ポリシー読み取り許可は、適用するデプロイでだけ、発行許可の確定で判定する条件のうちリポジトリポリシーの条件を除くすべてを満たす要求に作られ、権限は要求によらず `single_file:read` である | FR-ISSUANCE-002, FR-ISSUANCE-007 |
 
 表の「返却可能な発行結果」の権限と対象は GitHub の応答が示す値を指し、実際のトークンの権限を GitHub に問い合わせて確かめたものではありません。
 
@@ -88,7 +115,10 @@ UNSAT で分かるのは、規則を満たす範囲に主張の反例がない�
 ### 照合の規則が必要なことを確かめる変種
 
 発行許可の確定のうち許可権限、発行上限、保護対象の名前、許可 Caller の名前、権限の上限の判定と、発行結果の照合のうち Owner ID、完全名、権限の超過、権限の欠落、件数、保護対象の Repository ID の規則を外すと、対応する主張に反例が出ることを確かめます。
-その他の照合の規則（トークンの有無、有効期限など）の必要性は確かめていません。
+リポジトリポリシーの規則は、下の表に挙げた規則を外すと反例が出ることを確かめます。
+その他の照合の規則の必要性は確かめていません。
+利用者に返すトークンの照合ではトークンの有無と有効期限が、ポリシー読み取りトークンの照合ではトークンの有無、有効期限、対象の件数と完全名、Owner ID、`repository_selection`、保護対象の名前と ID の対応が、これに当たります。
+発行許可が、同じ Caller、発行要求、Installation のポリシー読み取りトークンに結び付くことの必要性も確かめていません。
 これらの変種は、規則を外したモデルであり、実際の GATES の設定を表すものではありません。
 
 返却するトークンを許可権限の中に保つ守りは 2 つあります。
@@ -103,6 +133,7 @@ UNSAT で分かるのは、規則を満たす範囲に主張の反例がない�
 | `WithoutInclusionAllowedConditionKeepsAllowedPermissions` | 水準の包含のうち、要求の組が許可権限に含まれることの条件 | UNSAT。許可権限の判定が守るため、許可権限に含まれない権限のトークンを返却しない |
 | `WithoutIssuableSubsetInvariantKeepsAllowedPermissions` | 発行上限が許可権限の一部であるという不変条件 | UNSAT。2 つの守りがどちらも残るため、許可権限に含まれない権限のトークンを返却しない |
 | `WithoutAllowedPermissionCheckAndIssuableSubsetInvariantKeepsAllowedPermissions` | 許可権限の判定と、発行上限の不変条件の両方 | UNSAT。水準の包含の条件が守るため、発行上限が許可権限の外の組を含んでも、その組のトークンを返却しない |
+| `WithoutEnforcementSwitchDeniesWithoutPolicy` | リポジトリポリシーの取得と条件を、適用するデプロイに限ること | UNSAT。取得の最中に名前が別のリポジトリを指さない限り、適用しないデプロイでも、リポジトリポリシーのないリポジトリのトークンを返却しない。`NotEnforcedTokenWithoutPolicy` と比べ、この変種の判定がリポジトリポリシーに依ることを示す |
 
 次のコマンドでは、反例が出るのが正しい結果です。
 
@@ -116,12 +147,28 @@ UNSAT で分かるのは、規則を満たす範囲に主張の反例がない�
 | `WithoutMissingPermissionCheckPreservesRequestedPermissions` | 実効権限が発行許可の Permissions をすべて含むことの照合 | 要求した権限が欠けたか、水準が下がったトークンを返却する |
 | `WithoutCountCheckPreservesUniqueEffectiveRepositories` | 実効対象の件数の照合 | 実効対象に重複した要素を含むトークンを返却する |
 | `WithoutAllowedCallerNameCheckPreservesAllowedCallers` | 許可 Caller のリポジトリ名と Caller のリポジトリ名の照合 | 一覧の名前が示すリポジトリとは別のリポジトリ（Repository ID の誤記が指すもの）が、保護対象のトークンを受け取る |
+| `WithoutAllowedCallerIdCheckPreservesAllowedCallers` | 許可 Caller の Repository ID と Caller の Repository ID の照合 | リポジトリ名だけが許可 Caller と一致する Caller が、保護対象のトークンを受け取る |
 | `WithoutProtectedNameCheckPreservesAllowedCallers` | 発行前に、要求のリポジトリ名で保護対象を見分けて判定すること | 許可 Caller でない Caller に、名前と ID が一覧どおりの保護対象のトークンを返却する |
 | `WithoutProtectedIdCheckPreservesAllowedCallers` | 発行後に、実効対象の名前の一致と ID の一致が同値であることの照合 | 許可 Caller でない Caller に、改名した保護対象を新しい名前で要求したトークンを返却する |
 | `WithoutPermissionLimitCheckPreservesPermissionLimit` | 要求の Permissions が許可 Caller の権限の上限に水準の包含で含まれることの判定 | 許可 Caller に、権限の上限が含まない権限を含む保護対象のトークンを返却する |
+| `WithoutProtectedCheckWhenEnforcedOnlyAddsConditions`、`WithoutProtectedCheckWhenEnforcedNeedsListAndPolicy` | 適用するデプロイでの、ポリシー読み取り許可と発行許可の両方の保護対象の条件 | リポジトリポリシーだけが許す Caller に、保護対象の発行許可を作る |
+| `WithoutEnforcementSwitchIgnoresRepositoryPolicies` | リポジトリポリシーの取得と条件を、適用するデプロイに限ること | 適用しないデプロイが、ポリシー読み取り許可を作り、リポジトリポリシーを読んだポリシー読み取りトークンに依る発行許可を作る |
+| `WithoutRepositoryPolicyCheckDeniesByDefault`、`WithoutRepositoryPolicyCheckNeedsListAndPolicy` | リポジトリポリシーの条件の全体 | 有効なリポジトリポリシーのない対象と、リポジトリポリシーが許さない保護対象に、発行許可を作る |
+| `WithoutPolicyAllTargetsNeedsEveryTarget` | すべての対象のリポジトリポリシーを判定すること（一つの対象だけを判定する） | リポジトリポリシーが許さない対象を含む要求に、発行許可を作る |
+| `WithoutPolicyPermissionLimitCheckKeepsLimit`、`WithoutPolicyPermissionLimitCheckKeepsReturnedLimit` | 要求の Permissions がリポジトリポリシーの許可 Caller の権限の上限に含まれることの判定 | 権限の上限を超える発行許可を作り、その権限のトークンを返却する |
+| `WithoutAllowedCallerNameCheckNeedsIdAndName`、`WithoutAllowedCallerIdCheckNeedsIdAndName` | 許可 Caller に当たる条件のうち、リポジトリ名の照合か Repository ID の照合 | Repository ID だけ、またはリポジトリ名だけが一致する Caller に、リポジトリポリシーによる発行許可を作る |
+| `WithoutPolicyRepositoryIdCheckReturnsPolicyRepositories`、`WithoutPolicyRepositoryIdCheckAllowedByOwnPolicy` | 発行結果の照合のうち、実効対象とポリシー読み取りトークンの実効対象の Repository ID の一致 | リポジトリポリシーを読んだ後に同じ名前で作り直されたリポジトリのトークンを、前のリポジトリのリポジトリポリシーの許可で返却する |
+| `WithoutPolicyReadPermissionCheckOnlyReadsThePolicy` | ポリシー読み取りトークンの照合のうち、実効権限の照合 | `single_file:read` のほかの権限を持つポリシー読み取りトークンを使う |
+| `WithoutPolicyReadPathCheckOnlyReadsThePolicy` | ポリシー読み取りトークンの照合のうち、読めるファイルのパスの照合 | リポジトリポリシーのパスのほかのファイルを読めるポリシー読み取りトークンを使う |
+| `WithoutPolicyReadAuthorizationMeetsOtherConditions` | ポリシー読み取り許可の確定での、リポジトリポリシーの条件を除く認可条件 | リポジトリポリシーの条件を除く認可条件を満たさない要求に、ポリシー読み取り許可を作る |
 
 発行前の名前の判定と発行後の ID の照合は、片方を外すとどちらも反例が出ます。
 発行前の判定だけでは改名した保護対象を新しい名前で要求した場合を、発行後の照合だけでは名前と ID が一覧どおりの保護対象を許可 Caller でない Caller が要求した場合を、拒否できないためです。
+
+適用するデプロイでは、保護対象の条件をポリシー読み取り許可の確定と発行許可の確定の両方で判定し、発行許可は同じ要求のポリシー読み取り許可で得たトークンを要します。
+そのため、保護対象の条件を発行許可の確定からだけ外しても、ポリシー読み取り許可の確定が守り、反例は出ません。
+`WithoutProtectedCheckWhenEnforced` の変種は、リポジトリポリシーが保護対象の一覧を上書きする設計を表すため、両方から外します。
+許可 Caller に当たる条件は保護対象の一覧とリポジトリポリシーで共有するため、`WithoutAllowedCallerNameCheck` の変種は名前の照合を、`WithoutAllowedCallerIdCheck` の変種は Repository ID の照合を、両方の判定から外します。
 
 ### 存在することを確かめる状態
 
@@ -133,14 +180,21 @@ UNSAT で分かるのは、規則を満たす範囲に主張の反例がない�
 | `IssuableWriteAdmitsRead` | 同じ権限名の `write` だけを含めた発行上限で、`read` の要求に `read` のトークンを返却できる |
 | `ImpliedPermissionOutsideIssuableReturned` | 発行上限が水準の包含で `metadata:read` を含まなくても、GitHub が付与した `metadata:read` を含むトークンを返却できる |
 | `ReturnWithoutAllowedPermissionCheck`、`ReturnWithoutInclusionAllowedCondition`、`ReturnWithoutIssuableSubsetInvariant`、`ReturnWithoutAllowedPermissionCheckAndIssuableSubsetInvariant` | 反例のないことを期待する変種でもトークンを返却でき、その変種の UNSAT が素通りでない。不変条件を外した変種では、発行上限が許可権限の外に及ぶ |
-| `CrossRepositoryWithinOwner` | 同じオーナー内なら、実行元とは別の名前のリポジトリを対象にしたトークンを返却できる。現在のスコープで意図した動作である |
+| `ReturnWithoutEnforcementSwitch` | リポジトリポリシーの取得と条件を適用しないデプロイにも課す変種で、取得の最中に名前が別のリポジトリを指さないまま、適用しないデプロイがトークンを返却でき、`WithoutEnforcementSwitchDeniesWithoutPolicy` の UNSAT が素通りでない |
+| `CrossRepositoryWithinOwner` | リポジトリポリシーを適用しないデプロイでは、同じオーナー内なら、実行元とは別の名前のリポジトリを対象にしたトークンを返却できる。現在のスコープで意図した動作である |
 | `AllowedCallerReceivesProtectedToken` | 許可 Caller が保護対象のトークンを受け取る |
 | `WriteLimitAdmitsReadToken` | 権限の上限が同じ権限名の `write` だけを含む許可 Caller が、`read` のトークンを受け取る |
 | `PermissionLimitBeyondIssuableReturnsWithinIssuable` | 発行上限の外の組を権限の上限に含む許可 Caller も、発行上限の中の要求で保護対象のトークンを受け取る |
-| `UnlistedRepositoryTokenToAnyCaller` | 保護対象の一覧が空でなくても、一覧にないリポジトリのトークンを、どの保護対象の許可 Caller でもない Caller が受け取る。現在のスコープで意図した動作である |
+| `UnlistedRepositoryTokenToAnyCaller` | リポジトリポリシーを適用しないデプロイでは、保護対象の一覧が空でなくても、一覧にないリポジトリのトークンを、どの保護対象の許可 Caller でもない Caller が受け取る。現在のスコープで意図した動作である |
 | `RenamedProtectedRepositoryIssuedButNotReturned` | 改名した保護対象を新しい名前で要求すると、発行許可の確定を通って発行 API の呼び出しまで進み、GitHub 側で発行され得る。その発行結果は、保護対象の ID の照合のほかの照合をすべて通っても返却されない |
 | `MixedTargetsReturnedToAllowedCaller` | 保護対象とそうでない対象を混ぜた要求で、許可 Caller が両方を対象にしたトークンを受け取る |
 | `SharedAllowedCallerIdWithDifferentNames` | 異なる保護対象の間で、同じ Repository ID の許可 Caller が異なる名前を持つ一覧でも、片方の保護対象のトークンを返却できる。INV-016 が禁じていない組み合わせである |
+| `PolicyAllowedTokenReturned` | 適用するデプロイで、リポジトリポリシーが許す Caller にトークンを返却できる |
+| `PolicyAllowedProtectedTokenReturned` | 適用するデプロイで、保護対象の一覧とリポジトリポリシーの両方が許す Caller が、保護対象のトークンを受け取る |
+| `OwnRepositoryNeedsPolicy` | 適用するデプロイでは、自分のリポジトリを対象にする Caller もリポジトリポリシーを経て、リポジトリポリシーが許すならトークンを受け取れる |
+| `RecreatedTargetIssuedButNotReturned` | リポジトリポリシーを読んだ後に同じ名前で作り直された対象は、発行許可の確定を通って GitHub 側で発行され得る。その発行結果は、ポリシー読み取りトークンの実効対象との Repository ID の照合のほかをすべて通っても返却されない |
+| `NameRaceDuringReadMayUseOtherPolicy` | 取得の最中に名前が別のリポジトリを指すと、そのリポジトリのリポジトリポリシーを読み、それ自身のリポジトリポリシーが Caller を許さないリポジトリのトークンを返却し得る。Security Design が受容したリスクである |
+| `NotEnforcedTokenWithoutPolicy` | 適用しないデプロイでは、リポジトリポリシーのないリポジトリのトークンを返却できる |
 | `IssueCallMayContainUncoveredNames` | Installation の対象外の名前を発行 API に送る場合がある。発行前には対象に含まれるかを確認しないためである |
 | `IssueCallMayContainUnheldPermissions` | Installation に付与されていない権限か水準を発行 API に送る場合がある。発行前には付与されているかを確認しないためである |
 | `ResultWithoutUnheldPermissionNotReturned` | Installation に付与されていない権限を GitHub が除いて発行した結果を受け取る状態を表現でき、その発行結果は返却されない |
@@ -156,10 +210,25 @@ UNSAT で分かるのは、規則を満たす範囲に主張の反例がない�
 再試行は開始条件を満たすまで待機し、必ず起きるとは限りません。
 開始できるのは、最初の呼び出しが処理の途中のとき、失敗か中断で終わったとき、または成功しても呼び出し元に結果が届いていないときです。
 
+リポジトリポリシーを適用するデプロイと適用しないデプロイの両方を調べます。
+適用するデプロイでは、図のように、発行許可の確定の前に、ポリシー読み取り許可の確定から、リポジトリポリシーの取得とポリシー読み取りトークンの失効までを経ます。
+ポリシー読み取りトークンの発行での、トークン文字列のない無効な応答、応答の喪失、拒否、中断は、GitHub 側で発行されたかどうかだけを区別して表し、図では省きます。
+リポジトリポリシーを読んだ後、発行 API を呼ぶ前に対象が作り直される出来事（GATES の外の出来事）は、状態を変えずに記録だけを加える遷移で表します。
+
 ```mermaid
 stateDiagram-v2
     [*] --> Start
-    Start --> Granted: 発行許可の確定
+    Start --> PolicyReadGranted: ポリシー読み取り許可の確定（適用するデプロイ）
+    PolicyReadGranted --> PolicyReadRequested: 発行 API の呼び出し
+    PolicyReadRequested --> PolicyTokenHeld: 照合を通った応答
+    PolicyReadRequested --> PolicyRevokePending: 無効な応答、トークン文字列あり
+    PolicyTokenHeld --> PolicyRevokePending: リポジトリポリシーの取得（成功か一時的な障害）
+    PolicyRevokePending --> PolicyRevoking: 失効を試行
+    PolicyRevoking --> PoliciesRead: 失効の成功または失敗（照合を通ったトークン）
+    PolicyRevoking --> Failed: 失効の成功または失敗（照合に失敗したトークン）
+    PoliciesRead --> Granted: 発行許可の確定（すべて取得できた場合）
+    PoliciesRead --> Failed: リポジトリポリシーによる拒否、取得の障害
+    Start --> Granted: 発行許可の確定（適用しないデプロイ）
     Start --> Failed: 拒否
     Granted --> IssueRequested: 発行 API の呼び出し
     IssueRequested --> Returnable: 有効な応答
@@ -176,8 +245,12 @@ stateDiagram-v2
     Revoking --> Interrupted: 中断
 ```
 
-調べる範囲は、最大 14 ステップの実行です。
-遷移は 2 つの呼び出しを合わせて最大 11 回で終わるため、このモデルの実行はすべてこの範囲に収まります。
+調べる範囲は、最大 26 ステップの実行です。
+遷移は、適用するデプロイの 1 つの呼び出しで最大 12 回、再試行の開始を加えて 2 つの呼び出しで最大 25 回で終わるため、このモデルの実行はすべてこの範囲に収まります。
+
+規則が空虚に通っていないことを確かめるため、リポジトリポリシーの経路の順序の規則を一つずつ破る変種（規則を外したモデルで、GATES の動作を表すものではない）を置きます。
+変種で破れる規則は、変種でないモデル（baseline）について主張します。
+既存の規則のうち `NoUnverifiedReturn` だけは、ポリシー読み取りトークンを返却する変種でも破れるため、その変種を除いて主張し、ほかの既存の規則はどの変種でも成り立ちます。
 
 ### 順序の安全性を確かめる規則
 
@@ -191,6 +264,26 @@ stateDiagram-v2
 | `NoConfirmedRevocationWithoutAttempt` | 失効の成功を確認したなら、失効を試みている | FR-ISSUANCE-004 |
 | `NoInterruptedInvocationReturns` | 中断した呼び出しは、トークンを返却していない | QR-003 |
 | `NoObservedSuccessWithoutReturn` | 呼び出し元が成功を受け取ったなら、その呼び出しは返却まで成功している | なし（モデル内の整合性） |
+| `NoUserTokenBeforePolicyGrant` | 利用者に返すトークンの発行 API を呼んだなら、発行許可を経ており、適用するデプロイでは、照合を通ったポリシー読み取りトークンですべてのリポジトリポリシーを取得している | FR-ISSUANCE-002, FR-AUTHZ-011 |
+| `NoPolicyTokenBeforePolicyReadGrant` | ポリシー読み取りトークンの発行 API を呼んだなら、適用するデプロイであり、ポリシー読み取り許可を経ている | FR-ISSUANCE-002, FR-ISSUANCE-007 |
+| `NoPolicyTokenReturned` | どの経路でも、ポリシー読み取りトークンを返却しない | FR-ISSUANCE-005, FR-ISSUANCE-007 |
+| `PolicyTokenRevokeAttempted` | トークン文字列を取得したポリシー読み取りトークンは、成功でも失敗でも、呼び出しが終わる前に失効を試みられている（中断を除く） | FR-ISSUANCE-007 |
+| `NoReturnForRecreatedTarget` | リポジトリポリシーを読んだ後に作り直された対象を含む呼び出しは、トークンを返却しない | FR-AUTHZ-012 |
+| `NoIssueAfterPolicyFetchFailure` | リポジトリポリシーの取得に失敗した呼び出しは、利用者に返すトークンの発行 API を呼ばず、返却もしない | FR-AUTHZ-011, QR-003 |
+| `NoFetchWithUnverifiedPolicyToken` | リポジトリポリシーを取得したなら、成功でも失敗でも、照合を通ったポリシー読み取りトークンで取得している | FR-ISSUANCE-004, FR-ISSUANCE-007 |
+
+次のコマンドでは、反例が出るのが正しい結果です。
+
+| コマンド | 破る規則 | 出ることを期待する反例 |
+|---|---|---|
+| `GrantWithoutPolicyBreaksOrder` | 適用するデプロイで、リポジトリポリシーを読む前に発行許可を確定する | リポジトリポリシーを読まずに利用者に返すトークンを発行する |
+| `PolicyReadWithoutGrantBreaksOrder` | ポリシー読み取り許可の確定を経ずにポリシー読み取りトークンを発行する | ポリシー読み取り許可の確定を経ずに、ポリシー読み取りトークンの発行 API を呼ぶ |
+| `PolicyReadWhenNotEnforcedBreaksOrder` | 適用しないデプロイでもポリシー読み取りトークンを発行する | 適用しないデプロイでポリシー読み取りトークンを発行する |
+| `ReturnPolicyTokenBreaksNonReturn` | 照合を通ったポリシー読み取りトークンを返却する | ポリシー読み取りトークンを返却する |
+| `SkipPolicyRevokeBreaksRevocation` | ポリシー読み取りトークンの失効を省く | 失効を試みずに終わる |
+| `WithoutRepositoryIdMatchBreaksRecreation` | 照合で、ポリシー読み取りトークンの実効対象との Repository ID の一致を確かめない | 作り直された対象のトークンを返却する |
+| `FetchFailureAllowsBreaksFailure` | 取得に失敗した対象を、リポジトリポリシーが許したものとして扱う | 取得に失敗した呼び出しで、利用者に返すトークンを発行する |
+| `FetchWithUnverifiedTokenBreaksVerification` | 照合に失敗したポリシー読み取りトークンでリポジトリポリシーを取得する | 照合を通っていないポリシー読み取りトークンでリポジトリポリシーを取得する |
 
 ### 起こりうることを確かめる状態
 
@@ -213,6 +306,13 @@ SAT は、モデル上でその事象が起こりうることを意味し、GitH
 | `RetryAfterUnobservedSuccessWitness` | 成功が呼び出し元に届かないまま再試行し、2 つ目のトークンが発行される |
 | `ConcurrentRetryDuplicateIssueWitness` | 最初の呼び出しが発行 API を呼び出している途中で再試行が始まり、両方で発行される |
 | `RetryCallsBeforeOriginalWitness` | 最初の呼び出しが発行 API を呼び出す前に、再試行が発行 API を呼び出す |
+| `EnforcedSuccessWitness` | 適用するデプロイで、リポジトリポリシーを読み、ポリシー読み取りトークンの失効を試みてから、トークンを返却する |
+| `PolicyRevokeFailureStillSucceedsWitness` | ポリシー読み取りトークンの失効に失敗しても、呼び出しの結果は変わらない |
+| `PolicyFetchFailureWitness` | リポジトリポリシーの取得に失敗し、ポリシー読み取りトークンの失効を試みて終わる |
+| `PolicyTokenVerificationFailureWitness` | 照合に失敗したポリシー読み取りトークンの失効を試みて終わる。取得に使わないことは `NoFetchWithUnverifiedPolicyToken` が確かめる |
+| `RecreatedTargetRevokedWitness` | リポジトリポリシーを読んだ後に作り直された対象のトークンが GitHub 側で発行され、照合に失敗して失効を試みられる |
+| `InterruptedPolicyTokenLeftWitness` | ポリシー読み取りトークンの失効を試みる前に中断し、GitHub 側にトークンが残り得る |
+| `PolicyTokenResponseLossWitness` | ポリシー読み取りトークンの発行の応答を喪失し、GitHub 側に GATES の知らないトークンが残り得る |
 
 ## 署名の検証鍵のモデル（discovery.als、signature.als）
 
@@ -272,7 +372,7 @@ SAT は、モデル上でその事象が起こりうることを意味し、GitH
 - **監査とエラーの種別**：監査はどのモデルも扱わない。エラーの種別は、署名の検証鍵のモデルの認証失敗と内部障害の区別だけを扱う
 - **文字列と件数の規則**：大文字小文字の扱い（名前は比較した結果の一致だけを表す）や要求の件数の上限は扱わない
 - **対象の並び**：発行要求と発行許可の対象を完全名の集合で表し、並びは扱わない。発行許可が要求の並びと表記を保つことは確かめていない
-- **権限名と水準の具体的な値**：権限名は `metadata` のほかを具体的な名前で表さず、水準は `read` と `write` だけを扱う（`repository_projects` の `admin` は扱わない）。許可権限に列挙する権限名が Repository permissions に当たることは、ユーザーアカウントの Installation に現れたことで確かめる運用を規則として仮定しており、モデルでは確かめていない
+- **権限名と水準の具体的な値**：権限名は `metadata` と `single_file` のほかを具体的な名前で表さず、水準は `read` と `write` だけを扱う（`repository_projects` の `admin` は扱わない）。許可権限に列挙する権限名が Repository permissions に当たることは、ユーザーアカウントの Installation に現れたことで確かめる運用を規則として仮定しており、モデルでは確かめていない
 - **権限の付与の上限**：GitHub App と Installation に付与された権限が、より低い水準の発行を許すことは、`write` が `read` を含むという順序として仮定している。付与されていない権限への GitHub の応答（拒否か、権限を除くか水準を下げた発行か）は区別しない。`RequestedPermissionsHeldWhenGitHubEnforces` は、GitHub が付与の上限を超えて発行しない場合の帰結だけを確かめる
 - **`metadata:read` のほかに加わる権限**：要求にかかわらず `metadata:read` のほかの権限が発行結果に加わる GitHub の振る舞いは、照合で返却しない発行結果の一つとして扱うだけで、正当な要求が照合に失敗するかは確かめていない
 - **2 つのモデルの接続**：発行処理のモデルは、発行許可の確定と発行結果の照合を「通ったかどうか」だけで表す。認可のモデルの規則とつなげて検証してはいない
@@ -282,6 +382,11 @@ SAT は、モデル上でその事象が起こりうることを意味し、GitH
 - **Caller の名前と ID の出どころ**：Caller のリポジトリ名を `sub` から得ることと、その名前が GitHub の現在の名前と一致するかは扱わない。名前は ID の現在の名前と独立に調べ、どちらであっても主張が成り立つことを確かめる
 - **認可の逆方向**：発行許可があるなら条件を満たすことは確かめるが、条件を満たす要求に必ず発行許可が作られることは確かめていない
 - **2 回以上の再試行**：呼び出しは最初と再試行の 2 つだけを扱う
+- **取得の最中の名前の競合**：リポジトリポリシーの取得の応答は Repository ID を含まないため、認可のモデルは、取得したリポジトリをポリシー読み取りトークンの実効対象に結び付けずに調べる。`ReturnedRepositoriesAllowedByOwnPolicy` は、名前が取得の最中に別のリポジトリを指さなかった場合の帰結だけを確かめ、指した場合に起き得ることは `NameRaceDuringReadMayUseOtherPolicy` が示す。Security Design が受容したリスクとして扱い、取得の前後で対象の情報を取り直す照合はモデルにも置かない
+- **リポジトリポリシーの読み込み**：ファイルの書式、YAML の受理条件、大きさの上限、シンボリックリンク、取得の応答の分類は表さない。読んだ結果を、「ない」「不正」「有効」の状態と、取得の失敗に抽象化する。有効なリポジトリポリシーの許可 Caller の重複と権限の上限の条件（INV-017）は、有効なものの規則として仮定し、ID と名前の形式は扱わない
+- **時間の経過とリポジトリポリシーの変更**：認可のモデルの各リポジトリは、読んだ時点のリポジトリポリシーを一つだけ持つ。読んだ後の変更と、発行済みのトークンへの影響は表さない。発行処理のモデルは、読んだ後の対象の作り直しだけを出来事として表す
+- **失効が効くまでの時間**：失効の試行と成否だけを表し、失効の後もトークンが短い間使えることは表さない
+- **ポリシー読み取りトークンで読める範囲**：`single_file:read` のトークンが固定のパスのほかを読めないことは、照合で読めるファイルのパスを確かめることとして表し、GitHub がそれを強制することは仮定も証明もしない
 
 ## 実行方法と結果の読み方
 

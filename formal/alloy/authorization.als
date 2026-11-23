@@ -1,10 +1,12 @@
 module gates/authorization
 
 // GATES authorization model, Current Scope.
-// Source of truth: FR-AUTHZ-001..010, FR-ISSUANCE-003, FR-ISSUANCE-004, FR-ISSUANCE-005, FR-OPS-001,
-// RULE-010, RULE-011, RULE-015, INV-002, INV-011, INV-012, INV-015, INV-016;
-// docs/design/security.md 3.1..3.6; docs/design/domain.md Permission Levels and
-// Protected Repositories.
+// Source of truth: FR-AUTHZ-001..012, FR-ISSUANCE-002, FR-ISSUANCE-003, FR-ISSUANCE-004,
+// FR-ISSUANCE-005, FR-ISSUANCE-007, FR-OPS-001,
+// RULE-010, RULE-011, RULE-015, RULE-016, INV-002, INV-011, INV-012, INV-015, INV-016,
+// INV-017, INV-019, INV-020;
+// docs/design/security.md 3.1..3.7; docs/design/domain.md Permission Levels,
+// Protected Repositories and Repository Policies.
 // This is a finite structural abstraction, NOT the complete GATES implementation.
 // Cryptographic verification, HTTP outcomes, time, revocation, retry and
 // configuration changes are outside this model.
@@ -21,8 +23,24 @@ sig FullName { ownerName: one OwnerName, repositoryName: one RepositoryName }
 // `fullName` is the current name on GitHub. It is a field of one instance, so
 // the protected repositories and the allowed callers can hold an ID with a
 // name other than its current one (a rename) and a name whose current
-// repository has another ID (a re-creation or a mistyped ID).
-sig Repository { owner: one Owner, fullName: one FullName }
+// repository has another ID (a re-creation or a mistyped ID). Two repositories
+// can share a full name: one of them stands for a repository deleted and
+// re-created under the same name between two reads.
+// `policy` is the Repository Policy on its default branch when GATES reads it.
+sig Repository { owner: one Owner, fullName: one FullName, policy: one PolicyState }
+
+// What reading the Repository Policy of a repository yields when the read
+// itself succeeds: no file, an invalid document (not a file, too large, a
+// format or content error), or a valid Repository Policy (INV-017).
+// The commands give PolicyState a scope of 4, so that two targets of one
+// request can have different valid Repository Policies.
+abstract sig PolicyState {}
+one sig NoPolicy, InvalidPolicy extends PolicyState {}
+sig ValidPolicy extends PolicyState { allowedCallers: set AllowedCaller }
+
+// Repository Policy Enforcement, fixed per deployment.
+abstract sig Enforcement {}
+one sig Enforced, NotEnforced extends Enforcement {}
 
 // A Full Name is a value: one atom per pair of owner name and repository name.
 fact FullNamesAreValues {
@@ -51,6 +69,8 @@ abstract sig PermissionName {
 // Names GATES enumerates in the allowed permissions.
 sig ListedPermissionName extends PermissionName {}
 one sig Metadata extends ListedPermissionName {}
+// `single_file`, the only permission of the Policy Read Token.
+one sig SingleFile extends ListedPermissionName {}
 // Names GATES does not enumerate: Organization, Account and Enterprise
 // permissions, Repository permissions whose category is not confirmed, and
 // names GitHub adds later. Their category is left free.
@@ -66,6 +86,7 @@ fact PermissionEntriesAreValues {
 }
 
 fact MetadataLevels { Metadata.definedLevels = Read + Write }
+fact SingleFileLevels { Read in SingleFile.definedLevels }
 
 // GATES adds a name to the allowed permissions only after confirming in the
 // GitHub App settings that it is a Repository permission (security.md 3.3).
@@ -82,6 +103,10 @@ fun allowedPermissions: set PermissionEntry {
 }
 fun impliedPermissions: set PermissionEntry {
   { e: PermissionEntry | e.name = Metadata and e.level = Read }
+}
+// The Permissions of the Policy Read Token, fixed by GATES: `single_file:read`.
+fun policyReadPermissions: set PermissionEntry {
+  { e: PermissionEntry | e.name = SingleFile and e.level = Read }
 }
 
 // Permissions are keyed by permission name, so a name has one level.
@@ -151,13 +176,17 @@ sig ProtectedRepository {
 // operator for one deployment. Like the allowed permissions they are a set of
 // Permission Entries, may hold several levels of one name, and do not depend
 // on the Caller or the target repositories. The protected repositories are
-// fixed configuration too, and can be empty.
+// fixed configuration too, and can be empty. Repository Policy Enforcement is
+// one of two values (INV-018); both are explored.
 one sig Config {
   allowedOwner: one Owner,
   allowedOwnerName: one OwnerName,
   issuablePermissions: set PermissionEntry,
-  protectedRepositories: set ProtectedRepository
+  protectedRepositories: set ProtectedRepository,
+  repositoryPolicyEnforcement: one Enforcement
 }
+
+pred enforced { Config.repositoryPolicyEnforcement = Enforced }
 
 sig TokenRequest {
   repositories: some FullName,
@@ -166,12 +195,52 @@ sig TokenRequest {
 
 // `caller` and `request` trace where the grant came from; they are not part of
 // its content, which is the installation, repositories and permissions.
+// `policyToken` is the Verified Policy Read Token whose reads the grant relied
+// on; it exists exactly when Repository Policies are enforced.
 sig TokenGrant {
   caller: one Caller,
   request: one TokenRequest,
   installation: one Installation,
   repositories: some FullName,
+  permissions: some PermissionEntry,
+  policyToken: lone VerifiedPolicyReadToken
+}
+
+// The Policy Read Grant: the result of every condition of the Token Grant
+// except RULE-016. Its Permissions are fixed by GATES, not taken from the request.
+sig PolicyReadGrant {
+  caller: one Caller,
+  request: one TokenRequest,
+  installation: one Installation,
+  repositories: some FullName,
   permissions: some PermissionEntry
+}
+
+// The GitHub response to one issuance of a Policy Read Token. It has the
+// shape of an Issuance Result; `singleFilePathIsFixed` stands for the paths
+// the token can read being exactly the Repository Policy Path.
+sig PolicyReadResult {
+  policyReadGrant: one PolicyReadGrant,
+  nonemptyToken: one Answer,
+  futureExpiry: one Answer,
+  effectiveRepositories: set EffectiveRepository,
+  effectivePermissions: set PermissionEntry,
+  repositorySelection: one RepositorySelection,
+  singleFilePathIsFixed: one Answer
+}
+
+sig VerifiedPolicyReadToken { readResult: one PolicyReadResult }
+
+// One successful read of a Repository Policy with a Verified Policy Read
+// Token, by full name. A read that failed has no atom, so a missing atom
+// stands for the transient failure. `readRepository` is the repository the
+// name pointed to when GATES read it. The response carries no Repository ID,
+// so nothing ties it to the token's effective repository of that name; that
+// tie is the assumption `fetchReadsTokenRepository`.
+sig PolicyFetch {
+  token: one VerifiedPolicyReadToken,
+  fullName: one FullName,
+  readRepository: one Repository
 }
 
 // One invocation of the GitHub issuance API.
@@ -203,8 +272,9 @@ sig ReturnableIssuanceResult { result: one IssuanceResult }
 // Level Inclusion, both of them, the invariant that the issuable permissions
 // are part of the allowed permissions (INV-015, checked when the configuration
 // is read), that invariant together with the allowed permissions check, the
-// issuable permissions check of authorization, one return-time check, or one
-// check on the protected repositories.
+// issuable permissions check of authorization, one return-time check, one
+// check on the protected repositories, or one check on the Repository Policies
+// and the Policy Read Token.
 // They are counterfactual verification models, not GATES configurations.
 abstract sig VerificationPolicy {}
 one sig Baseline, WithoutAllowedPermissionCheck, WithoutInclusionAllowedCondition,
@@ -215,7 +285,13 @@ one sig Baseline, WithoutAllowedPermissionCheck, WithoutInclusionAllowedConditio
         WithoutExcessPermissionCheck, WithoutMissingPermissionCheck,
         WithoutCountCheck,
         WithoutProtectedNameCheck, WithoutAllowedCallerNameCheck,
-        WithoutPermissionLimitCheck, WithoutProtectedIdCheck extends VerificationPolicy {}
+        WithoutPermissionLimitCheck, WithoutProtectedIdCheck,
+        WithoutAllowedCallerIdCheck, WithoutRepositoryPolicyCheck,
+        WithoutPolicyAllTargets, WithoutPolicyPermissionLimitCheck,
+        WithoutEnforcementSwitch, WithoutProtectedCheckWhenEnforced,
+        WithoutPolicyRepositoryIdCheck, WithoutPolicyReadPermissionCheck,
+        WithoutPolicyReadPathCheck,
+        WithoutPolicyReadAuthorization extends VerificationPolicy {}
 one sig ModelConfiguration { policy: one VerificationPolicy }
 
 pred baseline { ModelConfiguration.policy = Baseline }
@@ -225,6 +301,17 @@ pred baseline { ModelConfiguration.policy = Baseline }
 fact ResultCardinality {
   all c: IssueCall | lone c.~call
   all r: IssuanceResult | lone r.~result
+  all r: PolicyReadResult | lone r.~readResult
+}
+
+// A token reads each requested name at most once, and only requested names.
+fact PolicyFetchesFollowTheGrant {
+  all f: PolicyFetch | f.fullName in f.token.readResult.policyReadGrant.repositories
+  all t: VerifiedPolicyReadToken, n: FullName | lone fetchesOf[t, n]
+}
+
+fun fetchesOf[t: VerifiedPolicyReadToken, n: FullName]: set PolicyFetch {
+  { f: PolicyFetch | f.token = t and f.fullName = n }
 }
 
 // Every Permissions value is keyed by permission name: the request after
@@ -261,9 +348,24 @@ fact ProtectedRepositoriesInvariant {
     oneLevelPerName[a.permissionLimit] and a.permissionLimit in allowedPermissions
 }
 
+// INV-017: the allowed callers of a Repository Policy share no Repository ID
+// and no Repository Name, and each Permission Limit is a non-empty Permissions
+// within the allowed permissions, as for INV-016. A document breaking this is
+// not a ValidPolicy but an InvalidPolicy. A ValidPolicy can have no allowed
+// callers. An Allowed Caller atom can appear in both a Repository Policy and
+// the protected repositories.
+// trace:formalizes INV-017
+fact RepositoryPoliciesInvariant {
+  all p: ValidPolicy | all disj x, y: p.allowedCallers |
+    x.repository != y.repository and x.repositoryName != y.repositoryName
+  all a: ValidPolicy.allowedCallers |
+    oneLevelPerName[a.permissionLimit] and a.permissionLimit in allowedPermissions
+}
+
 // Identity consistency comes from successful OIDC verification; it is not
-// checked again by authorization. The caller's repository is NOT an ACL key
-// outside the protected repositories.
+// checked again by authorization. The caller's repository is an ACL key for
+// the protected repositories and, under Repository Policy Enforcement, for
+// every target.
 fact VerifiedCallerRepository {
   all c: Caller | c.repository.owner = c.owner
 }
@@ -284,9 +386,11 @@ fun targetedProtectedRepositories[r: TokenRequest]: set ProtectedRepository {
 }
 
 // A Caller is an Allowed Caller when both its Repository ID and its Repository
-// Name equal those of the Allowed Caller.
+// Name equal those of the Allowed Caller. The protected repositories and the
+// Repository Policies share this condition.
 pred isAllowedCaller[c: Caller, a: AllowedCaller] {
-  a.repository = c.repository
+  (ModelConfiguration.policy != WithoutAllowedCallerIdCheck) implies
+    a.repository = c.repository
   (ModelConfiguration.policy != WithoutAllowedCallerNameCheck) implies
     a.repositoryName = c.repositoryName
 }
@@ -323,10 +427,57 @@ pred ownerAndPermissionsGrantable[c: Caller, r: TokenRequest, i: Installation] {
   i.suspended = No
 }
 
-// The conditions of the Grant operation (INV-011).
+// The conditions without Repository Policies: those of the Grant operation of
+// a deployment that does not enforce them, and those of the Policy Read Grant.
 pred grantable[c: Caller, r: TokenRequest, i: Installation] {
   ownerAndPermissionsGrantable[c, r, i]
   protectedRepositoriesAuthorized[c, r]
+}
+
+// The Repository Policy read under the name `n` allows the Caller and every
+// requested entry. A missing read (a transient failure), NoPolicy,
+// InvalidPolicy and a ValidPolicy without allowed callers all fail, because
+// only a ValidPolicy has allowed callers.
+pred targetAllowedByPolicy[c: Caller, r: TokenRequest, t: VerifiedPolicyReadToken, n: FullName] {
+  some f: fetchesOf[t, n], a: f.readRepository.policy.allowedCallers |
+    isAllowedCaller[c, a] and
+    ((ModelConfiguration.policy != WithoutPolicyPermissionLimitCheck) implies
+      r.permissions in levelInclusion[a.permissionLimit])
+}
+
+// RULE-016: every requested name, protected or not and the Caller's own
+// repository included, is allowed by the Repository Policy read with the
+// token. One name that is not allowed rejects the whole request.
+// trace:formalizes RULE-016 FR-AUTHZ-011
+pred repositoryPolicyAuthorized[c: Caller, r: TokenRequest, t: VerifiedPolicyReadToken] {
+  ModelConfiguration.policy = WithoutRepositoryPolicyCheck or
+  (ModelConfiguration.policy = WithoutPolicyAllTargets and
+    (some n: r.repositories | targetAllowedByPolicy[c, r, t, n])) or
+  (ModelConfiguration.policy not in WithoutRepositoryPolicyCheck + WithoutPolicyAllTargets and
+    (all n: r.repositories | targetAllowedByPolicy[c, r, t, n]))
+}
+
+// Whether the deployment reads Repository Policies and judges RULE-016: with
+// enforcement only, except in the variant that ignores the setting.
+pred policiesApplied {
+  enforced or ModelConfiguration.policy = WithoutEnforcementSwitch
+}
+
+// The conditions of the Grant operation (INV-011): `t` is the Verified Policy
+// Read Token of the grant, empty when Repository Policies are not enforced.
+// With enforcement, RULE-016 is added to the other conditions, and the token
+// must come from a Policy Read Grant for the same Caller, request and
+// Installation.
+pred tokenGrantConditions[c: Caller, r: TokenRequest, i: Installation, t: set VerifiedPolicyReadToken] {
+  ownerAndPermissionsGrantable[c, r, i]
+  (ModelConfiguration.policy = WithoutProtectedCheckWhenEnforced and enforced) or
+    protectedRepositoriesAuthorized[c, r]
+  policiesApplied implies
+    (one t and
+     t.readResult.policyReadGrant.caller = c and
+     t.readResult.policyReadGrant.request = r and
+     t.readResult.policyReadGrant.installation = i and
+     repositoryPolicyAuthorized[c, r, t])
 }
 
 // Represents the checks before the GitHub issuance API call. In particular,
@@ -336,9 +487,25 @@ pred grantable[c: Caller, r: TokenRequest, i: Installation] {
 // trace:formalizes INV-011
 fact GrantsRespectAuthorization {
   all g: TokenGrant |
-    grantable[g.caller, g.request, g.installation] and
+    tokenGrantConditions[g.caller, g.request, g.installation, g.policyToken] and
+    (not policiesApplied implies no g.policyToken) and
     g.repositories = g.request.repositories and
     g.permissions = g.request.permissions
+}
+
+// INV-020: a Policy Read Grant exists only with enforcement and only for a
+// request meeting every condition except RULE-016. It names the requested
+// repositories and only `single_file:read`, whatever the request asks.
+// trace:formalizes INV-020
+fact PolicyReadGrantsRespectAuthorization {
+  all g: PolicyReadGrant |
+    policiesApplied and
+    ((ModelConfiguration.policy != WithoutPolicyReadAuthorization) implies
+      (ownerAndPermissionsGrantable[g.caller, g.request, g.installation] and
+       (ModelConfiguration.policy = WithoutProtectedCheckWhenEnforced or
+        protectedRepositoriesAuthorized[g.caller, g.request]))) and
+    g.repositories = g.request.repositories and
+    g.permissions = policyReadPermissions
 }
 
 // The API call always specifies exact requested names and permissions;
@@ -376,8 +543,23 @@ pred resultMatchesGrant[r: IssuanceResult] {
 // requested by its new name fails too.
 // trace:formalizes INV-012 FR-AUTHZ-010
 pred protectedRepositoriesMatchResult[r: IssuanceResult] {
-  all x: r.effectiveRepositories.repository, p: Config.protectedRepositories |
+  protectedRepositoriesMatch[r.effectiveRepositories.repository]
+}
+
+pred protectedRepositoriesMatch[xs: set Repository] {
+  all x: xs, p: Config.protectedRepositories |
     x.fullName.repositoryName = p.repositoryName iff x = p.repository
+}
+
+// Each effective repository has the Repository ID of the repository whose
+// Repository Policy was read under the same full name, as the Verified Policy
+// Read Token of the grant shows it. Without enforcement there is no token and
+// the condition holds.
+// trace:formalizes INV-012 FR-AUTHZ-012
+pred policyRepositoriesMatchResult[r: IssuanceResult] {
+  all x: r.effectiveRepositories.repository,
+      y: r.call.grant.policyToken.readResult.effectiveRepositories.repository |
+    x.fullName = y.fullName implies x = y
 }
 
 // Represents return-time checks (INV-012), NOT a guarantee about the actual
@@ -386,6 +568,40 @@ pred verifiedResult[r: IssuanceResult] {
   resultMatchesGrant[r]
   (ModelConfiguration.policy != WithoutProtectedIdCheck) implies
     protectedRepositoriesMatchResult[r]
+  (ModelConfiguration.policy != WithoutPolicyRepositoryIdCheck) implies
+    policyRepositoriesMatchResult[r]
+}
+
+// INV-019: the checks on the response to a Policy Read Token issuance. They
+// are those of INV-012 against the Policy Read Grant, the Permissions are
+// exactly `single_file:read` with the optional implied ones, and the token
+// reads only the Repository Policy Path.
+// trace:formalizes INV-019 FR-ISSUANCE-004 FR-ISSUANCE-007
+pred policyReadResultVerified[r: PolicyReadResult] {
+  r.nonemptyToken = Yes
+  r.futureExpiry = Yes
+  r.repositorySelection = Selected
+  (ModelConfiguration.policy != WithoutPolicyReadPathCheck) implies
+    r.singleFilePathIsFixed = Yes
+  #(r.effectiveRepositories) = #(r.policyReadGrant.repositories)
+  r.effectiveRepositories.repository.fullName = r.policyReadGrant.repositories
+  all x: r.effectiveRepositories.repository | x.owner = Config.allowedOwner
+  (ModelConfiguration.policy != WithoutPolicyReadPermissionCheck) implies
+    (r.policyReadGrant.permissions in r.effectivePermissions and
+     r.effectivePermissions in (r.policyReadGrant.permissions + impliedPermissions))
+  protectedRepositoriesMatch[r.effectiveRepositories.repository]
+}
+
+fact OnlyVerifiedPolicyReadResultsBecomeTokens {
+  all t: VerifiedPolicyReadToken | policyReadResultVerified[t.readResult]
+}
+
+// No race on the name during the read: the read reached the token's effective
+// repository of that name. GATES cannot check it, because the response of
+// the read carries no Repository ID (security.md 3.7 accepts the risk).
+pred fetchReadsTokenRepository[f: PolicyFetch] {
+  some x: f.token.readResult.effectiveRepositories.repository |
+    x = f.readRepository and x.fullName = f.fullName
 }
 
 fact OnlyVerifiedResultsBecomeReturnable {
@@ -399,6 +615,10 @@ fact OnlyVerifiedResultsBecomeReturnable {
 pred githubResultRespectsInstallation[r: IssuanceResult] {
   r.effectiveRepositories.repository in r.call.grant.installation.coveredRepositories
   r.effectivePermissions in (coveredBy[r.call.grant.installation.installedPermissions] + impliedPermissions)
+}
+
+fact PolicyReadResultPermissionsHaveOneLevelPerName {
+  all r: PolicyReadResult | oneLevelPerName[r.effectivePermissions]
 }
 
 pred effectiveRepositoriesAreUnique[r: IssuanceResult] {
@@ -545,7 +765,8 @@ assert ProtectedRepositoriesAddNothingWhenNotTargeted {
     all c: Caller, r: TokenRequest |
       no targetedProtectedRepositories[r] implies protectedRepositoriesAuthorized[c, r]
     no Config.protectedRepositories implies
-      (all r: IssuanceResult | verifiedResult[r] iff resultMatchesGrant[r])
+      (all r: IssuanceResult |
+        verifiedResult[r] iff (resultMatchesGrant[r] and policyRepositoriesMatchResult[r]))
   }
 }
 // A Permission Limit outside the issuable or the allowed permissions does
@@ -554,6 +775,154 @@ assert ProtectedRepositoriesKeepPermissionBoundary {
   baseline implies (all t: ReturnableIssuanceResult |
     t.result.effectivePermissions in
       ((allowedPermissions & levelInclusion[Config.issuablePermissions]) + impliedPermissions))
+}
+
+// Repository Policies only add a condition: a grant made with enforcement
+// meets every condition of a grant made without it.
+pred grantsMeetConditionsWithoutPolicies {
+  all g: TokenGrant | grantable[g.caller, g.request, g.installation]
+}
+assert RepositoryPoliciesOnlyAddConditions {
+  baseline implies grantsMeetConditionsWithoutPolicies
+}
+
+// Without enforcement, no Repository Policy is read: no Policy Read Grant
+// exists and no grant relies on a Policy Read Token. A grant then meets only
+// the conditions without Repository Policies; `NotEnforcedTokenWithoutPolicy`
+// shows a token returned for a repository without one.
+pred decisionIgnoresPoliciesWhenNotEnforced {
+  not enforced implies {
+    no PolicyReadGrant
+    all g: TokenGrant | no g.policyToken
+  }
+}
+assert NotEnforcedIgnoresRepositoryPolicies {
+  baseline implies decisionIgnoresPoliciesWhenNotEnforced
+}
+
+// Default deny: with enforcement, every requested name of a grant was read
+// with the grant's token and yielded a valid Repository Policy that has an
+// allowed caller.
+pred grantsNeedValidPolicies {
+  enforced implies (all g: TokenGrant, n: g.repositories |
+    some f: fetchesOf[g.policyToken, n] |
+      f.readRepository.policy in ValidPolicy and some f.readRepository.policy.allowedCallers)
+}
+assert DefaultDenyWithoutValidPolicy {
+  baseline implies grantsNeedValidPolicies
+}
+
+// With enforcement, a grant for a request targeting a protected repository
+// meets both RULE-015 and RULE-016: neither overrides the other.
+pred protectedGrantsNeedListAndPolicy {
+  enforced implies (all g: TokenGrant |
+    some targetedProtectedRepositories[g.request] implies
+      (protectedRepositoriesAuthorized[g.caller, g.request] and
+       (all n: g.repositories | targetAllowedByPolicy[g.caller, g.request, g.policyToken, n])))
+}
+assert ProtectedRepositoriesNeedListAndPolicy {
+  baseline implies protectedGrantsNeedListAndPolicy
+}
+
+// All or nothing: one requested name that its Repository Policy does not
+// allow leaves no grant, whatever the other names allow.
+pred grantsNeedEveryTargetAllowed {
+  enforced implies (all g: TokenGrant, n: g.repositories |
+    targetAllowedByPolicy[g.caller, g.request, g.policyToken, n])
+}
+assert EveryTargetAllowedByPolicy {
+  baseline implies grantsNeedEveryTargetAllowed
+}
+
+// The granted Permissions lie within the allowed permissions, the issuable
+// permissions, and the Permission Limit of an allowed caller the Caller
+// matches in the Repository Policy of every requested name.
+pred grantsWithinEveryPolicyLimit {
+  all g: TokenGrant |
+    g.permissions in (allowedPermissions & levelInclusion[Config.issuablePermissions]) and
+    (enforced implies (all n: g.repositories |
+      some f: fetchesOf[g.policyToken, n], a: f.readRepository.policy.allowedCallers |
+        isAllowedCaller[g.caller, a] and g.permissions in levelInclusion[a.permissionLimit]))
+}
+assert GrantWithinEveryPermissionLimit {
+  baseline implies grantsWithinEveryPolicyLimit
+}
+
+// A Caller matching only the Repository ID or only the Repository Name of
+// every allowed caller of a Repository Policy gets no grant for that name.
+pred policyGrantsNeedIdAndName {
+  enforced implies (all g: TokenGrant, n: g.repositories |
+    some f: fetchesOf[g.policyToken, n], a: f.readRepository.policy.allowedCallers |
+      a.repository = g.caller.repository and a.repositoryName = g.caller.repositoryName)
+}
+assert PolicyAllowedCallerNeedsIdAndName {
+  baseline implies policyGrantsNeedIdAndName
+}
+
+// FR-AUTHZ-012: every effective repository of a returned token is a
+// repository whose Repository Policy GATES read, as identified by the
+// Verified Policy Read Token of the grant.
+pred returnedRepositoriesArePolicyRepositories {
+  enforced implies (all t: ReturnableIssuanceResult |
+    t.result.effectiveRepositories.repository in
+      t.result.call.grant.policyToken.readResult.effectiveRepositories.repository)
+}
+assert ReturnedRepositoriesArePolicyRepositories {
+  baseline implies returnedRepositoriesArePolicyRepositories
+}
+
+// Unless a name changed its repository during the read, every effective
+// repository of a returned token has its own Repository Policy allowing the
+// Caller and the requested Permissions.
+pred returnedRepositoriesAllowedByOwnPolicy {
+  enforced implies (all t: ReturnableIssuanceResult |
+    (all f: t.result.call.grant.policyToken.~token | fetchReadsTokenRepository[f]) implies
+      (all x: t.result.effectiveRepositories.repository |
+        some a: x.policy.allowedCallers |
+          isAllowedCaller[t.result.call.grant.caller, a] and
+          t.result.call.grant.request.permissions in levelInclusion[a.permissionLimit]))
+}
+assert ReturnedRepositoriesAllowedByOwnPolicy {
+  baseline implies returnedRepositoriesAllowedByOwnPolicy
+}
+
+// Unless a name changed its repository during the read, the returned
+// permissions for each effective repository are those the Permission Limit of
+// an Allowed Caller in its own Repository Policy includes, and the implied
+// ones.
+pred policyTokensWithinPermissionLimit {
+  enforced implies (all t: ReturnableIssuanceResult |
+    (all f: t.result.call.grant.policyToken.~token | fetchReadsTokenRepository[f]) implies
+      (all x: t.result.effectiveRepositories.repository |
+        some a: x.policy.allowedCallers |
+          isAllowedCaller[t.result.call.grant.caller, a] and
+          t.result.effectivePermissions in (levelInclusion[a.permissionLimit] + impliedPermissions)))
+}
+assert PolicyTokenWithinPermissionLimit {
+  baseline implies policyTokensWithinPermissionLimit
+}
+
+// The Policy Read Token holds only `single_file:read` and the implied
+// permission, and reads only the Repository Policy Path.
+pred policyReadTokensOnlyReadThePolicy {
+  all t: VerifiedPolicyReadToken |
+    t.readResult.effectivePermissions in (policyReadPermissions + impliedPermissions) and
+    t.readResult.singleFilePathIsFixed = Yes
+}
+assert PolicyReadTokenOnlyReadsThePolicy {
+  baseline implies policyReadTokensOnlyReadThePolicy
+}
+
+// A Policy Read Grant needs enforcement and every condition of the Token Grant
+// except RULE-016. The checks on the issuance result are not among them. Its
+// Permissions are `single_file:read` whatever the request asks.
+pred policyReadGrantsMeetOtherConditions {
+  all g: PolicyReadGrant |
+    enforced and grantable[g.caller, g.request, g.installation] and
+    g.permissions = policyReadPermissions
+}
+assert PolicyReadGrantMeetsOtherConditions {
+  baseline implies policyReadGrantsMeetOtherConditions
 }
 
 // Mutation checks intentionally evaluate the same returned-token properties
@@ -615,6 +984,11 @@ assert WithoutMissingPermissionCheckPreservesRequestedPermissions {
 assert WithoutAllowedCallerNameCheckPreservesAllowedCallers {
   ModelConfiguration.policy = WithoutAllowedCallerNameCheck implies protectedTokensOnlyToAllowedCallers
 }
+// Without the ID check of Allowed Callers, a Caller whose repository only has
+// the name of an Allowed Caller receives a protected token.
+assert WithoutAllowedCallerIdCheckPreservesAllowedCallers {
+  ModelConfiguration.policy = WithoutAllowedCallerIdCheck implies protectedTokensOnlyToAllowedCallers
+}
 // Without the name check before issuance, a Caller that is no Allowed Caller
 // receives a token for a protected repository whose ID and name match the list.
 assert WithoutProtectedNameCheckPreservesAllowedCallers {
@@ -629,6 +1003,84 @@ assert WithoutProtectedIdCheckPreservesAllowedCallers {
 // token with a permission beyond its Permission Limit.
 assert WithoutPermissionLimitCheckPreservesPermissionLimit {
   ModelConfiguration.policy = WithoutPermissionLimitCheck implies protectedTokensWithinPermissionLimit
+}
+// Without RULE-015 under enforcement, a Repository Policy alone grants a
+// protected repository: the policy would override the list. RULE-015 is
+// judged both for the Policy Read Grant and for the Token Grant, and the
+// Token Grant needs a token of a Policy Read Grant of the same request, so
+// the variant drops it from both; dropping it from one leaves the other.
+assert WithoutProtectedCheckWhenEnforcedOnlyAddsConditions {
+  ModelConfiguration.policy = WithoutProtectedCheckWhenEnforced implies grantsMeetConditionsWithoutPolicies
+}
+assert WithoutProtectedCheckWhenEnforcedNeedsListAndPolicy {
+  ModelConfiguration.policy = WithoutProtectedCheckWhenEnforced implies protectedGrantsNeedListAndPolicy
+}
+// Applying RULE-016 regardless of the enforcement makes a deployment without
+// enforcement read Repository Policies and rely on them for its grants.
+assert WithoutEnforcementSwitchIgnoresRepositoryPolicies {
+  ModelConfiguration.policy = WithoutEnforcementSwitch implies decisionIgnoresPoliciesWhenNotEnforced
+}
+// The decision then depends on Repository Policies: with no name race during
+// the read, a deployment without enforcement returns no token for a
+// repository without one, unlike `NotEnforcedTokenWithoutPolicy`.
+assert WithoutEnforcementSwitchDeniesWithoutPolicy {
+  (ModelConfiguration.policy = WithoutEnforcementSwitch and not enforced) implies
+    (no t: ReturnableIssuanceResult |
+      (all f: t.result.call.grant.policyToken.~token | fetchReadsTokenRepository[f]) and
+      some x: t.result.effectiveRepositories.repository | x.policy = NoPolicy)
+}
+// Without RULE-016, a name without a valid Repository Policy is granted, and
+// the list alone decides a protected repository.
+assert WithoutRepositoryPolicyCheckDeniesByDefault {
+  ModelConfiguration.policy = WithoutRepositoryPolicyCheck implies grantsNeedValidPolicies
+}
+assert WithoutRepositoryPolicyCheckNeedsListAndPolicy {
+  ModelConfiguration.policy = WithoutRepositoryPolicyCheck implies protectedGrantsNeedListAndPolicy
+}
+// Checking one name instead of every name grants a request with a name
+// whose Repository Policy does not allow it.
+assert WithoutPolicyAllTargetsNeedsEveryTarget {
+  ModelConfiguration.policy = WithoutPolicyAllTargets implies grantsNeedEveryTargetAllowed
+}
+// Without the Permission Limit of the Repository Policy, a grant exceeds it.
+assert WithoutPolicyPermissionLimitCheckKeepsLimit {
+  ModelConfiguration.policy = WithoutPolicyPermissionLimitCheck implies grantsWithinEveryPolicyLimit
+}
+// The same variant returns a token beyond that Permission Limit.
+assert WithoutPolicyPermissionLimitCheckKeepsReturnedLimit {
+  ModelConfiguration.policy = WithoutPolicyPermissionLimitCheck implies policyTokensWithinPermissionLimit
+}
+// Dropping either half of the shared Allowed Caller condition lets a Caller
+// matching only the other half be granted under a Repository Policy.
+assert WithoutAllowedCallerNameCheckNeedsIdAndName {
+  ModelConfiguration.policy = WithoutAllowedCallerNameCheck implies policyGrantsNeedIdAndName
+}
+assert WithoutAllowedCallerIdCheckNeedsIdAndName {
+  ModelConfiguration.policy = WithoutAllowedCallerIdCheck implies policyGrantsNeedIdAndName
+}
+// Without the Repository ID check against the Policy Read Token, a token for
+// a repository re-created after the read is returned under the Repository
+// Policy of the repository it replaced.
+assert WithoutPolicyRepositoryIdCheckReturnsPolicyRepositories {
+  ModelConfiguration.policy = WithoutPolicyRepositoryIdCheck implies returnedRepositoriesArePolicyRepositories
+}
+assert WithoutPolicyRepositoryIdCheckAllowedByOwnPolicy {
+  ModelConfiguration.policy = WithoutPolicyRepositoryIdCheck implies returnedRepositoriesAllowedByOwnPolicy
+}
+// Without the permission check on the Policy Read Token, a token with more
+// than `single_file:read` is used.
+assert WithoutPolicyReadPermissionCheckOnlyReadsThePolicy {
+  ModelConfiguration.policy = WithoutPolicyReadPermissionCheck implies policyReadTokensOnlyReadThePolicy
+}
+// Without the path check on the Policy Read Token, a token that reads files
+// other than the Repository Policy is used.
+assert WithoutPolicyReadPathCheckOnlyReadsThePolicy {
+  ModelConfiguration.policy = WithoutPolicyReadPathCheck implies policyReadTokensOnlyReadThePolicy
+}
+// Without the other conditions on the Policy Read Grant, a Policy Read Token
+// is issued for a request the pre-authorization rejects.
+assert WithoutPolicyReadAuthorizationMeetsOtherConditions {
+  ModelConfiguration.policy = WithoutPolicyReadAuthorization implies policyReadGrantsMeetOtherConditions
 }
 
 // Positive witness: successful issuance must be satisfiable, or assertions
@@ -702,13 +1154,23 @@ pred ReturnWithoutAllowedPermissionCheckAndIssuableSubsetInvariant {
   some Config.issuablePermissions - allowedPermissions
   some ReturnableIssuanceResult
 }
+// The variant applying RULE-016 regardless of the enforcement still returns a
+// token without enforcement and without a name race, so
+// `WithoutEnforcementSwitchDeniesWithoutPolicy` does not pass vacuously.
+pred ReturnWithoutEnforcementSwitch {
+  ModelConfiguration.policy = WithoutEnforcementSwitch
+  not enforced
+  some t: ReturnableIssuanceResult |
+    all f: t.result.call.grant.policyToken.~token | fetchReadsTokenRepository[f]
+}
 
-// Intended residual risk: a caller's repository is DIFFERENT from the
-// requested target, but both are within the same allowed owner. No per-caller
-// access control is modeled outside the protected repositories, by design for
-// Current Scope.
+// Intended residual risk without Repository Policy Enforcement: a caller's
+// repository is DIFFERENT from the requested target, but both are within the
+// same allowed owner. Without enforcement, no per-caller access control
+// applies outside the protected repositories.
 pred CrossRepositoryWithinOwner {
   baseline
+  not enforced
   some t: ReturnableIssuanceResult, target: Repository |
     githubResultRespectsInstallation[t.result] and
     target in t.result.effectiveRepositories.repository and
@@ -796,11 +1258,12 @@ pred PermissionLimitBeyondIssuableReturnsWithinIssuable {
     a.permissionLimit not in levelInclusion[Config.issuablePermissions]
 }
 
-// Intended behavior of Current Scope: with protected repositories in place, a
-// Caller that is no Allowed Caller of any of them receives a token for a
-// repository not in the list.
+// Intended behavior of Current Scope without Repository Policies: with
+// protected repositories in place, a Caller that is no Allowed Caller of any
+// of them receives a token for a repository not in the list.
 pred UnlistedRepositoryTokenToAnyCaller {
   baseline
+  not enforced
   some Config.protectedRepositories
   some t: ReturnableIssuanceResult |
     githubResultRespectsInstallation[t.result] and
@@ -846,97 +1309,233 @@ pred SharedAllowedCallerIdWithDifferentNames {
     p.repository in t.result.effectiveRepositories.repository
 }
 
+// With enforcement, a token is returned for a repository whose Repository
+// Policy allows the Caller.
+pred PolicyAllowedTokenReturned {
+  baseline
+  enforced
+  some t: ReturnableIssuanceResult | githubResultRespectsInstallation[t.result]
+}
+
+// With enforcement, an Allowed Caller of both the list and the Repository
+// Policy receives a token for a protected repository.
+pred PolicyAllowedProtectedTokenReturned {
+  baseline
+  enforced
+  some t: ReturnableIssuanceResult, p: Config.protectedRepositories |
+    githubResultRespectsInstallation[t.result] and
+    p.repository in t.result.effectiveRepositories.repository
+}
+
+// A Caller requesting its own repository goes through the Repository Policy
+// too, and receives a token when the policy allows it.
+pred OwnRepositoryNeedsPolicy {
+  baseline
+  enforced
+  some t: ReturnableIssuanceResult |
+    githubResultRespectsInstallation[t.result] and
+    t.result.call.grant.caller.repository in t.result.effectiveRepositories.repository
+}
+
+// A repository re-created under the same name after its Repository Policy
+// was read: the issuance reaches GitHub and the result meets every other
+// check, and the Repository ID check alone keeps it from being returned.
+pred RecreatedTargetIssuedButNotReturned {
+  baseline
+  enforced
+  some r: IssuanceResult |
+    githubResultRespectsInstallation[r] and
+    resultMatchesGrant[r] and protectedRepositoriesMatchResult[r] and
+    not verifiedResult[r]
+}
+
+// Accepted risk (security.md 3.7): if the name points to another repository
+// during the read, GATES can read the Repository Policy of that repository
+// and return a token for a repository whose own Repository Policy does not
+// allow the Caller. Making it happen takes renaming or deleting the target,
+// which also lets one rewrite its Repository Policy.
+pred NameRaceDuringReadMayUseOtherPolicy {
+  baseline
+  enforced
+  some t: ReturnableIssuanceResult, f: t.result.call.grant.policyToken.~token,
+       x: t.result.effectiveRepositories.repository |
+    not fetchReadsTokenRepository[f] and
+    no a: x.policy.allowedCallers | isAllowedCaller[t.result.call.grant.caller, a]
+}
+
+// Without enforcement, a token is returned for a repository without a
+// Repository Policy.
+pred NotEnforcedTokenWithoutPolicy {
+  baseline
+  not enforced
+  some t: ReturnableIssuanceResult |
+    githubResultRespectsInstallation[t.result] and
+    some x: t.result.effectiveRepositories.repository | x.policy = NoPolicy
+}
+
 // All commands use a finite scope; absence of counterexamples is NOT
 // an unbounded proof.
-// PermissionName is 4 and PermissionEntry is 8, so that every pair of the four
-// names and two levels exists, and the names can mix listed and unlisted ones.
-check NoForeignOwnerGrant for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check NoOtherInstallationGrant for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check OnlyAllowedPermissionsGranted for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+// PermissionName is 5 and PermissionEntry is 10, so that every pair of the five
+// names and two levels exists. Besides the fixed Metadata and SingleFile, three
+// names can mix listed and unlisted ones.
+check NoForeignOwnerGrant for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+check NoOtherInstallationGrant for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+check OnlyAllowedPermissionsGranted for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
 // trace:checks FR-AUTHZ-008 RULE-010
-check OnlyIssuablePermissionsGranted for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check AllOrNothingGrant for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check AllIssueCallsExplicit for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check NoOverbroadTokenReturned for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check NoNarrowedTokenReturned for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check UnrequestedAllowedPermissionsNotReturned for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check OnlyIssuablePermissionsGranted for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+check AllOrNothingGrant for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+check AllIssueCallsExplicit for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+check NoOverbroadTokenReturned for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+check NoNarrowedTokenReturned for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+check UnrequestedAllowedPermissionsNotReturned for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
 // trace:checks FR-AUTHZ-008 RULE-010
-check NoTokenBeyondIssuablePermissions for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check NoTokenBeyondIssuablePermissions for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
 // trace:checks FR-AUTHZ-008 INV-011
-check ReturnedLevelsEqualRequestedLevels for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check ReturnedLevelsEqualRequestedLevels for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
 // trace:checks FR-AUTHZ-006 FR-AUTHZ-008 RULE-010
-check IssuableWriteAdmitsNoReadOutsideAllowedPermissions for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check OnlyRepositoryPermissionsReturned for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check ExactNamesReturned for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check NoDuplicateEffectiveRepositoriesReturned for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check ReturnedReposOwnedByAllowedOwner for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check CoverageHoldsWhenGitHubEnforces for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check RequestedPermissionsHeldWhenGitHubEnforces for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check ReturnedResultsHaveValidTokenAndExpiry for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check IssuableWriteAdmitsNoReadOutsideAllowedPermissions for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+check OnlyRepositoryPermissionsReturned for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+check ExactNamesReturned for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+check NoDuplicateEffectiveRepositoriesReturned for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+check ReturnedReposOwnedByAllowedOwner for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+check CoverageHoldsWhenGitHubEnforces for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+check RequestedPermissionsHeldWhenGitHubEnforces for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+check ReturnedResultsHaveValidTokenAndExpiry for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
 // trace:checks FR-AUTHZ-009 FR-AUTHZ-010 RULE-015 INV-012
-check ProtectedTokenNeedsIdAndNameOfAllowedCaller for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check ProtectedTokenNeedsIdAndNameOfAllowedCaller for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
 // trace:checks FR-AUTHZ-009 FR-AUTHZ-010 RULE-015 INV-012
-check ProtectedTokenWithinPermissionLimit for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check ProtectedTokenWithinPermissionLimit for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
 // trace:checks FR-AUTHZ-010 INV-012
-check NoProtectedNameWithOtherIdReturned for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check NoProtectedNameWithOtherIdReturned for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
 // trace:checks FR-AUTHZ-009 RULE-015 INV-012
-check ProtectedRepositoriesAddNothingWhenNotTargeted for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check ProtectedRepositoriesAddNothingWhenNotTargeted for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
 // trace:checks FR-AUTHZ-009 INV-016
-check ProtectedRepositoriesKeepPermissionBoundary for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check ProtectedRepositoriesKeepPermissionBoundary for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+// trace:checks FR-AUTHZ-011 RULE-016 INV-011
+check RepositoryPoliciesOnlyAddConditions for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+// trace:checks FR-AUTHZ-011 FR-OPS-001 INV-011
+check NotEnforcedIgnoresRepositoryPolicies for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+// trace:checks FR-AUTHZ-011 RULE-016 INV-017
+check DefaultDenyWithoutValidPolicy for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+// trace:checks FR-AUTHZ-009 FR-AUTHZ-011 RULE-015 RULE-016
+check ProtectedRepositoriesNeedListAndPolicy for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+// trace:checks FR-AUTHZ-011 FR-AUTHZ-004 RULE-016
+check EveryTargetAllowedByPolicy for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+// trace:checks FR-AUTHZ-008 FR-AUTHZ-011 RULE-016 INV-011
+check GrantWithinEveryPermissionLimit for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+// trace:checks FR-AUTHZ-011 RULE-016
+check PolicyAllowedCallerNeedsIdAndName for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+// trace:checks FR-AUTHZ-012 INV-012
+check ReturnedRepositoriesArePolicyRepositories for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+// trace:checks FR-AUTHZ-011 FR-AUTHZ-012 RULE-016 INV-012
+check ReturnedRepositoriesAllowedByOwnPolicy for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+// trace:checks FR-AUTHZ-011 FR-ISSUANCE-004 RULE-016 INV-012
+check PolicyTokenWithinPermissionLimit for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+// trace:checks FR-ISSUANCE-004 FR-ISSUANCE-007 INV-019
+check PolicyReadTokenOnlyReadsThePolicy for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+// trace:checks FR-ISSUANCE-002 FR-ISSUANCE-007 INV-020
+check PolicyReadGrantMeetsOtherConditions for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
 
 // These checks remove one of the two guards that keep returned tokens within
 // the allowed permissions, or INV-015 that is not one of them. No
 // counterexample is expected: a guard still holds.
-check WithoutAllowedPermissionCheckKeepsAllowedPermissions for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check WithoutInclusionAllowedConditionKeepsAllowedPermissions for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check WithoutIssuableSubsetInvariantKeepsAllowedPermissions for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
-check WithoutAllowedPermissionCheckAndIssuableSubsetInvariantKeepsAllowedPermissions for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 0
+check WithoutAllowedPermissionCheckKeepsAllowedPermissions for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+check WithoutInclusionAllowedConditionKeepsAllowedPermissions for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+check WithoutIssuableSubsetInvariantKeepsAllowedPermissions for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+check WithoutAllowedPermissionCheckAndIssuableSubsetInvariantKeepsAllowedPermissions for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
+// trace:checks FR-AUTHZ-011
+check WithoutEnforcementSwitchDeniesWithoutPolicy for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 0
 
 // These checks use a different verification policy from the baseline.
 // A counterexample is expected: it shows that the removed check matters.
-check WithoutBothAllowedPermissionGuardsPreservesAllowedPermissions for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-check WithoutIssuablePermissionCheckPreservesIssuablePermissions for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-check WithoutOwnerCheckPreservesOwnerBoundary for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-check WithoutNameCheckPreservesExactNames for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-check WithoutExcessPermissionCheckPreservesPermissionBoundary for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-check WithoutMissingPermissionCheckPreservesRequestedPermissions for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-check WithoutCountCheckPreservesUniqueEffectiveRepositories for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+check WithoutBothAllowedPermissionGuardsPreservesAllowedPermissions for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+check WithoutIssuablePermissionCheckPreservesIssuablePermissions for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+check WithoutOwnerCheckPreservesOwnerBoundary for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+check WithoutNameCheckPreservesExactNames for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+check WithoutExcessPermissionCheckPreservesPermissionBoundary for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+check WithoutMissingPermissionCheckPreservesRequestedPermissions for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+check WithoutCountCheckPreservesUniqueEffectiveRepositories for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
 // trace:checks FR-AUTHZ-009 RULE-015
-check WithoutAllowedCallerNameCheckPreservesAllowedCallers for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+check WithoutAllowedCallerNameCheckPreservesAllowedCallers for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+// trace:checks FR-AUTHZ-009 RULE-015
+check WithoutAllowedCallerIdCheckPreservesAllowedCallers for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
 // trace:checks FR-AUTHZ-009 FR-AUTHZ-010 RULE-015
-check WithoutProtectedNameCheckPreservesAllowedCallers for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+check WithoutProtectedNameCheckPreservesAllowedCallers for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
 // trace:checks FR-AUTHZ-010 INV-012
-check WithoutProtectedIdCheckPreservesAllowedCallers for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+check WithoutProtectedIdCheckPreservesAllowedCallers for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
 // trace:checks FR-AUTHZ-009 RULE-015
-check WithoutPermissionLimitCheckPreservesPermissionLimit for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+check WithoutPermissionLimitCheckPreservesPermissionLimit for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+// trace:checks FR-AUTHZ-011 RULE-016
+check WithoutProtectedCheckWhenEnforcedOnlyAddsConditions for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+// trace:checks FR-AUTHZ-009 FR-AUTHZ-011 RULE-015 RULE-016
+check WithoutProtectedCheckWhenEnforcedNeedsListAndPolicy for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+// trace:checks FR-AUTHZ-011 FR-OPS-001
+check WithoutEnforcementSwitchIgnoresRepositoryPolicies for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+// trace:checks FR-AUTHZ-011 RULE-016
+check WithoutRepositoryPolicyCheckDeniesByDefault for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+// trace:checks FR-AUTHZ-009 FR-AUTHZ-011 RULE-015 RULE-016
+check WithoutRepositoryPolicyCheckNeedsListAndPolicy for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+// trace:checks FR-AUTHZ-011 FR-AUTHZ-004 RULE-016
+check WithoutPolicyAllTargetsNeedsEveryTarget for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+// trace:checks FR-AUTHZ-011 RULE-016
+check WithoutPolicyPermissionLimitCheckKeepsLimit for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+// trace:checks FR-AUTHZ-011 RULE-016
+check WithoutPolicyPermissionLimitCheckKeepsReturnedLimit for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+// trace:checks FR-AUTHZ-011 RULE-016
+check WithoutAllowedCallerNameCheckNeedsIdAndName for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+// trace:checks FR-AUTHZ-011 RULE-016
+check WithoutAllowedCallerIdCheckNeedsIdAndName for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+// trace:checks FR-AUTHZ-012 INV-012
+check WithoutPolicyRepositoryIdCheckReturnsPolicyRepositories for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+// trace:checks FR-AUTHZ-012 INV-012
+check WithoutPolicyRepositoryIdCheckAllowedByOwnPolicy for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+// trace:checks FR-ISSUANCE-007 INV-019
+check WithoutPolicyReadPermissionCheckOnlyReadsThePolicy for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+// trace:checks FR-ISSUANCE-004 INV-019
+check WithoutPolicyReadPathCheckOnlyReadsThePolicy for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+// trace:checks FR-ISSUANCE-002 INV-020
+check WithoutPolicyReadAuthorizationMeetsOtherConditions for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
 
-run SuccessfulReturn for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-run WriteAndMultiplePermissionsReturned for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-run IssuableNarrowerThanInstallation for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run SuccessfulReturn for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+run WriteAndMultiplePermissionsReturned for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+run IssuableNarrowerThanInstallation for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
 // trace:checks FR-AUTHZ-008 RULE-010
-run IssuableWriteAdmitsRead for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-run ImpliedPermissionOutsideIssuableReturned for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-run ReturnWithoutAllowedPermissionCheck for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-run ReturnWithoutInclusionAllowedCondition for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-run ReturnWithoutIssuableSubsetInvariant for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-run ReturnWithoutAllowedPermissionCheckAndIssuableSubsetInvariant for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-run CrossRepositoryWithinOwner for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-run IssueCallMayContainUncoveredNames for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-run IssueCallMayContainUnheldPermissions for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-run ResultWithoutUnheldPermissionNotReturned for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-run CoverageNotIndependentlyProved for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
-run InvalidResultCanExist for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run IssuableWriteAdmitsRead for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+run ImpliedPermissionOutsideIssuableReturned for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+run ReturnWithoutAllowedPermissionCheck for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+run ReturnWithoutInclusionAllowedCondition for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+run ReturnWithoutIssuableSubsetInvariant for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+run ReturnWithoutAllowedPermissionCheckAndIssuableSubsetInvariant for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+run ReturnWithoutEnforcementSwitch for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+run CrossRepositoryWithinOwner for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+run IssueCallMayContainUncoveredNames for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+run IssueCallMayContainUnheldPermissions for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+run ResultWithoutUnheldPermissionNotReturned for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+run CoverageNotIndependentlyProved for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+run InvalidResultCanExist for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
 // trace:checks FR-AUTHZ-009 RULE-015
-run AllowedCallerReceivesProtectedToken for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run AllowedCallerReceivesProtectedToken for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
 // trace:checks FR-AUTHZ-009 RULE-015
-run WriteLimitAdmitsReadToken for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run WriteLimitAdmitsReadToken for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
 // trace:checks FR-AUTHZ-009 INV-016
-run PermissionLimitBeyondIssuableReturnsWithinIssuable for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run PermissionLimitBeyondIssuableReturnsWithinIssuable for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
 // trace:checks FR-AUTHZ-009 RULE-015
-run UnlistedRepositoryTokenToAnyCaller for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run UnlistedRepositoryTokenToAnyCaller for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
 // trace:checks FR-AUTHZ-010 INV-012
-run RenamedProtectedRepositoryIssuedButNotReturned for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run RenamedProtectedRepositoryIssuedButNotReturned for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
 // trace:checks FR-AUTHZ-009 RULE-015
-run MixedTargetsReturnedToAllowedCaller for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run MixedTargetsReturnedToAllowedCaller for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
 // trace:checks FR-AUTHZ-009 INV-016
-run SharedAllowedCallerIdWithDifferentNames for 3 but 16 VerificationPolicy, 2 Owner, 2 OwnerName, 4 PermissionCategory, 4 PermissionName, 8 PermissionEntry expect 1
+run SharedAllowedCallerIdWithDifferentNames for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+// trace:checks FR-AUTHZ-011 RULE-016
+run PolicyAllowedTokenReturned for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+// trace:checks FR-AUTHZ-009 FR-AUTHZ-011 RULE-015 RULE-016
+run PolicyAllowedProtectedTokenReturned for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+// trace:checks FR-AUTHZ-011 RULE-016
+run OwnRepositoryNeedsPolicy for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+// trace:checks FR-AUTHZ-012 INV-012
+run RecreatedTargetIssuedButNotReturned for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+// trace:checks FR-AUTHZ-012 RULE-016
+run NameRaceDuringReadMayUseOtherPolicy for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
+// trace:checks FR-AUTHZ-011
+run NotEnforcedTokenWithoutPolicy for 3 but 26 VerificationPolicy, 4 PolicyState, 2 Owner, 2 OwnerName, 4 PermissionCategory, 5 PermissionName, 10 PermissionEntry expect 1
