@@ -4,7 +4,7 @@
 GitHub の公式資料そのものではなく、GitHub の仕様が変更された場合は該当する公式資料を確認します。
 
 - **対象**：GitHub.com の GitHub App、GitHub App JWT、Installation、Installation Access Token、REST API の共通事項。GitHub Enterprise Server は対象外。
-- **取得した値の調査記録**：[GitHub App Installation](../../research/github/app-installation.md)、[GitHub Installation Access Token](../../research/github/installation-access-token.md)、[GitHub App Installation Changes](../../research/github/installation-changes.md)、[GitHub App Permissions](../../research/github/app-permissions.md)、[GitHub Docker Action Failure and Cancellation](../../research/github/docker-action-cancellation.md)、[GitHub Repository Identity](../../research/github/repository-identity.md)。取得日、取得方法、記録した応答はこれらの記録にある。
+- **取得した値の調査記録**：[GitHub App Installation](../../research/github/app-installation.md)、[GitHub Installation Access Token](../../research/github/installation-access-token.md)、[GitHub App Installation Changes](../../research/github/installation-changes.md)、[GitHub App Permissions](../../research/github/app-permissions.md)、[GitHub Docker Action Failure and Cancellation](../../research/github/docker-action-cancellation.md)、[GitHub Repository Identity](../../research/github/repository-identity.md)、[GitHub Single File Permission](../../research/github/single-file.md)。取得日、取得方法、記録した応答はこれらの記録にある。
 
 各記述の先頭の太字は、記述の根拠の Evidence を表します。Documented は公式資料の記述、Published は GitHub が公開するエンドポイントから取得した値、Observed は実環境で観測した値、Inferred はそれらから導いた解釈、Unconfirmed は公式資料で確定できない事項です。
 
@@ -101,6 +101,15 @@ Organization オーナーがリポジトリ管理者によるインストール�
 
 **Observed（レート制限のヘッダー）**：レート制限に達していない記録では、GitHub App JWT で認証した Installation の取得と発行 API の応答に `x-ratelimit-*` のヘッダーがありませんでした（[GitHub App Installation](../../research/github/app-installation.md#installation-の取得)、[GitHub Installation Access Token](../../research/github/installation-access-token.md#レート制限のヘッダー)）。
 
+**Documented（Installation Access Token のレート制限）**：Installation Access Token で認証した要求は、Installation のプライマリのレート制限（1 時間に最小 5,000 回）に数えられます。
+GitHub Enterprise Cloud の Organization にない Installation では、対象のリポジトリが 20 を超えると 1 リポジトリごとに 1 時間に 50 回増え、上限は 1 時間に 12,500 回です。
+セカンダリのレート制限には、同時に 100 を超える要求、1 つのエンドポイントへの 1 分あたり 900 ポイントを超える要求（ほとんどの `GET` は 1 ポイント、`POST`、`PATCH`、`PUT`、`DELETE` は 5 ポイント）、実時間 60 秒あたり 90 秒を超える CPU 時間などがあり、予告なく変わります（[Rate limits for the REST API](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)）。
+
+**Unconfirmed（GitHub App JWT の要求のレート制限）**：GitHub App JWT で認証した要求（Installation の取得、発行 API）がどのレート制限に数えられるかは、参照した公式資料に記述がありません。
+
+**Observed（Installation Access Token の要求のヘッダー）**：`single_file:read` のトークンでの Contents API の取得と `DELETE /installation/token` の応答には `x-ratelimit-resource: core` があり、取得 1 回ごとに `x-ratelimit-used` が 1 増えました。
+`x-ratelimit-remaining` は、一続きの要求の途中で増える場合がありました（[GitHub Single File Permission](../../research/github/single-file.md#所要時間とレート制限)）。
+
 ### 4.2 発行応答・Permission
 
 **Documented**：発行 API の応答には `token`、`expires_at`、`permissions`、`repositories`（適用される場合）、`repository_selection` などが示されます。`repository_selection` は `all` / `selected` の区別です。応答例には `repositories[].id`、`repositories[].full_name`、`repositories[].owner.id` といったリポジトリ情報が含まれます（[REST API — GitHub Apps](https://docs.github.com/en/rest/apps/apps?apiVersion=2026-03-10)）。
@@ -143,6 +152,10 @@ GitHub は、トークンを、中身を解釈しない文字列として扱う�
 **Documented**：`DELETE /installation/token` は、その呼び出しを認証した Installation Access Token 自身を失効させます。GitHub App JWT で呼び出す API ではありません。成功の応答は `204` です（[REST API — App installations](https://docs.github.com/en/rest/apps/installations?apiVersion=2026-03-10)）。この資料も新形式への移行の案内も、新形式のトークンでの失効の動作を個別には説明していません。
 
 **Observed（失効）**：発行したトークンの失効は `204` を返し、失効したトークンによる要求は `401` で拒否されました（[GitHub Installation Access Token](../../research/github/installation-access-token.md#失効の前後のトークン)）。ただし、`204` の約 0.4 秒後の要求が `200` で通った事例が 1 回あり、失効が直ちにすべての要求に効くとは限りません。公式資料は、失効が効くまでの時間を記載していません（[GitHub Docker Action Failure and Cancellation](../../research/github/docker-action-cancellation.md#revocation-not-yet-in-effect)）。
+
+**Observed（失効の後に再び通った要求）**：`single_file:read` のトークンでは、`204` の直後の要求が `401` で拒否された後、約 5 秒後の要求が `200` で通りました。
+同じ条件で、`single_file:read` と `contents:read` のトークンの `204` の後に約 2 秒ごとに約 3 分間続けた 360 回の要求は、すべて `401` でした（[GitHub Single File Permission](../../research/github/single-file.md#失効の後の取得)）。
+一度 `401` を返したトークンでも、その後の要求が通ることがあり、`401` を一度観測しても失効が効いたとは言えません。
 
 ### 4.4 権限名と分類
 
@@ -215,8 +228,59 @@ OpenAPI 定義も、発行応答のスキーマ「Installation Token」にこの
 - 権限名の分類と水準が、GitHub が予告なく変えない仕様であるか。上の記録は、ある時点の個人アカウントの Installation での観測である
 - Organization の Installation に、どの権限名が現れるか
 - 設定画面の項目と権限名の対応。権限を一つずつ付与して確かめてはいない
-- GitHub App に追加し、Installation の側でまだ承認していない Repository permissions を指定したときの応答。拒否するか、権限を除いて発行するか
 - 付与されていない権限か水準への応答が、常に `422` の拒否であるか
+
+**Observed（承認の前の権限）**：GitHub App に `Single file` を加え、Installation の側で承認する前に `{"single_file":"read"}` を指定した発行は、`422` で拒否されました。権限を除いた発行はありませんでした。`message` は記録していません。承認の後の同じ要求は `201` でした（[GitHub Single File Permission](../../research/github/single-file.md#installation-で承認する前の発行)）。
+
+### 4.5 Single file
+
+**Documented（パスの指定）**：GitHub App の登録パラメーターの `single_file_name` は、`single_file` の権限を `read` か `write` にしたときに、GitHub App が扱う単一のファイルのパスを与えます。
+`single_file_paths` は最大 10 個のパスを持ち、どのファイルにも `single_file` の同じ水準が適用されます（[Registering a GitHub App using URL parameters](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-using-url-parameters)）。
+
+**Unconfirmed（使えるエンドポイント）**：`single_file` の権限で使えるエンドポイントは、参照した公式資料にありません。
+[Permissions required for GitHub Apps](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps) は `single_file` を挙げず、`GET /repos/{owner}/{repo}/contents/{path}` に要る権限として `Contents` の `read` だけを示します。
+`single_file:read` のトークンで、指定したパスのファイルを読めることと、ほかのファイルを読めないことは、GitHub の保証ではなく、次の観測だけによります。
+
+**Documented（Contents API の応答）**：`GET /repos/{owner}/{repo}/contents/{path}` は、`ref` を省略すると既定ブランチを読みます。
+パスがディレクトリなら配列を返し、シンボリックリンクのリンク先がリポジトリの通常のファイルならそのファイルの内容を、そうでなければシンボリックリンクそのものを表すオブジェクトを返します。
+1 MB を超え 100 MB 以下のファイルは `raw` と `object` のメディアタイプだけが対応し、`object` では `content` が空文字列、`encoding` が `none` になります。
+100 MB を超えるファイルには対応しません（[REST API endpoints for repository contents](https://docs.github.com/en/rest/repos/contents?apiVersion=2026-03-10)）。
+
+**Observed（指定したパスの取得）**：個人アカウントの Installation で、`Single file` を `Read-only`、パス `.github/gates-policy.yml` で付与し、`{"single_file":"read"}` だけを要求して発行したトークンの記録では、次のとおりでした（[GitHub Single File Permission](../../research/github/single-file.md)）。
+
+- **発行結果**：実効権限は `single_file:read` と `metadata:read` で、`GET /installation/repositories` は要求した対象だけを返した
+- **指定したパス**：private リポジトリの `.github/gates-policy.yml` は `200` で、`ref` を省略すると既定ブランチのファイルを返した。`X-Accepted-GitHub-Permissions` は `contents=read` だった
+- **ほかのパス**：同じリポジトリのほかのファイル、存在しないファイル、大文字にしたパス、`..` を含むパス、親のディレクトリ、ルートの一覧、Git の tree と blob、`readme`、tarball、zipball、コミットとブランチの一覧は、どれも `403`（`Resource not accessible by integration`）だった
+- **リポジトリの情報**：`GET /repos/{owner}/{repo}` は、付随する `metadata:read` で `200` だった
+- **対象でないリポジトリ**：Installation の対象で、要求していない private リポジトリの指定したパスは `404` だった。Installation の対象外の公開リポジトリのファイルは、指定したパスの外でも読めた
+
+**Observed（有効なファイルがない場合）**：同じトークンで、指定したパスの状態を変えた記録では、次のとおりでした（[GitHub Single File Permission](../../research/github/single-file.md#指定したパスに有効なファイルがない場合)）。
+
+| 指定したパスの状態 | 応答 |
+|---|---|
+| ファイルがない | `404`（`Not Found`） |
+| 0 バイトのファイル | `200`、`content` が空文字列 |
+| ディレクトリ | `200`、配列 |
+| 指定したパスの外のファイルを指すシンボリックリンク | `200`、`type` が `file` で、リンク先のファイルの内容。指定したパスのファイルと見分けられない |
+| 存在しないファイルを指すシンボリックリンク | `200`、`type` が `symlink` |
+| 1 MB を超えるファイル | `200`、`encoding` が `none`、`content` が空文字列。`raw` ではファイルの内容そのもの |
+
+**Inferred（パスの食い違い）**：指定したパスにファイルがない場合の応答は `404`、指定していないパスの応答は存在するかどうかにかかわらず `403` でした。
+この観測が続く限り、GitHub App の `Single file` のパスが読もうとしたパスと異なる場合は、ファイルがない場合と応答コードで分かれます。
+
+**Unconfirmed**：次の事項は、参照した公式資料と上の記録から確定できません。
+
+- `single_file:read` のトークンで、指定したパスのほかを読めないことの保証
+- 空のリポジトリ（コミットのないリポジトリ）での指定したパスの応答
+- GitHub App のパスが読もうとしたパスと異なるときの応答。パスを変えて試してはいない
+- 発行応答の `single_file_paths` の値。パスに `README.md` を指定した記録では、発行応答に `single_file`、`has_multiple_single_files`、`single_file_paths` が現れた（[§4.4](#44-権限名と分類)）
+- Organization の Installation での振る舞い
+
+**Documented（ファイルの書き込みに要る権限）**：`PUT /repos/{owner}/{repo}/contents/{path}` と `DELETE /repos/{owner}/{repo}/contents/{path}` は、`Contents` の `write` で使えます。
+同じエンドポイントは `Workflows` の `write` の欄にも、追加の権限が要るものとして挙がっています（[Permissions required for GitHub Apps](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps)）。
+OAuth アプリのトークンと classic の個人アクセストークンについては、`.github/workflows` のファイルの変更に `workflow` のスコープが要ると示されています（[REST API endpoints for repository contents](https://docs.github.com/en/rest/repos/contents?apiVersion=2026-03-10)）。
+
+**Unconfirmed（Single file の書き込み）**：`single_file:write` のトークンで指定したパスのファイルを書き込めるかと、GitHub App が `Workflows` の `write` を要するパスの範囲は、参照した公式資料に記述がありません。
 
 ## 5. Outstanding Verification
 
@@ -228,5 +292,6 @@ Published や Observed の記述で一部の条件を確かめた事項も、Git
 | GitHub App の鍵 | 新規生成される RSA 鍵のビット長 |
 | Installation の取得 API | Organization の API の `200` 以外の応答（インストールされていない場合を含む）、User の API のアンインストール以外の `200` 以外の応答、Organization の API の応答の形、停止中の Installation の `suspended_at` の値の形、GitHub App とオーナーの組での一意性 |
 | トークン発行 API | 範囲外リポジトリへの要求、500件超の要求、停止中の Installation への要求、`422` の原因、`metadata:read` の付与条件、応答フィールドの有無、`repositories` の並び、改名したリポジトリの旧名での要求 |
-| トークン失効 API | 新形式のトークンでの失効の動作、`204` の後に失効が効くまでの時間 |
-| 権限名と分類 | 分類と水準が変わらない保証、Organization の Installation に現れる権限名、設定画面の項目と権限名の一つずつの対応、Installation の側で承認する前の権限への応答、付与されていない権限か水準への応答が常に拒否であるか |
+| トークン失効 API | 新形式のトークンでの失効の動作、`204` の後に失効が効くまでの時間、一度 `401` を返した後に要求が通る条件 |
+| 権限名と分類 | 分類と水準が変わらない保証、Organization の Installation に現れる権限名、設定画面の項目と権限名の一つずつの対応、付与されていない権限か水準への応答が常に拒否であるか |
+| Single file | 使えるエンドポイントと、指定したパスのほかを読めないことの保証、空のリポジトリでの応答、パスが食い違うときの応答、発行応答の `single_file_paths`、`single_file:write` での書き込み、Organization の Installation での振る舞い |

@@ -22,6 +22,7 @@
 | [GitHub Docker Action Failure and Cancellation](github/docker-action-cancellation.md) | 失敗したジョブとキャンセルしたジョブでの post-entrypoint の実行、ワークフロー実行のキャンセルがステップに届くまでの時間、`docker run` のプロセスに送った SIGINT への Action の応じ方、Invoke の最中に `docker run` のプロセスを強制終了した後のコンテナ、post-entrypoint の後の post から試した失効済みのトークン |
 | [GitHub Workflow Event Contexts](github/workflow-event-contexts.md) | `pull_request`、`pull_request_target`、Environment を使うジョブ、`workflow_run` のジョブが Docker Action でトークンを得たときの、IAM Role の引き受けの成否、`sub` の形、GATES の監査記録に残ったワークフロー起動属性と、起動しなかった `schedule`、fork からの Pull Request の仕様 |
 | [GitHub Repository Identity](github/repository-identity.md) | リポジトリの改名と、削除して同じ名前での作り直しでの Repository ID、OIDC JWT と REST API がリポジトリを示す値、改名した Installation の対象を新しい名前と旧名で要求した発行 |
+| [GitHub Single File Permission](github/single-file.md) | `single_file:read` だけのトークンで読めたものと読めなかったもの、指定したパスがない、空、ディレクトリ、シンボリックリンク、1 MB を超える場合の Contents API の応答、承認の前の発行、取得の所要時間とレート制限のヘッダー、失効の後に通った要求 |
 | [AWS Lambda Invoke Rejection](aws/lambda-invoke-rejection.md) | IAM と Lambda の Invoke API が関数の実行前に拒否した呼び出しと、JSON の解釈が分かれる Payload を関数に渡すか |
 | [AWS STS Legacy Subject](aws/sts-legacy-subject.md) | 名前だけの旧形式の `sub` の OIDC JWT で IAM Role の引き受けを試みた結果 |
 | [AWS Fault Injection](aws/fault-injection.md) | KMS Key の無効化、関数の環境変数の欠落、Reserved Concurrency 0、関数のタイムアウトの短縮をそれぞれ起こして発行を要求したときの、AWS と GATES の応答、Docker Action の注釈、関数のログ、`terraform plan` の差分 |
