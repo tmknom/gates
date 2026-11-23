@@ -55,8 +55,8 @@ flowchart TD
     guide --> github
     guide --> constitution
     guide --> research
-    guide --> action["Docker Action の README.md"]
     guide --> formal["formal/ の README.md"]
+    action["actions/README.md"] --> guide
 ```
 
 ### 2.1 docs/research/
@@ -134,19 +134,15 @@ GATES の開発に固有でない運用者の手順は、`docs/user-guide/` を�
 - リポジトリ内の他のドキュメントに依存しない
 - `CONSTITUTION.md` に依存してよいのは、`requirements.md`、`scope.md`、`docs/design/`、`docs/contributing/`、`docs/user-guide/` に限る
 
-### 2.7 Docker Action README
+### 2.7 actions/README.md
 
-`.github/actions/` の各 Docker Action の隣に置く `README.md` は、利用者向けの手引きです。
-`docs/` の外にありますが、依存の扱いは [§2.4](#24-docscontributing) と同じとします。
-この `README.md` は `docs/` 配下のドキュメントに依存してよく、`docs/` 配下のドキュメントはこの `README.md` に依存しません。
+`actions/README.md` は、Docker Action の一覧です。
 
-例外として、`docs/user-guide/` はこの `README.md` に依存してよく、この `README.md` は `docs/user-guide/` に依存しません。
-入力、出力、失敗の注釈のような Action のリファレンスをこの `README.md` の一か所に保ち、`docs/user-guide/` に転記しないためです。
-逆向きを禁じるのは、相互依存を作らないためです。
+- 各 Docker Action へのリンクと主題、`docs/user-guide/` の `README.md` への案内だけで構成し、入力、出力、使い方のような利用者向けの内容を書かない
+- `docs/` 配下のドキュメントは `actions/README.md` に依存しない
 
-この `README.md` も利用者が読むため、[§2.8](#28-docsuser-guide) の書き方の規則に従います。
-ただし、`docs/user-guide/` に依存しないため、概念名の説明は `overview.md` に任せず、この `README.md` の中で添えます。
-`docs/` 配下へのリンクも、利用者が作業と判断に使わない設計の詳細には張りません。
+利用者向けの内容は `docs/user-guide/` に書きます。
+`actions/README.md` に書くと、`docs/user-guide/` がそれを参照するか転記することになり、Action の変更で直す箇所が `docs/` の外にも散るためです。
 
 ### 2.8 docs/user-guide/
 
@@ -157,7 +153,8 @@ GATES の開発に固有でない運用者の手順は、`docs/user-guide/` を�
 
 依存は次の範囲に限ります。
 
-- 依存してよいのは、`docs/user-guide/` の他のドキュメント、Docker Action の `README.md`、GitHub や AWS などの公式ドキュメントである。Action のリファレンスは Docker Action の `README.md` を参照させ、転記しない
+- 依存してよいのは、`docs/user-guide/` の他のドキュメントと、GitHub や AWS などの公式ドキュメントである。Action の入力、出力、要求できる権限のようなリファレンスは `action-reference.md` に書き、他のドキュメントはそこを参照する
+- `actions/` 配下に依存しない。Action のコードと `action.yml` を変えても、`docs/user-guide/` のリンクを直す必要がないようにするためである
 - `CONSTITUTION.md`、`docs/spec/`、`docs/design/`、`docs/external/`、`docs/research/`、`formal/` の `README.md` への依存は、`overview.md` と `security-considerations.md` の末尾に置く、根拠や内部の設計を知りたい読者への案内に限る。本文から参照すると、読者が根拠をたどって本筋を見失い、設計の変更も利用者向けの文書に波及するためである
 - `docs/contributing/` に依存しない。開発の都合で変わる手順や規約の変更が、利用者向けの文書に波及しないようにするためである
 - `docs/spec/`、`docs/design/`、`docs/external/`、`docs/research/` は `docs/user-guide/` に依存しない
@@ -185,13 +182,16 @@ flowchart TD
     deployment --> import["import-key-material.md"]
     deployment --> usage["workflow-usage.md"]
     deployment --> trouble["troubleshooting.md"]
+    deployment --> reference["action-reference.md"]
     deployment -->|後の作業の案内に限る| operations
     rotate["rotate-key.md"] --> import
     rotate --> deployment
     usage --> security
     usage --> overview
     usage --> trouble
+    usage --> reference
     trouble --> import
+    trouble --> reference
     operations["operations.md"] --> deployment
     operations --> verify
     operations --> rotate
@@ -226,7 +226,7 @@ GATES が従う外部仕様を、規定として整理して保持します。
 
 - `docs/external/` は、GATES の他のドキュメントに依存しない。`docs/spec/` や `docs/design/` に依存すると、規定を GATES の都合で選んだり読んだりできるようになるためである
 - `github/` は、標準仕様との差分を説明するためにも `standards/` に依存しない。GitHub の仕様と標準仕様を比べた結論は、`docs/design/` の側に書く
-- `docs/external/` に依存してよいのは、`docs/design/`、`docs/user-guide/`、`formal/` と、他のドキュメントへの依存を一般に認めた `docs/contributing/`、`README.md`、Docker Action の `README.md` に限る。`docs/spec/` からの依存は、必要が生じるまで許可しない
+- `docs/external/` に依存してよいのは、`docs/design/`、`docs/user-guide/`、`formal/` と、他のドキュメントへの依存を一般に認めた `docs/contributing/` と `README.md` に限る。`docs/spec/` からの依存は、必要が生じるまで許可しない
 
 ## 3. Dependencies within docs/design
 
@@ -300,7 +300,7 @@ flowchart TD
 | コンポーネントの全体構成と処理の流れ | `architecture.md` | `docs/design/` の他のドキュメント、`docs/user-guide/` |
 | 概念の名前と意味 | `domain.md` | `requirements.md`、`acceptance-criteria.md`、`scope.md`、`docs/design/` の他のドキュメント、`docs/user-guide/`、コード、`formal/` |
 | GATES 用 OIDC JWT の Claim・JOSE・JWK の受理条件 | `gates-oidc-jwt-claims.md`、`gates-oidc-jwt-signature.md` | `docs/design/` の他のドキュメント、`docs/user-guide/`、コード |
-| Docker Action の入出力と処理手順 | `github-actions.md` | Docker Action の `README.md`、`docs/user-guide/`、コード |
+| Docker Action の入出力と処理手順 | `github-actions.md` | `docs/user-guide/`、コード |
 | 運用者の手順（デプロイ、鍵素材のインポート、鍵の更新、配布物の検証） | `docs/user-guide/` | `docs/contributing/` |
 
 外部仕様の事実は GATES の文書では決められないため、事実と食い違う要求は `requirements.md` の側を直します。

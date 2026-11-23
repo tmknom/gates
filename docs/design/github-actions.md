@@ -168,7 +168,7 @@ JWS Compact Serialization の構成要素は改行を含められないため（
 ### 3.1 Packages
 
 Docker Action は、`actions/issue-token/` を独立した Go モジュールとし、`main.go` をその直下に、ほかの package を `internal/` に置きます。
-`action.yml`、`Dockerfile`、`.dockerignore` も同じディレクトリに置き、Action の実行に要らない利用者向けの README と開発用の Makefile は親の `actions/` に置きます。
+`action.yml`、`Dockerfile`、`.dockerignore` も同じディレクトリに置き、Action の実行に要らない Action の一覧の README と開発用の Makefile は親の `actions/` に置きます。
 Runner は `Dockerfile` のあるディレクトリをビルドコンテキストにし、その外のファイルを `Dockerfile` から参照できないためです（[GitHub Docker Action Runtime](../research/github/docker-action-runtime.md#runner-source)）。
 ルートの Go モジュールと分けるのも同じ理由で、イメージのビルドに要る `go.mod` と `go.sum` をこのディレクトリに置く必要があるためです。
 
@@ -474,7 +474,7 @@ GitHub の資料は Docker Action を既定の Docker ユーザー（root）で�
 ### 5.3 Image Build Time
 
 Docker Action のイメージは、利用者の Runner がジョブのたびにビルドします。
-利用者向けの README には、ジョブのたびにイメージをビルドすることを書き、時間の値は書きません。
+利用者向けのドキュメントには、ジョブのたびにイメージをビルドすることを書き、時間の値は書きません。
 時間は Runner と回線によって変わり、値を書くと実測と食い違い得るためです。
 
 ### 5.4 Runner Requirements

@@ -15,6 +15,7 @@
 | ファイル | 内容 |
 |---|---|
 | [Using GATES in Workflows](workflow-usage.md) | 最小のワークフロー、運用者から受け取るもの、守ること、トークンの使い方、書き込みと複数の権限 |
+| [Action Reference](action-reference.md) | Action の入力の書式と検証、発行の条件、要求できる権限、出力、トークンの失効の時機 |
 
 ## GATES を運用する
 
