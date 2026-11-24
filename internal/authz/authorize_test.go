@@ -31,7 +31,7 @@ func TestAuthorize(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := mustTokenRequest(t, tt.repositories, tt.permissions)
-			if err := authz.Authorize(caller, req, owner, issuablePermissions, noProtectedRepositories(t)); err != nil {
+			if err := authz.Authorize(caller, req, owner, issuablePermissions, noProtectedRepositories(t), authz.RepositoryPolicyNotEnforced); err != nil {
 				t.Errorf("Authorize() returned error: %v", err)
 			}
 		})
@@ -60,7 +60,7 @@ func TestAuthorize_Denied(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			caller := mustNewCaller(t, tt.callerOwnerID)
 			req := mustTokenRequest(t, tt.repositories, tt.permissions)
-			err := authz.Authorize(caller, req, owner, issuablePermissions, noProtectedRepositories(t))
+			err := authz.Authorize(caller, req, owner, issuablePermissions, noProtectedRepositories(t), authz.RepositoryPolicyNotEnforced)
 			if !errors.Is(err, authz.ErrAuthorizationDenied) {
 				t.Fatalf("Authorize() error = %v, want %v", err, authz.ErrAuthorizationDenied)
 			}
@@ -74,7 +74,7 @@ func TestAuthorize_Denied(t *testing.T) {
 // ゼロ値どうしは Owner ID が一致してしまうため、形式検証を通った要求がほかの条件で拒否されることを確かめる。
 func TestAuthorize_ZeroValueOwnerAndCallerAreDenied(t *testing.T) {
 	req := mustTokenRequest(t, []string{"Example-Org/app"}, contentsRead)
-	err := authz.Authorize(caller.Caller{}, req, authz.AllowedOwner{}, mustNewIssuablePermissions(t, issuablePermissionNotations...), noProtectedRepositories(t))
+	err := authz.Authorize(caller.Caller{}, req, authz.AllowedOwner{}, mustNewIssuablePermissions(t, issuablePermissionNotations...), noProtectedRepositories(t), authz.RepositoryPolicyNotEnforced)
 	if !errors.Is(err, authz.ErrAuthorizationDenied) {
 		t.Errorf("Authorize() error = %v, want %v", err, authz.ErrAuthorizationDenied)
 	}
@@ -97,7 +97,7 @@ func TestAuthorize_ProtectedRepositories(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := mustTokenRequest(t, tt.repositories, tt.permissions)
-			if err := authz.Authorize(caller, req, owner, issuablePermissions, protectedRepositories); err != nil {
+			if err := authz.Authorize(caller, req, owner, issuablePermissions, protectedRepositories, authz.RepositoryPolicyNotEnforced); err != nil {
 				t.Errorf("Authorize() returned error: %v", err)
 			}
 		})
@@ -162,7 +162,7 @@ func TestAuthorize_ProtectedRepositoriesDenied(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			caller := mustNewCallerOf(t, tt.callerRepositoryID, tt.callerName)
 			req := mustTokenRequest(t, tt.repositories, tt.permissions)
-			err := authz.Authorize(caller, req, owner, issuablePermissions, protectedRepositories)
+			err := authz.Authorize(caller, req, owner, issuablePermissions, protectedRepositories, authz.RepositoryPolicyNotEnforced)
 			if !errors.Is(err, authz.ErrAuthorizationDenied) {
 				t.Fatalf("Authorize() error = %v, want %v", err, authz.ErrAuthorizationDenied)
 			}
@@ -176,9 +176,82 @@ func TestAuthorize_ProtectedRepositoriesDenied(t *testing.T) {
 // ゼロ値の一覧を保護対象なしと読むと、初期化の漏れで保護が外れるため、保護対象を含まない要求も拒否されることを確かめる。
 func TestAuthorize_ZeroProtectedRepositoriesAreDenied(t *testing.T) {
 	req := mustTokenRequest(t, []string{"Example-Org/lib"}, contentsRead)
-	err := authz.Authorize(mustNewCaller(t, allowedOwnerID), req, mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName), mustNewIssuablePermissions(t, issuablePermissionNotations...), protected.Repositories{})
+	err := authz.Authorize(mustNewCaller(t, allowedOwnerID), req, mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName), mustNewIssuablePermissions(t, issuablePermissionNotations...), protected.Repositories{}, authz.RepositoryPolicyNotEnforced)
 	if !errors.Is(err, authz.ErrAuthorizationDenied) {
 		t.Errorf("Authorize() error = %v, want %v", err, authz.ErrAuthorizationDenied)
+	}
+}
+
+//trace:checks AC-AUTHZ-017
+func TestAuthorize_RepositoryCountLimit(t *testing.T) {
+	tests := []struct {
+		name         string
+		enforcement  authz.RepositoryPolicyEnforcement
+		repositories []string
+	}{
+		{name: "11 repositories without repository policy enforcement are authorized", enforcement: authz.RepositoryPolicyNotEnforced, repositories: repositoriesOf(11)},
+		{name: "10 repositories under repository policy enforcement are authorized", enforcement: authz.RepositoryPolicyEnforced, repositories: repositoriesOf(10)},
+	}
+	owner := mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName)
+	caller := mustNewCaller(t, allowedOwnerID)
+	issuablePermissions := mustNewIssuablePermissions(t, issuablePermissionNotations...)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := mustTokenRequest(t, tt.repositories, contentsRead)
+			if err := authz.Authorize(caller, req, owner, issuablePermissions, noProtectedRepositories(t), tt.enforcement); err != nil {
+				t.Errorf("Authorize() returned error: %v", err)
+			}
+		})
+	}
+}
+
+//trace:checks AC-AUTHZ-017
+func TestAuthorize_RepositoryCountLimitDenied(t *testing.T) {
+	tests := []struct {
+		name         string
+		enforcement  authz.RepositoryPolicyEnforcement
+		repositories []string
+		wantReason   string
+	}{
+		{
+			name:         "11 repositories under repository policy enforcement are denied by the count limit",
+			enforcement:  authz.RepositoryPolicyEnforced,
+			repositories: repositoriesOf(11),
+			wantReason:   "authorization denied: repositories count exceeds the limit under repository policy enforcement",
+		},
+		{
+			name:         "11 repositories with a different owner name under repository policy enforcement are denied by the owner name",
+			enforcement:  authz.RepositoryPolicyEnforced,
+			repositories: append(repositoriesOf(10), "other-org/app"),
+			wantReason:   "repositories[10] owner name",
+		},
+		{
+			name:         "zero repository policy enforcement is denied as not initialized",
+			enforcement:  authz.RepositoryPolicyEnforcement{},
+			repositories: repositoriesOf(1),
+			wantReason:   "authorization denied: repository policy enforcement is not initialized",
+		},
+		{
+			name:         "zero repository policy enforcement with a different owner name is denied by the owner name",
+			enforcement:  authz.RepositoryPolicyEnforcement{},
+			repositories: []string{"other-org/app"},
+			wantReason:   "repositories[0] owner name",
+		},
+	}
+	owner := mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName)
+	caller := mustNewCaller(t, allowedOwnerID)
+	issuablePermissions := mustNewIssuablePermissions(t, issuablePermissionNotations...)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := mustTokenRequest(t, tt.repositories, contentsRead)
+			err := authz.Authorize(caller, req, owner, issuablePermissions, noProtectedRepositories(t), tt.enforcement)
+			if !errors.Is(err, authz.ErrAuthorizationDenied) {
+				t.Fatalf("Authorize() error = %v, want %v", err, authz.ErrAuthorizationDenied)
+			}
+			if !strings.Contains(err.Error(), tt.wantReason) {
+				t.Errorf("Authorize() error = %q, want it to contain %q", err, tt.wantReason)
+			}
+		})
 	}
 }
 
@@ -200,7 +273,7 @@ func TestAuthorize_ErrorDoesNotContainValues(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			caller := mustNewCaller(t, tt.callerOwnerID)
 			req := mustTokenRequest(t, tt.repositories, tt.permissions)
-			err := authz.Authorize(caller, req, owner, issuablePermissions, noProtectedRepositories(t))
+			err := authz.Authorize(caller, req, owner, issuablePermissions, noProtectedRepositories(t), authz.RepositoryPolicyNotEnforced)
 			if err == nil {
 				t.Fatal("Authorize() returned no error")
 			}

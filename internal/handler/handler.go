@@ -16,6 +16,7 @@ import (
 	"github.com/tmknom/gates/internal/permission"
 	"github.com/tmknom/gates/internal/protected"
 	"github.com/tmknom/gates/internal/request"
+	"github.com/tmknom/gates/internal/revocation"
 	"github.com/tmknom/gates/internal/tokenissuer"
 )
 
@@ -26,6 +27,7 @@ type Handler struct {
 	allowedOwner          authz.AllowedOwner
 	issuablePermissions   permission.IssuablePermissions
 	protectedRepositories protected.Repositories
+	enforcement           authz.RepositoryPolicyEnforcement
 	log                   *slog.Logger
 }
 
@@ -36,7 +38,7 @@ type oidcVerifier interface {
 
 // installationAccessTokenIssuer は、Token Issuer のうち Lambda Handler が使う操作である。
 type installationAccessTokenIssuer interface {
-	IssueInstallationAccessToken(ctx context.Context, grant tokenissuer.GrantFunc) (tokenissuer.ReturnableIssuanceResult, error)
+	IssueInstallationAccessToken(ctx context.Context, authorization tokenissuer.Authorization) (tokenissuer.ReturnableIssuanceResult, revocation.Outcome, error)
 }
 
 // reasonPanicRecovered は、panic を回復した発行処理の拒否の理由である。panic の値を含めないため、固定の文言にする。
@@ -44,12 +46,14 @@ const reasonPanicRecovered = "panic recovered"
 
 // NewHandler は、Lambda Handler を作る。
 // log には、監査記録と回復した panic のログを書く。
-func NewHandler(verifier oidcVerifier, tokenIssuer installationAccessTokenIssuer, allowedOwner authz.AllowedOwner, issuablePermissions permission.IssuablePermissions, protectedRepositories protected.Repositories, log *slog.Logger) *Handler {
+func NewHandler(verifier oidcVerifier, tokenIssuer installationAccessTokenIssuer, allowedOwner authz.AllowedOwner, issuablePermissions permission.IssuablePermissions, protectedRepositories protected.Repositories, enforcement authz.RepositoryPolicyEnforcement, log *slog.Logger) *Handler {
 	// ゼロ値の許可オーナー、発行上限、保護対象の一覧は、事前認可と Grant の照合先にならない
 	nonzero.Require(allowedOwner)
 	nonzero.Require(issuablePermissions)
 	nonzero.Require(protectedRepositories)
-	return &Handler{verifier: verifier, tokenIssuer: tokenIssuer, allowedOwner: allowedOwner, issuablePermissions: issuablePermissions, protectedRepositories: protectedRepositories, log: log}
+	// ゼロ値は、リポジトリポリシーを適用するかを運用者が決めていない値で、どちらの動作にも当てない（INV-018）
+	nonzero.Require(enforcement)
+	return &Handler{verifier: verifier, tokenIssuer: tokenIssuer, allowedOwner: allowedOwner, issuablePermissions: issuablePermissions, protectedRepositories: protectedRepositories, enforcement: enforcement, log: log}
 }
 
 // Handle は、一回の発行処理を行い、応答の JSON を返す。
@@ -76,7 +80,7 @@ func (h *Handler) process(ctx context.Context, requestID RequestID, payload []by
 		// 回復の外のため、符号化できない応答は FunctionError になる。Handler が応答を書けない場合の扱いと同じである
 		nonzero.Require(resp)
 	}()
-	returnable, err := h.runProcessingFlow(ctx, payload, record)
+	returnable, policyReadRevocation, err := h.runProcessingFlow(ctx, payload, record)
 	if err != nil {
 		code := errorCodeOf(err)
 		result, resp = failedResult(code, err), encodeFailure(requestID.String(), code)
@@ -86,14 +90,19 @@ func (h *Handler) process(ctx context.Context, requestID RequestID, payload []by
 	// 相関 ID は RequestID の値で、成功応答のほかの値は GitHub Client が JSON として復号した値のため、符号化できない応答はプログラムの誤りである。
 	// 回復の範囲で止め、internal_error の応答と監査記録を返す
 	nonzero.Require(resp)
+	// 結果と応答が確定した後にだけ詰め、panic を回復した記録に残さない（Lambda Design の「Audit Record」）
+	if !policyReadRevocation.IsZero() {
+		record.SetPolicyReadRevocation(policyReadRevocation)
+	}
 	return result, resp
 }
 
 // runProcessingFlow は、Processing Flow の手順を監査記録の出力の前まで順に行い、各手順で確定した値を監査記録に詰める。
-func (h *Handler) runProcessingFlow(ctx context.Context, payload []byte, record *audit.Record) (tokenissuer.ReturnableIssuanceResult, error) {
+// ポリシー読み取りトークンの失効の結果は、監査記録に詰めずに返す。Token Issuer が返した後の panic を回復した記録に残さないためである。
+func (h *Handler) runProcessingFlow(ctx context.Context, payload []byte, record *audit.Record) (tokenissuer.ReturnableIssuanceResult, revocation.Outcome, error) {
 	unverifiedOIDCJWT, tokenRequest, err := request.Validate(payload)
 	if err != nil {
-		return tokenissuer.ReturnableIssuanceResult{}, err
+		return tokenissuer.ReturnableIssuanceResult{}, revocation.Outcome{}, err
 	}
 	record.SetTokenRequest(tokenRequest)
 	verified, claimsSet, err := h.verifier.Authenticate(ctx, unverifiedOIDCJWT)
@@ -102,16 +111,12 @@ func (h *Handler) runProcessingFlow(ctx context.Context, payload []byte, record 
 		record.SetClaimsSet(claimsSet)
 	}
 	if err != nil {
-		return tokenissuer.ReturnableIssuanceResult{}, err
+		return tokenissuer.ReturnableIssuanceResult{}, revocation.Outcome{}, err
 	}
 	record.SetCaller(verified)
-	if err := authz.Authorize(verified, tokenRequest, h.allowedOwner, h.issuablePermissions, h.protectedRepositories); err != nil {
-		return tokenissuer.ReturnableIssuanceResult{}, err
+	if err := authz.Authorize(verified, tokenRequest, h.allowedOwner, h.issuablePermissions, h.protectedRepositories, h.enforcement); err != nil {
+		return tokenissuer.ReturnableIssuanceResult{}, revocation.Outcome{}, err
 	}
 	// 要求の ctx を別の期限で包まない。失効のタイムアウトは要求の ctx の期限から決まる（Lambda Design の「Call Time Budget」）
-	return h.tokenIssuer.IssueInstallationAccessToken(ctx, func(installation authz.Installation) (authz.TokenGrant, error) {
-		// Grant が拒否しても、Installation の解決には成功しているため、判定の前に詰める
-		record.SetInstallation(installation)
-		return authz.Grant(verified, tokenRequest, h.allowedOwner, h.issuablePermissions, h.protectedRepositories, installation)
-	})
+	return h.tokenIssuer.IssueInstallationAccessToken(ctx, issuanceAuthorization{handler: h, caller: verified, tokenRequest: tokenRequest, record: record})
 }

@@ -13,7 +13,7 @@ func TestGrantPolicyRead(t *testing.T) {
 	owner := mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName)
 	req := mustTokenRequest(t, []string{"Example-Org/App", "example-org/lib"}, map[string]string{"contents": "write", "issues": "write"})
 
-	grant, err := authz.GrantPolicyRead(mustNewCaller(t, allowedOwnerID), req, owner, mustNewIssuablePermissions(t, issuablePermissionNotations...), noProtectedRepositories(t), mustNewInstallation(t, allowedOwnerID, false))
+	grant, err := authz.GrantPolicyRead(mustNewCaller(t, allowedOwnerID), req, owner, mustNewIssuablePermissions(t, issuablePermissionNotations...), noProtectedRepositories(t), authz.RepositoryPolicyEnforced, mustNewInstallation(t, allowedOwnerID, false))
 	if err != nil {
 		t.Fatalf("GrantPolicyRead() returned error: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestGrantPolicyRead_Denied(t *testing.T) {
 				protectedRepositories = mustParseProtectedRepositories(t, tt.protected)
 			}
 			req := mustTokenRequest(t, []string{tt.repository}, tt.permissions)
-			grant, err := authz.GrantPolicyRead(mustNewCaller(t, tt.callerOwnerID), req, owner, issuablePermissions, protectedRepositories, tt.inst(t))
+			grant, err := authz.GrantPolicyRead(mustNewCaller(t, tt.callerOwnerID), req, owner, issuablePermissions, protectedRepositories, authz.RepositoryPolicyEnforced, tt.inst(t))
 			if !errors.Is(err, tt.want) {
 				t.Fatalf("GrantPolicyRead() error = %v, want %v", err, tt.want)
 			}
@@ -99,8 +99,61 @@ func TestGrantPolicyRead_Denied(t *testing.T) {
 	}
 }
 
+// ポリシー読み取り許可は、リポジトリポリシーを適用するデプロイでだけ確定する（INV-020）。
+//
+//trace:checks AC-AUTHZ-017
+func TestGrantPolicyRead_DeniedByRepositoryPolicyEnforcement(t *testing.T) {
+	tests := []struct {
+		name         string
+		enforcement  authz.RepositoryPolicyEnforcement
+		repositories []string
+		suspended    bool
+		wantReason   string
+	}{
+		{
+			name:         "request without repository policy enforcement is denied",
+			enforcement:  authz.RepositoryPolicyNotEnforced,
+			repositories: repositoriesOf(1),
+			wantReason:   "authorization denied: policy read grant requires repository policy enforcement",
+		},
+		{
+			name:         "11 repositories under repository policy enforcement are denied by the count limit",
+			enforcement:  authz.RepositoryPolicyEnforced,
+			repositories: repositoriesOf(11),
+			wantReason:   "authorization denied: repositories count exceeds the limit under repository policy enforcement",
+		},
+		{
+			name:         "request without repository policy enforcement to a suspended installation is denied by the enforcement",
+			enforcement:  authz.RepositoryPolicyNotEnforced,
+			repositories: repositoriesOf(1),
+			suspended:    true,
+			wantReason:   "authorization denied: policy read grant requires repository policy enforcement",
+		},
+	}
+	owner := mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName)
+	issuablePermissions := mustNewIssuablePermissions(t, issuablePermissionNotations...)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := mustTokenRequest(t, tt.repositories, contentsRead)
+			grant, err := authz.GrantPolicyRead(mustNewCaller(t, allowedOwnerID), req, owner, issuablePermissions, noProtectedRepositories(t), tt.enforcement, mustNewInstallation(t, allowedOwnerID, tt.suspended))
+			if !errors.Is(err, authz.ErrAuthorizationDenied) {
+				t.Fatalf("GrantPolicyRead() error = %v, want %v", err, authz.ErrAuthorizationDenied)
+			}
+			if errors.Is(err, authz.ErrInstallationUnavailable) {
+				t.Errorf("GrantPolicyRead() error = %v, must not be %v", err, authz.ErrInstallationUnavailable)
+			}
+			if err.Error() != tt.wantReason {
+				t.Errorf("GrantPolicyRead() error = %q, want %q", err, tt.wantReason)
+			}
+			if !grant.IsZero() {
+				t.Error("GrantPolicyRead() returned a non-zero PolicyReadGrant with an error")
+			}
+		})
+	}
+}
+
 func TestPolicyReadGrant_IsZero(t *testing.T) {
-	grant, err := authz.GrantPolicyRead(mustNewCaller(t, allowedOwnerID), mustTokenRequest(t, []string{"Example-Org/app"}, contentsRead), mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName), mustNewIssuablePermissions(t, issuablePermissionNotations...), noProtectedRepositories(t), mustNewInstallation(t, allowedOwnerID, false))
+	grant, err := authz.GrantPolicyRead(mustNewCaller(t, allowedOwnerID), mustTokenRequest(t, []string{"Example-Org/app"}, contentsRead), mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName), mustNewIssuablePermissions(t, issuablePermissionNotations...), noProtectedRepositories(t), authz.RepositoryPolicyEnforced, mustNewInstallation(t, allowedOwnerID, false))
 	if err != nil {
 		t.Fatalf("GrantPolicyRead() returned error: %v", err)
 	}
@@ -113,7 +166,7 @@ func TestPolicyReadGrant_IsZero(t *testing.T) {
 }
 
 func TestPolicyReadGrant_RepositoriesCannotBeModifiedByCaller(t *testing.T) {
-	grant, err := authz.GrantPolicyRead(mustNewCaller(t, allowedOwnerID), mustTokenRequest(t, []string{"Example-Org/app", "Example-Org/lib"}, contentsRead), mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName), mustNewIssuablePermissions(t, issuablePermissionNotations...), noProtectedRepositories(t), mustNewInstallation(t, allowedOwnerID, false))
+	grant, err := authz.GrantPolicyRead(mustNewCaller(t, allowedOwnerID), mustTokenRequest(t, []string{"Example-Org/app", "Example-Org/lib"}, contentsRead), mustNewAllowedOwner(t, allowedOwnerID, allowedOwnerName), mustNewIssuablePermissions(t, issuablePermissionNotations...), noProtectedRepositories(t), authz.RepositoryPolicyEnforced, mustNewInstallation(t, allowedOwnerID, false))
 	if err != nil {
 		t.Fatalf("GrantPolicyRead() returned error: %v", err)
 	}

@@ -354,6 +354,107 @@ func TestVerifyPolicyReadToken_RejectsProtectedRepositoryMismatch(t *testing.T) 
 	}
 }
 
+// 実効対象は読んだ対象と逆の順で、一方は大文字小文字だけが異なる。完全名で対応を探し、Repository ID を比べる。
+//
+//trace:checks AC-ISSUANCE-012
+func TestVerifyWithPolicyReadTargets_ReturnsReturnableIssuanceResult(t *testing.T) {
+	result := issue(t, marshal(t, recordedIssuance()))
+
+	got, err := verifyWithPolicyReadTargets(result, tokenGrant(t, contentsRead), allowedOwner(t), noProtectedRepositories(t), readTargets(t), now)
+	if err != nil {
+		t.Fatalf("verifyWithPolicyReadTargets returned error: %v", err)
+	}
+	want, err := verifyResult(t, result, contentsRead)
+	if err != nil {
+		t.Fatalf("Verify returned error: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("verifyWithPolicyReadTargets = %+v, want the result of verify %+v", got, want)
+	}
+}
+
+//trace:checks AC-ISSUANCE-012
+func TestVerifyWithPolicyReadTargets_Rejects(t *testing.T) {
+	// recreatedID は、リポジトリポリシーを読んだ後に Example-Repo を削除して作り直した場合の、読んだ対象の Repository ID である
+	const recreatedID = 1234567899
+	tests := []struct {
+		name    string
+		body    func(t *testing.T) string
+		targets func(t *testing.T) []policyReadTarget
+		// condition は、満たさなかった条件として文言に書かれる語である。ほかの条件で拒否されていないことを確かめる
+		condition string
+	}{
+		{
+			name: "repository id different from the read target returns ErrVerificationFailure",
+			body: modified(func(map[string]any) {}),
+			targets: func(t *testing.T) []policyReadTarget {
+				return []policyReadTarget{readTarget(t, "repo-b", repositoryIDB), readTarget(t, "Example-Repo", recreatedID)}
+			},
+			condition: "repositories[0] id does not match the repository whose repository policy was read",
+		},
+		{
+			name: "one more read target returns ErrVerificationFailure",
+			body: modified(func(map[string]any) {}),
+			targets: func(t *testing.T) []policyReadTarget {
+				return append(readTargets(t), readTarget(t, "repo-c", 1234567892))
+			},
+			condition: "repositories count does not match the repositories whose repository policies were read",
+		},
+		{
+			name: "read target with another full name returns ErrVerificationFailure",
+			body: modified(func(map[string]any) {}),
+			targets: func(t *testing.T) []policyReadTarget {
+				return []policyReadTarget{readTarget(t, "repo-b", repositoryIDB), readTarget(t, "repo-c", repositoryIDA)}
+			},
+			condition: "repositories[0] full_name does not match any repository whose repository policy was read",
+		},
+		{
+			name: "existing condition failure with a different repository id returns the existing condition",
+			body: modified(func(r map[string]any) { r["repository_selection"] = "all" }),
+			targets: func(t *testing.T) []policyReadTarget {
+				return []policyReadTarget{readTarget(t, "repo-b", repositoryIDB), readTarget(t, "Example-Repo", recreatedID)}
+			},
+			condition: "repository_selection is not selected",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := verifyWithPolicyReadTargets(issue(t, tt.body(t)), tokenGrant(t, contentsRead), allowedOwner(t), noProtectedRepositories(t), tt.targets(t), now)
+
+			if !errors.Is(err, ErrVerificationFailure) {
+				t.Fatalf("verifyWithPolicyReadTargets error = %v, want %v", err, ErrVerificationFailure)
+			}
+			if !reflect.ValueOf(got).IsZero() {
+				t.Error("verifyWithPolicyReadTargets returned non-zero ReturnableIssuanceResult with error")
+			}
+			message := err.Error()
+			if !strings.Contains(message, tt.condition) {
+				t.Errorf("error message %q does not contain condition %q", message, tt.condition)
+			}
+			if want := `github request id "` + requestID + `"`; !strings.Contains(message, want) {
+				t.Errorf("error message %q does not contain %q", message, want)
+			}
+			hidden := []string{tokenMarker, allowedOwnerName, "repo-b", "repo-c", "example-repo", strconv.Itoa(repositoryIDA), strconv.Itoa(repositoryIDB), strconv.Itoa(recreatedID)}
+			for _, value := range hidden {
+				if strings.Contains(strings.ToLower(message), value) {
+					t.Errorf("error message %q contains %q", message, value)
+				}
+			}
+		})
+	}
+}
+
+// readTargets は、記録した発行応答の実効対象と同じ Repository ID を持つ、requestedRepositories の順と表記の読んだ対象である。
+func readTargets(t *testing.T) []policyReadTarget {
+	t.Helper()
+	return []policyReadTarget{readTarget(t, "repo-b", repositoryIDB), readTarget(t, "Example-Repo", repositoryIDA)}
+}
+
+func readTarget(t *testing.T, name string, id int64) policyReadTarget {
+	t.Helper()
+	return policyReadTarget{fullName: mustParseFullName(t, allowedOwnerName+"/"+name), repositoryID: mustRepositoryID(t, id)}
+}
+
 func mustNewPermissions(t *testing.T, levels map[string]string) permission.Permissions {
 	t.Helper()
 	p, err := permission.NewPermissions(levels)

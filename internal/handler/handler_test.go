@@ -20,6 +20,7 @@ import (
 	"github.com/tmknom/gates/internal/permission"
 	"github.com/tmknom/gates/internal/protected"
 	"github.com/tmknom/gates/internal/request"
+	"github.com/tmknom/gates/internal/revocation"
 	"github.com/tmknom/gates/internal/signer"
 	"github.com/tmknom/gates/internal/tokenissuer"
 )
@@ -34,14 +35,17 @@ type verifierStub struct {
 }
 
 // tokenIssuerStub は Token Issuer のテストダブルである。
-// installation があれば、受け取った GrantFunc にそれを渡し、Grant が拒否すればその error を返す。
+// installation があれば、受け取った Authorization にそれを渡し、拒否すればその error を返す。
+// enforced なら GrantPolicyRead に、そうでなければ Grant に渡す。
 // 成功は照合を経た Token Issuer からしか起きないため、err も panics も持たない stub は、呼ばれないことを確かめる場合にだけ使う。成功は newTokenIssuer の Token Issuer で作る。
 type tokenIssuerStub struct {
-	installation *authz.Installation
-	err          error
-	panics       bool
-	calls        int
-	ctx          context.Context
+	installation         *authz.Installation
+	enforced             bool
+	policyReadRevocation revocation.Outcome
+	err                  error
+	panics               bool
+	calls                int
+	ctx                  context.Context
 }
 
 // invocation は、Handle の応答と、Handle が書いたログの行である。
@@ -304,7 +308,7 @@ func TestHandle_PassesRequestContextToTokenIssuer(t *testing.T) {
 		t.Fatalf("NewRequestID returned error: %v", err)
 	}
 
-	NewHandler(&verifierStub{caller: verifiedCaller(t)}, tokenIssuer, allowedOwner(t), mustNewIssuablePermissions(t, "contents:read"), noProtectedRepositories(t), slog.New(slog.DiscardHandler)).Handle(ctx, requestID, validPayload(t))
+	NewHandler(&verifierStub{caller: verifiedCaller(t)}, tokenIssuer, allowedOwner(t), mustNewIssuablePermissions(t, "contents:read"), noProtectedRepositories(t), authz.RepositoryPolicyNotEnforced, slog.New(slog.DiscardHandler)).Handle(ctx, requestID, validPayload(t))
 
 	if tokenIssuer.ctx != ctx {
 		t.Errorf("Token Issuer received ctx %v, want the request ctx %v", tokenIssuer.ctx, ctx)
@@ -372,7 +376,7 @@ func TestNewHandler_ZeroAllowedOwnerPanics(t *testing.T) {
 		}
 	}()
 
-	_ = NewHandler(&verifierStub{}, &tokenIssuerStub{}, authz.AllowedOwner{}, mustNewIssuablePermissions(t, "contents:read"), noProtectedRepositories(t), slog.New(slog.DiscardHandler))
+	_ = NewHandler(&verifierStub{}, &tokenIssuerStub{}, authz.AllowedOwner{}, mustNewIssuablePermissions(t, "contents:read"), noProtectedRepositories(t), authz.RepositoryPolicyNotEnforced, slog.New(slog.DiscardHandler))
 }
 
 func TestNewHandler_ZeroIssuablePermissionsPanics(t *testing.T) {
@@ -382,7 +386,7 @@ func TestNewHandler_ZeroIssuablePermissionsPanics(t *testing.T) {
 		}
 	}()
 
-	_ = NewHandler(&verifierStub{}, &tokenIssuerStub{}, allowedOwner(t), permission.IssuablePermissions{}, noProtectedRepositories(t), slog.New(slog.DiscardHandler))
+	_ = NewHandler(&verifierStub{}, &tokenIssuerStub{}, allowedOwner(t), permission.IssuablePermissions{}, noProtectedRepositories(t), authz.RepositoryPolicyNotEnforced, slog.New(slog.DiscardHandler))
 }
 
 //trace:checks AC-AUTHZ-013
@@ -393,7 +397,18 @@ func TestNewHandler_ZeroProtectedRepositoriesPanics(t *testing.T) {
 		}
 	}()
 
-	_ = NewHandler(&verifierStub{}, &tokenIssuerStub{}, allowedOwner(t), mustNewIssuablePermissions(t, "contents:read"), protected.Repositories{}, slog.New(slog.DiscardHandler))
+	_ = NewHandler(&verifierStub{}, &tokenIssuerStub{}, allowedOwner(t), mustNewIssuablePermissions(t, "contents:read"), protected.Repositories{}, authz.RepositoryPolicyNotEnforced, slog.New(slog.DiscardHandler))
+}
+
+//trace:checks AC-AUTHZ-017
+func TestNewHandler_ZeroRepositoryPolicyEnforcementPanics(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("NewHandler did not panic for the zero repository policy enforcement")
+		}
+	}()
+
+	_ = NewHandler(&verifierStub{}, &tokenIssuerStub{}, allowedOwner(t), mustNewIssuablePermissions(t, "contents:read"), noProtectedRepositories(t), authz.RepositoryPolicyEnforcement{}, slog.New(slog.DiscardHandler))
 }
 
 func (v *verifierStub) Authenticate(context.Context, request.UnverifiedOIDCJWT) (caller.Caller, claimsset.SignatureVerified, error) {
@@ -404,18 +419,27 @@ func (v *verifierStub) Authenticate(context.Context, request.UnverifiedOIDCJWT) 
 	return v.caller, v.claimsSet, v.err
 }
 
-func (i *tokenIssuerStub) IssueInstallationAccessToken(ctx context.Context, grant tokenissuer.GrantFunc) (tokenissuer.ReturnableIssuanceResult, error) {
+func (i *tokenIssuerStub) IssueInstallationAccessToken(ctx context.Context, authorization tokenissuer.Authorization) (tokenissuer.ReturnableIssuanceResult, revocation.Outcome, error) {
 	i.calls++
 	i.ctx = ctx
 	if i.installation != nil {
-		if _, err := grant(*i.installation); err != nil {
-			return tokenissuer.ReturnableIssuanceResult{}, err
+		if err := i.grant(authorization); err != nil {
+			return tokenissuer.ReturnableIssuanceResult{}, revocation.Outcome{}, err
 		}
 	}
 	if i.panics {
 		panicWithSecret()
 	}
-	return tokenissuer.ReturnableIssuanceResult{}, i.err
+	return tokenissuer.ReturnableIssuanceResult{}, i.policyReadRevocation, i.err
+}
+
+func (i *tokenIssuerStub) grant(authorization tokenissuer.Authorization) error {
+	if i.enforced {
+		_, err := authorization.GrantPolicyRead(*i.installation)
+		return err
+	}
+	_, err := authorization.Grant(*i.installation)
+	return err
 }
 
 // auditRecord は、ログの行のうち、ただ 1 行の監査記録を返す。
@@ -474,16 +498,22 @@ func handle(t *testing.T, verifier oidcVerifier, tokenIssuer installationAccessT
 	return handleWith(t, mustNewIssuablePermissions(t, "contents:read"), noProtectedRepositories(t), verifier, tokenIssuer, payload)
 }
 
-// handleWith は Handle を呼び、応答とログの行を返す。
-// どのケースでも、資格情報と panic の値が成功応答の token 以外に現れないことを確かめる。
+// handleWith は、リポジトリポリシーを適用しない Handler で handleUnder を呼ぶ。
 func handleWith(t *testing.T, issuablePermissions permission.IssuablePermissions, protectedRepositories protected.Repositories, verifier oidcVerifier, tokenIssuer installationAccessTokenIssuer, payload []byte) invocation {
+	t.Helper()
+	return handleUnder(t, authz.RepositoryPolicyNotEnforced, issuablePermissions, protectedRepositories, verifier, tokenIssuer, payload)
+}
+
+// handleUnder は Handle を呼び、応答とログの行を返す。
+// どのケースでも、資格情報、リポジトリポリシーの内容、panic の値が成功応答の token 以外に現れないことを確かめる。
+func handleUnder(t *testing.T, enforcement authz.RepositoryPolicyEnforcement, issuablePermissions permission.IssuablePermissions, protectedRepositories protected.Repositories, verifier oidcVerifier, tokenIssuer installationAccessTokenIssuer, payload []byte) invocation {
 	t.Helper()
 	var log bytes.Buffer
 	requestID, err := NewRequestID(lambdaRequestID)
 	if err != nil {
 		t.Fatalf("NewRequestID returned error: %v", err)
 	}
-	h := NewHandler(verifier, tokenIssuer, allowedOwner(t), issuablePermissions, protectedRepositories, slog.New(slog.NewJSONHandler(&log, nil)))
+	h := NewHandler(verifier, tokenIssuer, allowedOwner(t), issuablePermissions, protectedRepositories, enforcement, slog.New(slog.NewJSONHandler(&log, nil)))
 
 	b := h.Handle(t.Context(), requestID, payload)
 
@@ -495,7 +525,7 @@ func handleWith(t *testing.T, issuablePermissions permission.IssuablePermissions
 		}
 	}
 	for name, output := range map[string]string{"response": string(marshal(t, withoutToken)), "log": log.String()} {
-		for _, marker := range []string{oidcJWTMarker, tokenMarker, "secretMarker"} {
+		for _, marker := range []string{oidcJWTMarker, tokenMarker, "secretMarker", policyReadTokenMarker, repositoryPolicyMarker, allowedCallerNameMarker, allowedCallerIDMarker} {
 			if strings.Contains(output, marker) {
 				t.Errorf("%s contains %q: %s", name, marker, output)
 			}

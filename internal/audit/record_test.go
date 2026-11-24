@@ -160,6 +160,16 @@ func TestRecord_Write_TopLevelKeys(t *testing.T) {
 			result: audit.Succeeded(),
 			want:   []string{"time", "level", "msg", "request_id", "result", "request", "claims_set", "caller", "installation"},
 		},
+		{
+			name: "success with a policy read token records policy read revocation without revocation",
+			build: func(t *testing.T) audit.Record {
+				r := stagesPassed(t)
+				r.SetPolicyReadRevocation(revocation.Succeeded)
+				return r
+			},
+			result: audit.Succeeded(),
+			want:   []string{"time", "level", "msg", "request_id", "result", "request", "claims_set", "caller", "installation", "policy_read_revocation"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -312,6 +322,30 @@ func TestRecord_Write_RevocationOutcome(t *testing.T) {
 	if got["revocation"] != "not_attempted" {
 		t.Errorf("revocation = %v, want %q", got["revocation"], "not_attempted")
 	}
+}
+
+// TestRecord_Write_PolicyReadRevocation は、ポリシー読み取りトークンの失効の結果を、revocation と別のキーに書くことを確かめる。
+func TestRecord_Write_PolicyReadRevocation(t *testing.T) {
+	r := audit.NewRecord(requestID)
+	r.SetPolicyReadRevocation(revocation.Failed)
+	result := audit.VerificationFailed(errorcode.IssuanceVerificationFailed, "reason", revocation.NotAttempted)
+	_, got := write(t, r, result)
+	if got["policy_read_revocation"] != "failed" {
+		t.Errorf("policy_read_revocation = %v, want %q", got["policy_read_revocation"], "failed")
+	}
+	if got["revocation"] != "not_attempted" {
+		t.Errorf("revocation = %v, want %q", got["revocation"], "not_attempted")
+	}
+}
+
+func TestRecord_SetPolicyReadRevocation_ZeroPanics(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("SetPolicyReadRevocation() with the zero value did not panic")
+		}
+	}()
+	r := audit.NewRecord(requestID)
+	r.SetPolicyReadRevocation(revocation.Outcome{})
 }
 
 // TestRecord_Write_UntrustedTriggerAttribute は、解釈も検証もしないワークフロー起動属性が、記録の行を分けたり別のキーを作ったりしないことを確かめる。

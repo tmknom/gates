@@ -225,13 +225,44 @@ func TestLoad_InvalidOwnerType(t *testing.T) {
 	assertInvalid(t, env, "GATES_ALLOWED_OWNER_TYPE: ")
 }
 
+//trace:checks AC-AUTHZ-017
+func TestLoad_RepositoryPolicyEnforcement(t *testing.T) {
+	tests := []struct {
+		value string
+		want  authz.RepositoryPolicyEnforcement
+	}{
+		{value: "true", want: authz.RepositoryPolicyEnforced},
+		{value: "false", want: authz.RepositoryPolicyNotEnforced},
+	}
+	for _, tt := range tests {
+		t.Run(tt.value+" is read as the repository policy enforcement", func(t *testing.T) {
+			got, err := config.Load(lookupEnv(withEnv(map[string]string{"GATES_REPOSITORY_POLICY_ENFORCEMENT": tt.value})))
+			if err != nil {
+				t.Fatalf("Load returned error: %v", err)
+			}
+			if got.RepositoryPolicyEnforcement() != tt.want {
+				t.Errorf("RepositoryPolicyEnforcement() = %v, want %v", got.RepositoryPolicyEnforcement(), tt.want)
+			}
+		})
+	}
+}
+
+// 値の規則は authz が検証する。ここでは誤りが環境変数の名前を付けた初期化の失敗になることだけを確かめる
+//
+//trace:checks AC-AUTHZ-017
+func TestLoad_InvalidRepositoryPolicyEnforcement(t *testing.T) {
+	env := withEnv(map[string]string{"GATES_REPOSITORY_POLICY_ENFORCEMENT": "True"})
+	assertInvalid(t, env, "GATES_REPOSITORY_POLICY_ENFORCEMENT: invalid repository policy enforcement: ")
+}
+
 func TestLoad_AggregatesErrors(t *testing.T) {
 	env := withEnv(map[string]string{
-		"GATES_ALLOWED_OWNER_ID":       "0",
-		"GATES_ALLOWED_OWNER_TYPE":     "org",
-		"GATES_KMS_KEY_ARN":            "",
-		"GATES_ISSUABLE_PERMISSIONS":   "members:read",
-		"GATES_PROTECTED_REPOSITORIES": "repositories: {}\n",
+		"GATES_ALLOWED_OWNER_ID":              "0",
+		"GATES_ALLOWED_OWNER_TYPE":            "org",
+		"GATES_KMS_KEY_ARN":                   "",
+		"GATES_ISSUABLE_PERMISSIONS":          "members:read",
+		"GATES_PROTECTED_REPOSITORIES":        "repositories: {}\n",
+		"GATES_REPOSITORY_POLICY_ENFORCEMENT": "yes",
 	})
 	delete(env, "GATES_GITHUB_APP_CLIENT_ID")
 	assertInvalid(t, env,
@@ -241,6 +272,7 @@ func TestLoad_AggregatesErrors(t *testing.T) {
 		"GATES_KMS_KEY_ARN: must not be empty",
 		"GATES_ISSUABLE_PERMISSIONS: ",
 		"GATES_PROTECTED_REPOSITORIES: ",
+		"GATES_REPOSITORY_POLICY_ENFORCEMENT: ",
 	)
 }
 
@@ -255,6 +287,7 @@ func TestLoad_ErrorsDoNotContainValues(t *testing.T) {
 		{name: "owner type", overrides: map[string]string{"GATES_ALLOWED_OWNER_TYPE": "SecretMarker"}},
 		{name: "issuable permissions with a malformed entry", overrides: map[string]string{"GATES_ISSUABLE_PERMISSIONS": "contents:read,SecretMarker"}},
 		{name: "protected repositories with an invalid name", overrides: map[string]string{"GATES_PROTECTED_REPOSITORIES": "repositories:\n  - id: \"200\"\n    name: Secret/Marker\n    callers: []\n"}},
+		{name: "repository policy enforcement", overrides: map[string]string{"GATES_REPOSITORY_POLICY_ENFORCEMENT": "SecretMarker"}},
 	}
 	for _, tt := range tests {
 		t.Run("invalid "+tt.name+" is not written in the error", func(t *testing.T) {
@@ -274,14 +307,15 @@ func TestLoad_ErrorsDoNotContainValues(t *testing.T) {
 // validEnv は、すべての環境変数が条件を満たす組である。
 func validEnv() map[string]string {
 	return map[string]string{
-		"GATES_ALLOWED_OWNER_ID":       "12345",
-		"GATES_ALLOWED_OWNER_NAME":     "Example-Org",
-		"GATES_ALLOWED_OWNER_TYPE":     "Organization",
-		"GATES_GITHUB_APP_CLIENT_ID":   "Iv23liExample",
-		"GATES_AUDIENCE":               "https://gates.example.com",
-		"GATES_KMS_KEY_ARN":            "arn:aws:kms:ap-northeast-1:123456789012:key/11111111-2222-3333-4444-555555555555",
-		"GATES_ISSUABLE_PERMISSIONS":   "contents:read,pull_requests:write",
-		"GATES_PROTECTED_REPOSITORIES": "repositories: []\n",
+		"GATES_ALLOWED_OWNER_ID":              "12345",
+		"GATES_ALLOWED_OWNER_NAME":            "Example-Org",
+		"GATES_ALLOWED_OWNER_TYPE":            "Organization",
+		"GATES_GITHUB_APP_CLIENT_ID":          "Iv23liExample",
+		"GATES_AUDIENCE":                      "https://gates.example.com",
+		"GATES_KMS_KEY_ARN":                   "arn:aws:kms:ap-northeast-1:123456789012:key/11111111-2222-3333-4444-555555555555",
+		"GATES_ISSUABLE_PERMISSIONS":          "contents:read,pull_requests:write",
+		"GATES_PROTECTED_REPOSITORIES":        "repositories: []\n",
+		"GATES_REPOSITORY_POLICY_ENFORCEMENT": "false",
 	}
 }
 

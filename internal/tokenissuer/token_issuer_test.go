@@ -15,22 +15,25 @@ import (
 	"github.com/tmknom/gates/internal/authz"
 	"github.com/tmknom/gates/internal/github"
 	"github.com/tmknom/gates/internal/protected"
+	"github.com/tmknom/gates/internal/repositorypolicy"
 	"github.com/tmknom/gates/internal/revocation"
 )
 
-// grantRecorder は、Lambda Handler が渡す発行許可の確定の関数の代わりに、受け取った Installation を記録して grant を通す。
+// grantRecorder は、リポジトリポリシーを適用しないデプロイで Lambda Handler が渡す Authorization の代わりに、Grant が受け取った Installation を記録して grant を通す。
+// 適用しないデプロイでは使わない操作が呼ばれたら、テストを失敗させる。
 type grantRecorder struct {
 	t       *testing.T
 	err     error
 	granted []authz.Installation
 }
 
+//trace:checks AC-AUTHZ-017
 func TestTokenIssuer_IssueInstallationAccessToken_ReturnsReturnableIssuanceResult(t *testing.T) {
 	signer := &signerStub{}
 	stub := newGitHubStub(t, nil)
 	recorder := &grantRecorder{t: t}
 
-	got, err := newTestTokenIssuer(t, signer, stub).IssueInstallationAccessToken(t.Context(), recorder.grant)
+	got, outcome, err := newTestTokenIssuer(t, signer, stub).IssueInstallationAccessToken(t.Context(), recorder)
 
 	if err != nil {
 		t.Fatalf("IssueInstallationAccessToken returned error: %v", err)
@@ -50,12 +53,19 @@ func TestTokenIssuer_IssueInstallationAccessToken_ReturnsReturnableIssuanceResul
 	if got := stub.received(revocationPath); len(got) != 0 {
 		t.Errorf("revocation received %d requests, want 0", len(got))
 	}
+	// ポリシー読み取りトークンの発行 API を呼ばないため、その失効の結果を持たず、リポジトリポリシーも取得しない
+	if !outcome.IsZero() {
+		t.Errorf("policy read revocation outcome = %v, want the zero value", outcome)
+	}
+	if got := stub.received(repositoryPolicyPath); len(got) != 0 {
+		t.Errorf("repository policy fetch received %d requests, want 0", len(got))
+	}
 }
 
 func TestTokenIssuer_IssueInstallationAccessToken_PassesResolvedInstallationToGrant(t *testing.T) {
 	recorder := &grantRecorder{t: t}
 
-	if _, err := newTestTokenIssuer(t, &signerStub{}, newGitHubStub(t, nil)).IssueInstallationAccessToken(t.Context(), recorder.grant); err != nil {
+	if _, _, err := newTestTokenIssuer(t, &signerStub{}, newGitHubStub(t, nil)).IssueInstallationAccessToken(t.Context(), recorder); err != nil {
 		t.Fatalf("IssueInstallationAccessToken returned error: %v", err)
 	}
 
@@ -74,7 +84,7 @@ func TestTokenIssuer_IssueInstallationAccessToken_ReturnsGrantFailureWithoutIssu
 			want := fmt.Errorf("%w: condition", kind)
 			stub := newGitHubStub(t, nil)
 
-			got, err := newTestTokenIssuer(t, &signerStub{}, stub).IssueInstallationAccessToken(t.Context(), (&grantRecorder{t: t, err: want}).grant)
+			got, _, err := newTestTokenIssuer(t, &signerStub{}, stub).IssueInstallationAccessToken(t.Context(), &grantRecorder{t: t, err: want})
 
 			if !errors.Is(err, want) {
 				t.Errorf("IssueInstallationAccessToken error = %v, want %v", err, want)
@@ -116,7 +126,7 @@ func TestTokenIssuer_IssueInstallationAccessToken_RevokesTokenAfterVerificationF
 			handlers[revocationPath] = tt.revocation
 			stub := newGitHubStub(t, handlers)
 
-			got, err := newTestTokenIssuer(t, &signerStub{}, stub).IssueInstallationAccessToken(t.Context(), (&grantRecorder{t: t}).grant)
+			got, _, err := newTestTokenIssuer(t, &signerStub{}, stub).IssueInstallationAccessToken(t.Context(), &grantRecorder{t: t})
 
 			if !errors.Is(err, ErrVerificationFailure) {
 				t.Fatalf("IssueInstallationAccessToken error = %v, want %v", err, ErrVerificationFailure)
@@ -166,7 +176,7 @@ func TestTokenIssuer_IssueInstallationAccessToken_DoesNotRevokeWithoutToken(t *t
 		t.Run(tt.name, func(t *testing.T) {
 			stub := newGitHubStub(t, map[string]http.HandlerFunc{issuancePath: tt.issuance})
 
-			_, err := newTestTokenIssuer(t, &signerStub{}, stub).IssueInstallationAccessToken(t.Context(), (&grantRecorder{t: t}).grant)
+			_, _, err := newTestTokenIssuer(t, &signerStub{}, stub).IssueInstallationAccessToken(t.Context(), &grantRecorder{t: t})
 
 			if !errors.Is(err, tt.want) {
 				t.Fatalf("IssueInstallationAccessToken error = %v, want %v", err, tt.want)
@@ -194,7 +204,7 @@ func TestTokenIssuer_IssueInstallationAccessToken_RevocationEndsOneSecondBeforeR
 	defer cancel()
 	requestDeadline, _ := ctx.Deadline()
 
-	_, err := newTestTokenIssuer(t, &signerStub{}, stub).IssueInstallationAccessToken(ctx, (&grantRecorder{t: t}).grant)
+	_, _, err := newTestTokenIssuer(t, &signerStub{}, stub).IssueInstallationAccessToken(ctx, &grantRecorder{t: t})
 
 	if !errors.Is(err, ErrVerificationFailure) {
 		t.Fatalf("IssueInstallationAccessToken error = %v, want %v", err, ErrVerificationFailure)
@@ -218,7 +228,7 @@ func TestTokenIssuer_IssueInstallationAccessToken_DoesNotRevokeAfterIssuanceDead
 	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
 	defer cancel()
 
-	_, err := newTestTokenIssuer(t, &signerStub{}, stub).IssueInstallationAccessToken(ctx, (&grantRecorder{t: t}).grant)
+	_, _, err := newTestTokenIssuer(t, &signerStub{}, stub).IssueInstallationAccessToken(ctx, &grantRecorder{t: t})
 
 	if !errors.Is(err, github.ErrTransientFailure) {
 		t.Fatalf("IssueInstallationAccessToken error = %v, want %v", err, github.ErrTransientFailure)
@@ -237,7 +247,7 @@ func TestTokenIssuer_IssueInstallationAccessToken_SignFailureCallsNoGitHubAPI(t 
 	stub := newGitHubStub(t, nil)
 	recorder := &grantRecorder{t: t}
 
-	_, err := newTestTokenIssuer(t, &signerStub{err: want}, stub).IssueInstallationAccessToken(t.Context(), recorder.grant)
+	_, _, err := newTestTokenIssuer(t, &signerStub{err: want}, stub).IssueInstallationAccessToken(t.Context(), recorder)
 
 	if !errors.Is(err, want) {
 		t.Fatalf("IssueInstallationAccessToken error = %v, want %v", err, want)
@@ -256,7 +266,7 @@ func TestTokenIssuer_IssueInstallationAccessToken_ResolutionFailureCallsNeitherG
 	stub := newGitHubStub(t, map[string]http.HandlerFunc{installationPath: respond(http.StatusNotFound, requestID, responseMarker)})
 	recorder := &grantRecorder{t: t}
 
-	_, err := newTestTokenIssuer(t, &signerStub{}, stub).IssueInstallationAccessToken(t.Context(), recorder.grant)
+	_, _, err := newTestTokenIssuer(t, &signerStub{}, stub).IssueInstallationAccessToken(t.Context(), recorder)
 
 	if !errors.Is(err, authz.ErrInstallationUnavailable) {
 		t.Fatalf("IssueInstallationAccessToken error = %v, want %v", err, authz.ErrInstallationUnavailable)
@@ -281,7 +291,7 @@ func TestTokenIssuer_IssueInstallationAccessToken_NamesGitHubStageInError(t *tes
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := newTestTokenIssuer(t, &signerStub{}, newGitHubStub(t, tt.handlers)).IssueInstallationAccessToken(t.Context(), (&grantRecorder{t: t}).grant)
+			_, _, err := newTestTokenIssuer(t, &signerStub{}, newGitHubStub(t, tt.handlers)).IssueInstallationAccessToken(t.Context(), &grantRecorder{t: t})
 
 			if err == nil || !strings.HasPrefix(err.Error(), tt.want) {
 				t.Errorf("IssueInstallationAccessToken error = %v, want prefix %q", err, tt.want)
@@ -295,9 +305,9 @@ func TestTokenIssuer_IssueInstallationAccessToken_NamesGitHubStageInError(t *tes
 //trace:checks AC-AUTHZ-012 AC-ISSUANCE-004
 func TestTokenIssuer_IssueInstallationAccessToken_RevokesTokenAfterProtectedRepositoryMismatch(t *testing.T) {
 	stub := newGitHubStub(t, nil)
-	tokenIssuer := NewTokenIssuer(&signerStub{}, stub.client(t), allowedOwner(t), protectedRepositoriesOf(t, strconv.Itoa(repositoryIDB), "old-name"), func() time.Time { return now })
+	tokenIssuer := NewTokenIssuer(&signerStub{}, stub.client(t), allowedOwner(t), protectedRepositoriesOf(t, strconv.Itoa(repositoryIDB), "old-name"), authz.RepositoryPolicyNotEnforced, func() time.Time { return now })
 
-	got, err := tokenIssuer.IssueInstallationAccessToken(t.Context(), (&grantRecorder{t: t}).grant)
+	got, _, err := tokenIssuer.IssueInstallationAccessToken(t.Context(), &grantRecorder{t: t})
 
 	failure, ok := errors.AsType[*VerificationFailure](err)
 	if !ok {
@@ -321,7 +331,7 @@ func TestNewTokenIssuer_ZeroAllowedOwnerPanics(t *testing.T) {
 		}
 	}()
 
-	_ = NewTokenIssuer(&signerStub{}, github.NewClient(), authz.AllowedOwner{}, noProtectedRepositories(t), func() time.Time { return now })
+	_ = NewTokenIssuer(&signerStub{}, github.NewClient(), authz.AllowedOwner{}, noProtectedRepositories(t), authz.RepositoryPolicyNotEnforced, func() time.Time { return now })
 }
 
 func TestNewTokenIssuer_ZeroProtectedRepositoriesPanics(t *testing.T) {
@@ -331,15 +341,36 @@ func TestNewTokenIssuer_ZeroProtectedRepositoriesPanics(t *testing.T) {
 		}
 	}()
 
-	_ = NewTokenIssuer(&signerStub{}, github.NewClient(), allowedOwner(t), protected.Repositories{}, func() time.Time { return now })
+	_ = NewTokenIssuer(&signerStub{}, github.NewClient(), allowedOwner(t), protected.Repositories{}, authz.RepositoryPolicyNotEnforced, func() time.Time { return now })
 }
 
-func (g *grantRecorder) grant(installation authz.Installation) (authz.TokenGrant, error) {
+//trace:checks AC-AUTHZ-017
+func TestNewTokenIssuer_ZeroRepositoryPolicyEnforcementPanics(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("NewTokenIssuer did not panic for the zero RepositoryPolicyEnforcement")
+		}
+	}()
+
+	_ = NewTokenIssuer(&signerStub{}, github.NewClient(), allowedOwner(t), noProtectedRepositories(t), authz.RepositoryPolicyEnforcement{}, func() time.Time { return now })
+}
+
+func (g *grantRecorder) Grant(installation authz.Installation) (authz.TokenGrant, error) {
 	g.granted = append(g.granted, installation)
 	if g.err != nil {
 		return authz.TokenGrant{}, g.err
 	}
 	return grant(g.t, installation, contentsRead)
+}
+
+func (g *grantRecorder) GrantPolicyRead(authz.Installation) (authz.PolicyReadGrant, error) {
+	g.t.Error("GrantPolicyRead was called without repository policy enforcement")
+	return authz.PolicyReadGrant{}, authz.ErrAuthorizationDenied
+}
+
+func (g *grantRecorder) GrantWithRepositoryPolicies(authz.Installation, []repositorypolicy.FetchResult) (authz.TokenGrant, error) {
+	g.t.Error("GrantWithRepositoryPolicies was called without repository policy enforcement")
+	return authz.TokenGrant{}, authz.ErrAuthorizationDenied
 }
 
 // unverifiedIssuance は、トークン文字列を持ち、repository_selection が all のため照合に失敗する発行応答を返す経路である。

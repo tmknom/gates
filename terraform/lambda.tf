@@ -4,13 +4,14 @@ locals {
   # 関数の設定と合計の検査で同じ値を使うため、KMS Key ARN 以外を 1 か所に置く
   # Issuer と GitHub API Host は入れない。Lambda の設定を変更できる主体が検証の基準を差し替えられるようになるため
   lambda_environment_variables = {
-    GATES_ALLOWED_OWNER_ID       = var.allowed_owner_id
-    GATES_ALLOWED_OWNER_NAME     = var.allowed_owner_name
-    GATES_ALLOWED_OWNER_TYPE     = var.allowed_owner_type
-    GATES_GITHUB_APP_CLIENT_ID   = var.github_app_client_id
-    GATES_AUDIENCE               = var.gates_audience
-    GATES_ISSUABLE_PERMISSIONS   = join(",", var.issuable_permissions)
-    GATES_PROTECTED_REPOSITORIES = var.protected_repositories
+    GATES_ALLOWED_OWNER_ID              = var.allowed_owner_id
+    GATES_ALLOWED_OWNER_NAME            = var.allowed_owner_name
+    GATES_ALLOWED_OWNER_TYPE            = var.allowed_owner_type
+    GATES_GITHUB_APP_CLIENT_ID          = var.github_app_client_id
+    GATES_AUDIENCE                      = var.gates_audience
+    GATES_ISSUABLE_PERMISSIONS          = join(",", var.issuable_permissions)
+    GATES_PROTECTED_REPOSITORIES        = var.protected_repositories
+    GATES_REPOSITORY_POLICY_ENFORCEMENT = tostring(var.repository_policy_enforcement)
   }
 
   # KMS Key ARN は鍵の新規作成では Plan の時点で決まらないため、形式から決まる長さの値で数える
@@ -79,7 +80,7 @@ resource "aws_lambda_function" "gates" {
   source_code_hash = filebase64sha256(var.lambda_package_path)
 
   # 外部呼び出しの上限の合計より長くする。内訳は Lambda Design の「Call Time Budget」にある
-  timeout = 45
+  timeout = 75
   # 実測前の仮の値
   memory_size                    = 256
   reserved_concurrent_executions = var.lambda_reserved_concurrency
