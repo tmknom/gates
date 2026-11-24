@@ -21,6 +21,8 @@ type IssuanceResult struct {
 	permissions         responseField[permission.Permissions]
 	repositorySelection responseField[RepositorySelection]
 	repositories        responseField[[]EffectiveRepository]
+	policyReadToken     responseField[PolicyReadToken]
+	readableFilePaths   responseField[[]string]
 }
 
 // RepositorySelection は、対象が選択したリポジトリに限られるか、全リポジトリかを表す対象の選び方である。
@@ -71,6 +73,17 @@ func (r IssuanceResult) EffectiveRepositories() ([]EffectiveRepository, bool) {
 	return slices.Clone(r.repositories.value), r.repositories.read
 }
 
+// PolicyReadToken は、ポリシー読み取りトークンを返す。ポリシー読み取りトークンの発行応答でだけ読み取る。
+func (r IssuanceResult) PolicyReadToken() (PolicyReadToken, bool) {
+	return r.policyReadToken.value, r.policyReadToken.read
+}
+
+// ReadableFilePaths は、読めるファイルのパスを応答の順序のまま返す。ポリシー読み取りトークンの発行応答でだけ読み取る。
+// 呼び出し元が書き換えても、発行結果が変わらないように写す。
+func (r IssuanceResult) ReadableFilePaths() ([]string, bool) {
+	return slices.Clone(r.readableFilePaths.value), r.readableFilePaths.read
+}
+
 // EffectiveRepository は、発行結果に含まれる各リポジトリである。
 type EffectiveRepository struct {
 	repositoryID int64
@@ -101,21 +114,49 @@ type issuanceResponse struct {
 	Permissions         jsontext.Value `json:"permissions"`
 	RepositorySelection jsontext.Value `json:"repository_selection"`
 	Repositories        jsontext.Value `json:"repositories"`
+	SingleFilePaths     jsontext.Value `json:"single_file_paths"`
 }
 
-// decodeIssuanceResult は、Lambda Design の「GitHub Client」の発行応答の読み取りに従い、本文を発行結果にする。
-// 本文を JSON のオブジェクトとして解釈できなければ、どの項目も読み取らない。
+// decodeIssuanceResult は、Lambda Design の「GitHub Client」の発行応答の読み取りに従い、利用者に返すトークンの発行応答の本文を発行結果にする。
 func decodeIssuanceResult(body []byte) IssuanceResult {
-	var response issuanceResponse
-	if err := json.Unmarshal(body, &response); err != nil {
+	response, ok := decodeIssuanceResponse(body)
+	if !ok {
 		return IssuanceResult{}
 	}
+	result := response.sharedFields()
+	result.token = newResponseField(readToken(response.Token))
+	return result
+}
+
+// decodePolicyReadIssuanceResult は、ポリシー読み取りトークンの発行応答の本文を発行結果にする。
+// トークン文字列をポリシー読み取りトークンとしてだけ読み、利用者に返すトークンとしては読まない。
+func decodePolicyReadIssuanceResult(body []byte) IssuanceResult {
+	response, ok := decodeIssuanceResponse(body)
+	if !ok {
+		return IssuanceResult{}
+	}
+	result := response.sharedFields()
+	result.policyReadToken = newResponseField(readPolicyReadToken(response.Token))
+	result.readableFilePaths = newResponseField(readFilePaths(response.SingleFilePaths))
+	return result
+}
+
+// decodeIssuanceResponse は、本文を JSON のオブジェクトとして解釈できなければ、どの項目も読み取らないよう false を返す。
+func decodeIssuanceResponse(body []byte) (issuanceResponse, bool) {
+	var response issuanceResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		return issuanceResponse{}, false
+	}
+	return response, true
+}
+
+// sharedFields は、どちらの発行応答でも同じ規則で読む、トークン以外の項目を読み取る。
+func (r issuanceResponse) sharedFields() IssuanceResult {
 	return IssuanceResult{
-		token:               newResponseField(readToken(response.Token)),
-		expiresAt:           newResponseField(readField[time.Time](response.ExpiresAt)),
-		permissions:         newResponseField(readPermissions(response.Permissions)),
-		repositorySelection: newResponseField(readField[RepositorySelection](response.RepositorySelection)),
-		repositories:        newResponseField(readRepositories(response.Repositories)),
+		expiresAt:           newResponseField(readField[time.Time](r.ExpiresAt)),
+		permissions:         newResponseField(readPermissions(r.Permissions)),
+		repositorySelection: newResponseField(readField[RepositorySelection](r.RepositorySelection)),
+		repositories:        newResponseField(readRepositories(r.Repositories)),
 	}
 }
 
@@ -132,13 +173,29 @@ func readField[T any](value jsontext.Value) (T, bool) {
 	return field, true
 }
 
-// readToken の規則は Lambda Design の「GitHub Client」に記述する。
 func readToken(value jsontext.Value) (InstallationAccessToken, bool) {
-	token, ok := readField[string](value)
-	if !ok || token == "" {
+	token, ok := readTokenString(value)
+	if !ok {
 		return InstallationAccessToken{}, false
 	}
 	return InstallationAccessToken{value: &token}, true
+}
+
+func readPolicyReadToken(value jsontext.Value) (PolicyReadToken, bool) {
+	token, ok := readTokenString(value)
+	if !ok {
+		return PolicyReadToken{}, false
+	}
+	return PolicyReadToken{value: &token}, true
+}
+
+// readTokenString の規則は Lambda Design の「GitHub Client」に記述する。
+func readTokenString(value jsontext.Value) (string, bool) {
+	token, ok := readField[string](value)
+	if !ok || token == "" {
+		return "", false
+	}
+	return token, true
 }
 
 // readPermissions は、実効権限を要求の Permissions と同じ文字種の規則で読む。
@@ -182,4 +239,20 @@ func readRepositories(value jsontext.Value) ([]EffectiveRepository, bool) {
 		repositories = append(repositories, EffectiveRepository{repositoryID: *element.ID, ownerID: *element.Owner.ID, fullName: fullName})
 	}
 	return repositories, true
+}
+
+// readFilePaths は、文字列の配列だけを読み取る。null の要素を空文字列と区別するため、要素をポインタで受け取る。
+func readFilePaths(value jsontext.Value) ([]string, bool) {
+	elements, ok := readField[[]*string](value)
+	if !ok {
+		return nil, false
+	}
+	paths := make([]string, 0, len(elements))
+	for _, element := range elements {
+		if element == nil {
+			return nil, false
+		}
+		paths = append(paths, *element)
+	}
+	return paths, true
 }

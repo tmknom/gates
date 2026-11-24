@@ -80,6 +80,17 @@ func recordedIssuance() map[string]any {
 	}
 }
 
+// recordedPolicyReadIssuance は、ポリシー読み取りトークンの発行応答を、ケースごとに書き換えられる形で返す。
+// 調査記録は Single file のパスを README.md にした発行応答で、パスの値だけをリポジトリポリシーのパスに置き換えている。
+func recordedPolicyReadIssuance() map[string]any {
+	body := recordedIssuance()
+	body["permissions"] = map[string]any{"single_file": "read", "metadata": "read"}
+	body["single_file"] = ".github/gates-policy.yml"
+	body["has_multiple_single_files"] = false
+	body["single_file_paths"] = []any{".github/gates-policy.yml"}
+	return body
+}
+
 func allowedOwner(t *testing.T, ownerType authz.OwnerType) authz.AllowedOwner {
 	t.Helper()
 	owner, err := authz.NewAllowedOwner(recordedAccountID, allowedOwnerName, ownerType)
@@ -103,9 +114,39 @@ func resolve(t *testing.T, client *github.Client) (authz.Installation, error) {
 	return client.ResolveInstallation(t.Context(), github.NewAppJWT(appJWTValue), allowedOwner(t, authz.OwnerTypeUser))
 }
 
-// tokenGrant は、TokenGrant を Grant でしか作れないため、Caller、形式検証を通した発行要求、許可オーナー、発行上限、保護対象の一覧、Installation をそろえて Grant を通す。
-// 発行上限は、Grant が認可を判定し直しても通るよう、要求の Permissions と同じ組にする。
+// tokenGrant は、TokenGrant を Grant でしか作れないため、grantInputs のそろえた値と Installation で Grant を通す。
 func tokenGrant(t *testing.T, permissions map[string]string) authz.TokenGrant {
+	t.Helper()
+	inputs := newGrantInputs(t, permissions)
+	grant, err := authz.Grant(inputs.caller, inputs.request, allowedOwner(t, authz.OwnerTypeUser), inputs.issuablePermissions, inputs.protectedRepositories, newInstallation(t, false))
+	if err != nil {
+		t.Fatalf("Grant returned error: %v", err)
+	}
+	return grant
+}
+
+// policyReadGrant は、PolicyReadGrant を GrantPolicyRead でしか作れないため、grantInputs のそろえた値と Installation で GrantPolicyRead を通す。
+func policyReadGrant(t *testing.T) authz.PolicyReadGrant {
+	t.Helper()
+	inputs := newGrantInputs(t, contentsRead)
+	grant, err := authz.GrantPolicyRead(inputs.caller, inputs.request, allowedOwner(t, authz.OwnerTypeUser), inputs.issuablePermissions, inputs.protectedRepositories, newInstallation(t, false))
+	if err != nil {
+		t.Fatalf("GrantPolicyRead returned error: %v", err)
+	}
+	return grant
+}
+
+// grantInputs は、発行許可とポリシー読み取り許可の確定に渡す Caller、形式検証を通した発行要求、発行上限、保護対象の一覧である。
+type grantInputs struct {
+	caller                caller.Caller
+	request               request.TokenRequest
+	issuablePermissions   permission.IssuablePermissions
+	protectedRepositories protected.Repositories
+}
+
+// newGrantInputs は、requestedRepositories を対象とする要求の値をそろえる。
+// 発行上限は、認可を判定し直しても通るよう、要求の Permissions と同じ組にする。
+func newGrantInputs(t *testing.T, permissions map[string]string) grantInputs {
 	t.Helper()
 	c, err := caller.NewCaller(recordedAccountID, 1234567890, "example-repo", 4004, 1, caller.WorkflowTriggerAttributes{})
 	if err != nil {
@@ -134,11 +175,7 @@ func tokenGrant(t *testing.T, permissions map[string]string) authz.TokenGrant {
 	if err != nil {
 		t.Fatalf("Parse returned error: %v", err)
 	}
-	grant, err := authz.Grant(c, req, allowedOwner(t, authz.OwnerTypeUser), issuablePermissions, noProtectedRepositories, newInstallation(t, false))
-	if err != nil {
-		t.Fatalf("Grant returned error: %v", err)
-	}
-	return grant
+	return grantInputs{caller: c, request: req, issuablePermissions: issuablePermissions, protectedRepositories: noProtectedRepositories}
 }
 
 func issue(t *testing.T, client *github.Client) (github.IssuanceResult, error) {
@@ -153,6 +190,30 @@ func issueBody(t *testing.T, body string) github.IssuanceResult {
 		t.Fatalf("Issue returned error: %v", err)
 	}
 	return got
+}
+
+func issuePolicyReadToken(t *testing.T, client *github.Client) (github.IssuanceResult, error) {
+	t.Helper()
+	return client.IssuePolicyReadToken(t.Context(), github.NewAppJWT(appJWTValue), policyReadGrant(t))
+}
+
+func issuePolicyReadTokenBody(t *testing.T, body string) github.IssuanceResult {
+	t.Helper()
+	got, err := issuePolicyReadToken(t, newAPIStub(t, respondIssuance(body)).client(t))
+	if err != nil {
+		t.Fatalf("IssuePolicyReadToken returned error: %v", err)
+	}
+	return got
+}
+
+// issuedPolicyReadToken は、ポリシー読み取りトークンの発行応答から読み取ったポリシー読み取りトークンを返す。
+func issuedPolicyReadToken(t *testing.T) github.PolicyReadToken {
+	t.Helper()
+	token, ok := issuePolicyReadTokenBody(t, marshal(t, recordedPolicyReadIssuance())).PolicyReadToken()
+	if !ok {
+		t.Fatal("PolicyReadToken() is not read from the recorded policy read issuance response")
+	}
+	return token
 }
 
 func marshal(t *testing.T, value any) string {

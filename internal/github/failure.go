@@ -3,14 +3,11 @@ package github
 import (
 	"fmt"
 	"net/http"
-
-	"github.com/tmknom/gates/internal/authz"
 )
 
-// statusFailure は、GitHub API の成功以外の応答を、Lambda Design の「GitHub API の失敗の分類」に従って分類する。
-// 発行 API の 422 は呼び出し側が先に分ける。
-func statusFailure(response *http.Response, requestID string) error {
-	kind := authz.ErrInstallationUnavailable
+// statusFailure は、GitHub API の成功以外の応答を、Lambda Design の「GitHub API の失敗の分類」のレート制限と 5xx の規則に従って一時的な障害に、それ以外を呼び出し側が渡す otherKind に分ける。
+func statusFailure(response *http.Response, requestID string, otherKind error) error {
+	kind := otherKind
 	if response.StatusCode >= http.StatusInternalServerError || isRateLimited(response) {
 		kind = ErrTransientFailure
 	}

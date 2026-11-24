@@ -1,8 +1,8 @@
-// Package revocation は、照合に失敗した発行処理の失効の結果である。
+// Package revocation は、照合に失敗した発行処理の失効の結果と、ポリシー読み取りトークンの失効の結果である。
 // Token Issuer が作り、監査記録が読む。監査記録が資格情報の型を公開する package を import しないよう、資格情報を持たない package に置く。
 package revocation
 
-// Outcome は、照合に失敗した発行処理の失効の結果で、値は Lambda Design の監査記録の revocation の値である。
+// Outcome は、照合に失敗した発行処理の失効の結果か、ポリシー読み取りトークンの失効の結果で、値は Lambda Design の監査記録の失効の結果の値である。
 // フィールドを非公開の struct にし、3 つの値とゼロ値のほかを作れないようにする。
 type Outcome struct {
 	value string

@@ -60,7 +60,7 @@ func NewClient(opts ...Option) *Client {
 	return c
 }
 
-// bearer は、GitHub API に Bearer で送る資格情報で、要求ごとに GitHub App JWT か Installation Access Token のどちらかである。
+// bearer は、GitHub API に Bearer で送る資格情報で、要求ごとに GitHub App JWT、Installation Access Token、ポリシー読み取りトークンのどれかである。
 // expose が非公開のため、この package の資格情報の型だけが満たす。
 type bearer interface {
 	expose() string
@@ -69,10 +69,16 @@ type bearer interface {
 // newRequest は、credential を Bearer で送る要求を作る。
 // path は / で始める。JoinPath は、API Host のパスが空のとき / で始まらないパスを作るため使わない。
 func (c *Client) newRequest(ctx context.Context, method, path string, credential bearer) *http.Request {
+	return c.newRequestTo(ctx, method, &url.URL{Path: path}, credential)
+}
+
+// newRequestTo は、API Host からの相対参照 endpoint に、credential を Bearer で送る要求を作る。
+// パスの区画のエスケープを保つため、endpoint の RawPath もそのまま使う。
+func (c *Client) newRequestTo(ctx context.Context, method string, endpoint *url.URL, credential bearer) *http.Request {
 	// http.NewRequestWithContext は URL の文字列を解析し直す。解析済みの URL では失敗しない分岐を増やすだけのため使わない
 	request := (&http.Request{
 		Method: method,
-		URL:    c.apiHost.ResolveReference(&url.URL{Path: path}),
+		URL:    c.apiHost.ResolveReference(endpoint),
 		Header: http.Header{},
 	}).WithContext(ctx)
 	request.Header.Set("Authorization", "Bearer "+credential.expose())

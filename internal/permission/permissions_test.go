@@ -88,6 +88,16 @@ func TestNewPermissions_ErrorDoesNotContainInput(t *testing.T) {
 	}
 }
 
+func TestPolicyRead(t *testing.T) {
+	want, err := permission.NewPermissions(map[string]string{"single_file": "read"})
+	if err != nil {
+		t.Fatalf("NewPermissions returned error: %v", err)
+	}
+	if !permission.PolicyRead().Equal(want) {
+		t.Error("PolicyRead() is not single_file:read only")
+	}
+}
+
 func TestPermissions_Equal(t *testing.T) {
 	tests := []struct {
 		name  string

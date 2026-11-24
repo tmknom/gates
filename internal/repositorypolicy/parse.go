@@ -5,15 +5,15 @@ import (
 	"github.com/tmknom/gates/internal/strictyaml"
 )
 
-// maxDocumentBytes は、リポジトリポリシーの大きさの上限である。値の根拠は Lambda Design の「Repository Policy」に記述する。
-const maxDocumentBytes = 64 * 1024
+// MaxDocumentBytes は、リポジトリポリシーの大きさの上限である。値の根拠は Lambda Design の「Repository Policy」に記述する。
+const MaxDocumentBytes = 64 * 1024
 
 var documentKeys = []string{"callers"}
 
 // parse は、文書から INV-017 を満たす許可 Caller の集合を作る。
 // 満たさなかった条件は位置と値を含み得るため捨て、一つの誤りだけを返す。理由は Lambda Design の「応答とエラー文言に出す情報」に記述する。
 func parse(document string) (allowedcaller.Set, error) {
-	if len(document) > maxDocumentBytes {
+	if len(document) > MaxDocumentBytes {
 		return allowedcaller.Set{}, errTooLarge
 	}
 	var c strictyaml.Conditions

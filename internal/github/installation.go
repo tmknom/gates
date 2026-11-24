@@ -48,7 +48,7 @@ func (c *Client) fetchInstallation(ctx context.Context, appJWT AppJWT, allowedOw
 
 	requestID := response.Header.Get("X-GitHub-Request-Id")
 	if response.StatusCode != http.StatusOK {
-		return nil, "", statusFailure(response, requestID)
+		return nil, "", statusFailure(response, requestID, authz.ErrInstallationUnavailable)
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, installationSizeLimit+1))
 	if err != nil {
