@@ -146,7 +146,7 @@ GATES の開発に固有でない運用者の手順は、`docs/user-guide/` を�
 
 ### 2.8 docs/user-guide/
 
-導入を判断する人、GATES 運用者、ワークフロー利用者に向けて、判断の材料と作業の手順を記述します。
+導入を判断する人、GATES 運用者、ワークフロー利用者、トークンで操作されるリポジトリの管理者に向けて、判断の材料と作業の手順を記述します。
 読者は GATES を初めて使う人で、実装を知りません。
 多くの読者に欠かせないことを、最小の労力で得られるように書きます。
 詳細を知りたい読者は、`docs/user-guide/` の外のドキュメントを読みます。
@@ -201,6 +201,11 @@ flowchart TD
     operations --> stop["stop-issuance.md"]
     stop --> deployment
     stop --> rotate
+    deployment --> policy["repository-policy.md"]
+    operations --> policy
+    security --> policy
+    trouble --> policy
+    policy --> reference
 ```
 
 図にないドキュメントを加えるときや、図と逆向きの依存を足すときは、先にこの図を変更します。

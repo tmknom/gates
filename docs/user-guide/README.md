@@ -10,6 +10,12 @@
 | [GATES Overview](overview.md) | GATES で得られるもの、仕組み、導入の前に知っておく制約、役割、用語、運用者が用意するものと費用 |
 | [Security Considerations](security-considerations.md) | 利用者が守ること、GATES が守るもの、残るリスク、監査で追えること |
 
+## トークンで操作されるリポジトリを管理する
+
+| ファイル | 内容 |
+|---|---|
+| [Repository Policy](repository-policy.md) | リポジトリポリシーを適用するデプロイで、どの Caller にどの権限を許すかを決めるファイルの書き方と、許す前に知っておくこと |
+
 ## ワークフローから使う
 
 | ファイル | 内容 |
@@ -24,7 +30,7 @@
 | [Deployment](deployment.md) | GATES を初めてデプロイし、最初の発行を確かめるまでの手順 |
 | [Release Verification](verify-release.md) | 配布物と、デプロイした関数のコードを検証する手順 |
 | [Key Material Import](import-key-material.md) | GitHub App Private Key を KMS Key にインポートする手順 |
-| [Operations](operations.md) | インストール対象、権限、保護対象の一覧の変更、監査記録の確認、設定の変更、リリースの更新 |
+| [Operations](operations.md) | インストール対象、権限、保護対象の一覧の変更、リポジトリポリシーの適用の切り替え、監査記録の確認、設定の変更、リリースの更新 |
 | [Key Rotation](rotate-key.md) | GitHub App Private Key を新しい鍵に替える手順 |
 | [Stopping GATES](stop-issuance.md) | 悪用が疑われるときに、発行や署名を止める手順 |
 

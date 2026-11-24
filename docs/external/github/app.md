@@ -268,12 +268,14 @@ OpenAPI 定義も、発行応答のスキーマ「Installation Token」にこの
 **Inferred（パスの食い違い）**：指定したパスにファイルがない場合の応答は `404`、指定していないパスの応答は存在するかどうかにかかわらず `403` でした。
 この観測が続く限り、GitHub App の `Single file` のパスが読もうとしたパスと異なる場合は、ファイルがない場合と応答コードで分かれます。
 
+**Inferred（発行応答の読めるファイルのパス）**：GitHub App の `Single file` のパスを `.github/gates-policy.yml` だけにした Installation で、GATES のポリシー読み取りトークンの発行が照合を通り、リポジトリポリシーを読めました。照合は `single_file_paths` が文字列の配列で、要素が `.github/gates-policy.yml` の 1 つだけであることを求めるため、発行応答の `single_file_paths` はこの値だったと推論できます。応答そのものは GATES の外に出ないため記録していません（[GitHub Single File Permission](../../research/github/single-file.md#gates-の照合を通ったポリシー読み取りトークン)）。
+
 **Unconfirmed**：次の事項は、参照した公式資料と上の記録から確定できません。
 
 - `single_file:read` のトークンで、指定したパスのほかを読めないことの保証
 - 空のリポジトリ（コミットのないリポジトリ）での指定したパスの応答
 - GitHub App のパスが読もうとしたパスと異なるときの応答。パスを変えて試してはいない
-- 発行応答の `single_file_paths` の値。パスに `README.md` を指定した記録では、発行応答に `single_file`、`has_multiple_single_files`、`single_file_paths` が現れた（[§4.4](#44-権限名と分類)）
+- 発行応答の `single_file_paths` の値が、ほかのパスの指定でも同じ形になること。値は照合の成功からの推論で、応答を記録していない
 - Organization の Installation での振る舞い
 
 **Documented（ファイルの書き込みに要る権限）**：`PUT /repos/{owner}/{repo}/contents/{path}` と `DELETE /repos/{owner}/{repo}/contents/{path}` は、`Contents` の `write` で使えます。
@@ -294,4 +296,4 @@ Published や Observed の記述で一部の条件を確かめた事項も、Git
 | トークン発行 API | 範囲外リポジトリへの要求、500件超の要求、停止中の Installation への要求、`422` の原因、`metadata:read` の付与条件、応答フィールドの有無、`repositories` の並び、改名したリポジトリの旧名での要求 |
 | トークン失効 API | 新形式のトークンでの失効の動作、`204` の後に失効が効くまでの時間、一度 `401` を返した後に要求が通る条件 |
 | 権限名と分類 | 分類と水準が変わらない保証、Organization の Installation に現れる権限名、設定画面の項目と権限名の一つずつの対応、付与されていない権限か水準への応答が常に拒否であるか |
-| Single file | 使えるエンドポイントと、指定したパスのほかを読めないことの保証、空のリポジトリでの応答、パスが食い違うときの応答、発行応答の `single_file_paths`、`single_file:write` での書き込み、Organization の Installation での振る舞い |
+| Single file | 使えるエンドポイントと、指定したパスのほかを読めないことの保証、空のリポジトリでの応答、パスが食い違うときの応答、発行応答の `single_file_paths` の記録、`single_file:write` での書き込み、Organization の Installation での振る舞い |

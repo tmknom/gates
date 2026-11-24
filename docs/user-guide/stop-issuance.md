@@ -115,6 +115,10 @@ Repository ID の調べ方と書き方は、[Deployment](deployment.md) の「Pr
 以後、そのリポジトリを含む要求は `error code "authorization_denied"` で失敗します。
 再開するときは、一覧を元に戻して、同じ手順で適用します。
 
+リポジトリポリシーを適用するデプロイでは、そのリポジトリの管理者がリポジトリポリシーを `callers: []` にしても、同じく止まります。
+Terraform の適用を待たずに止まります。
+ただし、既定ブランチに書き込める人と、`contents:write` のトークンを持つ Caller が元に戻せるため、悪用を止めるには保護対象の一覧を使います。
+
 ## 7. Investigating
 
 KMS の署名の記録を CloudTrail から引き、主体ごとに数えます。
@@ -142,11 +146,13 @@ gh api repos/<オーナー名>/<リポジトリ名>/hooks --jq '.[] | [.id, .con
 gh api "repos/<オーナー名>/<リポジトリ名>/collaborators?affiliation=direct" --jq '.[] | [.login, .role_name] | @tsv'
 gh api repos/<オーナー名>/<リポジトリ名>/branches --jq '.[].name'
 gh api "repos/<オーナー名>/<リポジトリ名>/commits?path=.github/workflows&since=<開始>" --jq '.[] | [.sha, .commit.committer.date, .commit.author.name] | @tsv'
+gh api "repos/<オーナー名>/<リポジトリ名>/commits?path=.github/gates-policy.yml&since=<開始>" --jq '.[] | [.sha, .commit.committer.date, .commit.author.name] | @tsv'
 ```
 
 - **デプロイキー、Webhook、コラボレーター**：身に覚えのないものは削除する。トークンが失効しても、これらを通したアクセスは続く
 - **ブランチ**：身に覚えのないブランチは、内容を確かめてから削除する
 - **ワークフローのファイル**：既定のブランチのワークフローのファイルを変えたコミットを確かめる。書き換えられたワークフローは、そのリポジトリの Secrets と、そのリポジトリを信頼するクラウドの権限を使えるため、その実行の記録も確かめる
+- **リポジトリポリシー**：リポジトリポリシーを適用するデプロイでは、`.github/gates-policy.yml` を変えたコミットも確かめる。`contents:write` のトークンで書き換えられたリポジトリポリシーは、トークンの失効の後も、書き換えた Caller に許可を与え続ける。身に覚えのない変更は、リポジトリの管理者に戻してもらう
 
 ## 8. Resuming after Disabling the Key or Deleting It
 

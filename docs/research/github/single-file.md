@@ -159,10 +159,17 @@ Lambda から Contents API を呼んだ時間は測っていません。
 どちらのトークンでも、180 回の要求はすべて `401` で、失効の後に通った要求はありませんでした。
 最後に呼んだ `DELETE /installation/token` は、どちらも `401` でした。
 
+## GATES の照合を通ったポリシー読み取りトークン
+
+リポジトリポリシーを適用する設定の GATES を、GitHub App の `Single file` のパスを `.github/gates-policy.yml` だけにした Installation で動かし、リポジトリポリシーを置いた対象への要求を発行させました。
+GATES は、ポリシー読み取りトークンの発行応答の `single_file_paths` が、要素が `.github/gates-policy.yml` の 1 つだけの文字列の配列であるときだけ、そのトークンでリポジトリポリシーを読みます。
+対象 1 件と 2 件の要求が発行され、リポジトリポリシーのない対象の要求がリポジトリポリシーがないことで拒否されたため、発行応答の `single_file_paths` はこの値だったと推論できます。
+応答そのものは GATES の外に出ないため、記録していません。
+
 ## 確かめていないこと
 
 - 空のリポジトリ（コミットのないリポジトリ）での取得の応答
-- 発行応答の `single_file_paths` の値と、Installation の取得の応答に現れるパス
+- 発行応答の `single_file_paths` の記録（値は上の照合からの推論だけ）と、Installation の取得の応答に現れるパス
 - GitHub App の `Single file` のパスが `.github/gates-policy.yml` と異なるときの取得の応答。指定していないパスの取得（`403`）から推測できるが、パスを変えて試してはいない
 - `single_file:write` のトークンでの書き込み
 - Organization の Installation での振る舞い
