@@ -20,7 +20,7 @@ Action が失敗すると、ジョブのログとワークフロー実行のペ�
 | `the Lambda Invoke failed` で始まり、`AccessDeniedException` を含む | `function-name` か `aws-region` の誤り | 運用者が登録した Variables を渡す |
 | `error code "invalid_request"` を含む | 要求の形が正しくない（名前に使えない文字、500 を超える `repositories`、大文字の権限名など） | `repositories` は `owner/repo` の形で書く。`permissions` は `contents:read` のように小文字の `権限名:水準` で書く |
 | `error code "invalid_id_token"` を含む | `audience` が GATES の設定と一致しない | 運用者が登録した Variable を渡す。渡しているなら §2 に進む |
-| `error code "authorization_denied"` を含む | 許可オーナー以外のリポジトリを要求した。[Action Reference](action-reference.md) の「要求できる権限」にない権限名か水準（Organization permissions の `members` など）か、発行上限が許さない権限を要求した。または、保護対象を要求したが、ワークフローのリポジトリがその許可 Caller でないか、権限の上限が許さない権限を要求した | 許可オーナーのリポジトリと、運用者から受け取った使える権限だけを要求する。保護対象は、許可 Caller のリポジトリから、権限の上限の範囲で要求する。一つでも許可されないと、要求全体が失敗する。注釈からは原因を見分けられないため、直らなければ §2 に進む。運用者は `request_id` で原因を調べられる |
+| `error code "authorization_denied"` を含む | 許可オーナー以外のリポジトリを要求した。[Action Reference](action-reference.md) の「要求できる権限」にない権限名か水準（Organization permissions の `members` など）か、発行上限が許さない権限を要求した。または、保護対象を要求したが、ワークフローのリポジトリがその許可 Caller でないか、権限の上限が許さない権限を要求した。リポジトリポリシーを適用するデプロイでは、要求したリポジトリについて、リポジトリポリシーがないか誤りがある、ワークフローのリポジトリを許していない、権限の上限が許さない権限を要求した、のどれかに当たる。または、11 件以上のリポジトリを要求した | 許可オーナーのリポジトリと、運用者から受け取った使える権限だけを要求する。保護対象は、許可 Caller のリポジトリから、権限の上限の範囲で要求する。リポジトリポリシーを適用するデプロイでは、11 件以上なら 10 件以下に分ける。10 件以下でも拒否されるなら、リポジトリを 1 件ずつ要求して拒否されるリポジトリを見つけ、そのリポジトリの管理者にリポジトリポリシーを確かめてもらう。一つでも許可されないと、要求全体が失敗する。注釈からは原因を見分けられないため、直らなければ §2 に進む。運用者は `request_id` で原因を調べられる |
 | `error code "github_issuance_rejected"` を含む | インストール対象にないか、存在しないリポジトリを要求した。または、GitHub App に付与されていない権限か、付与された水準より高い水準を要求した | リポジトリの綴りを確かめる。正しければ、インストール対象に加えるよう頼むか、要求から外す。権限は、運用者から受け取った使える権限と水準に直す。どちらも正しいなら §2 に進む |
 | ジョブの `outputs` に置いたトークンが空になる | GitHub はマスクされた値をジョブの外に渡さない | トークンが要るジョブごとに Action のステップを置く |
 | トークンで呼んだ API が `403` を返す | トークンに、その操作に要る権限がない（要求しなかった権限か、`read` で要求した権限の書き込み）。または、インストール対象外の公開リポジトリへの書き込み | 権限の不足なら、応答の `X-Accepted-GitHub-Permissions` ヘッダーが要る権限を `権限名=水準` の形で示す（`;` で区切った候補はどれか一つを満たせばよく、候補の中で `,` でつないだ権限はすべて要る）。`権限名:水準` に直して `permissions` に加える。運用者から受け取った使える権限になければ、運用者に相談する。インストール対象外のリポジトリなら、インストール対象に加えるよう頼む |
@@ -76,14 +76,14 @@ aws logs filter-log-events --log-group-name /aws/lambda/gates \
 |---|---|---|
 | `invalid_request` | 要求の形が正しくない。Action と GATES のリリースが違う場合にも起きる | `reason` で不正なフィールドを見る。ワークフロー利用者に §1 の直し方を伝える。Action の参照先がデプロイした GATES と同じリリースかを確かめる |
 | `invalid_id_token` | GATES 用の OIDC JWT が受け付けられない。Audience の食い違い、期限切れ、署名の不正など | Variable の `GATES_AUDIENCE` が `gates_audience` と同じかを確かめる |
-| `authorization_denied` | 許可オーナー以外のリポジトリか、要求できない権限の要求。または、保護対象を含み、Caller が許可 Caller に当たらないか、権限の上限を超える要求。原因は `reason` で見分ける | 「Reasons for authorization_denied」の表に従う |
+| `authorization_denied` | 許可オーナー以外のリポジトリか、要求できない権限の要求。または、保護対象を含み、Caller が許可 Caller に当たらないか、権限の上限を超える要求。リポジトリポリシーを適用するデプロイでは、リポジトリポリシーが許さない要求と、11 件以上のリポジトリの要求。原因は `reason` で見分ける | 「Reasons for authorization_denied」の表に従う |
 | `identity_verification_unavailable` | GitHub の OIDC の公開鍵を一時的に取得できない | 再実行で解消し得る。繰り返すなら [GitHub Status](https://www.githubstatus.com/) を見る |
 | `signing_unavailable` | AWS KMS の署名が一時的に失敗した | 再実行で解消し得る。`reason` が `ThrottlingException` で繰り返すなら、KMS のクォータを確かめる |
 | `installation_unavailable` | GATES が Installation を使えない。GitHub App のアンインストール（`status 404`）、Installation の停止（`installation is suspended`）、`github_app_client_id` の誤り、使用中の鍵と GitHub App の鍵の不一致、GitHub からの鍵の削除 | アンインストールなら、`Only select repositories` で再インストールする。停止なら、悪用への対処で意図して停止したものでないかを確かめてから解く。鍵の不一致は下記で確かめる |
-| `github_api_unavailable` | GitHub API が一時的に失敗した | 再実行で解消し得る。繰り返すなら GitHub Status を見る |
-| `github_issuance_rejected` | インストール対象にないか、存在しないリポジトリの要求。または、GitHub App に付与されていない権限か、付与された水準より高い水準の要求 | `request.repositories` を Installation の画面のリポジトリと比べる。`request.permissions` を GitHub App の Repository permissions と比べる。どちらも正しいのに拒否されるなら、`reason` の GitHub の request ID を控えて GitHub に問い合わせる |
-| `issuance_verification_failed` | GitHub が返したトークンが要求と合わない。`reason` が `protected repositories[<J>]` を含むなら、保護対象の名前と Repository ID の組が保護対象の一覧と食い違っている | `protected repositories[<J>]` を含むなら、「Protected Repository Mismatch」で保護対象の一覧を直す。含まないなら、`reason` と GitHub の request ID を控え、GATES の開発者に報告する。どちらも、`revocation` が `failed` なら、トークンは期限（発行から 1 時間）まで残り得る |
-| `internal_error` | ほかに当たらない失敗。使用中の KMS Key が使えない（無効、削除の予約、鍵素材のインポート前）、Lambda の権限の不足、Lambda の panic など | 下記で KMS Key の状態を確かめる。`Disabled` なら、悪用への対処や鍵の更新で意図して無効にしたものでないかを確かめてから有効にする。`PendingDeletion` なら削除の予約を取り消す。`PendingImport` なら [Key Material Import](import-key-material.md) で鍵素材をインポートする。panic なら、同じ `request_id` の `panic recovered` の行を見る |
+| `github_api_unavailable` | GitHub API が一時的に失敗した。リポジトリポリシーを適用するデプロイでは、リポジトリポリシーを読むトークンの発行か、リポジトリポリシーの読み取りが一時的に失敗した場合と、すべてのリポジトリのリポジトリポリシーの読み取りが時間内に終わらなかった場合も含む（`reason` が `issue policy read token: ` か `fetch repository policy: ` で始まる） | 再実行で解消し得る。繰り返すなら GitHub Status を見る |
+| `github_issuance_rejected` | インストール対象にないか、存在しないリポジトリの要求。または、GitHub App に付与されていない権限か、付与された水準より高い水準の要求。リポジトリポリシーを適用するデプロイで、GitHub App に `Single file` の権限が付与されていないか、Installation で承認されていない場合も、認可を通った要求はどれも `github_issuance_rejected` になる（`reason` が `issue policy read token: ` で始まる） | `request.repositories` を Installation の画面のリポジトリと比べる。`request.permissions` を GitHub App の Repository permissions と比べる。`reason` が `issue policy read token: ` で始まり、リポジトリが正しいなら、GitHub App の `Single file` の付与と承認を確かめる。どれも正しいのに拒否されるなら、`reason` の GitHub の request ID を控えて GitHub に問い合わせる |
+| `issuance_verification_failed` | GitHub が返したトークンが要求と合わない。`reason` が `protected repositories[<J>]` を含むなら、保護対象の名前と Repository ID の組が保護対象の一覧と食い違っている。`reason` が `single_file_paths` を含むなら、GitHub App の `Single file` のパスが `.github/gates-policy.yml` だけでない。`does not match the repository whose repository policy was read` を含むなら、リポジトリポリシーを読んだ直後に、そのリポジトリが作り直されたか、別のリポジトリがその名前になった | `protected repositories[<J>]` を含むなら、「Protected Repository Mismatch」で保護対象の一覧を直す。`single_file_paths` を含むなら、GitHub App の `Single file` のパスを `.github/gates-policy.yml` だけにする。リポジトリポリシーを読んだリポジトリとの食い違いは、再実行で解消し得る。どれでもないなら、`reason` と GitHub の request ID を控え、GATES の開発者に報告する。どの場合も、`revocation` が `failed` なら、トークンは期限（発行から 1 時間）まで残り得る。`reason` が `issue policy read token: ` で始まる照合失敗では、リポジトリポリシーを読むトークンの失効の結果が `policy_read_revocation` にあり、`failed` なら同じく残り得る |
+| `internal_error` | ほかに当たらない失敗。使用中の KMS Key が使えない（無効、削除の予約、鍵素材のインポート前）、Lambda の権限の不足、Lambda の panic など。リポジトリポリシーを適用するデプロイでは、リポジトリポリシーの読み取りに対して GitHub がファイルの有無を示さない応答を返した場合と、`.` か `..` という名前のリポジトリを要求した場合も含む（`reason` が `fetch repository policy: ` で始まる） | `reason` が `fetch repository policy: ` で始まるなら、`.` か `..` の名前の要求はワークフロー利用者に直してもらい、そうでなければ `reason` を控えて GATES の開発者に報告する。ほかは、下記で KMS Key の状態を確かめる。`Disabled` なら、悪用への対処や鍵の更新で意図して無効にしたものでないかを確かめてから有効にする。`PendingDeletion` なら削除の予約を取り消す。`PendingImport` なら [Key Material Import](import-key-material.md) で鍵素材をインポートする。panic なら、同じ `request_id` の `panic recovered` の行を見る |
 
 GitHub App に権限を加えた後に `github_issuance_rejected` か `issuance_verification_failed` が続くなら、Installation の設定画面に `Permission updates requested. Review request.` が出ていないかを確かめます。
 GitHub App に加えた権限は、Installation の側で承認するまで Installation に付与されません。
@@ -126,6 +126,24 @@ Caller のリポジトリの完全名は `claims_set.repository` に、Repositor
 | `...: permissions are not within the permission limit of callers[<K>]` | 許可 Caller の権限の上限が許さない権限名か水準を要求した | ワークフロー利用者に要求を直してもらうか、権限の上限を広げるかを判断する |
 
 一覧を直したら、`make tf-plan` で差分を確かめてから適用します。
+
+リポジトリポリシーを適用するデプロイでは、次の文言も現れます。
+リポジトリポリシーで拒否したときは、続く文言が `repositories[<I>]: ` で始まります。
+`reason` にはリポジトリポリシーの内容も行の位置も出ません。
+運用者は、`request.repositories` の `<I>` 番目のリポジトリの管理者に、そのリポジトリと、Caller のリポジトリ（`claims_set.repository`）と Repository ID（`caller.repository_id`）を伝え、ファイルを [Repository Policy](repository-policy.md) に照らして確かめてもらいます。
+
+| `authorization denied: ` に続く文言 | 原因 | 直し方 |
+|---|---|---|
+| `repositories count exceeds the limit under repository policy enforcement` | 11 件以上のリポジトリを要求した | ワークフロー利用者に、要求を 10 件以下に分けてもらう |
+| `repositories[<I>]: repository policy is not found` | リポジトリポリシーがない | リポジトリの管理者に、既定ブランチの `.github/gates-policy.yml` に置いてもらう |
+| `repositories[<I>]: repository policy is not a file` | パスにあるのがディレクトリか、存在しない先へのシンボリックリンク | リポジトリの管理者に、ファイルとして置き直してもらう |
+| `repositories[<I>]: repository policy is too large` | リポジトリポリシーが 64 KiB を超える | リポジトリの管理者に、許可 Caller を減らしてもらう |
+| `repositories[<I>]: repository policy is invalid` | 書式か内容に誤りがある。どこが誤りかは記録されない | リポジトリの管理者に、ファイルを Repository Policy に照らして直してもらう |
+| `repositories[<I>]: repository policy lists no allowed callers` | `callers: []` で、どの Caller も許していない | リポジトリの管理者に、許すかを判断してもらう |
+| `repositories[<I>]: repository policy has no allowed caller matching both the caller repository id and name` | Caller を許していない | リポジトリの管理者に、許すかを判断してもらう |
+| `repositories[<I>]: repository policy has an allowed caller matching the caller repository id but not the name` | 許可 Caller の Repository ID は一致し、名前が一致しない。Caller のリポジトリを改名したか、名前を書き誤った | リポジトリの管理者に、`repository_name` を `claims_set.repository` のリポジトリ名に直してもらう |
+| `repositories[<I>]: repository policy has an allowed caller matching the caller repository name but not the id` | 許可 Caller の名前は一致し、Repository ID が一致しない。Caller のリポジトリを削除して作り直したか、ID を書き誤った | リポジトリの管理者に、`caller.repository_id` のリポジトリを許してよいかを確かめてもらい、許すなら `repository_id` をその値に直してもらう |
+| `repositories[<I>]: permissions are not within the permission limit of the repository policy` | 許可 Caller の権限の上限が許さない権限名か水準を要求した | ワークフロー利用者に要求を直してもらうか、リポジトリの管理者に権限の上限を広げるかを判断してもらう |
 
 ### 4.2 Protected Repository Mismatch
 

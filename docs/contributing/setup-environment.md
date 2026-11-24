@@ -24,7 +24,7 @@ Deployment の Repository permissions は、[E2E Tests](e2e-tests.md) の事例�
 | `Issues` | `Read and write` | 書き込みの水準の発行、複数の権限の発行、水準の包含 |
 | `Commit statuses` | `Read-only` | GitHub App に付与されていて、発行上限に含まれない `statuses:read` の要求の拒否 |
 | `Pull requests` | 付与しない | 発行上限に含まれて、付与されていない `pull_requests:read` の要求の拒否 |
-| `Single file` | `Read-only`、パスは `.github/gates-policy.yml` だけ | `single_file:read` の発行と、そのトークンで読める範囲の調査（[GitHub Single File Permission](../research/github/single-file.md)） |
+| `Single file` | `Read-only`、パスは `.github/gates-policy.yml` だけ | リポジトリポリシーの読み取り。`single_file:read` の要求がリポジトリポリシーだけで拒否されること |
 
 `Single file` のパスを `.github/gates-policy.yml` のほかに加えると、`single_file:read` のトークンで読めるファイルが増えるため、加えません。
 
@@ -35,8 +35,9 @@ Deployment の Repository permissions は、[E2E Tests](e2e-tests.md) の事例�
 
 ## 2. Repositories to Install
 
-Deployment のインストール対象には、[E2E Tests](e2e-tests.md) が読み取りと一時的な ref の作成を試すリポジトリだけを加えます。
-E2E テストは、インストール対象の 2 つの非公開リポジトリと、インストール対象に含めない許可オーナーの公開リポジトリを使います。
+Deployment のインストール対象には、[E2E Tests](e2e-tests.md) が使うリポジトリだけを加えます。
+E2E テストは、インストール対象の 3 つの非公開リポジトリと、インストール対象に含めない許可オーナーの公開リポジトリを使います。
+3 つ目のリポジトリは、リポジトリポリシーのない対象への要求の拒否だけに使います。
 どのリポジトリをどの Variables に登録するかは、E2E Tests の Setup にあります。
 
 GATES を呼び出す試験用のリポジトリそのものは、インストール対象に含めません。
@@ -55,6 +56,7 @@ issuable_permissions = [
   "issues:write",
   "pull_requests:read",
   "single_file:read",
+  "actions:read",
 ]
 ```
 
@@ -62,7 +64,8 @@ issuable_permissions = [
 - **`contents:read`**：`contents` は `read` だけを含め、`contents:write` の要求が GitHub に届く前に拒否されることを確かめる
 - **`pull_requests:read`**：GitHub App に付与しないが発行上限に含め、GATES の認可で止めずに GitHub に届け、GitHub App の権限による拒否を確かめる
 - GitHub App に付与した `statuses:read` は発行上限に含めず、発行上限による拒否を確かめる
-- **`single_file:read`**：検証用リポジトリのワークフローから、`single_file:read` だけのトークンを GATES を通して発行し、Single file の振る舞いを調べるために含める
+- **`single_file:read`**：保護対象の一覧は許し、1 つ目の対象のリポジトリポリシーは許さない権限として、リポジトリポリシーだけによる拒否を確かめる
+- **`actions:read`**：GitHub App に付与しないが発行上限に含め、1 つ目の対象のリポジトリポリシーは許し、保護対象の一覧は許さない権限として、保護対象の一覧だけによる拒否を確かめる
 
 保護対象の一覧は、1 つ目の対象を保護対象にして試験用のリポジトリを許可 Caller にし、ほかは一覧にだけある実在しないリポジトリの名前にします。
 
@@ -124,6 +127,45 @@ Repository ID は `gh api repos/<オーナー>/<リポジトリ> --jq .id` で�
 上限から外れた権限を要求する事例は、保護対象の条件で拒否されて結果が変わるためです。
 2 つ目の対象は保護対象にせず、保護対象でない対象への要求と、保護対象と混ぜた要求を確かめます。
 事例と一覧の対応は [E2E Tests](e2e-tests.md) の Success Cases と Protected Repositories Cases にあります。
+
+リポジトリポリシーは適用する設定に固定します。
+
+```hcl
+repository_policy_enforcement = true
+```
+
+1 つ目と 2 つ目の対象の既定ブランチには、試験用のリポジトリを許可 Caller にしたリポジトリポリシーを、`.github/gates-policy.yml` に置きます。
+3 つ目の対象には置きません。
+1 つ目の対象の権限の上限は、保護対象の一覧の許可 Caller の上限と違う組にし、片方だけが許す権限を作ります。
+
+```yaml
+# 1 つ目の対象
+callers:
+  - repository_id: "<試験用のリポジトリの Repository ID>"
+    repository_name: <試験用のリポジトリのリポジトリ名>
+    permissions:
+      contents: read
+      metadata: read
+      issues: write
+      pull_requests: read
+      actions: read
+```
+
+```yaml
+# 2 つ目の対象
+callers:
+  - repository_id: "<試験用のリポジトリの Repository ID>"
+    repository_name: <試験用のリポジトリのリポジトリ名>
+    permissions:
+      contents: read
+      metadata: read
+      issues: read
+```
+
+1 つ目の対象のリポジトリポリシーは、E2E テストの事例が 1 つ目の対象に要求する権限のうち、`single_file:read` 以外をすべて含めます。
+`pull_requests:read` は、Payload の拒否の事例を GitHub の `422` まで届けるために要ります。
+2 つ目の対象の `issues` を `read` にするのは、`issues:write` の要求をリポジトリポリシーの権限の上限で拒否させるためです。
+事例とリポジトリポリシーの対応は [E2E Tests](e2e-tests.md) の Repository Policy Cases にあります。
 
 接続情報のほかに E2E テストが使う Variables は、E2E Tests の Setup にあります。
 

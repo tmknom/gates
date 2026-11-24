@@ -713,7 +713,7 @@ GitHub API は SDK を使わず、Go 標準ライブラリの HTTP クライア�
 読めるファイルのパスに `single_file_paths` を使うのは、パスの集合を表すキーだからです。
 パスに `README.md` を指定した記録では、発行応答に `single_file`（文字列）、`has_multiple_single_files`、`single_file_paths`（配列）が現れました（[GitHub App Constraints](../external/github/app.md) §4.4、§4.5）。
 `single_file` は一つのパスしか表せず、GitHub App に複数のパスを指定したときに、ほかのパスを読めることを見落とし得ます。
-パスを `.github/gates-policy.yml` にしたときの値は記録していません（同 §4.5）。
+パスを `.github/gates-policy.yml` だけにした Installation では、この照合を通ってリポジトリポリシーを読めたため、値は `[".github/gates-policy.yml"]` だったと推論できます（同 §4.5）。
 値が予想と違っても、照合はトークンを返さずに照合失敗で終わります。
 大文字と小文字を区別して比べるのは、大文字にしたパスの取得が `403` だったためです（同 §4.5）。
 

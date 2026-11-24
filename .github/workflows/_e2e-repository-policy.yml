@@ -1,0 +1,292 @@
+name: E2E Repository Policy
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+# 同じ Lambda を呼ぶ E2E テストを重ねない
+concurrency:
+  group: gates-e2e
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+# リポジトリポリシーを適用する検証環境で、対象ごとのリポジトリポリシーの内容の違いから、許可と拒否を確かめる。
+# 対象に置くリポジトリポリシーと事例は docs/contributing/e2e-tests.md の Repository Policy Cases にある
+jobs:
+  allow:
+    name: Allow (${{ matrix.case }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        # targets は対象の並び、output は期待する Output の permissions
+        include:
+          # リポジトリポリシーの権限の上限と同じ水準
+          - { case: same-level, targets: "secondary", permissions: "contents:read", output: "contents:read,metadata:read" }
+          # 権限の上限（issues:write）より低い水準
+          - { case: lower-level, targets: "primary", permissions: "issues:read", output: "issues:read,metadata:read" }
+          # 保護対象と保護対象でない対象の両方のリポジトリポリシーが許す
+          - { case: multiple, targets: "primary,secondary", permissions: "contents:read", output: "contents:read,metadata:read" }
+    steps:
+      - name: Prepare repositories
+        id: input
+        env:
+          TARGETS: ${{ matrix.targets }}
+          PRIMARY: ${{ vars.GATES_TARGET_PRIMARY }}
+          SECONDARY: ${{ vars.GATES_TARGET_SECONDARY }}
+        run: |
+          set -euo pipefail
+          repositories=()
+          IFS=',' read -ra targets <<< "${TARGETS}"
+          for target in "${targets[@]}"; do
+            case "${target}" in
+              primary) repositories+=("${PRIMARY}") ;;
+              secondary) repositories+=("${SECONDARY}") ;;
+              *) echo "::error::unknown target: ${target}"; exit 1 ;;
+            esac
+          done
+          echo "repositories=$(IFS=','; echo "${repositories[*]}")" >> "${GITHUB_OUTPUT}"
+
+      - name: Issue token
+        id: gates
+        uses: tmknom/gates/actions/issue-token@8990cb90e2dea67260f1fb4da9372fc107d14b75
+        with:
+          repositories: ${{ steps.input.outputs.repositories }}
+          permissions: ${{ matrix.permissions }}
+          role-arn: arn:aws:iam::${{ secrets.GATES_AWS_ACCOUNT_ID }}:role/${{ vars.GATES_ROLE_NAME }}
+          function-name: ${{ vars.GATES_FUNCTION_NAME }}
+          aws-region: ${{ vars.GATES_AWS_REGION }}
+          audience: ${{ vars.GATES_AUDIENCE }}
+
+      # トークンから見える対象と Output を確かめる。トークンの値は出さない
+      - name: Check token scope
+        env:
+          GH_TOKEN: ${{ steps.gates.outputs.token }}
+          EXPECTED: ${{ steps.input.outputs.repositories }}
+          OUTPUT_REPOSITORIES: ${{ steps.gates.outputs.repositories }}
+          OUTPUT_PERMISSIONS: ${{ steps.gates.outputs.permissions }}
+          WANT_PERMISSIONS: ${{ matrix.output }}
+        run: |
+          set -euo pipefail
+          failed=0
+          fail() {
+            echo "::error::$1"
+            failed=1
+          }
+          want="$(tr ',' '\n' <<< "${EXPECTED}" | sort | paste -sd ',')"
+
+          if listing="$(gh api 'installation/repositories?per_page=100' 2> /dev/null)"; then
+            total="$(jq -r '.total_count' <<< "${listing}")"
+            visible="$(jq -r '.repositories[].full_name' <<< "${listing}" | sort | paste -sd ',')"
+            echo "visible repositories: total_count=${total} full_name=${visible}"
+            [[ "${visible}" == "${want}" ]] || fail "the visible repositories do not match the requested repositories"
+          else
+            fail "cannot list the repositories of the token"
+          fi
+
+          output="$(tr ',' '\n' <<< "${OUTPUT_REPOSITORIES}" | sort | paste -sd ',')"
+          echo "output repositories: ${output}"
+          echo "output permissions: ${OUTPUT_PERMISSIONS}"
+          [[ "${output}" == "${want}" ]] || fail "the output repositories do not match the requested repositories"
+          [[ "${OUTPUT_PERMISSIONS}" == "${WANT_PERMISSIONS}" ]] || fail "the output permissions are not ${WANT_PERMISSIONS}"
+          exit "${failed}"
+
+  deny:
+    name: Deny (${{ matrix.case }})
+    needs: allow
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        # targets は対象の並び。primary は保護対象で、secondary と no-policy は保護対象でない。
+        # no-policy はリポジトリポリシーを置かない Installation の対象、gates-e2e- で始まる名前は実在しないリポジトリである
+        include:
+          # secondary のリポジトリポリシーは issues を read までしか許さない。発行上限は issues:write を含む
+          - { case: above-policy-limit, targets: "secondary", permissions: "issues:write" }
+          # 2 つ目の対象だけが拒否し、要求の全体を拒否する
+          - { case: mixed-above-policy-limit, targets: "primary,secondary", permissions: "issues:write" }
+          # 保護対象の一覧と発行上限は single_file:read を許し、primary のリポジトリポリシーだけが許さない
+          - { case: policy-only, targets: "primary", permissions: "single_file:read" }
+          # 発行上限と primary のリポジトリポリシーは actions:read を許し、保護対象の一覧だけが許さない。
+          # 保護対象の一覧で止まらなければ、GitHub App に付与していないため GitHub の 422 になる
+          - { case: protected-only, targets: "primary", permissions: "actions:read" }
+          # リポジトリポリシーのない対象は、どの Caller の要求も拒否する
+          - { case: no-policy, targets: "no-policy", permissions: "contents:read" }
+          - { case: mixed-no-policy, targets: "primary,no-policy", permissions: "contents:read" }
+          # 適用するデプロイの対象の件数の上限（10 件）を超える。KMS と GitHub API に進まない
+          - { case: too-many-repositories, targets: "gates-e2e-r1,gates-e2e-r2,gates-e2e-r3,gates-e2e-r4,gates-e2e-r5,gates-e2e-r6,gates-e2e-r7,gates-e2e-r8,gates-e2e-r9,gates-e2e-r10,gates-e2e-r11", permissions: "contents:read" }
+    steps:
+      - name: Prepare repositories
+        id: input
+        env:
+          TARGETS: ${{ matrix.targets }}
+          PRIMARY: ${{ vars.GATES_TARGET_PRIMARY }}
+          SECONDARY: ${{ vars.GATES_TARGET_SECONDARY }}
+          NO_POLICY: ${{ vars.GATES_TARGET_NO_POLICY }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          repositories=()
+          IFS=',' read -ra targets <<< "${TARGETS}"
+          for target in "${targets[@]}"; do
+            case "${target}" in
+              primary) repositories+=("${PRIMARY}") ;;
+              secondary) repositories+=("${SECONDARY}") ;;
+              no-policy) repositories+=("${NO_POLICY}") ;;
+              gates-e2e-*) repositories+=("${OWNER}/${target}") ;;
+              *) echo "::error::unknown target: ${target}"; exit 1 ;;
+            esac
+          done
+          echo "repositories=$(IFS=','; echo "${repositories[*]}")" >> "${GITHUB_OUTPUT}"
+
+      - name: Issue token
+        id: gates
+        continue-on-error: true
+        uses: tmknom/gates/actions/issue-token@8990cb90e2dea67260f1fb4da9372fc107d14b75
+        with:
+          repositories: ${{ steps.input.outputs.repositories }}
+          permissions: ${{ matrix.permissions }}
+          role-arn: arn:aws:iam::${{ secrets.GATES_AWS_ACCOUNT_ID }}:role/${{ vars.GATES_ROLE_NAME }}
+          function-name: ${{ vars.GATES_FUNCTION_NAME }}
+          aws-region: ${{ vars.GATES_AWS_REGION }}
+          audience: ${{ vars.GATES_AUDIENCE }}
+
+      # どの事例も Action が失敗し、Output が空であることを確かめる。値は出さず長さだけを出す
+      - name: Check result
+        env:
+          OUTCOME: ${{ steps.gates.outcome }}
+          GH_TOKEN: ${{ steps.gates.outputs.token }}
+          EXPIRES_AT: ${{ steps.gates.outputs.expires-at }}
+          OUTPUT_REPOSITORIES: ${{ steps.gates.outputs.repositories }}
+          OUTPUT_PERMISSIONS: ${{ steps.gates.outputs.permissions }}
+        run: |
+          set -euo pipefail
+          echo "outcome: ${OUTCOME}"
+          failed=0
+          fail() {
+            echo "::error::$1"
+            failed=1
+          }
+          [[ "${OUTCOME}" == "failure" ]] || fail "the Action did not fail"
+          for name in GH_TOKEN EXPIRES_AT OUTPUT_REPOSITORIES OUTPUT_PERMISSIONS; do
+            value="${!name}"
+            echo "${name} length: ${#value}"
+            [[ -z "${value}" ]] || fail "${name} is not empty"
+          done
+          exit "${failed}"
+
+  # 許可の事例では post-entrypoint が失効させたこと、拒否の事例では authorization_denied の注釈と、
+  # post-entrypoint が失効を試みずに終えたことを、ジョブのログで確かめる。一致した行は出さず、件数と GATES の request_id だけを出す
+  logs:
+    name: Check job logs
+    needs: [allow, deny]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+    steps:
+      - name: Check annotations and post-entrypoint
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          # authorization_denied の固定の文言（docs/design/lambda.md）
+          message='The requested token is not permitted\.'
+
+          jobs_json="$(gh api --paginate "repos/${REPOSITORY}/actions/runs/${RUN_ID}/attempts/${RUN_ATTEMPT}/jobs" --jq '.jobs[]')"
+
+          # ログは色付けのエスケープシーケンスを含み、gh api はその出力を拒否するため curl で取得する。
+          # ジョブの完了の直後はログを取得できないことがあるため、空でないログを得るまで待つ
+          fetch_log() {
+            local log
+            for _ in 1 2 3 4 5 6; do
+              if log="$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+                "${GITHUB_API_URL}/repos/${REPOSITORY}/actions/jobs/$1/logs")" && [[ -n "${log}" ]]; then
+                printf '%s' "${log}"
+                return 0
+              fi
+              sleep 10
+            done
+            return 1
+          }
+          count() {
+            grep -c -E -e "$1" <<< "$2" || true
+          }
+
+          failed=0
+          report() {
+            echo "::error::$1"
+            failed=1
+          }
+          check() {
+            local name="$1" kind="$2" job log invoking post revocation succeeded warning outcome request_id
+            job="$(jq -c --arg name "${name}" 'select(.name == $name)' <<< "${jobs_json}")"
+            if [[ -z "${job}" ]]; then
+              report "${name}: no job"
+              return
+            fi
+            if ! log="$(fetch_log "$(jq -r '.id' <<< "${job}")")"; then
+              report "${name}: cannot fetch the log"
+              return
+            fi
+
+            invoking="$(count 'Invoking the Lambda function at ' "${log}")"
+            post="$(count '--entrypoint "/revoke-token"' "${log}")"
+            revocation="$(count 'revocation (succeeded|failed)' "${log}")"
+            succeeded="$(count 'revocation succeeded: HTTP status 204' "${log}")"
+            warning="$(count '##\[warning\]' "${log}")"
+            outcome="$(count "##\[error\]GATES returned a failure response: error code \"authorization_denied\", message \"${message}\", request id \"[^\"]+\"" "${log}")"
+            echo "${name}: outcome ${outcome}, invoking ${invoking}, post-entrypoint ${post}, revocation ${revocation}, succeeded ${succeeded}, warning ${warning}"
+            [[ "${invoking}" == 1 ]] || report "${name}: the Lambda function was not invoked once"
+            [[ "${post}" == 1 ]] || report "${name}: the post-entrypoint did not run"
+            [[ "${warning}" == 0 ]] || report "${name}: a warning was written"
+            if [[ "${kind}" == allow ]]; then
+              [[ "${outcome}" == 0 ]] || report "${name}: an authorization_denied annotation was written"
+              [[ "${revocation}" == 1 && "${succeeded}" == 1 ]] || report "${name}: the token was not revoked once"
+            else
+              [[ "${outcome}" -ge 1 ]] || report "${name}: the authorization_denied annotation is missing"
+              [[ "${revocation}" == 0 ]] || report "${name}: a revocation was attempted"
+            fi
+
+            # GATES の request_id は資格情報ではなく、監査記録を引くために出す
+            request_id="$(grep -o -E 'request_id=[^ ]+|request id "[^"]+"' <<< "${log}" | head -n 1 || true)"
+            [[ -z "${request_id}" ]] || echo "${name}: ${request_id}"
+          }
+
+          for case in same-level lower-level multiple; do
+            check "Allow (${case})" allow
+          done
+          for case in above-policy-limit mixed-above-policy-limit policy-only protected-only \
+            no-policy mixed-no-policy too-many-repositories; do
+            check "Deny (${case})" deny
+          done
+          if [[ "${failed}" != 0 ]]; then
+            echo "::error::at least one case is not as expected"
+            exit 1
+          fi
+
+  credential-leak:
+    name: Credential leak
+    needs: [allow, deny, logs]
+    if: ${{ always() }}
+    permissions:
+      actions: read
+    uses: ./.github/workflows/_e2e-reusable-credential-leak.yml

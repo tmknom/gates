@@ -6,6 +6,7 @@
 |---|---|
 | インストール対象と、GitHub App の権限と発行上限を変える | 操作させたいリポジトリか、ワークフローに要る権限が変わったとき |
 | 保護対象の一覧を変える | 守りたいリポジトリか、それを要求するワークフローが変わったとき。保護対象か許可 Caller のリポジトリを改名したとき |
+| リポジトリポリシーの適用を切り替える | トークンで操作されるリポジトリの管理者に、自分のリポジトリの許可 Caller と権限の上限を決めさせたいとき |
 | 監査記録を確かめる | 定期的に。失敗や悪用の疑いを調べるとき |
 | `terraform.tfvars` の値を変える | Audience、同時実行数、保持期間を変えるとき。許可オーナーが改名したとき |
 | GATES を新しいリリースに更新する | 新しいリリースが出たとき |
@@ -26,9 +27,13 @@ GATES の設定は変えません。
 3. `Select repositories` で、リポジトリを加えるか外す
 4. `Save` をクリックする
 
-加えるのは、許可オーナーのどのワークフローから操作されてもよいリポジトリだけです。
+リポジトリポリシーを適用しないデプロイでは、許可オーナーのどのワークフローから操作されてもよいリポジトリだけを加えます。
 一部のワークフローからだけ操作させたいリポジトリは、先に §1.3 で保護対象にして適用してから加えます。
 保護対象の一覧にないリポジトリは、加えた時点から、許可オーナーのどのワークフローも要求できるためです。
+
+リポジトリポリシーを適用するデプロイでは、加えたリポジトリは、その管理者がリポジトリポリシーを置くまで、どのワークフローからも要求できません。
+加えたことを、そのリポジトリの管理者に伝えます。
+
 変更は、1 分ほどで発行に反映されます。
 
 **外したリポジトリを要求するワークフローは、ほかのリポジトリと一緒に要求していても、要求全体が失敗します。**
@@ -68,6 +73,8 @@ GATES の設定は変えません。
 
 **保護対象の一覧の変更も、保護対象を要求できるワークフローと権限を変える、認可境界の変更です。**
 保護対象を加える、外す、許可 Caller を加える、外す、権限の上限を変える、のどれも同じ手順で行います。
+リポジトリポリシーを適用するデプロイでは、保護対象への要求には、そのリポジトリのリポジトリポリシーの許可も要ります。
+許可 Caller を加えたら、保護対象のリポジトリの管理者にも、リポジトリポリシーで同じ Caller を許してもらいます。
 
 1. 保護対象を加えるか、許可 Caller を外すか、権限の上限を狭めるときは、先に監査記録（§2.2）で、その保護対象を要求しているワークフローを調べる。許されなくなる要求は、ほかのリポジトリと一緒に要求していても全体が失敗するため、ワークフロー利用者に直してもらうか、そのワークフローのリポジトリを許可 Caller に加える
 2. `terraform.tfvars` の `protected_repositories` を変える。書き方と、`make tf-plan` を通っても Lambda の関数が初期化に失敗する誤りは、[Deployment](deployment.md) の「Protected Repositories」にある
@@ -108,6 +115,34 @@ GATES の設定は変えません。
 許可 Caller のリポジトリを削除して同じ名前で作り直したときも、新しいリポジトリは許可を引き継がず、要求は `authorization_denied` になります。
 許可するなら、新しい Repository ID を調べて `repository_id` を直します。
 
+### 1.6 Switching to Repository Policy Enforcement
+
+**切り替えた時点で、リポジトリポリシーのないリポジトリへの発行がすべて止まります。**
+拒否せずに記録だけする試行の段階はないため、先にリポジトリポリシーを置いてから切り替えます。
+
+1. インストール対象のリポジトリの管理者に、[Repository Policy](repository-policy.md) を示して、切り替えの時期を伝える。保護対象にも、リポジトリポリシーが要る
+2. GitHub App の設定ページの `Permissions & events` で、Repository permissions の `Single file` を `Read-only` にし、パスに `.github/gates-policy.yml` だけを書いて、`Save changes` をクリックする
+3. Installation の設定画面の `Review request` から、`Single file` を承認する。承認しないまま切り替えると、認可を通った要求はどれも `github_issuance_rejected` になる
+4. 各リポジトリの管理者に、既定ブランチにリポジトリポリシーを置いてもらう。置いたかは、リポジトリごとに次のコマンドが `file` を出力することで確かめる
+
+    ```bash
+    gh api repos/<オーナー名>/<リポジトリ名>/contents/.github/gates-policy.yml --jq .type
+    ```
+
+5. 監査記録（§2.2）で、11 件以上のリポジトリを一度に要求しているワークフローがないかを確かめる。あれば、ワークフロー利用者に要求を 10 件以下に分けてもらう
+6. `terraform.tfvars` の `repository_policy_enforcement` を `true` にする
+7. `make tf-plan` が、`aws_lambda_function.gates` の環境変数 `GATES_REPOSITORY_POLICY_ENFORCEMENT` の `"false"` から `"true"` への変更だけを示すことを確かめ、適用する
+8. リポジトリポリシーを置いたリポジトリを要求するワークフローを実行し、発行が成功することを確かめる
+
+**適用しないデプロイに戻ると、保護対象でないリポジトリは、再び許可オーナーのどのワークフローからも要求できるようになります。**
+切り戻す前に、インストール対象を、許可オーナーのどのワークフローから操作されてもよいリポジトリと保護対象だけにします。
+そのうえで、`repository_policy_enforcement` を `false` にし、`make tf-plan` が `aws_lambda_function.gates` の環境変数 `GATES_REPOSITORY_POLICY_ENFORCEMENT` の `"true"` から `"false"` への変更だけを示すことを確かめて適用します。
+GitHub App の `Single file` は、適用しないデプロイでは使わないため、戻したまま使い続けるなら外します。
+
+切り替えた後は、リポジトリポリシーの変更も認可境界の変更です。
+ただし、変更するのは既定ブランチに書き込める人と、`contents:write` か `administration:write` を許された Caller で、運用者のレビューと Plan を経ません。
+リポジトリポリシーで越えさせたくない上限があるリポジトリは、保護対象にして、保護対象の一覧で上限を決めます。
+
 ## 2. Reviewing Audit Records
 
 ### 2.1 Where the Records Are
@@ -128,6 +163,7 @@ GATES の設定は変えません。
 | `request.repositories` | 要求したリポジトリ。要求の表記のまま記録される |
 | `request.permissions` | 要求した権限。権限名をキー、水準を値とするオブジェクト（`{"contents":"write","pull_requests":"read"}` など） |
 | `revocation` | GitHub が発行したトークンを照合で返さなかったときの、失効の結果（`succeeded`、`failed`、`not_attempted`） |
+| `policy_read_revocation` | リポジトリポリシーを適用するデプロイで、リポジトリポリシーを読むために GATES が取得したトークンの失効の結果（`succeeded`、`failed`、`not_attempted`）。GATES がそのトークンの発行を GitHub に求めなかった要求にはない |
 | `claims_set.head_ref` | Pull Request の元のブランチ名 |
 | `claims_set.repository` | 呼び出し元のリポジトリの完全名。一覧の許可 Caller の `repository_name` と見比べるのに使う |
 
@@ -202,6 +238,33 @@ aws logs filter-log-events --log-group-name /aws/lambda/gates \
       | [.time, .reason, .claims_set.repository, .caller.workflow_ref, .caller.run_id] | @tsv'
 ```
 
+リポジトリポリシーで拒否した要求を出します。
+`reason` の `repositories[<I>]` は `request.repositories` の 0 から数えた位置で、続く文言が拒否の理由（ファイルがない、不正、Caller が許されていない、権限の上限を超える）を示します。
+リポジトリポリシーの内容は記録されないため、理由が示す誤りがないか、そのリポジトリの管理者にリポジトリポリシーを確かめてもらいます。
+
+```bash
+aws logs filter-log-events --log-group-name /aws/lambda/gates \
+  --start-time <開始> --end-time <終了> \
+  --filter-pattern '{ $.msg = "audit record" && $.result = "authorization_denied" }' \
+  --query 'events[].message' --output json \
+  | jq -r '.[] | fromjson
+      | select(.reason | test("repositories\\[[0-9]+\\]: (repository policy|permissions are not within the permission limit of the repository policy)"))
+      | [.time, .reason, (.request.repositories | join(",")), .claims_set.repository, .caller.run_id] | @tsv'
+```
+
+11 件以上のリポジトリを一度に要求したワークフローを出します。
+リポジトリポリシーを適用するデプロイでは、これらの要求は `authorization_denied` になります。
+
+```bash
+aws logs filter-log-events --log-group-name /aws/lambda/gates \
+  --start-time <開始> --end-time <終了> \
+  --filter-pattern '{ $.msg = "audit record" }' \
+  --query 'events[].message' --output json \
+  | jq -r '.[] | fromjson
+      | select((.request.repositories // []) | length > 10)
+      | [.time, .result, (.request.repositories | length), .caller.workflow_ref, .caller.run_id] | @tsv'
+```
+
 保護対象の名前と Repository ID が一覧と食い違って、トークンを返さなかった要求を出します。
 保護対象の改名か作り直しの後に一覧を直していないか、一覧の `id` か `name` を書き誤ったことを示します。
 
@@ -252,6 +315,7 @@ make tf-plan
 
 `kms_keys` と `active_kms_key` は、[Key Rotation](rotate-key.md) の手順で変えます。
 `issuable_permissions` は、§1.2 の手順で GitHub App の権限とあわせて変えます。
+`repository_policy_enforcement` は、§1.6 の手順で変えます。
 
 ### 3.2 Audience
 
@@ -307,6 +371,10 @@ git diff <更新前のバージョン> <更新後のバージョン> -- terrafor
 
 - **`protected_repositories` が必須になる**：既定値がないため、`terraform.tfvars` に書くまで `make tf-plan` が止まる。保護対象を置かないなら `repositories: []` を書く。書き方は [Deployment](deployment.md) の「Protected Repositories」にある。Plan は、`aws_lambda_function.gates` の `source_code_hash` に加えて、環境変数 `GATES_PROTECTED_REPOSITORIES` の追加を示す
 - **発行上限の高い水準が、低い水準の要求も許すようになる**：`contents:write` だけを含めた発行上限では、これまで拒否していた `contents:read` の要求も発行されるようになる。高い水準だけを含めた権限名ごとに、低い水準の要求が発行されてよいかを確かめる。`contents:read` と `contents:write` の両方を書いた発行上限は、`contents:write` だけを書いたものと同じ意味になる
+
+リポジトリポリシーを持たないリリースから更新するときは、次を確かめます。
+
+- **`repository_policy_enforcement` が必須になる**：既定値がないため、`terraform.tfvars` に書くまで `make tf-plan` が止まる。これまでと同じ動作にするなら `false` を書く。`true` にするなら、更新を終えてから §1.6 の手順で切り替える。Plan は、`aws_lambda_function.gates` の `source_code_hash` に加えて、環境変数 `GATES_REPOSITORY_POLICY_ENFORCEMENT` の追加と、`timeout` の 45 から 75 への変更を示す
 
 ### 4.3 Applying the New Release
 

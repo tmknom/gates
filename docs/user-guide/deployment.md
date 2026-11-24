@@ -71,7 +71,7 @@ Organization なら、Organization の `Settings` の `Developer settings` か�
 | GitHub App name | GitHub 全体で一意な名前 |
 | Homepage URL | 任意の URL（入力は必須） |
 | Webhook | `Active` のチェックを外す |
-| Repository permissions | 許可オーナーのワークフローが必要とする権限だけを、必要な水準で選ぶ。読むだけの権限は `Read-only` にする |
+| Repository permissions | 許可オーナーのワークフローが必要とする権限だけを、必要な水準で選ぶ。読むだけの権限は `Read-only` にする。リポジトリポリシーを適用するなら、`Single file` も加える（下記） |
 | Organization permissions | 何も選ばない |
 | Account permissions | 何も選ばない |
 | Enterprise permissions | 何も選ばない |
@@ -80,6 +80,11 @@ Organization なら、Organization の `Settings` の `Developer settings` か�
 **GitHub App に付与した権限は、発行上限が許すと、保護対象でないリポジトリに対して、許可オーナーのすべてのワークフローが要求できるようになります。**
 付与を避けるべき権限は、[Security Considerations](security-considerations.md) にあります。
 
+リポジトリポリシーを適用するか（§4.6）を、ここで決めます。
+適用するなら、Repository permissions の `Single file` を加え、表示される入力欄にパス `.github/gates-policy.yml` を一つだけ書きます。
+GATES はこの権限でリポジトリポリシーを読み、パスが違うか、ほかのパスもあると、どの要求にもトークンを返しません。
+**`Single file` は `Read-only` にします。** `Read and write` にすると、`single_file:write` のトークンでリポジトリポリシーを書き換えられるおそれがあります。
+
 `Create GitHub App` をクリックし、設定ページの `General` に表示される **Client ID** を控えます。
 
 ### 2.2 Installing the GitHub App
@@ -87,6 +92,8 @@ Organization なら、Organization の `Settings` の `Developer settings` か�
 設定ページの `Install App` から、許可オーナーの `Install` をクリックします。
 **`Only select repositories` を選び、許可オーナーのどのワークフローから操作されてもよいリポジトリだけを加えます。**
 一部のワークフローからだけ操作させたいリポジトリは、§4.5 で保護対象にするなら加えてかまいません。
+リポジトリポリシーを適用するなら、加えたリポジトリを要求できるのは、そのリポジトリポリシーの許可 Caller だけです。
+加えるかは、リポジトリポリシーで許す範囲で操作されてよいかで決めます。
 GATES は鍵素材をインポートするまで発行しないため、保護対象の一覧を適用する前に加えても、そのあいだにトークンは発行されません。
 
 ## 3. Getting and Verifying the Source
@@ -240,7 +247,21 @@ gh api repos/<オーナー名>/<リポジトリ名> --jq '[.id, .name] | @tsv'
 - 文字列以外に読める、引用符のない名前か権限がある（`name: 123`、`contents: true`）
 - BOM か、NEL（U+0085）、LS（U+2028）、PS（U+2029）の文字がある
 
-### 4.6 Other Variables
+### 4.6 Repository Policy Enforcement
+
+`repository_policy_enforcement` には、リポジトリポリシーを適用するなら `true` を、適用しないなら `false` を書きます。
+既定値はなく、書かないと `make tf-plan` が止まります。
+
+```hcl
+repository_policy_enforcement = true
+```
+
+- **`true`**：要求したどのリポジトリにも、そのリポジトリのリポジトリポリシーの許可が要る。リポジトリポリシーのないリポジトリは、どのワークフローにも発行しない。1 回の要求に含められるリポジトリは 10 件までになる。GitHub App に §2.1 の `Single file` が要る
+- **`false`**：リポジトリポリシーを読まない。保護対象にしていないリポジトリは、許可オーナーのどのワークフローからも要求できる
+
+どちらにするかは、[GATES Overview](overview.md) の、リポジトリポリシーの適用で変わることを読んで判断します。
+
+### 4.7 Other Variables
 
 次の変数は、既定のままでかまいません。
 
@@ -370,6 +391,18 @@ gh variable set GATES_AUDIENCE --repo <オーナー名>/<リポジトリ名> --b
 - **`<コミット>`**：チェックアウトしたタグのコミットの SHA（`git rev-parse HEAD` の出力）
 - **`contents:read`**：GitHub App の権限か発行上限が `contents:read` を許さないなら、両方が許す `read` の権限
 
+リポジトリポリシーを適用したなら、`example-owner/repo-a` に置き換えたリポジトリの既定ブランチに、リポジトリポリシー（`.github/gates-policy.yml`）を置きます。
+許可 Caller にはワークフローを置くリポジトリを書き、権限の上限には要求する権限を書きます。
+ワークフローを置くリポジトリの Repository ID と名前は、§4.5 のコマンドで調べます。
+
+```yaml
+callers:
+  - repository_id: "<ワークフローを置くリポジトリの Repository ID>"
+    repository_name: <ワークフローを置くリポジトリの名前>
+    permissions:
+      contents: read
+```
+
 ワークフローを既定のブランチに置いて実行します。
 
 ```bash
@@ -402,6 +435,8 @@ aws logs filter-log-events --log-group-name /aws/lambda/gates \
 
 ワークフロー利用者に、接続情報の名前、インストール対象、使える権限（GitHub App に付与し、発行上限が許す権限）、Action のコミットの SHA を伝えます。
 保護対象を置いたなら、保護対象と、それを要求できる許可 Caller のリポジトリと権限の上限も伝えます。
+リポジトリポリシーを適用したなら、ワークフロー利用者に、要求するリポジトリごとにリポジトリポリシーの許可が要ることを伝えます。
+インストール対象のリポジトリの管理者には、[Repository Policy](repository-policy.md) に従ってリポジトリポリシーを置いてもらいます。
 ほかのリポジトリで GATES を使うときは、そのリポジトリにも接続情報を登録します。
 デプロイの後の作業は [Operations](operations.md) にあります。
 

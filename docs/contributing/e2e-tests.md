@@ -16,6 +16,7 @@ E2E テストのワークフローは本リポジトリの `.github/workflows/` 
 | [_e2e-payload-rejection.yml](../../.github/workflows/_e2e-payload-rejection.yml) | Action を使わずに Lambda を直接 Invoke し、成功する Payload から 1 つの条件だけを変えた各事例を、GATES が定めたエラーコードと固定の文言で拒否し、トークンを返さないこと |
 | [_e2e-cancel.yml](../../.github/workflows/_e2e-cancel.yml) | 後続ステップが失敗したジョブと、後続ステップの実行中にキャンセルしたジョブで、post-entrypoint がトークンを失効させること。メインの処理の最中に SIGINT を受けた Action が、受けた時点に応じて終えること |
 | [_e2e-protected.yml](../../.github/workflows/_e2e-protected.yml) | 検証環境の固定の保護対象の一覧で、保護対象の条件を満たさない要求が、GitHub に届く前に認可拒否になり、Action の結果と注釈に表れること |
+| [_e2e-repository-policy.yml](../../.github/workflows/_e2e-repository-policy.yml) | 検証環境の対象に置いたリポジトリポリシーの内容の違いで、リポジトリポリシーが許す要求の発行と、リポジトリポリシーか保護対象の一覧の片方だけが許さない要求、リポジトリポリシーのない対象、対象の件数の上限による認可拒否 |
 | [_e2e-reusable-credential-leak.yml](../../.github/workflows/_e2e-reusable-credential-leak.yml) | ほかのワークフローから呼ばれ、同じワークフロー実行の完了したジョブのログ全体に、資格情報の文字列がないこと |
 
 ログの検索は、資格情報が漏れていないことを保証しません。
@@ -252,12 +253,52 @@ SIGINT が、Action がシグナルを扱い始める前に届いた可能性が
 - **保護対象を削除して同じ名前で作り直した後の要求**：Installation の対象を削除する必要がある
 - **不正な一覧のデプロイ**（[Acceptance Criteria](../spec/acceptance-criteria.md) の AC-AUTHZ-013）：検証環境の発行がすべて止まる
 
+### Repository Policy Cases
+
+`_e2e-repository-policy.yml` は、[Testing Environment Setup](setup-environment.md) のリポジトリポリシーを適用する設定と、対象ごとに置いたリポジトリポリシーで、許可と拒否を確かめます。
+事例は設定を切り替えずに、対象ごとのリポジトリポリシーの内容の違いで作ります。
+
+| 対象 | 保護対象 | リポジトリポリシーの権限の上限 |
+| --- | --- | --- |
+| 1 つ目の対象 | 保護対象（許可 Caller の上限は `contents:read`、`metadata:read`、`issues:write`、`pull_requests:read`、`single_file:read`） | `contents:read`、`metadata:read`、`issues:write`、`pull_requests:read`、`actions:read` |
+| 2 つ目の対象 | 保護対象でない | `contents:read`、`metadata:read`、`issues:read` |
+| 3 つ目の対象 | 保護対象でない | リポジトリポリシーを置かない |
+
+どのリポジトリポリシーも、試験用のリポジトリだけを許可 Caller にします。
+
+| 事例 | 対象 | `permissions` の入力 | 期待する結果 |
+| --- | --- | --- | --- |
+| `same-level` | 2 つ目の対象 | `contents:read` | 発行。権限の上限と同じ水準 |
+| `lower-level` | 1 つ目の対象 | `issues:read` | 発行。権限の上限（`issues:write`）より低い水準 |
+| `multiple` | 1 つ目と 2 つ目の対象 | `contents:read` | 発行。保護対象と保護対象でない対象の両方のリポジトリポリシーが許す |
+| `above-policy-limit` | 2 つ目の対象 | `issues:write` | 認可拒否。発行上限は許し、リポジトリポリシーの権限の上限が許さない |
+| `mixed-above-policy-limit` | 1 つ目と 2 つ目の対象 | `issues:write` | 認可拒否。2 つ目の対象だけが許さず、要求の全体を拒否する |
+| `policy-only` | 1 つ目の対象 | `single_file:read` | 認可拒否。発行上限と保護対象の一覧は許し、リポジトリポリシーだけが許さない |
+| `protected-only` | 1 つ目の対象 | `actions:read` | 認可拒否。発行上限とリポジトリポリシーは許し、保護対象の一覧だけが許さない |
+| `no-policy` | 3 つ目の対象 | `contents:read` | 認可拒否。リポジトリポリシーがない |
+| `mixed-no-policy` | 1 つ目と 3 つ目の対象 | `contents:read` | 認可拒否。リポジトリポリシーのない対象を含む要求の全体を拒否する |
+| `too-many-repositories` | 実在しない 11 件の名前 | `contents:read` | 認可拒否。適用するデプロイの対象の件数の上限（10 件）を超え、KMS と GitHub API に進まない |
+
+許可の事例は、トークンから見える対象と Output が要求と一致し、post-entrypoint が失効させたことを確かめます。
+拒否の事例は、Action が `authorization_denied` の注釈を書いて失敗し、Output が空で、Invoke が 1 回で、post-entrypoint が失効を試みないことを確かめます。
+`protected-only` の `actions:read` は、GitHub App に付与していないため、保護対象の一覧で止まらなければ GitHub の `422` になり、結果のエラーコードで区別できます。
+`policy-only` の `single_file:read` は、リポジトリポリシーで止まらなければ発行され、同じく区別できます。
+どの条件で拒否したかは、監査記録の `reason` で確かめます（[Checks](#checks)）。
+
+次の事例は、検証環境では起こさず、Lambda のローカルの試験と [Alloy Models](../../formal/alloy/README.md) で確かめています。
+
+- **Caller が許可 Caller に当たらないリポジトリポリシー**：試験用のリポジトリとは別の Caller が要る。許可 Caller の判定は保護対象の一覧と同じで、保護対象の一覧の側は Protected Repositories Cases が確かめている
+- **不正なリポジトリポリシー、ファイルでない、大きすぎるリポジトリポリシー**：対象のファイルを E2E のたびに書き換える必要がある
+- **リポジトリポリシーの取得の一時的な障害、レート制限、ポリシー読み取りトークンの失効の失敗と照合失敗**：起こす手段がない
+- **リポジトリポリシーを読んだ後の対象の作り直し**：Installation の対象を削除する必要がある
+- **リポジトリポリシーを適用しない設定のデプロイ**：検証環境の固定の設定を切り替える必要がある
+
 ## Setup
 
 試験用のリポジトリは、許可オーナーのリポジトリで、GitHub App のインストール先に含めません。
 GitHub Actions 用 IAM Role の信頼ポリシーは、不変 ID 入りの形式の `sub` だけを受け付けるため、試験用のリポジトリの OIDC の `sub` をその形式にしておきます（[AWS Infrastructure Design](../design/aws-infrastructure.md)）。
 ワークフローは試験用のリポジトリ自身を、要求していない対象として読めないことと、Installation の対象外として拒否されることを確かめるため、インストール先に含めると試験が失敗します。
-GitHub App のインストール先は、対象として使う 2 つのリポジトリだけにします。
+GitHub App のインストール先は、対象として使う 3 つのリポジトリだけにします。
 
 ワークフローを試験用のリポジトリの `.github/workflows/` に、試験用の Action を `.github/actions/` に写します。
 `_e2e-success.yml` は試験用の Action を相対パスで参照するためです。
@@ -288,6 +329,7 @@ on:
 | E2E Payload Rejection | `e2e/payload-rejection` |
 | E2E Cancel | `e2e/cancel` |
 | E2E Protected Repositories | `e2e/protected-repositories` |
+| E2E Repository Policy | `e2e/repository-policy` |
 
 
 試験用のリポジトリに、次の Secrets と Variables を登録します。
@@ -302,9 +344,11 @@ on:
 | `GATES_AUDIENCE` | Variables | `terraform.tfvars` の `gates_audience` |
 | `GATES_TARGET_PRIMARY` | Variables | GitHub App のインストール先の 1 つ目のリポジトリの完全名 |
 | `GATES_TARGET_SECONDARY` | Variables | GitHub App のインストール先の 2 つ目のリポジトリの完全名 |
+| `GATES_TARGET_NO_POLICY` | Variables | GitHub App のインストール先の 3 つ目のリポジトリの完全名。リポジトリポリシーを置かない |
 | `GATES_PUBLIC_UNINSTALLED` | Variables | 許可オーナーの公開リポジトリのうち、GitHub App のインストール先に含めないものの完全名 |
 
 対象のリポジトリと `GATES_PUBLIC_UNINSTALLED` のリポジトリには、それぞれ `README.md` を置きます。
+1 つ目と 2 つ目の対象には、[Testing Environment Setup](setup-environment.md) のリポジトリポリシーを置き、3 つ目の対象には置きません。
 トークンで読めるかを、`README.md` の取得のステータスで確かめるためです。
 対象のリポジトリは非公開にします。
 公開のリポジトリでは、権限のないトークンでも読める API があり、別の権限の読み取りの確認が意味を持たないためです。
@@ -322,7 +366,7 @@ on:
 
 | 変更した範囲 | 動かす E2E |
 | --- | --- |
-| Lambda のコード、`go.mod`、Terraform | Success、Failure、Payload Rejection、Protected Repositories |
+| Lambda のコード、`go.mod`、Terraform | Success、Failure、Payload Rejection、Protected Repositories、Repository Policy |
 | Docker Action | Success、Failure、Cancel、Interval |
 | E2E のワークフロー | 変えたワークフロー |
 
@@ -357,6 +401,8 @@ git push origin HEAD:e2e/failure
 | KMS の署名の数 | CloudTrail と CloudWatch Logs | Payload の拒否のワークフローの時間帯の KMS の `Sign` の記録が、`github_issuance_rejected` の事例の数（4）と一致する。ほかの事例は KMS と GitHub API に進まない |
 | 保護対象の事例の監査記録 | CloudWatch Logs | 保護対象の事例のワークフローの `request_id` ごとに `audit record` の行がちょうど 1 行あり、`result` が `authorization_denied` で、`installation` がなく、`request.permissions` が要求した水準のまま。`reason` は `matches protected repositories[` を含み、`caller-name-mismatch` は `matches the caller repository id but not the name`、`caller-id-mismatch` は `matches the caller repository name but not the id`、`no-allowed-callers` は `no allowed callers are listed`、`other-caller` と `mixed-other-caller` は `no allowed caller matches both the caller repository id and name`、上限を超えた 3 つの事例は `permissions are not within the permission limit` を含む。どの `reason` にも、保護対象と許可 Caller の ID と名前がない |
 | 保護対象の事例の KMS の署名の数 | CloudTrail と CloudWatch Logs | 保護対象の事例のワークフローの時間帯に、KMS の `Sign` の記録がない |
+| リポジトリポリシーの事例の監査記録 | CloudWatch Logs | リポジトリポリシーの事例のワークフローの `request_id` ごとに `audit record` の行がちょうど 1 行ある。許可の事例は `result` が `success`、拒否の事例は `authorization_denied`。`protected-only` と `too-many-repositories` を除くどの事例にも `installation` があり、`policy_read_revocation` が `succeeded`。`protected-only` と `too-many-repositories` には `installation` も `policy_read_revocation` もない。`reason` は、`above-policy-limit` と `policy-only` が `repositories[0]: permissions are not within the permission limit of the repository policy`、`mixed-above-policy-limit` が `repositories[1]: ` で始まる同じ文言、`no-policy` が `repositories[0]: repository policy is not found`、`mixed-no-policy` が `repositories[1]: repository policy is not found`、`protected-only` が `matches protected repositories[`、`too-many-repositories` が `repositories count exceeds the limit under repository policy enforcement` を含む。どの `reason` にも、リポジトリポリシーの許可 Caller の ID と名前がない |
+| 適用する設定の監査記録 | CloudWatch Logs | Success、Failure、Payload Rejection の監査記録のうち、`installation` のある記録には `policy_read_revocation` がある。`success` と、GitHub App に付与していない権限の `github_issuance_rejected`（`not-granted`、`partially-not-granted`）では `succeeded`、Installation の対象外の `github_issuance_rejected`（`installation`、`not-installed`、`partially-not-installed`）では、リポジトリポリシーを読むトークンの発行が拒否されるため `not_attempted` |
 | 資格情報の非記録 | CloudWatch Logs | 同じ時間帯のロググループに `ghs_`、`eyJ`、`ASIA`、`FwoG`、`IQoJ` の文字列がない |
 
 監査記録は、関数のロググループを `request_id` で検索して引きます。
@@ -402,7 +448,7 @@ Payload の拒否のワークフローの監査記録は、試験の時間帯の
 aws logs filter-log-events --log-group-name /aws/lambda/<GATES_FUNCTION_NAME> \
   --start-time <開始> --end-time <終了> --filter-pattern '"audit record"' \
   --query 'events[].message' --output json \
-  | jq -r '.[] | fromjson | [.request_id, .result, ([("claims_set", "caller", "request", "installation", "revocation") as $k | select(has($k)) | $k] | join(",")), .reason] | @tsv'
+  | jq -r '.[] | fromjson | [.request_id, .result, ([("claims_set", "caller", "request", "installation", "revocation", "policy_read_revocation") as $k | select(has($k)) | $k] | join(",")), .reason] | @tsv'
 ```
 
 ## Troubleshooting
