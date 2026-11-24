@@ -14,6 +14,15 @@ const revocationTimeout = 5 * time.Second
 // 失効の失敗は失敗の種別ではないため（Domain Model の「Operations」）、どの sentinel error でも包まない。
 // 成否はステータスだけで決まるため、応答本文は読まない。
 func (c *Client) Revoke(ctx context.Context, token InstallationAccessToken) error {
+	return c.revoke(ctx, token)
+}
+
+// RevokePolicyReadToken は、ポリシー読み取りトークンを、Revoke と同じ規則で失効させる。
+func (c *Client) RevokePolicyReadToken(ctx context.Context, token PolicyReadToken) error {
+	return c.revoke(ctx, token)
+}
+
+func (c *Client) revoke(ctx context.Context, token bearer) error {
 	ctx, cancel := context.WithTimeout(ctx, revocationTimeout)
 	defer cancel()
 

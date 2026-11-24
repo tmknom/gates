@@ -232,6 +232,128 @@ func TestVerify_RejectsProtectedRepositoryMismatch(t *testing.T) {
 	}
 }
 
+// 実効対象は要求と逆の順で、一方は大文字小文字だけが異なる。照合済みの値は、ポリシー読み取り許可の対象の順と表記で、対応する Repository ID を持つ。
+//
+//trace:checks AC-ISSUANCE-011
+func TestVerifyPolicyReadToken_ReturnsVerifiedPolicyReadToken(t *testing.T) {
+	result := issuePolicyRead(t, marshal(t, recordedPolicyReadIssuance()))
+
+	got, err := verifyPolicyReadToken(result, policyReadGrant(t), allowedOwner(t), noProtectedRepositories(t), now)
+	if err != nil {
+		t.Fatalf("verifyPolicyReadToken returned error: %v", err)
+	}
+	if token, _ := result.PolicyReadToken(); got.token != token {
+		t.Error("token is not the policy read token of the issuance result")
+	}
+	var targets []string
+	for _, target := range got.targets {
+		targets = append(targets, target.fullName.String()+" "+strconv.FormatInt(target.repositoryID.Int64(), 10))
+	}
+	want := []string{allowedOwnerName + "/repo-b " + strconv.Itoa(repositoryIDB), allowedOwnerName + "/Example-Repo " + strconv.Itoa(repositoryIDA)}
+	if !reflect.DeepEqual(targets, want) {
+		t.Errorf("targets = %v, want %v", targets, want)
+	}
+}
+
+func TestVerifyPolicyReadToken_AcceptsSingleFileReadWithoutImpliedPermissions(t *testing.T) {
+	response := recordedPolicyReadIssuance()
+	response["permissions"] = map[string]any{"single_file": "read"}
+
+	if _, err := verifyPolicyReadToken(issuePolicyRead(t, marshal(t, response)), policyReadGrant(t), allowedOwner(t), noProtectedRepositories(t), now); err != nil {
+		t.Errorf("verifyPolicyReadToken returned error: %v", err)
+	}
+}
+
+// 照合の条件は利用者に返すトークンと同じコードで確かめるため、ここでは各条件を代表する一つずつと、ポリシー読み取りトークンだけの条件を確かめる。
+//
+//trace:checks AC-ISSUANCE-011
+func TestVerifyPolicyReadToken_Rejects(t *testing.T) {
+	tests := []struct {
+		name      string
+		modify    func(r map[string]any)
+		condition string
+	}{
+		{name: "empty token returns ErrVerificationFailure", modify: func(r map[string]any) { r["token"] = "" }, condition: "token is unreadable"},
+		{name: "expires_at equal to now returns ErrVerificationFailure", modify: func(r map[string]any) { r["expires_at"] = now.Format(time.RFC3339) }, condition: "expires_at is not after now"},
+		{name: "missing repository returns ErrVerificationFailure", modify: func(r map[string]any) {
+			r["repositories"] = []any{effectiveRepository(repositoryIDB, allowedOwnerID, allowedOwnerName+"/repo-b")}
+		}, condition: "repositories count does not match policy read grant"},
+		{name: "additional repository returns ErrVerificationFailure", modify: func(r map[string]any) {
+			r["repositories"] = append(r["repositories"].([]any), effectiveRepository(1234567892, allowedOwnerID, allowedOwnerName+"/repo-c"))
+		}, condition: "repositories count does not match policy read grant"},
+		{name: "repository outside policy read grant returns ErrVerificationFailure", modify: func(r map[string]any) {
+			r["repositories"] = []any{effectiveRepository(repositoryIDA, allowedOwnerID, allowedOwnerName+"/example-repo"), effectiveRepository(repositoryIDB, allowedOwnerID, allowedOwnerName+"/repo-c")}
+		}, condition: "repositories[1] full_name does not match policy read grant"},
+		{name: "owner id other than allowed owner id returns ErrVerificationFailure", modify: func(r map[string]any) {
+			r["repositories"] = []any{effectiveRepository(repositoryIDA, allowedOwnerID, allowedOwnerName+"/example-repo"), effectiveRepository(repositoryIDB, otherOwnerID, allowedOwnerName+"/repo-b")}
+		}, condition: "repositories[1] owner.id does not match allowed owner id"},
+		{name: "additional contents read returns ErrVerificationFailure", modify: func(r map[string]any) {
+			r["permissions"] = map[string]any{"single_file": "read", "contents": "read", "metadata": "read"}
+		}, condition: "permissions do not equal policy read grant permissions except implied permissions"},
+		{name: "single_file write returns ErrVerificationFailure", modify: func(r map[string]any) {
+			r["permissions"] = map[string]any{"single_file": "write", "metadata": "read"}
+		}, condition: "permissions do not equal policy read grant permissions except implied permissions"},
+		{name: "missing single_file returns ErrVerificationFailure", modify: func(r map[string]any) {
+			r["permissions"] = map[string]any{"metadata": "read"}
+		}, condition: "permissions do not equal policy read grant permissions except implied permissions"},
+		{name: "repository_selection all returns ErrVerificationFailure", modify: func(r map[string]any) { r["repository_selection"] = "all" }, condition: "repository_selection is not selected"},
+		{name: "missing single_file_paths returns ErrVerificationFailure", modify: func(r map[string]any) { delete(r, "single_file_paths") }, condition: "single_file_paths are unreadable"},
+		{name: "empty single_file_paths returns ErrVerificationFailure", modify: func(r map[string]any) { r["single_file_paths"] = []any{} }, condition: "single_file_paths are not only the repository policy path"},
+		{name: "other path returns ErrVerificationFailure", modify: func(r map[string]any) { r["single_file_paths"] = []any{"README.md"} }, condition: "single_file_paths are not only the repository policy path"},
+		{name: "path in other case returns ErrVerificationFailure", modify: func(r map[string]any) { r["single_file_paths"] = []any{".github/GATES-policy.yml"} }, condition: "single_file_paths are not only the repository policy path"},
+		{name: "repository policy path with another path returns ErrVerificationFailure", modify: func(r map[string]any) {
+			r["single_file_paths"] = []any{".github/gates-policy.yml", "README.md"}
+		}, condition: "single_file_paths are not only the repository policy path"},
+		{name: "duplicate repository policy path returns ErrVerificationFailure", modify: func(r map[string]any) {
+			r["single_file_paths"] = []any{".github/gates-policy.yml", ".github/gates-policy.yml"}
+		}, condition: "single_file_paths are not only the repository policy path"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			response := recordedPolicyReadIssuance()
+			tt.modify(response)
+
+			got, err := verifyPolicyReadToken(issuePolicyRead(t, marshal(t, response)), policyReadGrant(t), allowedOwner(t), noProtectedRepositories(t), now)
+
+			if !errors.Is(err, ErrVerificationFailure) {
+				t.Fatalf("verifyPolicyReadToken error = %v, want %v", err, ErrVerificationFailure)
+			}
+			if !reflect.ValueOf(got).IsZero() {
+				t.Error("verifyPolicyReadToken returned non-zero verifiedPolicyReadToken with error")
+			}
+			message := err.Error()
+			if !strings.Contains(message, tt.condition) {
+				t.Errorf("error message %q does not contain condition %q", message, tt.condition)
+			}
+			if want := `github request id "` + requestID + `"`; !strings.Contains(message, want) {
+				t.Errorf("error message %q does not contain %q", message, want)
+			}
+			hidden := []string{tokenMarker, allowedOwnerName, "repo-b", "repo-c", "example-repo", "gates-policy", strconv.Itoa(repositoryIDA), strconv.Itoa(repositoryIDB), strconv.Itoa(allowedOwnerID), strconv.Itoa(otherOwnerID)}
+			for _, value := range hidden {
+				if strings.Contains(strings.ToLower(message), value) {
+					t.Errorf("error message %q contains %q", message, value)
+				}
+			}
+		})
+	}
+}
+
+// ポリシー読み取りトークンの照合でも、すべての保護対象との組で名前と ID の対応を確かめる。
+//
+//trace:checks AC-AUTHZ-012 AC-ISSUANCE-011
+func TestVerifyPolicyReadToken_RejectsProtectedRepositoryMismatch(t *testing.T) {
+	recreated := protectedRepositoriesOf(t, "9990001", "repo-b")
+
+	_, err := verifyPolicyReadToken(issuePolicyRead(t, marshal(t, recordedPolicyReadIssuance())), policyReadGrant(t), allowedOwner(t), recreated, now)
+
+	if !errors.Is(err, ErrVerificationFailure) {
+		t.Fatalf("verifyPolicyReadToken error = %v, want %v", err, ErrVerificationFailure)
+	}
+	if want := "repositories[1]: protected repositories["; !strings.Contains(err.Error(), want) {
+		t.Errorf("error message %q does not contain condition %q", err.Error(), want)
+	}
+}
+
 func mustNewPermissions(t *testing.T, levels map[string]string) permission.Permissions {
 	t.Helper()
 	p, err := permission.NewPermissions(levels)

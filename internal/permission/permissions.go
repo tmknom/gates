@@ -40,6 +40,12 @@ func NewPermissions(levels map[string]string) (Permissions, error) {
 	return Permissions{levels: maps.Clone(levels)}, nil
 }
 
+// PolicyRead は、ポリシー読み取り許可の Permissions（single_file:read だけ）を返す。
+// 要求から作らない固定の値のため、検証を経ずに作る。
+func PolicyRead() Permissions {
+	return Permissions{levels: map[string]string{"single_file": "read"}}
+}
+
 // WithinAllowed は、Permission Entry がどれも許可権限に含まれるかを返す。
 // 組で照合し、許可権限が同じ権限名の別の水準を含んでも、その組は含まれない。
 // ゼロ値は許可する要求を表さないため、含まれないとする。

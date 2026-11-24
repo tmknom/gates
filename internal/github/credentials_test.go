@@ -58,8 +58,11 @@ func TestCredentials_UnexportedFieldDoesNotShowValue(t *testing.T) {
 	tokenHolder := struct {
 		credential github.InstallationAccessToken
 	}{credential: token}
+	policyReadTokenHolder := struct {
+		credential github.PolicyReadToken
+	}{credential: issuedPolicyReadToken(t)}
 
-	for _, holder := range []any{appJWTHolder, tokenHolder} {
+	for _, holder := range []any{appJWTHolder, tokenHolder, policyReadTokenHolder} {
 		for _, verb := range []string{"%v", "%#v"} {
 			t.Run(fmt.Sprintf("%T %s does not show the value", holder, verb), func(t *testing.T) {
 				got := fmt.Sprintf(verb, holder)
@@ -80,7 +83,7 @@ type credentialCase struct {
 	value  string
 }
 
-// credentials は、GitHub Client が扱う資格情報を返す。Installation Access Token は発行応答からしか作れないため、Issue で読み取る。
+// credentials は、GitHub Client が扱う資格情報を返す。Installation Access Token とポリシー読み取りトークンは発行応答からしか作れないため、発行で読み取る。
 func credentials(t *testing.T) []credentialCase {
 	t.Helper()
 	token, ok := issueBody(t, marshal(t, recordedIssuance())).Token()
@@ -90,5 +93,6 @@ func credentials(t *testing.T) []credentialCase {
 	return []credentialCase{
 		{name: "GitHub App JWT", output: github.NewAppJWT(appJWTValue), value: appJWTValue},
 		{name: "Installation Access Token", output: token, value: tokenMarker},
+		{name: "policy read token", output: issuedPolicyReadToken(t), value: tokenMarker},
 	}
 }

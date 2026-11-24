@@ -27,6 +27,9 @@ const (
 	repositoryIDA    = 1234567890
 	repositoryIDB    = 1234567891
 
+	// responseMarker は、応答本文がエラー文言に漏れていないことを確かめる目印である。
+	responseMarker = "response-body-marker"
+
 	// tokenMarker は、トークンが出力に漏れていないことを確かめる目印である。
 	tokenMarker = "ghs_token-marker" //nolint:gosec // 資格情報ではなく、漏れを探すための目印である
 )
@@ -55,6 +58,17 @@ func recordedIssuance() map[string]any {
 	}
 }
 
+// recordedPolicyReadIssuance は、ポリシー読み取りトークンの発行応答の形を、ケースごとに書き換えられる形で返す。
+// 調査記録は Single file のパスを README.md にした発行応答で、パスの値だけをリポジトリポリシーのパスに置き換えている。
+func recordedPolicyReadIssuance() map[string]any {
+	body := recordedIssuance()
+	body["permissions"] = map[string]any{"single_file": "read", "metadata": "read"}
+	body["single_file"] = ".github/gates-policy.yml"
+	body["has_multiple_single_files"] = false
+	body["single_file_paths"] = []any{".github/gates-policy.yml"}
+	return body
+}
+
 func effectiveRepository(id, ownerID int64, fullName string) map[string]any {
 	_, name, _ := strings.Cut(fullName, "/")
 	return map[string]any{
@@ -78,6 +92,26 @@ func marshal(t *testing.T, value any) string {
 // issue は、発行結果を GitHub Client の発行応答の読み取りからしか作れないため、body を 201 で返すサーバーに対して Issue を呼ぶ。
 func issue(t *testing.T, body string) github.IssuanceResult {
 	t.Helper()
+	result, err := issuanceClient(t, body).Issue(t.Context(), github.NewAppJWT("app-jwt"), tokenGrant(t, contentsRead))
+	if err != nil {
+		t.Fatalf("Issue returned error: %v", err)
+	}
+	return result
+}
+
+// issuePolicyRead は、issue と同じく、body を 201 で返すサーバーに対して IssuePolicyReadToken を呼ぶ。
+func issuePolicyRead(t *testing.T, body string) github.IssuanceResult {
+	t.Helper()
+	result, err := issuanceClient(t, body).IssuePolicyReadToken(t.Context(), github.NewAppJWT("app-jwt"), policyReadGrant(t))
+	if err != nil {
+		t.Fatalf("IssuePolicyReadToken returned error: %v", err)
+	}
+	return result
+}
+
+// issuanceClient は、どの要求にも body を 201 で返すサーバーに向けた GitHub Client を作る。
+func issuanceClient(t *testing.T, body string) *github.Client {
+	t.Helper()
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("X-GitHub-Request-Id", requestID)
 		w.WriteHeader(http.StatusCreated)
@@ -91,12 +125,7 @@ func issue(t *testing.T, body string) github.IssuanceResult {
 	}
 	rootCAs := x509.NewCertPool()
 	rootCAs.AddCert(server.Certificate())
-	client := github.NewClient(github.WithAPIHost(apiHost), github.WithRootCAs(rootCAs))
-	result, err := client.Issue(t.Context(), github.NewAppJWT("app-jwt"), tokenGrant(t, contentsRead))
-	if err != nil {
-		t.Fatalf("Issue returned error: %v", err)
-	}
-	return result
+	return github.NewClient(github.WithAPIHost(apiHost), github.WithRootCAs(rootCAs))
 }
 
 // tokenGrant は、TokenGrant を Grant でしか作れないため、記録した Installation で grant を通す。
@@ -114,8 +143,49 @@ func tokenGrant(t *testing.T, permissions map[string]string) authz.TokenGrant {
 }
 
 // grant は、Lambda Handler と同じく、Caller、形式検証を通した発行要求、許可オーナー、発行上限をそろえて、Installation から発行許可を確定する。
-// 発行上限は、Grant が認可を判定し直しても通るよう、要求の Permissions と同じ組にする。
 func grant(t *testing.T, installation authz.Installation, permissions map[string]string) (authz.TokenGrant, error) {
+	t.Helper()
+	inputs := newGrantInputs(t, permissions)
+	return authz.Grant(inputs.caller, inputs.request, allowedOwner(t), inputs.issuablePermissions, noProtectedRepositories(t), installation)
+}
+
+// policyReadGrant は、requestedRepositories を対象とするポリシー読み取り許可を作る。
+func policyReadGrant(t *testing.T) authz.PolicyReadGrant {
+	t.Helper()
+	return policyReadGrantOf(t, requestedRepositories)
+}
+
+// policyReadGrantOf は、PolicyReadGrant を GrantPolicyRead でしか作れないため、記録した Installation で GrantPolicyRead を通す。
+func policyReadGrantOf(t *testing.T, repositories []string) authz.PolicyReadGrant {
+	t.Helper()
+	installation, err := authz.NewInstallation(installationID, allowedOwnerID, false)
+	if err != nil {
+		t.Fatalf("NewInstallation returned error: %v", err)
+	}
+	inputs := newGrantInputsOf(t, repositories, contentsRead)
+	grant, err := authz.GrantPolicyRead(inputs.caller, inputs.request, allowedOwner(t), inputs.issuablePermissions, noProtectedRepositories(t), installation)
+	if err != nil {
+		t.Fatalf("GrantPolicyRead returned error: %v", err)
+	}
+	return grant
+}
+
+// grantInputs は、発行許可とポリシー読み取り許可の確定に渡す Caller、形式検証を通した発行要求、発行上限である。
+type grantInputs struct {
+	caller              caller.Caller
+	request             request.TokenRequest
+	issuablePermissions permission.IssuablePermissions
+}
+
+// newGrantInputs は、requestedRepositories を対象とする要求の値をそろえる。
+func newGrantInputs(t *testing.T, permissions map[string]string) grantInputs {
+	t.Helper()
+	return newGrantInputsOf(t, requestedRepositories, permissions)
+}
+
+// newGrantInputsOf は、repositories を対象とする要求の値をそろえる。
+// 発行上限は、認可を判定し直しても通るよう、要求の Permissions と同じ組にする。
+func newGrantInputsOf(t *testing.T, repositories []string, permissions map[string]string) grantInputs {
 	t.Helper()
 	c, err := caller.NewCaller(allowedOwnerID, repositoryIDA, "example-repo", 4004, 1, caller.WorkflowTriggerAttributes{})
 	if err != nil {
@@ -124,7 +194,7 @@ func grant(t *testing.T, installation authz.Installation, permissions map[string
 	payload := marshal(t, map[string]any{
 		"version":      1,
 		"id_token":     "header.payload.signature",
-		"repositories": requestedRepositories,
+		"repositories": repositories,
 		"permissions":  permissions,
 	})
 	_, req, err := request.Validate([]byte(payload))
@@ -139,7 +209,7 @@ func grant(t *testing.T, installation authz.Installation, permissions map[string
 	if err != nil {
 		t.Fatalf("NewIssuablePermissions returned error: %v", err)
 	}
-	return authz.Grant(c, req, allowedOwner(t), issuablePermissions, noProtectedRepositories(t), installation)
+	return grantInputs{caller: c, request: req, issuablePermissions: issuablePermissions}
 }
 
 func allowedOwner(t *testing.T) authz.AllowedOwner {
@@ -175,4 +245,19 @@ func noProtectedRepositories(t *testing.T) protected.Repositories {
 func protectedRepositoriesOf(t *testing.T, id, name string) protected.Repositories {
 	t.Helper()
 	return mustParseProtectedRepositories(t, "repositories:\n  - id: \""+id+"\"\n    name: "+name+"\n    callers: []\n")
+}
+
+func newTestTokenIssuer(t *testing.T, signer *signerStub, stub *gitHubStub) *TokenIssuer {
+	t.Helper()
+	return NewTokenIssuer(signer, stub.client(t), allowedOwner(t), noProtectedRepositories(t), func() time.Time { return now })
+}
+
+// assertHidesValues は、エラー文言に GitHub App JWT、トークン、応答本文が入らないことを確かめる。
+func assertHidesValues(t *testing.T, err error) {
+	t.Helper()
+	for _, value := range []string{appJWTMarker, tokenMarker, responseMarker} {
+		if strings.Contains(err.Error(), value) {
+			t.Errorf("error message %q contains %q", err.Error(), value)
+		}
+	}
 }

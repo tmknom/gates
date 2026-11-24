@@ -100,6 +100,40 @@ func TestRevoke_ZeroTokenPanicsWithoutRequest(t *testing.T) {
 	_ = client.Revoke(t.Context(), github.InstallationAccessToken{})
 }
 
+// ポリシー読み取りトークンも、利用者に返すトークンと同じ失効 API に、そのトークン自身で認証して送る。
+//
+//trace:checks AC-ISSUANCE-011
+func TestRevokePolicyReadToken_SendsTokenItselfAsCredential(t *testing.T) {
+	stub := newAPIStub(t, respondRevocation(http.StatusNoContent))
+
+	if err := stub.client(t).RevokePolicyReadToken(t.Context(), issuedPolicyReadToken(t)); err != nil {
+		t.Fatalf("RevokePolicyReadToken returned error: %v", err)
+	}
+
+	sent := stub.request.Load()
+	if sent.Method != http.MethodDelete || sent.URL.Path != "/installation/token" {
+		t.Errorf("request = %s %s, want DELETE /installation/token", sent.Method, sent.URL.Path)
+	}
+	if got := sent.Header.Get("Authorization"); got != "Bearer "+tokenMarker {
+		t.Errorf("request header Authorization = %q, want the policy read token", got)
+	}
+}
+
+func TestRevokePolicyReadToken_ZeroTokenPanicsWithoutRequest(t *testing.T) {
+	stub := newAPIStub(t, respondRevocation(http.StatusNoContent))
+	client := stub.client(t)
+	defer func() {
+		if recover() == nil {
+			t.Error("RevokePolicyReadToken did not panic for the zero PolicyReadToken")
+		}
+		if stub.request.Load() != nil {
+			t.Error("RevokePolicyReadToken sent a request for the zero PolicyReadToken")
+		}
+	}()
+
+	_ = client.RevokePolicyReadToken(t.Context(), github.PolicyReadToken{})
+}
+
 // issuedToken は、発行応答から読み取った Installation Access Token を返す。トークンは発行応答からしか作れない。
 func issuedToken(t *testing.T) github.InstallationAccessToken {
 	t.Helper()

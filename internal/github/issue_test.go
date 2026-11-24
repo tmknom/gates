@@ -422,3 +422,165 @@ func assertIssueFailed(t *testing.T, got github.IssuanceResult, err, want error)
 		}
 	}
 }
+
+// ポリシー読み取りトークンの要求本文が、ポリシー読み取り許可の対象と single_file:read だけを持つことを確かめる。
+//
+//trace:checks AC-ISSUANCE-011
+func TestIssuePolicyReadToken_SendsRepositoriesAndSingleFileRead(t *testing.T) {
+	var body atomic.Pointer[string]
+	stub := newAPIStub(t, func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		s := string(b)
+		body.Store(&s)
+		respondIssuance(marshal(t, recordedPolicyReadIssuance()))(w, r)
+	})
+
+	if _, err := issuePolicyReadToken(t, stub.client(t)); err != nil {
+		t.Fatalf("IssuePolicyReadToken returned error: %v", err)
+	}
+
+	req := stub.request.Load()
+	if want := "/app/installations/" + strconv.Itoa(recordedInstallationID) + "/access_tokens"; req.Method != http.MethodPost || req.URL.Path != want {
+		t.Errorf("request = %s %s, want POST %s", req.Method, req.URL.Path, want)
+	}
+	if got := req.Header.Get("Authorization"); got != "Bearer "+appJWTValue {
+		t.Errorf("request header Authorization = %q, want the GitHub App JWT", got)
+	}
+	if want := `{"repositories":["repo-b","Example-Repo"],"permissions":{"single_file":"read"}}`; *body.Load() != want {
+		t.Errorf("request body = %s, want %s", *body.Load(), want)
+	}
+}
+
+func TestIssuePolicyReadToken_ReadsRecordedResponse(t *testing.T) {
+	got := issuePolicyReadTokenBody(t, marshal(t, recordedPolicyReadIssuance()))
+
+	// 利用者に返すトークンとしては読まない
+	assertReadFields(t, got, "token")
+	if _, ok := got.PolicyReadToken(); !ok {
+		t.Error("PolicyReadToken() was not read")
+	}
+	paths, ok := got.ReadableFilePaths()
+	if !ok || !slices.Equal(paths, []string{".github/gates-policy.yml"}) {
+		t.Errorf("ReadableFilePaths() = %q, %t, want [.github/gates-policy.yml], true", paths, ok)
+	}
+	if got.GitHubRequestID() != requestID {
+		t.Errorf("GitHubRequestID() = %q, want %q", got.GitHubRequestID(), requestID)
+	}
+}
+
+func TestIssue_DoesNotReadPolicyReadTokenOrReadableFilePaths(t *testing.T) {
+	got := issueBody(t, marshal(t, recordedPolicyReadIssuance()))
+
+	assertReadFields(t, got)
+	if _, ok := got.PolicyReadToken(); ok {
+		t.Error("PolicyReadToken() was read from the issuance for the token returned to the user")
+	}
+	if _, ok := got.ReadableFilePaths(); ok {
+		t.Error("ReadableFilePaths() was read from the issuance for the token returned to the user")
+	}
+}
+
+func TestIssuePolicyReadToken_ReadableFilePaths(t *testing.T) {
+	tests := []struct {
+		name     string
+		paths    any
+		drop     bool
+		want     []string
+		wantRead bool
+	}{
+		{name: "two paths are read", paths: []any{".github/gates-policy.yml", "README.md"}, want: []string{".github/gates-policy.yml", "README.md"}, wantRead: true},
+		{name: "empty array is read", paths: []any{}, want: []string{}, wantRead: true},
+		{name: "missing key is unreadable", drop: true},
+		{name: "null is unreadable", paths: nil},
+		{name: "string is unreadable", paths: ".github/gates-policy.yml"},
+		{name: "array with a number is unreadable", paths: []any{".github/gates-policy.yml", 1}},
+		{name: "array with null is unreadable", paths: []any{".github/gates-policy.yml", nil}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := recordedPolicyReadIssuance()
+			body["single_file_paths"] = tt.paths
+			if tt.drop {
+				delete(body, "single_file_paths")
+			}
+
+			got := issuePolicyReadTokenBody(t, marshal(t, body))
+
+			paths, ok := got.ReadableFilePaths()
+			if ok != tt.wantRead || !slices.Equal(paths, tt.want) {
+				t.Errorf("ReadableFilePaths() = %q, %t, want %q, %t", paths, ok, tt.want, tt.wantRead)
+			}
+			// 読めるファイルのパスを読めなくても、トークンは読み取る
+			if _, ok := got.PolicyReadToken(); !ok {
+				t.Error("PolicyReadToken() was not read")
+			}
+		})
+	}
+}
+
+// 空文字列は失効 API の認証に使えないため、利用者に返すトークンと同じくポリシー読み取りトークンとしても読まない。
+func TestIssuePolicyReadToken_EmptyTokenIsUnreadable(t *testing.T) {
+	body := recordedPolicyReadIssuance()
+	body["token"] = ""
+
+	if _, ok := issuePolicyReadTokenBody(t, marshal(t, body)).PolicyReadToken(); ok {
+		t.Error("PolicyReadToken() was read from an empty token")
+	}
+}
+
+func TestIssuePolicyReadToken_UninterpretableBodyHasNoToken(t *testing.T) {
+	body := marshal(t, recordedPolicyReadIssuance())
+	got := issuePolicyReadTokenBody(t, body[:len(body)-1])
+
+	if _, ok := got.PolicyReadToken(); ok {
+		t.Error("PolicyReadToken() was read from a body that is not JSON")
+	}
+	if _, ok := got.ReadableFilePaths(); ok {
+		t.Error("ReadableFilePaths() was read from a body that is not JSON")
+	}
+}
+
+// ポリシー読み取りトークンの発行の失敗は、利用者に返すトークンの発行と同じ分類になる。
+//
+//trace:checks AC-QUALITY-001
+func TestIssuePolicyReadToken_StatusFailure(t *testing.T) {
+	tests := []struct {
+		status int
+		want   error
+	}{
+		{status: 422, want: github.ErrIssuanceRejected},
+		{status: 401, want: authz.ErrInstallationUnavailable},
+		{status: 500, want: github.ErrTransientFailure},
+	}
+	for _, tt := range tests {
+		t.Run("status "+strconv.Itoa(tt.status)+" returns "+tt.want.Error(), func(t *testing.T) {
+			handler := func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("X-GitHub-Request-Id", requestID)
+				w.WriteHeader(tt.status)
+				_, _ = io.WriteString(w, `{"token":"`+tokenMarker+`","message":"`+responseMarker+`"}`)
+			}
+
+			got, err := issuePolicyReadToken(t, newAPIStub(t, handler).client(t))
+
+			assertIssueFailed(t, got, err, tt.want)
+			if _, ok := got.PolicyReadToken(); ok {
+				t.Error("PolicyReadToken() was read from a failed response")
+			}
+		})
+	}
+}
+
+func TestIssuePolicyReadToken_ZeroPolicyReadGrantPanicsWithoutRequest(t *testing.T) {
+	stub := newAPIStub(t, respondIssuance(marshal(t, recordedPolicyReadIssuance())))
+	client := stub.client(t)
+	defer func() {
+		if recover() == nil {
+			t.Error("IssuePolicyReadToken did not panic for the zero PolicyReadGrant")
+		}
+		if stub.request.Load() != nil {
+			t.Error("IssuePolicyReadToken sent a request for the zero PolicyReadGrant")
+		}
+	}()
+
+	_, _ = client.IssuePolicyReadToken(t.Context(), github.NewAppJWT(appJWTValue), authz.PolicyReadGrant{})
+}

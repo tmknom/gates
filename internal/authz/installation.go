@@ -37,3 +37,14 @@ func (i Installation) ID() githubid.InstallationID {
 func (i Installation) InstallationOwnerID() githubid.OwnerID {
 	return i.installationOwnerID
 }
+
+// verifyUsableBy は、Installation が許可オーナーの発行に使える（RULE-011）かを確かめる。
+func (i Installation) verifyUsableBy(allowedOwner AllowedOwner) error {
+	if i.installationOwnerID != allowedOwner.ID() {
+		return fmt.Errorf("%w: installation owner id does not match allowed owner id", ErrInstallationUnavailable)
+	}
+	if i.suspended {
+		return fmt.Errorf("%w: installation is suspended", ErrInstallationUnavailable)
+	}
+	return nil
+}

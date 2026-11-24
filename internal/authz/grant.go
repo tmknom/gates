@@ -1,8 +1,6 @@
 package authz
 
 import (
-	"fmt"
-
 	"github.com/tmknom/gates/internal/caller"
 	"github.com/tmknom/gates/internal/permission"
 	"github.com/tmknom/gates/internal/protected"
@@ -15,11 +13,8 @@ func Grant(c caller.Caller, req request.TokenRequest, allowedOwner AllowedOwner,
 	if err := Authorize(c, req, allowedOwner, issuablePermissions, protectedRepositories); err != nil {
 		return TokenGrant{}, err
 	}
-	if inst.installationOwnerID != allowedOwner.ID() {
-		return TokenGrant{}, fmt.Errorf("%w: installation owner id does not match allowed owner id", ErrInstallationUnavailable)
-	}
-	if inst.suspended {
-		return TokenGrant{}, fmt.Errorf("%w: installation is suspended", ErrInstallationUnavailable)
+	if err := inst.verifyUsableBy(allowedOwner); err != nil {
+		return TokenGrant{}, err
 	}
 	return TokenGrant{
 		installationID: inst.id,
