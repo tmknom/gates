@@ -15,9 +15,7 @@ import (
 
 	"github.com/tmknom/gates/internal/authz"
 	"github.com/tmknom/gates/internal/github"
-	"github.com/tmknom/gates/internal/githubid"
 	"github.com/tmknom/gates/internal/nonzero"
-	"github.com/tmknom/gates/internal/repository"
 	"github.com/tmknom/gates/internal/repositorypolicy"
 	"github.com/tmknom/gates/internal/revocation"
 )
@@ -301,7 +299,7 @@ func TestReadRepositoryPolicies_RevokesWhenFetchPanics(t *testing.T) {
 		}
 		return base.RoundTrip(request)
 	})
-	tokenIssuer := NewTokenIssuer(&signerStub{}, github.NewClient(github.WithAPIHost(apiHost), github.WithTransport(transport)), allowedOwner(t), noProtectedRepositories(t), func() time.Time { return now })
+	tokenIssuer := NewTokenIssuer(&signerStub{}, github.NewClient(github.WithAPIHost(apiHost), github.WithTransport(transport)), allowedOwner(t), noProtectedRepositories(t), authz.RepositoryPolicyEnforced, func() time.Time { return now })
 	defer func() {
 		if recover() == nil {
 			t.Error("readRepositoryPolicies did not panic")
@@ -343,7 +341,7 @@ func TestReadRepositoryPolicies_StopsWhenFetchBudgetIsExhausted(t *testing.T) {
 		for _, name := range names {
 			repositories = append(repositories, allowedOwnerName+"/"+name)
 		}
-		tokenIssuer := NewTokenIssuer(&signerStub{}, github.NewClient(github.WithTransport(transport)), allowedOwner(t), noProtectedRepositories(t), func() time.Time { return now })
+		tokenIssuer := NewTokenIssuer(&signerStub{}, github.NewClient(github.WithTransport(transport)), allowedOwner(t), noProtectedRepositories(t), authz.RepositoryPolicyEnforced, func() time.Time { return now })
 
 		_, _, err := tokenIssuer.readRepositoryPolicies(t.Context(), github.NewAppJWT(appJWTMarker), policyReadGrantOf(t, repositories))
 
@@ -394,7 +392,7 @@ func TestReadRepositoryPolicies_DoesNotExposeTokenOrDocument(t *testing.T) {
 // readPoliciesFrom は、stub に向けた Token Issuer で、requestedRepositories を対象とする取得の段階を呼ぶ。
 func readPoliciesFrom(ctx context.Context, t *testing.T, stub *gitHubStub) ([]repositoryPolicyReading, revocation.Outcome, error) {
 	t.Helper()
-	return newTestTokenIssuer(t, &signerStub{}, stub).readRepositoryPolicies(ctx, github.NewAppJWT(appJWTMarker), policyReadGrant(t))
+	return newEnforcedTestTokenIssuer(t, &signerStub{}, stub).readRepositoryPolicies(ctx, github.NewAppJWT(appJWTMarker), policyReadGrant(t))
 }
 
 // policyReadIssuance は、発行の経路がポリシー読み取りトークンの発行応答を返すハンドラである。
@@ -416,31 +414,4 @@ func policyReadIssuanceOf(names []string) map[string]any {
 
 func fakeResponse(status int, body string) *http.Response {
 	return &http.Response{StatusCode: status, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}
-}
-
-func assertNoRequests(t *testing.T, stub *gitHubStub, patterns ...string) {
-	t.Helper()
-	for _, pattern := range patterns {
-		if n := len(stub.received(pattern)); n != 0 {
-			t.Errorf("%s received %d requests, want 0", pattern, n)
-		}
-	}
-}
-
-func mustParseFullName(t *testing.T, s string) repository.FullName {
-	t.Helper()
-	fullName, err := repository.ParseFullName(s)
-	if err != nil {
-		t.Fatalf("ParseFullName returned error: %v", err)
-	}
-	return fullName
-}
-
-func mustRepositoryID(t *testing.T, id int64) githubid.RepositoryID {
-	t.Helper()
-	repositoryID, err := githubid.NewRepositoryID(id)
-	if err != nil {
-		t.Fatalf("NewRepositoryID returned error: %v", err)
-	}
-	return repositoryID
 }

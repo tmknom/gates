@@ -9,4 +9,6 @@ var (
 	ErrInstallationUnavailable = errors.New("installation unavailable")
 	ErrInvalidAllowedOwner     = errors.New("invalid allowed owner")
 	ErrInvalidInstallation     = errors.New("invalid installation")
+	// ErrInvalidRepositoryPolicyEnforcement は、リポジトリポリシーの適用の設定が true でも false でもないことを表す。
+	ErrInvalidRepositoryPolicyEnforcement = errors.New("invalid repository policy enforcement")
 )

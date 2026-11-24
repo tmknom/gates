@@ -873,6 +873,9 @@ GitHub App JWT を作ってから発行の応答を受け取るまでは、署�
 Lambda Handler が panic を回復した記録には出しません。
 Token Issuer から結果を受け取れず、値が確定していないためです。
 
+ポリシー読み取りトークンの照合失敗で終わった記録では、`revocation` は `not_attempted` です（[Domain Model](domain.md#audit-record)）。
+どちらのトークンの照合失敗かは、`reason` の段階の名前で見分けます。
+
 リポジトリポリシーを読んだ対象の Repository ID は記録しません。
 監査記録は利用者に返すトークンの実効対象の Repository ID も持たず、対象を要求対象の完全名で示します。
 読んだ対象の ID だけを加えても、記録の中に比べる相手がありません。

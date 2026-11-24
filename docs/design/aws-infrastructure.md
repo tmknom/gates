@@ -179,8 +179,9 @@ Issuer、GitHub API Host、リポジトリポリシーのパスは環境変数�
 
 リポジトリポリシーの適用は、`bool` 型の変数 `repository_policy_enforcement` で受け取り、`nullable = false` で `null` を拒否します（[Terraform — variable block](https://developer.hashicorp.com/terraform/language/block/variable)）。
 既定値を置かないのは、既定値を `false` にすると、書き忘れたデプロイがリポジトリポリシーを適用しないまま運用され、`true` にすると、GATES を更新しただけでリポジトリポリシーのない対象への発行が止まるためです（[Security Design](security.md#37-repository-policies)）。
-Terraform が文字列を `bool` に変換するのは、文字列が `true` か `false` を表すときだけなので（[Terraform — Type Conversion](https://developer.hashicorp.com/terraform/language/expressions/types#type-conversion)）、`bool` 型のほかに値の検証（`validation`）は要りません。
-環境変数には、変数の値を文字列にした `true` か `false` を渡し、Lambda の初期化はこの 2 つのほかの値を拒否します。
+`bool` 型の値は `true` と `false` の 2 つだけで、環境変数には変数の値を文字列にした `true` か `false` を渡すため、Lambda の初期化が拒否する値は Plan を通りません。
+そのため、`bool` 型のほかに値の検証（`validation`）は要りません。
+Terraform は文字列の `1` を `true` に、`0` を `false` に変換して受け付け、`yes` や `True` は型の誤りとして拒否します（Terraform 1.17 で確かめた）。
 適用するデプロイでは、GitHub App に `Single file` を `Read-only` で付与し、パスをリポジトリポリシーのパスだけにする必要があり、変数の説明にこのことを書きます。
 
 ### 5.2 Plan-Time Validation

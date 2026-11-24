@@ -45,16 +45,17 @@ override_resource {
 }
 
 variables {
-  allowed_owner_id       = "12345678"
-  allowed_owner_name     = "Example-Owner"
-  allowed_owner_type     = "Organization"
-  github_app_client_id   = "Iv23example"
-  gates_audience         = "gates-test"
-  kms_keys               = { key-1 = "RSA_2048" }
-  active_kms_key         = "key-1"
-  lambda_package_path    = "tests/testdata/package.txt"
-  issuable_permissions   = ["contents:read", "contents:write", "pull_requests:write"]
-  protected_repositories = "repositories: []\n"
+  allowed_owner_id              = "12345678"
+  allowed_owner_name            = "Example-Owner"
+  allowed_owner_type            = "Organization"
+  github_app_client_id          = "Iv23example"
+  gates_audience                = "gates-test"
+  kms_keys                      = { key-1 = "RSA_2048" }
+  active_kms_key                = "key-1"
+  lambda_package_path           = "tests/testdata/package.txt"
+  issuable_permissions          = ["contents:read", "contents:write", "pull_requests:write"]
+  protected_repositories        = "repositories: []\n"
+  repository_policy_enforcement = false
 
   # 拒否の試験の基準にする、受理される一覧
   accepted_protected_repositories = <<-EOT
@@ -98,8 +99,8 @@ run "function_configuration" {
   }
 
   assert {
-    condition     = aws_lambda_function.gates.timeout == 45
-    error_message = "the timeout must be 45 seconds, longer than the total of the Call Time Budget"
+    condition     = aws_lambda_function.gates.timeout == 75
+    error_message = "the timeout must be 75 seconds, longer than the total of the Call Time Budget with repository policy enforcement"
   }
 
   assert {
@@ -109,16 +110,31 @@ run "function_configuration" {
 
   assert {
     condition = aws_lambda_function.gates.environment[0].variables == tomap({
-      GATES_ALLOWED_OWNER_ID       = "12345678"
-      GATES_ALLOWED_OWNER_NAME     = "Example-Owner"
-      GATES_ALLOWED_OWNER_TYPE     = "Organization"
-      GATES_GITHUB_APP_CLIENT_ID   = "Iv23example"
-      GATES_AUDIENCE               = "gates-test"
-      GATES_KMS_KEY_ARN            = "arn:aws:kms:ap-northeast-1:123456789012:key/11111111-2222-3333-4444-555555555555"
-      GATES_ISSUABLE_PERMISSIONS   = "contents:read,contents:write,pull_requests:write"
-      GATES_PROTECTED_REPOSITORIES = "repositories: []\n"
+      GATES_ALLOWED_OWNER_ID              = "12345678"
+      GATES_ALLOWED_OWNER_NAME            = "Example-Owner"
+      GATES_ALLOWED_OWNER_TYPE            = "Organization"
+      GATES_GITHUB_APP_CLIENT_ID          = "Iv23example"
+      GATES_AUDIENCE                      = "gates-test"
+      GATES_KMS_KEY_ARN                   = "arn:aws:kms:ap-northeast-1:123456789012:key/11111111-2222-3333-4444-555555555555"
+      GATES_ISSUABLE_PERMISSIONS          = "contents:read,contents:write,pull_requests:write"
+      GATES_PROTECTED_REPOSITORIES        = "repositories: []\n"
+      GATES_REPOSITORY_POLICY_ENFORCEMENT = "false"
     })
     error_message = "the environment variables must carry the input values"
+  }
+}
+
+# trace:checks AC-AUTHZ-017
+run "repository_policy_enforcement_is_passed_as_true" {
+  command = plan
+
+  variables {
+    repository_policy_enforcement = true
+  }
+
+  assert {
+    condition     = aws_lambda_function.gates.environment[0].variables["GATES_REPOSITORY_POLICY_ENFORCEMENT"] == "true"
+    error_message = "the repository policy enforcement must be passed to the function as true"
   }
 }
 
@@ -770,16 +786,17 @@ run "rejects_duplicate_caller_repository_names_in_protected_repository" {
   expect_failures = [var.protected_repositories]
 }
 
-# 一覧が "repositories: []\n#\n" のとき、この試験の変数での合計は 433 バイトで、# の後の ASCII の 1 文字が 1 バイトを足す
+# 一覧が "repositories: []\n#\n" のとき、この試験の変数での合計は 479 バイトで、# の後の ASCII の 1 文字が 1 バイトを足す
+# リポジトリポリシーの適用は、長いほうの false で数える
 run "accepts_environment_variables_of_4096_bytes" {
   command = plan
 
   variables {
-    protected_repositories = "repositories: []\n#${replace(format("%3663s", ""), " ", "a")}\n"
+    protected_repositories = "repositories: []\n#${replace(format("%3617s", ""), " ", "a")}\n"
   }
 
   assert {
-    condition     = length(aws_lambda_function.gates.environment[0].variables["GATES_PROTECTED_REPOSITORIES"]) == 3682
+    condition     = length(aws_lambda_function.gates.environment[0].variables["GATES_PROTECTED_REPOSITORIES"]) == 3636
     error_message = "the protected repositories must be passed to the function"
   }
 }
@@ -788,7 +805,7 @@ run "rejects_environment_variables_over_4096_bytes" {
   command = plan
 
   variables {
-    protected_repositories = "repositories: []\n#${replace(format("%3664s", ""), " ", "a")}\n"
+    protected_repositories = "repositories: []\n#${replace(format("%3618s", ""), " ", "a")}\n"
   }
 
   expect_failures = [aws_lambda_function.gates]

@@ -254,3 +254,10 @@ variable "protected_repositories" {
     error_message = "callers of a protected repository in protected_repositories must not share a repository_id or a repository_name, compared case-insensitively."
   }
 }
+
+# 既定値と、型のほかの validation を置かない理由は AWS Infrastructure Design にある
+variable "repository_policy_enforcement" {
+  description = "リポジトリポリシーの適用。true は適用し、false は適用しない。適用するデプロイでは、GitHub App に Single file を Read-only で付与し、パスを .github/gates-policy.yml だけにする"
+  type        = bool
+  nullable    = false
+}

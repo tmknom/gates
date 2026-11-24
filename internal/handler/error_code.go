@@ -29,6 +29,7 @@ var errorCodesByFailureKind = []struct {
 	{kind: signer.ErrInternalFailure, code: errorcode.InternalError},
 	{kind: github.ErrTransientFailure, code: errorcode.GitHubAPIUnavailable},
 	{kind: github.ErrIssuanceRejected, code: errorcode.GitHubIssuanceRejected},
+	{kind: github.ErrInternalFailure, code: errorcode.InternalError},
 	{kind: tokenissuer.ErrVerificationFailure, code: errorcode.IssuanceVerificationFailed},
 }
 

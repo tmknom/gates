@@ -33,6 +33,20 @@ func verify(result github.IssuanceResult, grant authz.TokenGrant, allowedOwner a
 	return ReturnableIssuanceResult{token: token, expiresAt: verified.expiresAt, permissions: verified.permissions, repositories: verified.repositories}, nil
 }
 
+// verifyWithPolicyReadTargets は、リポジトリポリシーを適用するデプロイで、verify の条件に加えて、
+// 各実効対象の Repository ID が、完全名が同じリポジトリポリシーを読んだ対象の Repository ID と一致するときだけ返却可能な発行結果を返す（INV-012）。
+// verify の条件を先に確かめ、実効対象が発行許可の対象と一対一に対応した後で、読んだ対象と比べる。
+func verifyWithPolicyReadTargets(result github.IssuanceResult, grant authz.TokenGrant, allowedOwner authz.AllowedOwner, protectedRepositories protected.Repositories, targets []policyReadTarget, now time.Time) (ReturnableIssuanceResult, error) {
+	returnable, err := verify(result, grant, allowedOwner, protectedRepositories, now)
+	if err != nil {
+		return ReturnableIssuanceResult{}, err
+	}
+	if err := verifyPolicyReadTargets(returnable.repositories, targets); err != nil {
+		return ReturnableIssuanceResult{}, verificationFailure(result, err)
+	}
+	return returnable, nil
+}
+
 // verifyPolicyReadToken は、発行結果をポリシー読み取り許可、許可オーナー、保護対象の一覧で照合し、INV-019 の条件をすべて満たすときだけ照合済みのポリシー読み取りトークンを返す。
 // 利用者に返すトークンの照合と同じ条件を同じコードで確かめ、読めるファイルのパスの条件を加える。
 // ポリシー読み取り許可のゼロ値は、照合より先に GitHub Client の IssuePolicyReadToken が panic で止める。
@@ -155,6 +169,25 @@ func verifyRepositories(repositories []github.EffectiveRepository, terms grantTe
 		}
 	}
 	return grantedIDs, nil
+}
+
+// verifyPolicyReadTargets は、各実効対象に完全名が一致するリポジトリポリシーを読んだ対象があり、その Repository ID が実効対象の ID と一致するかを確かめる。
+// 実効対象は verify で発行許可の対象と、読んだ対象は照合済みのポリシー読み取りトークンでポリシー読み取り許可の対象と、完全名で一対一に対応する。
+// そのため、件数が一致し、どの実効対象にも完全名が一致する読んだ対象があれば、余りも重複もない。
+func verifyPolicyReadTargets(repositories []github.EffectiveRepository, targets []policyReadTarget) error {
+	if len(repositories) != len(targets) {
+		return errors.New("repositories count does not match the repositories whose repository policies were read")
+	}
+	for i, effective := range repositories {
+		j := slices.IndexFunc(targets, func(target policyReadTarget) bool { return target.fullName.Equal(effective.FullName()) })
+		if j < 0 {
+			return fmt.Errorf("repositories[%d] full_name does not match any repository whose repository policy was read", i)
+		}
+		if targets[j].repositoryID.Int64() != effective.RepositoryID() {
+			return fmt.Errorf("repositories[%d] id does not match the repository whose repository policy was read", i)
+		}
+	}
+	return nil
 }
 
 // unmatchedGrantIndex は、まだ実効対象と対応していない許可の対象のうち、完全名が一致するものの位置を返す。なければ -1 を返す。

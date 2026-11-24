@@ -114,11 +114,11 @@ func resolve(t *testing.T, client *github.Client) (authz.Installation, error) {
 	return client.ResolveInstallation(t.Context(), github.NewAppJWT(appJWTValue), allowedOwner(t, authz.OwnerTypeUser))
 }
 
-// tokenGrant は、TokenGrant を Grant でしか作れないため、grantInputs のそろえた値と Installation で Grant を通す。
+// tokenGrant は、TokenGrant を authz の確定関数でしか作れないため、grantInputs のそろえた値と Installation で Grant を通す。
 func tokenGrant(t *testing.T, permissions map[string]string) authz.TokenGrant {
 	t.Helper()
 	inputs := newGrantInputs(t, permissions)
-	grant, err := authz.Grant(inputs.caller, inputs.request, allowedOwner(t, authz.OwnerTypeUser), inputs.issuablePermissions, inputs.protectedRepositories, newInstallation(t, false))
+	grant, err := authz.Grant(inputs.caller, inputs.request, allowedOwner(t, authz.OwnerTypeUser), inputs.issuablePermissions, inputs.protectedRepositories, authz.RepositoryPolicyNotEnforced, newInstallation(t, false))
 	if err != nil {
 		t.Fatalf("Grant returned error: %v", err)
 	}
@@ -129,7 +129,7 @@ func tokenGrant(t *testing.T, permissions map[string]string) authz.TokenGrant {
 func policyReadGrant(t *testing.T) authz.PolicyReadGrant {
 	t.Helper()
 	inputs := newGrantInputs(t, contentsRead)
-	grant, err := authz.GrantPolicyRead(inputs.caller, inputs.request, allowedOwner(t, authz.OwnerTypeUser), inputs.issuablePermissions, inputs.protectedRepositories, newInstallation(t, false))
+	grant, err := authz.GrantPolicyRead(inputs.caller, inputs.request, allowedOwner(t, authz.OwnerTypeUser), inputs.issuablePermissions, inputs.protectedRepositories, authz.RepositoryPolicyEnforced, newInstallation(t, false))
 	if err != nil {
 		t.Fatalf("GrantPolicyRead returned error: %v", err)
 	}

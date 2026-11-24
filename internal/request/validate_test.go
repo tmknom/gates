@@ -88,6 +88,9 @@ func TestValidate_Invalid(t *testing.T) {
 		{name: "unknown installation_id field returns ErrUnknownField", payload: payloadWith("installation_id", `1`), want: []error{request.ErrUnknownField}},
 		{name: "unknown api_host field returns ErrUnknownField", payload: payloadWith("api_host", `"https://api.example.com"`), want: []error{request.ErrUnknownField}},
 		{name: "unknown protected_repositories field returns ErrUnknownField", payload: payloadWith("protected_repositories", `"repositories: []\n"`), want: []error{request.ErrUnknownField}},
+		{name: "unknown repository_policy_enforcement field returns ErrUnknownField", payload: payloadWith("repository_policy_enforcement", `false`), want: []error{request.ErrUnknownField}},
+		{name: "unknown repository_policy_path field returns ErrUnknownField", payload: payloadWith("repository_policy_path", `"gates-policy.yml"`), want: []error{request.ErrUnknownField}},
+		{name: "unknown ref field returns ErrUnknownField", payload: payloadWith("ref", `"main"`), want: []error{request.ErrUnknownField}},
 		{name: "repository_selection for all repositories returns ErrUnknownField", payload: payloadWith("repository_selection", `"all"`), want: []error{request.ErrUnknownField}},
 		{name: "field name in different case returns ErrUnknownField", payload: payloadWith("Version", `1`), want: []error{request.ErrUnknownField}},
 

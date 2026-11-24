@@ -1,6 +1,7 @@
 package authz
 
 import (
+	"fmt"
 	"slices"
 
 	"github.com/tmknom/gates/internal/caller"
@@ -19,11 +20,14 @@ type PolicyReadGrant struct {
 	repositories   []repository.FullName
 }
 
-// GrantPolicyRead は、発行上限と保護対象の条件を含む認可条件と Installation の有効性（RULE-010、RULE-011）を満たすときだけ PolicyReadGrant を確定する。
+// GrantPolicyRead は、リポジトリポリシーを適用するデプロイで、発行上限と保護対象の条件を含む認可条件と Installation の有効性（RULE-010、RULE-011）を満たすときだけ PolicyReadGrant を確定する（INV-020）。
 // 要求の Permissions は認可の判定にだけ使い、ポリシー読み取り許可には写さない。
-func GrantPolicyRead(c caller.Caller, req request.TokenRequest, allowedOwner AllowedOwner, issuablePermissions permission.IssuablePermissions, protectedRepositories protected.Repositories, inst Installation) (PolicyReadGrant, error) {
-	if err := Authorize(c, req, allowedOwner, issuablePermissions, protectedRepositories); err != nil {
+func GrantPolicyRead(c caller.Caller, req request.TokenRequest, allowedOwner AllowedOwner, issuablePermissions permission.IssuablePermissions, protectedRepositories protected.Repositories, enforcement RepositoryPolicyEnforcement, inst Installation) (PolicyReadGrant, error) {
+	if err := Authorize(c, req, allowedOwner, issuablePermissions, protectedRepositories, enforcement); err != nil {
 		return PolicyReadGrant{}, err
+	}
+	if enforcement != RepositoryPolicyEnforced {
+		return PolicyReadGrant{}, fmt.Errorf("%w: policy read grant requires repository policy enforcement", ErrAuthorizationDenied)
 	}
 	if err := inst.verifyUsableBy(allowedOwner); err != nil {
 		return PolicyReadGrant{}, err

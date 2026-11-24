@@ -9,15 +9,15 @@ import (
 )
 
 // TokenGrant は、認可が成立した結果として、発行 API の呼び出しの内容を定める発行許可である。
-// フィールドを非公開にし、ゼロ値以外は Grant でしか作れないようにする。
+// フィールドを非公開にし、ゼロ値以外は Grant と GrantWithRepositoryPolicies でしか作れないようにする。
 type TokenGrant struct {
 	installationID githubid.InstallationID
 	repositories   []repository.FullName
 	permissions    permission.Permissions
 }
 
-// IsZero は、Grant を経ていないゼロ値かを返す。
-// Grant は NewInstallation を経た Installation からだけ作るため、Installation ID がゼロ値の値はゼロ値に限る。
+// IsZero は、Grant と GrantWithRepositoryPolicies を経ていないゼロ値かを返す。
+// どちらも NewInstallation を経た Installation からだけ作るため、Installation ID がゼロ値の値はゼロ値に限る。
 func (g TokenGrant) IsZero() bool {
 	return g.installationID.IsZero()
 }

@@ -1,6 +1,7 @@
 package tokenissuer
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"io"
@@ -19,8 +20,10 @@ import (
 type gitHubStub struct {
 	server *httptest.Server
 	mu     sync.Mutex
-	// authorizations は、経路ごとに受け取った Authorization を受け取った順に持つ
-	authorizations map[string][]string
+	// authorizationHeaders は、経路ごとに受け取った Authorization ヘッダーを受け取った順に持つ
+	authorizationHeaders map[string][]string
+	// requests は、すべての経路が受け取った要求を、受け取った順に経路と Authorization の組で持つ
+	requests []string
 	// revocationContexts は、GitHub Client が失効の要求に付けた ctx を、送ろうとした順に持つ。サーバーに届かなかった要求も含む
 	revocationContexts []context.Context
 }
@@ -51,12 +54,13 @@ func newGitHubStub(t *testing.T, handlers map[string]http.HandlerFunc) *gitHubSt
 		},
 	}
 	maps.Copy(routes, handlers)
-	stub := &gitHubStub{authorizations: map[string][]string{}}
+	stub := &gitHubStub{authorizationHeaders: map[string][]string{}}
 	mux := http.NewServeMux()
 	for pattern, handler := range routes {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 			stub.mu.Lock()
-			stub.authorizations[pattern] = append(stub.authorizations[pattern], r.Header.Get("Authorization"))
+			stub.authorizationHeaders[pattern] = append(stub.authorizationHeaders[pattern], r.Header.Get("Authorization"))
+			stub.requests = append(stub.requests, pattern+" "+r.Header.Get("Authorization"))
 			stub.mu.Unlock()
 			handler(w, r)
 		})
@@ -107,7 +111,23 @@ func (s *gitHubStub) revocationContext(t *testing.T) context.Context {
 func (s *gitHubStub) received(pattern string) []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.authorizations[pattern]
+	return s.authorizationHeaders[pattern]
+}
+
+// receivedInOrder は、すべての経路が受け取った要求を、受け取った順に経路と Authorization の組で返す。
+func (s *gitHubStub) receivedInOrder() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.requests
+}
+
+func assertNoRequests(t *testing.T, stub *gitHubStub, patterns ...string) {
+	t.Helper()
+	for _, pattern := range patterns {
+		if n := len(stub.received(pattern)); n != 0 {
+			t.Errorf("%s received %d requests, want 0", pattern, n)
+		}
+	}
 }
 
 func respond(status int, gitHubRequestID, body string) http.HandlerFunc {
@@ -121,7 +141,12 @@ func respond(status int, gitHubRequestID, body string) http.HandlerFunc {
 // repositoryPolicyFile は、記録した Contents API のファイルの応答の形で、repo の文書を返す本文である。
 func repositoryPolicyFile(t *testing.T, repo string) string {
 	t.Helper()
-	document := documentOf(repo)
+	return repositoryPolicyFileOf(t, documentOf(repo))
+}
+
+// repositoryPolicyFileOf は、記録した Contents API のファイルの応答の形で、document を返す本文である。
+func repositoryPolicyFileOf(t *testing.T, document string) string {
+	t.Helper()
 	return marshal(t, map[string]any{
 		"type":     "file",
 		"encoding": "base64",
@@ -135,4 +160,21 @@ func repositoryPolicyFile(t *testing.T, repo string) string {
 // documentOf は、どの対象の文書かを見分けられるリポジトリポリシーの文書である。
 func documentOf(repo string) string {
 	return "callers: []\n# " + documentMarker + " " + repo + "\n"
+}
+
+// issuanceByKind は、発行の経路で、要求の本文が single_file の権限を含めば policyRead を、含まなければ token を呼ぶハンドラである。
+// リポジトリポリシーを適用するデプロイでは、ポリシー読み取りトークンと利用者に返すトークンの発行が同じ経路に届くため、本文で見分ける。
+func issuanceByKind(policyRead, token http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if bytes.Contains(body, []byte(`"single_file"`)) {
+			policyRead(w, r)
+			return
+		}
+		token(w, r)
+	}
 }

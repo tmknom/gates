@@ -2,7 +2,10 @@ package authz_test
 
 import (
 	"encoding/json/v2"
+	"fmt"
+	"maps"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/tmknom/gates/internal/authz"
@@ -10,6 +13,7 @@ import (
 	"github.com/tmknom/gates/internal/permission"
 	"github.com/tmknom/gates/internal/protected"
 	"github.com/tmknom/gates/internal/repository"
+	"github.com/tmknom/gates/internal/repositorypolicy"
 	"github.com/tmknom/gates/internal/request"
 )
 
@@ -127,6 +131,35 @@ func mustNewInstallation(t *testing.T, installationOwnerID int64, suspended bool
 		t.Fatalf("NewInstallation returned error: %v", err)
 	}
 	return inst
+}
+
+// repositoriesOf は、許可オーナーの n 件の対象の完全名を作る。対象の件数の上限の前後を確かめるため。
+func repositoriesOf(n int) []string {
+	repositories := make([]string, n)
+	for i := range repositories {
+		repositories[i] = fmt.Sprintf("Example-Org/repo%d", i)
+	}
+	return repositories
+}
+
+// repositoryPolicyAllowing は、許可 Caller を 1 つだけ持つリポジトリポリシーを取得できた結果を作る。
+// 権限名を並べ替えて書くのは、map の順序によらず同じ文書にするため。
+func repositoryPolicyAllowing(repositoryID int64, repositoryName string, permissions map[string]string) repositorypolicy.FetchResult {
+	var b strings.Builder
+	fmt.Fprintf(&b, "callers:\n  - repository_id: \"%d\"\n    repository_name: %s\n    permissions:\n", repositoryID, repositoryName)
+	for _, name := range slices.Sorted(maps.Keys(permissions)) {
+		fmt.Fprintf(&b, "      %s: %s\n", name, permissions[name])
+	}
+	return repositorypolicy.Document(b.String())
+}
+
+// repeatFetchResult は、n 件の対象のすべてに同じ取得の結果を並べる。
+func repeatFetchResult(n int, result repositorypolicy.FetchResult) []repositorypolicy.FetchResult {
+	results := make([]repositorypolicy.FetchResult, n)
+	for i := range results {
+		results[i] = result
+	}
+	return results
 }
 
 func assertRepositories(t *testing.T, got []repository.FullName, want []string) {

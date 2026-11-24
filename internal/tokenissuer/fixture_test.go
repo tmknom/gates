@@ -14,8 +14,10 @@ import (
 	"github.com/tmknom/gates/internal/authz"
 	"github.com/tmknom/gates/internal/caller"
 	"github.com/tmknom/gates/internal/github"
+	"github.com/tmknom/gates/internal/githubid"
 	"github.com/tmknom/gates/internal/permission"
 	"github.com/tmknom/gates/internal/protected"
+	"github.com/tmknom/gates/internal/repository"
 	"github.com/tmknom/gates/internal/request"
 )
 
@@ -32,6 +34,9 @@ const (
 
 	// tokenMarker は、トークンが出力に漏れていないことを確かめる目印である。
 	tokenMarker = "ghs_token-marker" //nolint:gosec // 資格情報ではなく、漏れを探すための目印である
+
+	// policyReadTokenMarker は、Token Issuer の公開操作のテストで、ポリシー読み取りトークンを利用者に返すトークンと見分ける目印である。
+	policyReadTokenMarker = "ghs_policy-read-token-marker" //nolint:gosec // 資格情報ではなく、漏れを探すための目印である
 )
 
 // requestedRepositories は、発行許可の対象である。大文字小文字だけが異なる実効対象を受理することを確かめるため、大文字を含める。
@@ -128,7 +133,7 @@ func issuanceClient(t *testing.T, body string) *github.Client {
 	return github.NewClient(github.WithAPIHost(apiHost), github.WithRootCAs(rootCAs))
 }
 
-// tokenGrant は、TokenGrant を Grant でしか作れないため、記録した Installation で grant を通す。
+// tokenGrant は、TokenGrant を authz の確定関数でしか作れないため、記録した Installation で grant を通す。
 func tokenGrant(t *testing.T, permissions map[string]string) authz.TokenGrant {
 	t.Helper()
 	installation, err := authz.NewInstallation(installationID, allowedOwnerID, false)
@@ -146,7 +151,7 @@ func tokenGrant(t *testing.T, permissions map[string]string) authz.TokenGrant {
 func grant(t *testing.T, installation authz.Installation, permissions map[string]string) (authz.TokenGrant, error) {
 	t.Helper()
 	inputs := newGrantInputs(t, permissions)
-	return authz.Grant(inputs.caller, inputs.request, allowedOwner(t), inputs.issuablePermissions, noProtectedRepositories(t), installation)
+	return authz.Grant(inputs.caller, inputs.request, allowedOwner(t), inputs.issuablePermissions, noProtectedRepositories(t), authz.RepositoryPolicyNotEnforced, installation)
 }
 
 // policyReadGrant は、requestedRepositories を対象とするポリシー読み取り許可を作る。
@@ -163,7 +168,7 @@ func policyReadGrantOf(t *testing.T, repositories []string) authz.PolicyReadGran
 		t.Fatalf("NewInstallation returned error: %v", err)
 	}
 	inputs := newGrantInputsOf(t, repositories, contentsRead)
-	grant, err := authz.GrantPolicyRead(inputs.caller, inputs.request, allowedOwner(t), inputs.issuablePermissions, noProtectedRepositories(t), installation)
+	grant, err := authz.GrantPolicyRead(inputs.caller, inputs.request, allowedOwner(t), inputs.issuablePermissions, noProtectedRepositories(t), authz.RepositoryPolicyEnforced, installation)
 	if err != nil {
 		t.Fatalf("GrantPolicyRead returned error: %v", err)
 	}
@@ -247,17 +252,42 @@ func protectedRepositoriesOf(t *testing.T, id, name string) protected.Repositori
 	return mustParseProtectedRepositories(t, "repositories:\n  - id: \""+id+"\"\n    name: "+name+"\n    callers: []\n")
 }
 
+// newTestTokenIssuer は、リポジトリポリシーを適用しないデプロイの Token Issuer を作る。
 func newTestTokenIssuer(t *testing.T, signer *signerStub, stub *gitHubStub) *TokenIssuer {
 	t.Helper()
-	return NewTokenIssuer(signer, stub.client(t), allowedOwner(t), noProtectedRepositories(t), func() time.Time { return now })
+	return NewTokenIssuer(signer, stub.client(t), allowedOwner(t), noProtectedRepositories(t), authz.RepositoryPolicyNotEnforced, func() time.Time { return now })
 }
 
-// assertHidesValues は、エラー文言に GitHub App JWT、トークン、応答本文が入らないことを確かめる。
+// newEnforcedTestTokenIssuer は、リポジトリポリシーを適用するデプロイの Token Issuer を作る。
+func newEnforcedTestTokenIssuer(t *testing.T, signer *signerStub, stub *gitHubStub) *TokenIssuer {
+	t.Helper()
+	return NewTokenIssuer(signer, stub.client(t), allowedOwner(t), noProtectedRepositories(t), authz.RepositoryPolicyEnforced, func() time.Time { return now })
+}
+
+// assertHidesValues は、エラー文言に GitHub App JWT、トークン、ポリシー読み取りトークン、応答本文が入らないことを確かめる。
 func assertHidesValues(t *testing.T, err error) {
 	t.Helper()
-	for _, value := range []string{appJWTMarker, tokenMarker, responseMarker} {
+	for _, value := range []string{appJWTMarker, tokenMarker, policyReadTokenMarker, responseMarker} {
 		if strings.Contains(err.Error(), value) {
 			t.Errorf("error message %q contains %q", err.Error(), value)
 		}
 	}
+}
+
+func mustParseFullName(t *testing.T, s string) repository.FullName {
+	t.Helper()
+	fullName, err := repository.ParseFullName(s)
+	if err != nil {
+		t.Fatalf("ParseFullName returned error: %v", err)
+	}
+	return fullName
+}
+
+func mustRepositoryID(t *testing.T, id int64) githubid.RepositoryID {
+	t.Helper()
+	repositoryID, err := githubid.NewRepositoryID(id)
+	if err != nil {
+		t.Fatalf("NewRepositoryID returned error: %v", err)
+	}
+	return repositoryID
 }

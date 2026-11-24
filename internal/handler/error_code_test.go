@@ -34,6 +34,7 @@ func TestErrorCodeOf(t *testing.T) {
 		{name: "signer internal failure maps to internal_error", failure: signer.ErrInternalFailure, want: errorcode.InternalError},
 		{name: "github transient failure maps to github_api_unavailable", failure: github.ErrTransientFailure, want: errorcode.GitHubAPIUnavailable},
 		{name: "github issuance rejected maps to github_issuance_rejected", failure: github.ErrIssuanceRejected, want: errorcode.GitHubIssuanceRejected},
+		{name: "github internal failure maps to internal_error", failure: github.ErrInternalFailure, want: errorcode.InternalError},
 		{name: "verification failure maps to issuance_verification_failed", failure: tokenissuer.ErrVerificationFailure, want: errorcode.IssuanceVerificationFailed},
 		{name: "failure of no failure kind maps to internal_error", failure: errors.New("unexpected"), want: errorcode.InternalError},
 	}
