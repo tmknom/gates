@@ -212,7 +212,7 @@ AWS Lambda が要求を関数に渡しませんでした。
 | `errorType` | 原因 | 直し方 |
 |---|---|---|
 | `Runtime.ExitError` | 関数の初期化の失敗。関数の設定の環境変数の欠落か不正な値（発行上限の `issuable_permissions` に GATES が発行できない組がある、`protected_repositories` に `make tf-plan` を通る誤りがある、など）で起きる | ログの `initialization failed` の行に、満たさなかった設定の名前と条件が出る。発行上限と保護対象の一覧の誤りの読み方は下記にある。`make tf-plan` で差分を確かめてから適用し直す |
-| `Sandbox.Timedout` | 関数のタイムアウト | ログの `REPORT` の行に `Status: timeout` が出る。タイムアウトが Terraform の値（45 秒）から変わっていれば、適用し直す |
+| `Sandbox.Timedout` | 関数のタイムアウト | ログの `REPORT` の行に `Status: timeout` が出る。タイムアウトが Terraform の値（75 秒）から変わっていれば、適用し直す |
 
 時刻でログを引きます。
 `<開始>` と `<終了>` は、ミリ秒の UNIX 時刻です。

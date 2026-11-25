@@ -129,7 +129,7 @@ GATES の設定は変えません。
     gh api repos/<オーナー名>/<リポジトリ名>/contents/.github/gates-policy.yml --jq .type
     ```
 
-5. 監査記録（§2.2）で、11 件以上のリポジトリを一度に要求しているワークフローがないかを確かめる。あれば、ワークフロー利用者に要求を 10 件以下に分けてもらう
+5. 監査記録（§2.2）で、11 件以上のリポジトリを一度に要求しているワークフローがないかを確かめる。あれば、ワークフロー利用者に要求を 10 件以下に分けてもらう。切り替えると、要求したリポジトリの数だけリポジトリポリシーを読むため、Installation の GitHub API のレート制限の消費が増える（[Security Considerations](security-considerations.md) §3.2）。多くのリポジトリを頻繁に要求するワークフローがないかも、あわせて確かめる
 6. `terraform.tfvars` の `repository_policy_enforcement` を `true` にする
 7. `make tf-plan` が、`aws_lambda_function.gates` の環境変数 `GATES_REPOSITORY_POLICY_ENFORCEMENT` の `"false"` から `"true"` への変更だけを示すことを確かめ、適用する
 8. リポジトリポリシーを置いたリポジトリを要求するワークフローを実行し、発行が成功することを確かめる
